@@ -7796,6 +7796,8 @@ ANSWERED: no`;
         // POST /api/contacts - Create contact
         if (pathname === '/api/contacts' && req.method === 'POST') {
             const body = await parseBody(req);
+            const projectId = body?.project_id || body?.projectId || req.headers['x-project-id'];
+            if (projectId && storage._supabase) storage._supabase.setProject(projectId);
             
             if (!body.name || typeof body.name !== 'string') {
                 jsonResponse(res, { ok: false, error: 'name is required' }, 400);
@@ -7832,6 +7834,9 @@ ANSWERED: no`;
         if (pathname === '/api/contacts' && req.method === 'GET') {
             try {
                 const parsedUrl = parseUrl(req.url);
+                const projectId = parsedUrl.query?.project_id || req.headers['x-project-id'];
+                if (projectId && storage._supabase) storage._supabase.setProject(projectId);
+                
                 const filter = {};
                 if (parsedUrl.query.organization) filter.organization = parsedUrl.query.organization;
                 if (parsedUrl.query.tag) filter.tag = parsedUrl.query.tag;
@@ -7877,6 +7882,9 @@ ANSWERED: no`;
         // GET /api/contacts/stats - Get contact statistics
         if (pathname === '/api/contacts/stats' && req.method === 'GET') {
             try {
+                const projectId = req.headers['x-project-id'];
+                if (projectId && storage._supabase) storage._supabase.setProject(projectId);
+                
                 const stats = storage.getContactStats();
                 jsonResponse(res, { ok: true, ...stats });
             } catch (error) {
@@ -7889,6 +7897,9 @@ ANSWERED: no`;
         const contactGetMatch = pathname.match(/^\/api\/contacts\/([a-f0-9\-]+)$/);
         if (contactGetMatch && req.method === 'GET') {
             const contactId = contactGetMatch[1];
+            const projectId = req.headers['x-project-id'];
+            if (projectId && storage._supabase) storage._supabase.setProject(projectId);
+            
             try {
                 const contact = storage.getContactById(contactId);
                 if (!contact) {
@@ -7907,6 +7918,8 @@ ANSWERED: no`;
         if (contactPutMatch && req.method === 'PUT') {
             const contactId = contactPutMatch[1];
             const body = await parseBody(req);
+            const projectId = body?.project_id || body?.projectId || req.headers['x-project-id'];
+            if (projectId && storage._supabase) storage._supabase.setProject(projectId);
             
             try {
                 // Get current contact to check team changes
@@ -7996,6 +8009,8 @@ ANSWERED: no`;
         const contactDeleteMatch = pathname.match(/^\/api\/contacts\/([a-f0-9\-]+)$/);
         if (contactDeleteMatch && req.method === 'DELETE') {
             const contactId = contactDeleteMatch[1];
+            const projectId = req.headers['x-project-id'];
+            if (projectId && storage._supabase) storage._supabase.setProject(projectId);
             
             try {
                 // Get contact info before deleting

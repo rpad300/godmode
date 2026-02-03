@@ -467,12 +467,15 @@ async function getTranscriptsSummary(userId) {
 /**
  * Generate AI summary of a transcript
  * Uses LLM to create a concise summary of the meeting content
+ * Caches the result in the database to avoid regenerating
  */
-async function generateTranscriptSummary(transcriptId, userId) {
+async function generateTranscriptSummary(transcriptId, userId, options = {}) {
     const supabase = getAdminClient();
     if (!supabase) {
         return { success: false, error: 'Database not configured' };
     }
+
+    const { forceRegenerate = false } = options;
 
     try {
         // 1. Get transcript
@@ -487,13 +490,19 @@ async function generateTranscriptSummary(transcriptId, userId) {
             return { success: false, error: 'Transcript not found' };
         }
 
-        // 2. Check if we have content to summarize
+        // 2. Check if we have a cached summary
+        if (!forceRegenerate && transcript.ai_summary) {
+            console.log('[TranscriptProcessor] Using cached summary for transcript:', transcriptId);
+            return { success: true, summary: transcript.ai_summary, cached: true };
+        }
+
+        // 3. Check if we have content to summarize
         const content = transcript.transcript_text;
         const keyPoints = transcript.key_points;
         const actionItems = transcript.action_items;
         const notes = transcript.notes;
 
-        // If we have structured data from Krisp, use it
+        // If we have structured data from Krisp, use it and cache
         if (keyPoints?.length || actionItems?.length || notes) {
             const summary = {
                 title: transcript.krisp_title || 'Meeting',
@@ -505,10 +514,14 @@ async function generateTranscriptSummary(transcriptId, userId) {
                 notes: typeof notes === 'string' ? notes : notes?.summary || null,
                 source: 'krisp_metadata'
             };
-            return { success: true, summary };
+            
+            // Cache the summary
+            await cacheSummary(supabase, transcriptId, summary);
+            
+            return { success: true, summary, cached: false };
         }
 
-        // 3. If no structured data, generate summary with LLM
+        // 4. If no structured data, generate summary with LLM
         if (!content || content.length < 50) {
             return { 
                 success: true, 
@@ -592,7 +605,10 @@ Respond ONLY with the JSON, no additional text.`;
                 source: 'ai_generated'
             };
 
-            return { success: true, summary };
+            // Cache the AI-generated summary
+            await cacheSummary(supabase, transcriptId, summary);
+
+            return { success: true, summary, cached: false };
 
         } catch (llmError) {
             console.error('[TranscriptProcessor] LLM error:', llmError);
@@ -601,23 +617,52 @@ Respond ONLY with the JSON, no additional text.`;
             const sentences = content.split(/[.!?]+/).filter(s => s.trim().length > 10);
             const excerpt = sentences.slice(0, 3).join('. ').trim() + '.';
             
+            const fallbackSummary = {
+                title: transcript.krisp_title || 'Meeting',
+                date: transcript.meeting_date,
+                speakers: transcript.speakers || [],
+                keyPoints: [],
+                actionItems: [],
+                notes: excerpt,
+                source: 'excerpt_fallback'
+            };
+            
+            // Cache even the fallback (can be regenerated later with forceRegenerate)
+            await cacheSummary(supabase, transcriptId, fallbackSummary);
+            
             return {
                 success: true,
-                summary: {
-                    title: transcript.krisp_title || 'Meeting',
-                    date: transcript.meeting_date,
-                    speakers: transcript.speakers || [],
-                    keyPoints: [],
-                    actionItems: [],
-                    notes: excerpt,
-                    source: 'excerpt_fallback'
-                }
+                summary: fallbackSummary,
+                cached: false
             };
         }
 
     } catch (error) {
         console.error('[TranscriptProcessor] Summary generation error:', error);
         return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Cache a summary in the database
+ */
+async function cacheSummary(supabase, transcriptId, summary) {
+    try {
+        const { error } = await supabase
+            .from('krisp_transcripts')
+            .update({
+                ai_summary: summary,
+                summary_generated_at: new Date().toISOString()
+            })
+            .eq('id', transcriptId);
+
+        if (error) {
+            console.error('[TranscriptProcessor] Failed to cache summary:', error);
+        } else {
+            console.log('[TranscriptProcessor] Summary cached for transcript:', transcriptId);
+        }
+    } catch (err) {
+        console.error('[TranscriptProcessor] Cache error:', err);
     }
 }
 
