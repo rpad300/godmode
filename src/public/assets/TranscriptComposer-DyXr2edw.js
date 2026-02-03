@@ -1,4 +1,4 @@
-import{c as y,o as a}from"./index-B7lpKXA5.js";let m="paste";function B(e={}){const r=document.getElementById("transcript-composer-overlay");r&&r.remove();const o=y("div",{id:"transcript-composer-overlay",className:"composer-overlay"}),s=S(e);o.appendChild(s),document.body.appendChild(o),a(o,"click",i=>{i.target===o&&(d(),e.onClose?.())}),requestAnimationFrame(()=>{o.classList.add("visible")})}function d(){const e=document.getElementById("transcript-composer-overlay");e&&(e.classList.remove("visible"),setTimeout(()=>e.remove(),200))}function S(e){const r=y("div",{className:"composer-modal"});r.innerHTML=`
+import{c as y,o as a}from"./index-CIQ-J7LH.js";let m="paste";function B(e={}){const r=document.getElementById("transcript-composer-overlay");r&&r.remove();const o=y("div",{id:"transcript-composer-overlay",className:"composer-overlay"}),s=S(e);o.appendChild(s),document.body.appendChild(o),a(o,"click",i=>{i.target===o&&(d(),e.onClose?.())}),requestAnimationFrame(()=>{o.classList.add("visible")})}function d(){const e=document.getElementById("transcript-composer-overlay");e&&(e.classList.remove("visible"),setTimeout(()=>e.remove(),200))}function S(e){const r=y("div",{className:"composer-modal"});r.innerHTML=`
     <style>
       .composer-overlay {
         position: fixed;
@@ -442,4 +442,4 @@ Thanks for having us. Let's get started."></textarea>
         color: var(--text-primary);
       ">Try Again</button>
     `,t.querySelector("#retry-btn")?.addEventListener("click",()=>{t.innerHTML=p;const n=t.querySelector("#import-btn"),c=t.querySelector("#cancel-btn");n&&(n.disabled=!1,n.addEventListener("click",()=>w(e,r))),c&&(c.disabled=!1,c.addEventListener("click",()=>{d(),r.onClose?.()}))})}}function k(e){return e<1024?`${e} B`:e<1024*1024?`${(e/1024).toFixed(1)} KB`:`${(e/(1024*1024)).toFixed(1)} MB`}export{d as closeTranscriptComposer,B as default,B as showTranscriptComposer};
-//# sourceMappingURL=TranscriptComposer-ClWC6TA_.js.map
+//# sourceMappingURL=TranscriptComposer-DyXr2edw.js.map

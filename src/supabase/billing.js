@@ -8,10 +8,24 @@
  * - Debit/credit project balance atomically
  * - Get billing summaries and reports
  * - Manage pricing configurations (global and per-project)
+ * - Automatic USD/EUR exchange rate support
  */
 
 const { getClient, getAdminClient } = require('./client');
 const notifications = require('./notifications');
+
+// Exchange rate service (lazy loaded to avoid circular deps)
+let exchangeRateService = null;
+function getExchangeRateService() {
+    if (!exchangeRateService) {
+        try {
+            exchangeRateService = require('../services/exchange-rate');
+        } catch (e) {
+            console.warn('[Billing] Exchange rate service not available:', e.message);
+        }
+    }
+    return exchangeRateService;
+}
 
 // ============================================
 // BALANCE OPERATIONS
@@ -166,17 +180,38 @@ async function setProjectUnlimited(projectId, unlimited, performedBy = null) {
 // ============================================
 
 /**
+ * Get current exchange rate (from service or fallback)
+ * @returns {Promise<{rate: number, source: string, auto: boolean}>}
+ */
+async function getExchangeRate() {
+    const service = getExchangeRateService();
+    if (service) {
+        try {
+            return await service.getUsdToEurRate();
+        } catch (e) {
+            console.warn('[Billing] Exchange rate service error:', e.message);
+        }
+    }
+    // Fallback
+    return { rate: 0.92, source: 'default', auto: false };
+}
+
+/**
  * Calculate billable cost with tier-based markup
+ * Uses automatic exchange rate when enabled
  * @param {string} projectId - Project ID
  * @param {number} providerCostUsd - Provider cost in USD
  * @param {number} totalTokens - Total tokens used
- * @returns {Promise<{provider_cost_eur: number, billable_cost_eur: number, markup_percent: number, tier_id?: string, period_key: string, usd_to_eur_rate: number}>}
+ * @returns {Promise<{provider_cost_eur: number, billable_cost_eur: number, markup_percent: number, tier_id?: string, period_key: string, usd_to_eur_rate: number, rate_source: string}>}
  */
 async function calculateBillableCost(projectId, providerCostUsd, totalTokens) {
+    // Get exchange rate from service
+    const exchangeRateResult = await getExchangeRate();
+    const rate = exchangeRateResult.rate;
+    
     const client = getAdminClient() || getClient();
     if (!client) {
-        // Fallback: no markup
-        const rate = 0.92;
+        // Fallback: no markup, just use exchange rate
         const providerEur = providerCostUsd * rate;
         return {
             provider_cost_eur: providerEur,
@@ -184,15 +219,18 @@ async function calculateBillableCost(projectId, providerCostUsd, totalTokens) {
             markup_percent: 0,
             tier_id: null,
             period_key: getCurrentPeriodKey(),
-            usd_to_eur_rate: rate
+            usd_to_eur_rate: rate,
+            rate_source: exchangeRateResult.source
         };
     }
 
     try {
+        // Pass the exchange rate to the PostgreSQL function
         const { data, error } = await client.rpc('calculate_billable_cost', {
             p_project_id: projectId,
             p_provider_cost_usd: providerCostUsd,
-            p_total_tokens: totalTokens
+            p_total_tokens: totalTokens,
+            p_usd_to_eur_rate: rate
         });
 
         if (error) throw error;
@@ -204,11 +242,11 @@ async function calculateBillableCost(projectId, providerCostUsd, totalTokens) {
             markup_percent: parseFloat(result.markup_percent) || 0,
             tier_id: result.tier_id,
             period_key: result.period_key || getCurrentPeriodKey(),
-            usd_to_eur_rate: parseFloat(result.usd_to_eur_rate) || 0.92
+            usd_to_eur_rate: parseFloat(result.usd_to_eur_rate) || rate,
+            rate_source: exchangeRateResult.source
         };
     } catch (error) {
         console.error('[Billing] Error calculating billable cost:', error.message);
-        const rate = 0.92;
         const providerEur = providerCostUsd * rate;
         return {
             provider_cost_eur: providerEur,
@@ -216,7 +254,8 @@ async function calculateBillableCost(projectId, providerCostUsd, totalTokens) {
             markup_percent: 0,
             tier_id: null,
             period_key: getCurrentPeriodKey(),
-            usd_to_eur_rate: rate
+            usd_to_eur_rate: rate,
+            rate_source: exchangeRateResult.source
         };
     }
 }
@@ -795,6 +834,21 @@ module.exports = {
     // Pricing tiers
     getPricingTiers,
     setPricingTiers,
+    
+    // Exchange rate
+    getExchangeRate,
+    getExchangeRateConfig: async () => {
+        const service = getExchangeRateService();
+        return service ? await service.getExchangeRateConfig() : null;
+    },
+    setExchangeRateMode: async (auto, manualRate) => {
+        const service = getExchangeRateService();
+        return service ? await service.setExchangeRateMode(auto, manualRate) : { success: false, error: 'Service not available' };
+    },
+    refreshExchangeRate: async () => {
+        const service = getExchangeRateService();
+        return service ? await service.refreshExchangeRate() : null;
+    },
     
     // Utilities
     getCurrentPeriodKey

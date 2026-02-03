@@ -1,4 +1,4 @@
-import{c as S,t as y,h as z}from"./index-B7lpKXA5.js";import{teamAnalysisStore as g}from"./teamAnalysis-b6DZM1KK.js";let f=null;function re(){const n=S("div",{className:"team-analysis-panel"});return n.innerHTML=`
+import{c as S,t as y,h as z}from"./index-CIQ-J7LH.js";import{teamAnalysisStore as g}from"./teamAnalysis-b6DZM1KK.js";let f=null;function re(){const n=S("div",{className:"team-analysis-panel"});return n.innerHTML=`
         <style>
             .team-analysis-panel {
                 padding: 24px;
@@ -983,4 +983,4 @@ import{c as S,t as y,h as z}from"./index-B7lpKXA5.js";import{teamAnalysisStore a
                 Failed to load people. Please try again.
             </p>
         `}}export{re as createTeamAnalysis};
-//# sourceMappingURL=TeamAnalysis-DLxnjkso.js.map
+//# sourceMappingURL=TeamAnalysis-BXj7VoMn.js.map

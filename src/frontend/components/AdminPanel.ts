@@ -13,6 +13,7 @@ import {
   type ProjectBillingOverview, 
   type PricingConfig, 
   type PricingTier,
+  type ExchangeRateConfig,
   formatEur, 
   formatTokens 
 } from '../services/billing';
@@ -105,6 +106,7 @@ let teamAnalysisLoading = false;
 let billingProjects: ProjectBillingOverview[] = [];
 let globalPricingConfig: PricingConfig | null = null;
 let globalPricingTiers: PricingTier[] = [];
+let exchangeRateConfig: ExchangeRateConfig | null = null;
 let billingLoaded = false;
 let billingLoading = false;
 
@@ -1155,23 +1157,26 @@ async function loadBillingData(): Promise<void> {
   try {
     // Load all data in parallel
     console.log('[AdminPanel] Calling billing API...');
-    const [projects, config, tiersData] = await Promise.all([
+    const [projects, config, tiersData, exchangeRate] = await Promise.all([
       billingService.getAllProjectsBilling(),
       billingService.getGlobalPricingConfig(),
-      billingService.getGlobalPricingTiers()
+      billingService.getGlobalPricingTiers(),
+      billingService.getExchangeRateConfig()
     ]);
     
-    console.log('[AdminPanel] API responses:', { projects, config, tiersData });
+    console.log('[AdminPanel] API responses:', { projects, config, tiersData, exchangeRate });
     
     billingProjects = projects;
     globalPricingConfig = config;
     globalPricingTiers = tiersData.tiers;
+    exchangeRateConfig = exchangeRate;
     billingLoaded = true;
     
     console.log('[AdminPanel] Loaded billing data:', { 
       projects: projects.length, 
       config: !!config,
-      tiers: tiersData.tiers.length 
+      tiers: tiersData.tiers.length,
+      exchangeRate: exchangeRate?.currentRate
     });
   } catch (error) {
     console.error('[AdminPanel] Error loading billing data:', error);
@@ -1218,11 +1223,52 @@ function renderBillingSection(): string {
         <p>Manage project balances, pricing, and cost limits</p>
       </div>
 
+      <!-- Exchange Rate Configuration -->
+      <div class="admin-card">
+        <h4 style="margin-bottom: 16px;">Exchange Rate (USD to EUR)</h4>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 16px;">
+          <div>
+            <div class="form-group">
+              <label style="display: flex; align-items: center; gap: 8px;">
+                <input type="checkbox" id="exchange-rate-auto" ${exchangeRateConfig?.auto !== false ? 'checked' : ''}>
+                <span>Automatic rate from API</span>
+              </label>
+              <small class="text-muted">Fetches live USD/EUR rate daily</small>
+            </div>
+            
+            <div class="form-group" id="manual-rate-group" style="${exchangeRateConfig?.auto !== false ? 'display: none;' : ''}">
+              <label>Manual Rate</label>
+              <input type="number" id="exchange-rate-manual" class="form-input" 
+                     value="${exchangeRateConfig?.manualRate ?? 0.92}" min="0.01" max="2" step="0.001">
+            </div>
+          </div>
+          
+          <div style="background: var(--bg-secondary); padding: 16px; border-radius: 8px;">
+            <div style="font-size: 12px; color: var(--text-tertiary); margin-bottom: 8px;">Current Rate</div>
+            <div style="font-size: 28px; font-weight: 600; color: var(--text-primary);" id="current-rate-display">
+              ${exchangeRateConfig?.currentRate?.toFixed(4) ?? '0.9200'}
+            </div>
+            <div style="font-size: 12px; color: var(--text-tertiary); margin-top: 4px;">
+              Source: <span id="rate-source">${exchangeRateConfig?.source ?? 'default'}</span>
+              ${exchangeRateConfig?.lastUpdated ? `<br>Updated: ${new Date(exchangeRateConfig.lastUpdated).toLocaleString()}` : ''}
+            </div>
+            <button class="btn-sm btn-secondary" id="refresh-rate-btn" style="margin-top: 12px;" ${exchangeRateConfig?.auto === false ? 'disabled' : ''}>
+              Refresh Rate
+            </button>
+          </div>
+        </div>
+        
+        <div style="display: flex; justify-content: flex-end; gap: 8px;">
+          <button class="btn-primary" id="save-exchange-rate-btn">Save Exchange Rate Settings</button>
+        </div>
+      </div>
+
       <!-- Global Pricing Configuration -->
       <div class="admin-card">
         <h4 style="margin-bottom: 16px;">Global Pricing Configuration</h4>
         
-        <div class="admin-form-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 16px;">
+        <div class="admin-form-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 16px;">
           <div class="form-group">
             <label>Fixed Markup (%)</label>
             <input type="number" id="global-markup-percent" class="form-input" 
@@ -1237,13 +1283,6 @@ function renderBillingSection(): string {
               <option value="weekly" ${globalPricingConfig?.period_type === 'weekly' ? 'selected' : ''}>Weekly</option>
             </select>
             <small class="text-muted">Tier reset period</small>
-          </div>
-          
-          <div class="form-group">
-            <label>USD to EUR Rate</label>
-            <input type="number" id="global-usd-eur-rate" class="form-input" 
-                   value="${globalPricingConfig?.usd_to_eur_rate ?? 0.92}" min="0.01" step="0.001">
-            <small class="text-muted">For cost conversion</small>
           </div>
         </div>
         
@@ -2978,18 +3017,80 @@ function bindSectionEvents(container: HTMLElement): void {
   // BILLING SECTION EVENTS
   // =========================
   
+  // Exchange rate auto toggle
+  const exchangeRateAutoCheckbox = container.querySelector('#exchange-rate-auto');
+  if (exchangeRateAutoCheckbox) {
+    on(exchangeRateAutoCheckbox as HTMLElement, 'change', () => {
+      const isAuto = (exchangeRateAutoCheckbox as HTMLInputElement).checked;
+      const manualGroup = container.querySelector('#manual-rate-group') as HTMLElement;
+      const refreshBtn = container.querySelector('#refresh-rate-btn') as HTMLButtonElement;
+      if (manualGroup) {
+        manualGroup.style.display = isAuto ? 'none' : 'block';
+      }
+      if (refreshBtn) {
+        refreshBtn.disabled = !isAuto;
+      }
+    });
+  }
+  
+  // Refresh exchange rate button
+  const refreshRateBtn = container.querySelector('#refresh-rate-btn');
+  if (refreshRateBtn) {
+    on(refreshRateBtn as HTMLElement, 'click', async () => {
+      const btn = refreshRateBtn as HTMLButtonElement;
+      btn.disabled = true;
+      btn.textContent = 'Refreshing...';
+      
+      try {
+        const result = await billingService.refreshExchangeRate();
+        if (result.success && result.rate) {
+          const rateDisplay = container.querySelector('#current-rate-display');
+          const sourceDisplay = container.querySelector('#rate-source');
+          if (rateDisplay) rateDisplay.textContent = result.rate.toFixed(4);
+          if (sourceDisplay) sourceDisplay.textContent = result.source || 'api';
+          toast.success(`Rate updated: ${result.rate.toFixed(4)}`);
+        } else {
+          toast.error(result.error || 'Failed to refresh rate');
+        }
+      } catch (e) {
+        toast.error('Failed to refresh rate');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Refresh Rate';
+      }
+    });
+  }
+  
+  // Save exchange rate settings
+  const saveExchangeRateBtn = container.querySelector('#save-exchange-rate-btn');
+  if (saveExchangeRateBtn) {
+    on(saveExchangeRateBtn as HTMLElement, 'click', async () => {
+      const isAuto = (container.querySelector('#exchange-rate-auto') as HTMLInputElement)?.checked ?? true;
+      const manualRate = parseFloat((container.querySelector('#exchange-rate-manual') as HTMLInputElement)?.value || '0.92');
+      
+      const result = await billingService.setExchangeRateMode(isAuto, manualRate);
+      
+      if (result.success) {
+        toast.success('Exchange rate settings saved');
+        billingLoaded = false;
+        await loadBillingData();
+        renderAdminPanel(container);
+      } else {
+        toast.error(result.error || 'Failed to save');
+      }
+    });
+  }
+  
   // Save global pricing config
   const saveGlobalPricingBtn = container.querySelector('#save-global-pricing-btn');
   if (saveGlobalPricingBtn) {
     on(saveGlobalPricingBtn as HTMLElement, 'click', async () => {
       const fixedMarkup = parseFloat((container.querySelector('#global-markup-percent') as HTMLInputElement)?.value || '0');
       const periodType = (container.querySelector('#global-period-type') as HTMLSelectElement)?.value || 'monthly';
-      const usdToEur = parseFloat((container.querySelector('#global-usd-eur-rate') as HTMLInputElement)?.value || '0.92');
       
       const result = await billingService.setGlobalPricingConfig({
         fixed_markup_percent: fixedMarkup,
-        period_type: periodType as 'monthly' | 'weekly',
-        usd_to_eur_rate: usdToEur
+        period_type: periodType as 'monthly' | 'weekly'
       });
       
       if (result.success) {

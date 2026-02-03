@@ -398,6 +398,87 @@ export function getTierDisplayInfo(tiers: PricingTier[]): string {
 // SERVICE EXPORT
 // ============================================
 
+// ============================================
+// EXCHANGE RATE
+// ============================================
+
+export interface ExchangeRateConfig {
+  auto: boolean;
+  manualRate: number;
+  currentRate: number;
+  source: string;
+  lastUpdated: string | null;
+  defaultRate: number;
+}
+
+/**
+ * Get exchange rate configuration
+ */
+export async function getExchangeRateConfig(): Promise<ExchangeRateConfig | null> {
+  try {
+    const response = await http.get<{ success: boolean } & ExchangeRateConfig>(
+      '/api/admin/billing/exchange-rate'
+    );
+    if (!response.data?.success) return null;
+    return {
+      auto: response.data.auto,
+      manualRate: response.data.manualRate,
+      currentRate: response.data.currentRate,
+      source: response.data.source,
+      lastUpdated: response.data.lastUpdated,
+      defaultRate: response.data.defaultRate
+    };
+  } catch (error) {
+    console.error('[Billing] Error getting exchange rate config:', error);
+    return null;
+  }
+}
+
+/**
+ * Set exchange rate mode
+ */
+export async function setExchangeRateMode(
+  auto: boolean,
+  manualRate?: number
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const response = await http.post<{ success: boolean; error?: string }>(
+      '/api/admin/billing/exchange-rate',
+      { auto, manualRate }
+    );
+    return response.data || { success: false };
+  } catch (error) {
+    console.error('[Billing] Error setting exchange rate mode:', error);
+    return { success: false, error: String(error) };
+  }
+}
+
+/**
+ * Refresh exchange rate from API
+ */
+export async function refreshExchangeRate(): Promise<{ 
+  success: boolean; 
+  rate?: number; 
+  source?: string;
+  error?: string 
+}> {
+  try {
+    const response = await http.post<{ 
+      success: boolean; 
+      rate: number; 
+      source: string;
+      error?: string 
+    }>(
+      '/api/admin/billing/exchange-rate/refresh',
+      {}
+    );
+    return response.data || { success: false };
+  } catch (error) {
+    console.error('[Billing] Error refreshing exchange rate:', error);
+    return { success: false, error: String(error) };
+  }
+}
+
 export const billingService = {
   // Admin functions
   getAllProjectsBilling,
@@ -413,6 +494,11 @@ export const billingService = {
   getProjectPricingOverride,
   setProjectPricingOverride,
   deleteProjectPricingOverride,
+  
+  // Exchange rate
+  getExchangeRateConfig,
+  setExchangeRateMode,
+  refreshExchangeRate,
   
   // Project functions
   getProjectBillingSummary,

@@ -8722,6 +8722,52 @@ NOTES_SUGGESTION: <additional notes to add>`;
             return;
         }
         
+        // GET /api/admin/billing/exchange-rate - Get exchange rate config (superadmin)
+        if (pathname === '/api/admin/billing/exchange-rate' && req.method === 'GET') {
+            try {
+                const user = await checkSuperAdmin(req, res);
+                if (!user) return;
+                const billing = require('./supabase/billing');
+                const config = await billing.getExchangeRateConfig();
+                jsonResponse(res, { success: true, ...config });
+            } catch (error) {
+                console.error('[API] Error getting exchange rate config:', error);
+                jsonResponse(res, { error: error.message }, 500);
+            }
+            return;
+        }
+        
+        // POST /api/admin/billing/exchange-rate - Set exchange rate mode (superadmin)
+        if (pathname === '/api/admin/billing/exchange-rate' && req.method === 'POST') {
+            try {
+                const user = await checkSuperAdmin(req, res);
+                if (!user) return;
+                const body = await parseBody(req);
+                const billing = require('./supabase/billing');
+                const result = await billing.setExchangeRateMode(body.auto, body.manualRate);
+                jsonResponse(res, result);
+            } catch (error) {
+                console.error('[API] Error setting exchange rate mode:', error);
+                jsonResponse(res, { error: error.message }, 500);
+            }
+            return;
+        }
+        
+        // POST /api/admin/billing/exchange-rate/refresh - Force refresh exchange rate (superadmin)
+        if (pathname === '/api/admin/billing/exchange-rate/refresh' && req.method === 'POST') {
+            try {
+                const user = await checkSuperAdmin(req, res);
+                if (!user) return;
+                const billing = require('./supabase/billing');
+                const result = await billing.refreshExchangeRate();
+                jsonResponse(res, { success: true, ...result });
+            } catch (error) {
+                console.error('[API] Error refreshing exchange rate:', error);
+                jsonResponse(res, { error: error.message }, 500);
+            }
+            return;
+        }
+        
         // Project-specific billing endpoints (match /api/admin/billing/projects/:id/*)
         const billingProjectMatch = pathname.match(/^\/api\/admin\/billing\/projects\/([^/]+)(\/.*)?$/);
         if (billingProjectMatch) {
