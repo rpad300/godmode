@@ -1200,17 +1200,56 @@ async function handleAPI(req, res, pathname) {
             const body = await parseBody(req);
             const { email, password, username, display_name } = body;
             
+            // Register user in Supabase Auth
             const result = await supabase.auth.register(email, password, { username, display_name });
             
             if (result.success) {
-                // Set cookie if session exists
-                if (result.session) {
-                    res.setHeader('Set-Cookie', [
-                        `sb-access-token=${result.session.access_token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=3600`,
-                        `sb-refresh-token=${result.session.refresh_token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`
-                    ]);
+                // Get client IP for OTP rate limiting
+                const requestIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || 
+                                  req.headers['x-real-ip'] || 
+                                  req.socket?.remoteAddress || null;
+                const userAgent = req.headers['user-agent'] || null;
+                
+                // Create OTP for email confirmation via Resend (our branded emails)
+                try {
+                    const otp = require('./supabase/otp');
+                    const emailService = require('./supabase/email');
+                    
+                    const otpResult = await otp.createOTP(email, 'email_confirm', requestIp, userAgent);
+                    
+                    if (otpResult.success) {
+                        // Build confirmation link
+                        const appUrl = process.env.APP_URL || 'http://localhost:3005';
+                        const confirmLink = `${appUrl}/api/auth/confirm-email?email=${encodeURIComponent(email)}&code=${otpResult.code}`;
+                        
+                        // Send branded confirmation email via Resend
+                        const emailResult = await emailService.sendEmailConfirmationEmail({
+                            to: email,
+                            code: otpResult.code,
+                            confirmLink: confirmLink,
+                            expiresInMinutes: otpResult.expiresInMinutes
+                        });
+                        
+                        if (!emailResult.success) {
+                            console.error('[Auth] Failed to send confirmation email:', emailResult.error);
+                        } else {
+                            console.log('[Auth] Sent confirmation email to', email);
+                        }
+                    }
+                } catch (err) {
+                    console.error('[Auth] Error creating confirmation OTP:', err.message);
+                    // Continue with registration even if email fails
                 }
-                jsonResponse(res, result);
+                
+                // Don't set session cookies - user needs to confirm email first
+                // If Supabase returned a session (auto-confirm disabled in Supabase), 
+                // we still require our own confirmation
+                jsonResponse(res, {
+                    success: true,
+                    user: result.user,
+                    needsEmailVerification: true,
+                    message: 'Account created! Please check your email to verify your account.'
+                });
             } else {
                 jsonResponse(res, result, 400);
             }
@@ -1230,7 +1269,52 @@ async function handleAPI(req, res, pathname) {
             const result = await supabase.auth.login(email, password);
             
             if (result.success) {
-                // Set httpOnly cookies for session
+                // Check if email is confirmed
+                if (!result.user.email_confirmed_at) {
+                    // Email not confirmed - don't allow login
+                    // Optionally resend confirmation email
+                    try {
+                        const otp = require('./supabase/otp');
+                        const emailService = require('./supabase/email');
+                        
+                        // Check rate limit before sending new confirmation
+                        const requestIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || 
+                                          req.headers['x-real-ip'] || 
+                                          req.socket?.remoteAddress || null;
+                        
+                        const rateLimitCheck = await otp.checkRateLimit(email, requestIp);
+                        
+                        if (rateLimitCheck.allowed) {
+                            const otpResult = await otp.createOTP(email, 'email_confirm', requestIp);
+                            
+                            if (otpResult.success) {
+                                const appUrl = process.env.APP_URL || 'http://localhost:3005';
+                                const confirmLink = `${appUrl}/api/auth/confirm-email?email=${encodeURIComponent(email)}&code=${otpResult.code}`;
+                                
+                                await emailService.sendEmailConfirmationEmail({
+                                    to: email,
+                                    code: otpResult.code,
+                                    confirmLink: confirmLink,
+                                    expiresInMinutes: otpResult.expiresInMinutes
+                                });
+                                
+                                console.log('[Auth] Resent confirmation email to', email);
+                            }
+                        }
+                    } catch (err) {
+                        console.error('[Auth] Error resending confirmation:', err.message);
+                    }
+                    
+                    jsonResponse(res, {
+                        success: false,
+                        error: 'Please verify your email address before logging in.',
+                        needsEmailVerification: true,
+                        email: email
+                    }, 403);
+                    return;
+                }
+                
+                // Email confirmed - allow login
                 res.setHeader('Set-Cookie', [
                     `sb-access-token=${result.session.access_token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=3600`,
                     `sb-refresh-token=${result.session.refresh_token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`
@@ -1637,6 +1721,75 @@ async function handleAPI(req, res, pathname) {
                     expirationMinutes: 10, 
                     resendCooldownSeconds: 60 
                 });
+            }
+            return;
+        }
+        
+        // POST /api/auth/resend-confirmation - Resend email confirmation
+        if (pathname === '/api/auth/resend-confirmation' && req.method === 'POST') {
+            if (!supabase || !supabase.isConfigured()) {
+                jsonResponse(res, { error: 'Authentication not configured' }, 503);
+                return;
+            }
+            
+            const body = await parseBody(req);
+            const { email } = body;
+            
+            if (!email || !email.includes('@')) {
+                jsonResponse(res, { error: 'Valid email is required' }, 400);
+                return;
+            }
+            
+            const requestIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || 
+                              req.headers['x-real-ip'] || 
+                              req.socket?.remoteAddress || null;
+            const userAgent = req.headers['user-agent'] || null;
+            
+            try {
+                const otp = require('./supabase/otp');
+                const emailService = require('./supabase/email');
+                
+                // Create OTP for email confirmation
+                const otpResult = await otp.createOTP(email, 'email_confirm', requestIp, userAgent);
+                
+                if (!otpResult.success) {
+                    if (otpResult.retryAfter) {
+                        jsonResponse(res, { 
+                            error: otpResult.error,
+                            retryAfter: otpResult.retryAfter
+                        }, 429);
+                    } else {
+                        jsonResponse(res, { error: otpResult.error }, 400);
+                    }
+                    return;
+                }
+                
+                // Build confirmation link
+                const appUrl = process.env.APP_URL || 'http://localhost:3005';
+                const confirmLink = `${appUrl}/api/auth/confirm-email?email=${encodeURIComponent(email)}&code=${otpResult.code}`;
+                
+                // Send branded confirmation email via Resend
+                const emailResult = await emailService.sendEmailConfirmationEmail({
+                    to: email,
+                    code: otpResult.code,
+                    confirmLink: confirmLink,
+                    expiresInMinutes: otpResult.expiresInMinutes
+                });
+                
+                if (!emailResult.success) {
+                    console.error('[Auth] Failed to send confirmation email:', emailResult.error);
+                }
+                
+                // Always return success (don't reveal if email exists)
+                jsonResponse(res, { 
+                    success: true,
+                    message: 'If an account exists with this email, a confirmation code has been sent.',
+                    expiresInMinutes: otpResult.expiresInMinutes
+                });
+                
+            } catch (err) {
+                console.error('[Auth] Resend confirmation error:', err.message);
+                jsonResponse(res, { error: 'Failed to process request' }, 500);
             }
             return;
         }

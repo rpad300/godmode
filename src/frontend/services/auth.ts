@@ -355,6 +355,21 @@ export async function confirmEmail(email: string, code: string): Promise<void> {
 }
 
 /**
+ * Resend email confirmation code
+ */
+export async function resendConfirmation(email: string): Promise<{ expiresInMinutes?: number }> {
+  const response = await http.post<{ success: boolean; message?: string; expiresInMinutes?: number; error?: string; retryAfter?: number }>('/api/auth/resend-confirmation', { email });
+  
+  if (!response.data.success) {
+    const error = new Error(response.data.error || 'Failed to resend confirmation') as Error & { retryAfter?: number };
+    error.retryAfter = response.data.retryAfter;
+    throw error;
+  }
+  
+  return { expiresInMinutes: response.data.expiresInMinutes };
+}
+
+/**
  * Map AuthUser to app User type
  * Note: role here is the APPLICATION role (superadmin/user) from user_profiles,
  * NOT the project role (owner/admin/write/read) from project_members
@@ -430,4 +445,5 @@ export const auth = {
   verifyLoginCode,
   getOTPConfig,
   confirmEmail,
+  resendConfirmation,
 };

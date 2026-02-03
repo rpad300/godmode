@@ -767,8 +767,30 @@ async function handleLogin(form: HTMLFormElement): Promise<void> {
     
     // Trigger data refresh
     window.dispatchEvent(new CustomEvent('godmode:auth-success'));
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Login failed';
+  } catch (error: unknown) {
+    const err = error as Error & { 
+      response?: { data?: { needsEmailVerification?: boolean; email?: string } } 
+    };
+    
+    // Check if email verification is needed
+    const responseData = err.response?.data;
+    if (responseData?.needsEmailVerification) {
+      // Switch to email confirmation mode
+      otpEmail = responseData.email || email;
+      currentProps.email = otpEmail;
+      resendCooldown = 60; // Just sent a new code
+      
+      toast.info('Please verify your email to continue.');
+      
+      currentMode = 'email-confirm';
+      const container = form.parentElement as HTMLElement;
+      const titleEl = document.querySelector(`[data-modal-id="${MODAL_ID}"] .modal-header h3`);
+      if (titleEl) titleEl.textContent = getTitle();
+      renderAuthContent(container);
+      return;
+    }
+    
+    const message = err.message || 'Login failed';
     showError(errorEl, message);
   } finally {
     setFormLoading(form, false);

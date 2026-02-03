@@ -37,6 +37,7 @@ const PUBLIC_ROUTES = [
     '/api/auth/otp/resend',
     '/api/auth/otp/config',
     '/api/auth/confirm-email',
+    '/api/auth/resend-confirmation',
     '/api/health',
     '/api/status',
     '/api/version',
