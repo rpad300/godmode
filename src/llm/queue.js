@@ -313,6 +313,20 @@ class LLMQueueManager extends EventEmitter {
                 return;
             }
             
+            // Capture projectId from storage context if not provided
+            // This ensures billing works even when callers don't pass projectId
+            if (!request.projectId) {
+                try {
+                    const { getStorage } = require('../supabase/storageHelper');
+                    const storage = getStorage();
+                    if (storage && storage.currentProjectId) {
+                        request.projectId = storage.currentProjectId;
+                    }
+                } catch (e) {
+                    // Storage not available, proceed without projectId
+                }
+            }
+            
             // Map priority string to number
             const priorityNum = typeof priority === 'string' 
                 ? (PRIORITY[priority.toUpperCase()] ?? PRIORITY.NORMAL)
@@ -484,6 +498,50 @@ class LLMQueueManager extends EventEmitter {
         
         this.emit('processing', { id: item.id, dbId: item.dbId, waitTime, queueSize: this.queue.length, concurrencyKey: key, activeCount });
         
+        // Check project balance before executing (billing integration)
+        const projectId = item.request.projectId;
+        if (projectId) {
+            try {
+                const billing = require('../supabase/billing');
+                const balanceCheck = await billing.checkProjectBalance(projectId);
+                
+                if (!balanceCheck.allowed) {
+                    // Reject request due to insufficient balance
+                    item.status = 'rejected';
+                    
+                    console.log(`[LLMQueue] Blocked by balance: ${item.id} | Project: ${projectId} | Reason: ${balanceCheck.reason}`);
+                    
+                    // Notify project admins
+                    await billing.notifyBalanceInsufficient(projectId, balanceCheck.reason);
+                    
+                    // Update DB with rejection status
+                    if (this.dbEnabled && item.dbId) {
+                        try {
+                            await this.dbQueue.failRequest({
+                                requestId: item.dbId,
+                                error: balanceCheck.reason,
+                                errorCode: 'INSUFFICIENT_BALANCE',
+                                retry: false
+                            });
+                        } catch (dbError) {
+                            console.warn('[LLMQueue] Failed to update DB on balance rejection:', dbError.message);
+                        }
+                    }
+                    
+                    // Clean up and reject
+                    this.processingByKey.delete(key);
+                    this.lastRequestTimeByKey.set(key, Date.now());
+                    setImmediate(() => this.processNext());
+                    
+                    item.reject(new Error(`Insufficient balance: ${balanceCheck.reason}`));
+                    return;
+                }
+            } catch (balanceError) {
+                // On balance check error, log but continue (don't block)
+                console.warn('[LLMQueue] Balance check error (continuing):', balanceError.message);
+            }
+        }
+        
         try {
             // Execute the LLM request
             const result = await this.executeRequest(item);
@@ -502,6 +560,32 @@ class LLMQueueManager extends EventEmitter {
             const estimatedCost = calculateCost(modelId, inputTokens, outputTokens) || result.cost || 0;
             
             console.log(`[LLMQueue] Completed: ${item.id} | Time: ${processingTime}ms | Tokens: ${inputTokens}/${outputTokens} | Cost: $${estimatedCost.toFixed(6)}`);
+            
+            // Track billable cost and debit balance (billing integration)
+            let billingResult = null;
+            if (projectId && (inputTokens > 0 || outputTokens > 0)) {
+                try {
+                    const billing = require('../supabase/billing');
+                    billingResult = await billing.calculateAndRecordCost({
+                        projectId,
+                        providerCostUsd: estimatedCost,
+                        tokens: inputTokens + outputTokens,
+                        inputTokens,
+                        outputTokens,
+                        model: modelId,
+                        provider: item.request?.provider || 'unknown',
+                        context: item.request?.context || 'unknown',
+                        requestId: item.dbId
+                    });
+                    
+                    // Check for low balance notification
+                    await billing.checkAndNotifyLowBalance(projectId);
+                    
+                    console.log(`[LLMQueue] Billing: ${item.id} | Provider: €${billingResult.provider_cost_eur?.toFixed(6)} | Billable: €${billingResult.billable_cost_eur?.toFixed(6)} | Markup: ${billingResult.markup_percent}%`);
+                } catch (billingError) {
+                    console.warn('[LLMQueue] Billing tracking error (non-blocking):', billingError.message);
+                }
+            }
             
             // Update database
             if (this.dbEnabled && item.dbId) {

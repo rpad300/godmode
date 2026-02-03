@@ -4032,6 +4032,68 @@ class SupabaseStorage {
     }
 
     /**
+     * Track LLM cost with billing information (EUR costs, markup, tier)
+     * Used by billing system for detailed cost tracking
+     * @param {object} options - Tracking options
+     * @returns {Promise<string|null>} Request ID
+     */
+    async trackLLMCostWithBilling({
+        projectId,
+        provider,
+        model,
+        operation,
+        inputTokens,
+        outputTokens,
+        providerCostEur,
+        billableCostEur,
+        markupPercent,
+        tierId,
+        periodKey,
+        latencyMs = null,
+        success = true,
+        context = null,
+        userId = null
+    }) {
+        // Use provided projectId or current project
+        const pid = projectId || this.currentProjectId;
+        if (!pid) {
+            console.warn('[Storage] No projectId for trackLLMCostWithBilling');
+            return null;
+        }
+
+        try {
+            const { data, error } = await this.supabase
+                .from('llm_cost_requests')
+                .insert({
+                    project_id: pid,
+                    provider,
+                    model,
+                    operation,
+                    input_tokens: inputTokens,
+                    output_tokens: outputTokens,
+                    cost: billableCostEur, // Main cost field uses billable
+                    provider_cost_eur: providerCostEur,
+                    billable_cost_eur: billableCostEur,
+                    markup_percent_applied: markupPercent,
+                    tier_applied_id: tierId,
+                    period_key: periodKey,
+                    latency_ms: latencyMs,
+                    success,
+                    request_type: context,
+                    created_by: userId
+                })
+                .select('id')
+                .single();
+
+            if (error) throw error;
+            return data?.id;
+        } catch (e) {
+            console.error('[Storage] trackLLMCostWithBilling error:', e.message);
+            return null;
+        }
+    }
+
+    /**
      * Get LLM cost summary
      */
     async getLLMCostSummary() {

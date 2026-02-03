@@ -8606,6 +8606,295 @@ NOTES_SUGGESTION: <additional notes to add>`;
             return;
         }
 
+        // ==================== Billing API (Project Cost Control) ====================
+        
+        // GET /api/admin/billing/projects - Get all projects billing overview (superadmin)
+        if (pathname === '/api/admin/billing/projects' && req.method === 'GET') {
+            try {
+                if (!await isSuperAdmin(req)) {
+                    return jsonResponse(res, { error: 'Superadmin access required' }, 403);
+                }
+                const billing = require('./supabase/billing');
+                const projects = await billing.getAllProjectsBilling();
+                jsonResponse(res, { success: true, projects });
+            } catch (error) {
+                console.error('[API] Error getting all projects billing:', error);
+                jsonResponse(res, { error: error.message }, 500);
+            }
+            return;
+        }
+        
+        // GET /api/admin/billing/pricing - Get global pricing config (superadmin)
+        if (pathname === '/api/admin/billing/pricing' && req.method === 'GET') {
+            try {
+                if (!await isSuperAdmin(req)) {
+                    return jsonResponse(res, { error: 'Superadmin access required' }, 403);
+                }
+                const billing = require('./supabase/billing');
+                const config = await billing.getGlobalPricingConfig();
+                jsonResponse(res, { success: true, config });
+            } catch (error) {
+                console.error('[API] Error getting global pricing config:', error);
+                jsonResponse(res, { error: error.message }, 500);
+            }
+            return;
+        }
+        
+        // POST /api/admin/billing/pricing - Set global pricing config (superadmin)
+        if (pathname === '/api/admin/billing/pricing' && req.method === 'POST') {
+            try {
+                if (!await isSuperAdmin(req)) {
+                    return jsonResponse(res, { error: 'Superadmin access required' }, 403);
+                }
+                const body = await parseBody(req);
+                const userId = await getUserIdFromRequest(req);
+                const billing = require('./supabase/billing');
+                const result = await billing.setGlobalPricingConfig({
+                    fixedMarkupPercent: body.fixed_markup_percent,
+                    periodType: body.period_type,
+                    usdToEurRate: body.usd_to_eur_rate,
+                    updatedBy: userId
+                });
+                jsonResponse(res, result);
+            } catch (error) {
+                console.error('[API] Error setting global pricing config:', error);
+                jsonResponse(res, { error: error.message }, 500);
+            }
+            return;
+        }
+        
+        // GET /api/admin/billing/pricing/tiers - Get global pricing tiers (superadmin)
+        if (pathname === '/api/admin/billing/pricing/tiers' && req.method === 'GET') {
+            try {
+                if (!await isSuperAdmin(req)) {
+                    return jsonResponse(res, { error: 'Superadmin access required' }, 403);
+                }
+                const billing = require('./supabase/billing');
+                const config = await billing.getGlobalPricingConfig();
+                if (!config) {
+                    return jsonResponse(res, { success: true, tiers: [] });
+                }
+                const tiers = await billing.getPricingTiers(config.id);
+                jsonResponse(res, { success: true, tiers, config_id: config.id });
+            } catch (error) {
+                console.error('[API] Error getting global pricing tiers:', error);
+                jsonResponse(res, { error: error.message }, 500);
+            }
+            return;
+        }
+        
+        // POST /api/admin/billing/pricing/tiers - Set global pricing tiers (superadmin)
+        if (pathname === '/api/admin/billing/pricing/tiers' && req.method === 'POST') {
+            try {
+                if (!await isSuperAdmin(req)) {
+                    return jsonResponse(res, { error: 'Superadmin access required' }, 403);
+                }
+                const body = await parseBody(req);
+                const billing = require('./supabase/billing');
+                const config = await billing.getGlobalPricingConfig();
+                if (!config) {
+                    return jsonResponse(res, { error: 'Global pricing config not found' }, 404);
+                }
+                const result = await billing.setPricingTiers(config.id, body.tiers || []);
+                jsonResponse(res, result);
+            } catch (error) {
+                console.error('[API] Error setting global pricing tiers:', error);
+                jsonResponse(res, { error: error.message }, 500);
+            }
+            return;
+        }
+        
+        // Project-specific billing endpoints (match /api/admin/billing/projects/:id/*)
+        const billingProjectMatch = pathname.match(/^\/api\/admin\/billing\/projects\/([^/]+)(\/.*)?$/);
+        if (billingProjectMatch) {
+            const projectId = billingProjectMatch[1];
+            const subPath = billingProjectMatch[2] || '';
+            
+            // GET /api/admin/billing/projects/:id - Get project billing summary
+            if (subPath === '' && req.method === 'GET') {
+                try {
+                    if (!await isSuperAdmin(req)) {
+                        return jsonResponse(res, { error: 'Superadmin access required' }, 403);
+                    }
+                    const billing = require('./supabase/billing');
+                    const summary = await billing.getProjectBillingSummary(projectId);
+                    jsonResponse(res, { success: true, summary });
+                } catch (error) {
+                    console.error('[API] Error getting project billing summary:', error);
+                    jsonResponse(res, { error: error.message }, 500);
+                }
+                return;
+            }
+            
+            // GET /api/admin/billing/projects/:id/balance - Get project balance
+            if (subPath === '/balance' && req.method === 'GET') {
+                try {
+                    if (!await isSuperAdmin(req)) {
+                        return jsonResponse(res, { error: 'Superadmin access required' }, 403);
+                    }
+                    const billing = require('./supabase/billing');
+                    const balance = await billing.checkProjectBalance(projectId);
+                    jsonResponse(res, { success: true, ...balance });
+                } catch (error) {
+                    console.error('[API] Error getting project balance:', error);
+                    jsonResponse(res, { error: error.message }, 500);
+                }
+                return;
+            }
+            
+            // POST /api/admin/billing/projects/:id/balance - Set project balance
+            if (subPath === '/balance' && req.method === 'POST') {
+                try {
+                    if (!await isSuperAdmin(req)) {
+                        return jsonResponse(res, { error: 'Superadmin access required' }, 403);
+                    }
+                    const body = await parseBody(req);
+                    const userId = await getUserIdFromRequest(req);
+                    const billing = require('./supabase/billing');
+                    const notifications = require('./supabase/notifications');
+                    
+                    let result;
+                    if (body.amount !== undefined) {
+                        // Credit balance
+                        result = await billing.creditProjectBalance(
+                            projectId, 
+                            parseFloat(body.amount), 
+                            userId,
+                            body.description || 'Balance added by admin'
+                        );
+                        
+                        // Send notification
+                        if (result.success) {
+                            const { data: project } = await storage._supabase?.supabase
+                                .from('projects')
+                                .select('name')
+                                .eq('id', projectId)
+                                .single();
+                            await notifications.createBalanceAddedNotification(
+                                projectId, 
+                                parseFloat(body.amount), 
+                                result.new_balance,
+                                project?.name,
+                                userId
+                            );
+                        }
+                    } else if (body.unlimited !== undefined) {
+                        // Set unlimited mode
+                        const success = await billing.setProjectUnlimited(projectId, body.unlimited, userId);
+                        result = { success, unlimited: body.unlimited };
+                    } else {
+                        return jsonResponse(res, { error: 'Provide amount or unlimited flag' }, 400);
+                    }
+                    
+                    jsonResponse(res, result);
+                } catch (error) {
+                    console.error('[API] Error setting project balance:', error);
+                    jsonResponse(res, { error: error.message }, 500);
+                }
+                return;
+            }
+            
+            // GET /api/admin/billing/projects/:id/transactions - Get balance transactions
+            if (subPath === '/transactions' && req.method === 'GET') {
+                try {
+                    if (!await isSuperAdmin(req)) {
+                        return jsonResponse(res, { error: 'Superadmin access required' }, 403);
+                    }
+                    const parsedUrl = parseUrl(req.url || '');
+                    const limit = parseInt(parsedUrl.query?.limit || '50', 10);
+                    const billing = require('./supabase/billing');
+                    const transactions = await billing.getBalanceTransactions(projectId, limit);
+                    jsonResponse(res, { success: true, transactions });
+                } catch (error) {
+                    console.error('[API] Error getting balance transactions:', error);
+                    jsonResponse(res, { error: error.message }, 500);
+                }
+                return;
+            }
+            
+            // GET /api/admin/billing/projects/:id/pricing - Get project pricing override
+            if (subPath === '/pricing' && req.method === 'GET') {
+                try {
+                    if (!await isSuperAdmin(req)) {
+                        return jsonResponse(res, { error: 'Superadmin access required' }, 403);
+                    }
+                    const billing = require('./supabase/billing');
+                    const override = await billing.getProjectPricingOverride(projectId);
+                    const globalConfig = await billing.getGlobalPricingConfig();
+                    jsonResponse(res, { 
+                        success: true, 
+                        override, 
+                        using_global: !override,
+                        global_config: globalConfig 
+                    });
+                } catch (error) {
+                    console.error('[API] Error getting project pricing override:', error);
+                    jsonResponse(res, { error: error.message }, 500);
+                }
+                return;
+            }
+            
+            // POST /api/admin/billing/projects/:id/pricing - Set project pricing override
+            if (subPath === '/pricing' && req.method === 'POST') {
+                try {
+                    if (!await isSuperAdmin(req)) {
+                        return jsonResponse(res, { error: 'Superadmin access required' }, 403);
+                    }
+                    const body = await parseBody(req);
+                    const userId = await getUserIdFromRequest(req);
+                    const billing = require('./supabase/billing');
+                    const result = await billing.setProjectPricingOverride(projectId, {
+                        fixedMarkupPercent: body.fixed_markup_percent,
+                        periodType: body.period_type,
+                        usdToEurRate: body.usd_to_eur_rate,
+                        createdBy: userId
+                    });
+                    
+                    // Set tiers if provided
+                    if (result.success && result.config_id && body.tiers) {
+                        await billing.setPricingTiers(result.config_id, body.tiers);
+                    }
+                    
+                    jsonResponse(res, result);
+                } catch (error) {
+                    console.error('[API] Error setting project pricing override:', error);
+                    jsonResponse(res, { error: error.message }, 500);
+                }
+                return;
+            }
+            
+            // DELETE /api/admin/billing/projects/:id/pricing - Remove project pricing override
+            if (subPath === '/pricing' && req.method === 'DELETE') {
+                try {
+                    if (!await isSuperAdmin(req)) {
+                        return jsonResponse(res, { error: 'Superadmin access required' }, 403);
+                    }
+                    const billing = require('./supabase/billing');
+                    const success = await billing.deleteProjectPricingOverride(projectId);
+                    jsonResponse(res, { success });
+                } catch (error) {
+                    console.error('[API] Error deleting project pricing override:', error);
+                    jsonResponse(res, { error: error.message }, 500);
+                }
+                return;
+            }
+        }
+        
+        // GET /api/projects/:id/billing - Get billing summary for project (project members)
+        const projectBillingMatch = pathname.match(/^\/api\/projects\/([^/]+)\/billing$/);
+        if (projectBillingMatch && req.method === 'GET') {
+            try {
+                const projectId = projectBillingMatch[1];
+                const billing = require('./supabase/billing');
+                const summary = await billing.getProjectBillingSummary(projectId);
+                jsonResponse(res, { success: true, summary });
+            } catch (error) {
+                console.error('[API] Error getting project billing:', error);
+                jsonResponse(res, { error: error.message }, 500);
+            }
+            return;
+        }
+
         // GET /api/dashboard - Get enhanced dashboard stats
         if (pathname === '/api/dashboard' && req.method === 'GET') {
             const stats = storage.getStats();

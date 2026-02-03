@@ -14,7 +14,11 @@ const NOTIFICATION_TYPES = {
     INVITE_ACCEPTED: 'invite_accepted',
     ROLE_CHANGED: 'role_changed',
     CONTENT_UPDATED: 'content_updated',
-    SYSTEM: 'system'
+    SYSTEM: 'system',
+    // Billing notifications
+    BALANCE_LOW: 'balance_low',
+    REQUEST_BLOCKED: 'request_blocked',
+    BALANCE_ADDED: 'balance_added'
 };
 
 /**
@@ -432,6 +436,131 @@ async function notifyWatchers({
     return { success: true, notified: notifications.length };
 }
 
+// ============================================
+// BILLING NOTIFICATIONS
+// ============================================
+
+/**
+ * Create a low balance notification for project admins
+ * @param {string} projectId - Project ID
+ * @param {number} currentBalance - Current balance in EUR
+ * @param {string} projectName - Project name
+ * @returns {Promise<{success: boolean, notified: number}>}
+ */
+async function createBalanceLowNotification(projectId, currentBalance, projectName) {
+    const supabase = getAdminClient();
+    if (!supabase) {
+        return { success: false, notified: 0 };
+    }
+
+    try {
+        // Get project admins
+        const { data: members } = await supabase
+            .from('project_members')
+            .select('user_id')
+            .eq('project_id', projectId)
+            .in('role', ['owner', 'admin']);
+
+        if (!members || members.length === 0) {
+            return { success: true, notified: 0 };
+        }
+
+        let notified = 0;
+        for (const member of members) {
+            const result = await createNotification({
+                userId: member.user_id,
+                projectId,
+                type: NOTIFICATION_TYPES.BALANCE_LOW,
+                title: 'Low Balance Warning',
+                body: `Project "${projectName || 'Unknown'}" has a low balance (€${currentBalance?.toFixed(2) || '0.00'}). Add funds to continue using AI features.`,
+                referenceType: 'billing',
+                referenceId: projectId
+            });
+            if (result.success) notified++;
+        }
+
+        return { success: true, notified };
+    } catch (error) {
+        console.error('[Notifications] Error creating balance low notification:', error);
+        return { success: false, notified: 0 };
+    }
+}
+
+/**
+ * Create a request blocked notification
+ * @param {string} projectId - Project ID
+ * @param {string} userId - User who made the request
+ * @param {string} reason - Blocking reason
+ * @returns {Promise<{success: boolean}>}
+ */
+async function createRequestBlockedNotification(projectId, userId, reason) {
+    if (!userId) {
+        return { success: false };
+    }
+
+    return createNotification({
+        userId,
+        projectId,
+        type: NOTIFICATION_TYPES.REQUEST_BLOCKED,
+        title: 'AI Request Blocked',
+        body: `Your AI request was blocked. ${reason}`,
+        referenceType: 'billing',
+        referenceId: projectId
+    });
+}
+
+/**
+ * Create a balance added notification for project admins
+ * @param {string} projectId - Project ID
+ * @param {number} amount - Amount added in EUR
+ * @param {number} newBalance - New balance in EUR
+ * @param {string} projectName - Project name
+ * @param {string} addedBy - User ID who added the balance
+ * @returns {Promise<{success: boolean, notified: number}>}
+ */
+async function createBalanceAddedNotification(projectId, amount, newBalance, projectName, addedBy = null) {
+    const supabase = getAdminClient();
+    if (!supabase) {
+        return { success: false, notified: 0 };
+    }
+
+    try {
+        // Get project admins
+        const { data: members } = await supabase
+            .from('project_members')
+            .select('user_id')
+            .eq('project_id', projectId)
+            .in('role', ['owner', 'admin']);
+
+        if (!members || members.length === 0) {
+            return { success: true, notified: 0 };
+        }
+
+        let notified = 0;
+        for (const member of members) {
+            // Skip the person who added the balance
+            if (member.user_id === addedBy) continue;
+
+            const result = await createNotification({
+                userId: member.user_id,
+                projectId,
+                type: NOTIFICATION_TYPES.BALANCE_ADDED,
+                title: 'Balance Added',
+                body: `€${amount?.toFixed(2) || '0.00'} was added to project "${projectName || 'Unknown'}". New balance: €${newBalance?.toFixed(2) || '0.00'}`,
+                referenceType: 'billing',
+                referenceId: projectId,
+                actorId: addedBy
+            });
+            if (result.success) notified++;
+        }
+
+        return { success: true, notified };
+    } catch (error) {
+        console.error('[Notifications] Error creating balance added notification:', error);
+        return { success: false, notified: 0 };
+    }
+}
+
 module.exports = {
     NOTIFICATION_TYPES,
     createNotification,
@@ -445,5 +574,9 @@ module.exports = {
     unwatchItem,
     getWatchers,
     getUserWatchedItems,
-    notifyWatchers
+    notifyWatchers,
+    // Billing notifications
+    createBalanceLowNotification,
+    createRequestBlockedNotification,
+    createBalanceAddedNotification
 };
