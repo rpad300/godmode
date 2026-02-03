@@ -301,12 +301,22 @@ export interface TranscriptSummary {
   source: 'krisp_metadata' | 'ai_generated' | 'excerpt_fallback' | 'no_content';
 }
 
+export interface GenerateSummaryOptions {
+  forceRegenerate?: boolean;
+}
+
 /**
  * Generate AI summary of a transcript
  */
-export async function generateSummary(transcriptId: string): Promise<TranscriptSummary | null> {
+export async function generateSummary(
+  transcriptId: string, 
+  options: GenerateSummaryOptions = {}
+): Promise<TranscriptSummary | null> {
   try {
-    const response = await http.post<{ summary: TranscriptSummary }>(`/api/krisp/transcripts/${transcriptId}/summary`);
+    const response = await http.post<{ summary: TranscriptSummary }>(
+      `/api/krisp/transcripts/${transcriptId}/summary`,
+      { forceRegenerate: options.forceRegenerate || false }
+    );
     return response.data.summary;
   } catch {
     return null;

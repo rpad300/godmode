@@ -303,6 +303,27 @@ export async function showProjectAssignmentModal(props: ProjectAssignmentModalPr
       @keyframes spin {
         to { transform: rotate(360deg); }
       }
+      .refresh-summary-btn {
+        background: transparent;
+        border: none;
+        padding: 4px;
+        cursor: pointer;
+        color: #0369a1;
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s;
+      }
+      .refresh-summary-btn:hover {
+        background: rgba(3, 105, 161, 0.1);
+      }
+      [data-theme="dark"] .refresh-summary-btn {
+        color: #38bdf8;
+      }
+      [data-theme="dark"] .refresh-summary-btn:hover {
+        background: rgba(56, 189, 248, 0.1);
+      }
       .summary-source {
         font-size: 11px;
         color: var(--text-tertiary, #94a3b8);
@@ -528,12 +549,26 @@ async function loadProjectOptions(container: HTMLElement, transcript: KrispTrans
 /**
  * Load and display meeting summary
  */
-async function loadMeetingSummary(container: HTMLElement, transcript: KrispTranscript): Promise<void> {
+async function loadMeetingSummary(
+  container: HTMLElement, 
+  transcript: KrispTranscript,
+  forceRegenerate = false
+): Promise<void> {
   const summaryEl = container.querySelector('#meeting-summary');
   if (!summaryEl) return;
 
+  // Show loading state
+  if (forceRegenerate) {
+    summaryEl.innerHTML = `
+      <div class="summary-loading">
+        <div class="spinner"></div>
+        <span>Regenerating summary...</span>
+      </div>
+    `;
+  }
+
   try {
-    const summary = await krispService.generateSummary(transcript.id);
+    const summary = await krispService.generateSummary(transcript.id, { forceRegenerate });
 
     if (!summary) {
       summaryEl.innerHTML = `
@@ -542,19 +577,30 @@ async function loadMeetingSummary(container: HTMLElement, transcript: KrispTrans
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
           </svg>
           Meeting Summary
+          <button class="refresh-summary-btn" title="Regenerate summary">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" width="16" height="16">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+            </svg>
+          </button>
         </div>
         <p style="color: var(--text-secondary); font-size: 13px;">Unable to generate summary.</p>
       `;
+      bindRefreshButton(container, transcript);
       return;
     }
 
-    // Build summary HTML
+    // Build summary HTML with refresh button
     let html = `
       <div class="summary-header">
         <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
         </svg>
-        Meeting Summary
+        <span style="flex: 1;">Meeting Summary</span>
+        <button class="refresh-summary-btn" title="Regenerate summary">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" width="16" height="16">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+        </button>
       </div>
     `;
 
@@ -623,6 +669,9 @@ async function loadMeetingSummary(container: HTMLElement, transcript: KrispTrans
     }
 
     summaryEl.innerHTML = html;
+    
+    // Bind refresh button
+    bindRefreshButton(container, transcript);
 
   } catch (error) {
     console.error('[ProjectAssignmentModal] Summary error:', error);
@@ -631,10 +680,31 @@ async function loadMeetingSummary(container: HTMLElement, transcript: KrispTrans
         <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
         </svg>
-        Meeting Summary
+        <span style="flex: 1;">Meeting Summary</span>
+        <button class="refresh-summary-btn" title="Regenerate summary">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" width="16" height="16">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+        </button>
       </div>
       <p style="color: var(--text-secondary); font-size: 13px;">Could not load summary.</p>
     `;
+    bindRefreshButton(container, transcript);
+  }
+}
+
+/**
+ * Bind refresh summary button
+ */
+function bindRefreshButton(container: HTMLElement, transcript: KrispTranscript): void {
+  const btn = container.querySelector('.refresh-summary-btn');
+  if (btn) {
+    on(btn as HTMLElement, 'click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      await loadMeetingSummary(container, transcript, true);
+      toast.success('Summary regenerated');
+    });
   }
 }
 

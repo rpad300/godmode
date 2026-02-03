@@ -3841,11 +3841,14 @@ async function handleAPI(req, res, pathname) {
             const transcriptId = krispSummaryMatch[1];
             
             try {
+                const body = await parseBody(req);
+                const forceRegenerate = body?.forceRegenerate === true;
+                
                 const { generateTranscriptSummary } = require('./krisp');
-                const result = await generateTranscriptSummary(transcriptId, userResult.user.id);
+                const result = await generateTranscriptSummary(transcriptId, userResult.user.id, { forceRegenerate });
                 
                 if (result.success) {
-                    jsonResponse(res, { summary: result.summary });
+                    jsonResponse(res, { summary: result.summary, cached: result.cached });
                 } else {
                     jsonResponse(res, { error: result.error }, 400);
                 }
@@ -8042,6 +8045,9 @@ ANSWERED: no`;
         // POST /api/contacts/match - Match names to contacts
         if (pathname === '/api/contacts/match' && req.method === 'POST') {
             const body = await parseBody(req);
+            const projectId = body?.project_id || body?.projectId || req.headers['x-project-id'];
+            if (projectId && storage._supabase) storage._supabase.setProject(projectId);
+            
             const { names } = body;
             
             if (!names || !Array.isArray(names)) {
@@ -8079,6 +8085,9 @@ ANSWERED: no`;
         // GET /api/contacts/unmatched - Get unmatched participants
         if (pathname === '/api/contacts/unmatched' && req.method === 'GET') {
             try {
+                const projectId = req.headers['x-project-id'];
+                if (projectId && storage._supabase) storage._supabase.setProject(projectId);
+                
                 const unmatched = storage.getUnmatchedParticipants();
                 jsonResponse(res, { ok: true, unmatched, total: unmatched.length });
             } catch (error) {
@@ -8090,6 +8099,8 @@ ANSWERED: no`;
         // POST /api/contacts/link-participant - Link a participant to an existing contact
         if (pathname === '/api/contacts/link-participant' && req.method === 'POST') {
             const body = await parseBody(req);
+            const projectId = body?.project_id || body?.projectId || req.headers['x-project-id'];
+            if (projectId && storage._supabase) storage._supabase.setProject(projectId);
             
             if (!body.participantName || !body.contactId) {
                 jsonResponse(res, { ok: false, error: 'participantName and contactId are required' }, 400);
@@ -8128,6 +8139,9 @@ ANSWERED: no`;
         // GET /api/contacts/find-by-name - Find contact by name or alias (for auto-matching)
         if (pathname === '/api/contacts/find-by-name' && req.method === 'GET') {
             const parsedUrl = parseUrl(req.url);
+            const projectId = parsedUrl.query?.project_id || req.headers['x-project-id'];
+            if (projectId && storage._supabase) storage._supabase.setProject(projectId);
+            
             const name = parsedUrl.query.name;
             
             if (!name) {
@@ -8147,6 +8161,9 @@ ANSWERED: no`;
         // GET /api/contacts/duplicates - Find duplicate contacts
         if (pathname === '/api/contacts/duplicates' && req.method === 'GET') {
             try {
+                const projectId = req.headers['x-project-id'];
+                if (projectId && storage._supabase) storage._supabase.setProject(projectId);
+                
                 const duplicates = await storage.findDuplicateContacts();
                 jsonResponse(res, { ok: true, duplicates, groups: duplicates.length });
             } catch (error) {
@@ -8159,6 +8176,9 @@ ANSWERED: no`;
         // POST /api/contacts/sync-from-people - Sync extracted people to contacts
         if (pathname === '/api/contacts/sync-from-people' && req.method === 'POST') {
             try {
+                const projectId = req.headers['x-project-id'];
+                if (projectId && storage._supabase) storage._supabase.setProject(projectId);
+                
                 const result = storage.syncPeopleToContacts();
                 console.log(`[Contacts] Synced ${result.added} people to contacts`);
                 jsonResponse(res, { ok: true, ...result });
@@ -8171,6 +8191,9 @@ ANSWERED: no`;
         // POST /api/contacts/merge - Merge duplicate contacts
         if (pathname === '/api/contacts/merge' && req.method === 'POST') {
             const body = await parseBody(req);
+            const projectId = body?.project_id || body?.projectId || req.headers['x-project-id'];
+            if (projectId && storage._supabase) storage._supabase.setProject(projectId);
+            
             const { contactIds } = body;
             
             if (!contactIds || !Array.isArray(contactIds) || contactIds.length < 2) {
@@ -8195,6 +8218,9 @@ ANSWERED: no`;
         // GET /api/contacts/export/json - Export contacts as JSON
         if (pathname === '/api/contacts/export/json' && req.method === 'GET') {
             try {
+                const projectId = req.headers['x-project-id'];
+                if (projectId && storage._supabase) storage._supabase.setProject(projectId);
+                
                 const data = storage.exportContactsJSON();
                 res.writeHead(200, {
                     'Content-Type': 'application/json',
@@ -8210,6 +8236,9 @@ ANSWERED: no`;
         // GET /api/contacts/export/csv - Export contacts as CSV
         if (pathname === '/api/contacts/export/csv' && req.method === 'GET') {
             try {
+                const projectId = req.headers['x-project-id'];
+                if (projectId && storage._supabase) storage._supabase.setProject(projectId);
+                
                 const csv = storage.exportContactsCSV();
                 res.writeHead(200, {
                     'Content-Type': 'text/csv',
@@ -8225,6 +8254,8 @@ ANSWERED: no`;
         // POST /api/contacts/import/json - Import contacts from JSON
         if (pathname === '/api/contacts/import/json' && req.method === 'POST') {
             const body = await parseBody(req);
+            const projectId = body?.project_id || body?.projectId || req.headers['x-project-id'];
+            if (projectId && storage._supabase) storage._supabase.setProject(projectId);
             
             try {
                 const result = storage.importContactsJSON(body);
@@ -8238,6 +8269,8 @@ ANSWERED: no`;
         // POST /api/contacts/import/csv - Import contacts from CSV
         if (pathname === '/api/contacts/import/csv' && req.method === 'POST') {
             const body = await parseBody(req);
+            const projectId = body?.project_id || body?.projectId || req.headers['x-project-id'];
+            if (projectId && storage._supabase) storage._supabase.setProject(projectId);
             
             if (!body.csv || typeof body.csv !== 'string') {
                 jsonResponse(res, { ok: false, error: 'csv content is required' }, 400);
@@ -8257,6 +8290,9 @@ ANSWERED: no`;
         const contactRelMatch = pathname.match(/^\/api\/contacts\/([a-f0-9\-]+)\/relationships$/);
         if (contactRelMatch && req.method === 'GET') {
             const contactId = contactRelMatch[1];
+            const projectId = req.headers['x-project-id'];
+            if (projectId && storage._supabase) storage._supabase.setProject(projectId);
+            
             try {
                 const relationships = await storage.getContactRelationships(contactId);
                 jsonResponse(res, { ok: true, relationships });
@@ -8271,6 +8307,8 @@ ANSWERED: no`;
         if (contactAddRelMatch && req.method === 'POST') {
             const contactId = contactAddRelMatch[1];
             const body = await parseBody(req);
+            const projectId = body?.project_id || body?.projectId || req.headers['x-project-id'];
+            if (projectId && storage._supabase) storage._supabase.setProject(projectId);
             
             if (!body.toContactId || !body.type) {
                 jsonResponse(res, { ok: false, error: 'toContactId and type are required' }, 400);
@@ -8294,6 +8332,8 @@ ANSWERED: no`;
         if (contactDelRelMatch && req.method === 'DELETE') {
             const contactId = contactDelRelMatch[1];
             const body = await parseBody(req);
+            const projectId = body?.project_id || body?.projectId || req.headers['x-project-id'];
+            if (projectId && storage._supabase) storage._supabase.setProject(projectId);
             
             if (!body.toContactId || !body.type) {
                 jsonResponse(res, { ok: false, error: 'toContactId and type are required' }, 400);
@@ -8329,6 +8369,9 @@ ANSWERED: no`;
         const contactAssocMatch = pathname.match(/^\/api\/contacts\/([a-f0-9\-]+)\/associations$/);
         if (contactAssocMatch && req.method === 'GET') {
             const contactId = contactAssocMatch[1];
+            const projectId = req.headers['x-project-id'];
+            if (projectId && storage._supabase) storage._supabase.setProject(projectId);
+            
             try {
                 const contactWithAssoc = await storage.getContactWithAssociations(contactId);
                 if (!contactWithAssoc) {
@@ -8347,6 +8390,8 @@ ANSWERED: no`;
         if (contactAddTeamMatch && req.method === 'POST') {
             const contactId = contactAddTeamMatch[1];
             const body = await parseBody(req);
+            const projectId = body?.project_id || body?.projectId || req.headers['x-project-id'];
+            if (projectId && storage._supabase) storage._supabase.setProject(projectId);
             
             if (!body.teamId) {
                 jsonResponse(res, { ok: false, error: 'teamId is required' }, 400);
@@ -8382,6 +8427,8 @@ ANSWERED: no`;
         if (contactDelTeamMatch && req.method === 'DELETE') {
             const contactId = contactDelTeamMatch[1];
             const teamId = contactDelTeamMatch[2];
+            const projectId = req.headers['x-project-id'];
+            if (projectId && storage._supabase) storage._supabase.setProject(projectId);
             
             try {
                 await storage.removeTeamMember(teamId, contactId);
@@ -8411,6 +8458,9 @@ ANSWERED: no`;
         const contactGetProjMatch = pathname.match(/^\/api\/contacts\/([a-f0-9\-]+)\/projects$/);
         if (contactGetProjMatch && req.method === 'GET') {
             const contactId = contactGetProjMatch[1];
+            const projectId = req.headers['x-project-id'];
+            if (projectId && storage._supabase) storage._supabase.setProject(projectId);
+            
             try {
                 const { data: contactProjects, error } = await storage.supabase
                     .from('contact_projects')
@@ -8447,6 +8497,9 @@ ANSWERED: no`;
         const contactGetActivityMatch = pathname.match(/^\/api\/contacts\/([a-f0-9\-]+)\/activity$/);
         if (contactGetActivityMatch && req.method === 'GET') {
             const contactId = contactGetActivityMatch[1];
+            const projectId = req.headers['x-project-id'];
+            if (projectId && storage._supabase) storage._supabase.setProject(projectId);
+            
             try {
                 const { data: activities, error } = await storage.supabase
                     .from('contact_activity')
@@ -8474,6 +8527,9 @@ ANSWERED: no`;
         if (contactSyncProjMatch && req.method === 'POST') {
             const contactId = contactSyncProjMatch[1];
             const body = await parseBody(req);
+            const projectId = body?.project_id || body?.projectId || req.headers['x-project-id'];
+            if (projectId && storage._supabase) storage._supabase.setProject(projectId);
+            
             const projectIds = body.projectIds || [];
             
             try {
@@ -8540,6 +8596,8 @@ ANSWERED: no`;
         if (contactAddProjMatch && req.method === 'POST') {
             const contactId = contactAddProjMatch[1];
             const body = await parseBody(req);
+            const currentProjectId = body?.project_id || body?.projectId || req.headers['x-project-id'];
+            if (currentProjectId && storage._supabase) storage._supabase.setProject(currentProjectId);
             
             if (!body.projectId) {
                 jsonResponse(res, { ok: false, error: 'projectId is required' }, 400);
@@ -8563,6 +8621,8 @@ ANSWERED: no`;
         if (contactDelProjMatch && req.method === 'DELETE') {
             const contactId = contactDelProjMatch[1];
             const projectId = contactDelProjMatch[2];
+            const currentProjectId = req.headers['x-project-id'];
+            if (currentProjectId && storage._supabase) storage._supabase.setProject(currentProjectId);
             
             try {
                 await storage.removeContactFromProject(contactId, projectId);
