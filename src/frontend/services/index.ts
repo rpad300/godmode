@@ -112,3 +112,14 @@ export type { UserProfile as ProfileUserProfile, UpdateProfileRequest } from './
 
 export { factsService } from './facts';
 export type { Fact, CreateFactRequest, UpdateFactRequest, FactConflict } from './facts';
+
+export * as krispService from './krisp';
+export type { 
+  KrispWebhook, 
+  KrispTranscript, 
+  KrispSpeakerMapping, 
+  TranscriptsSummary,
+  QuarantineStats,
+  ProjectCandidate,
+  MatchedContact
+} from './krisp';

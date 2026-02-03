@@ -1191,6 +1191,32 @@ async function handleAPI(req, res, pathname) {
     }
 
     try {
+        // ==================== Krisp Incoming Webhook (Public - No Auth Required) ====================
+        
+        // POST /api/webhooks/krisp/:token - Receive Krisp webhook events
+        const krispWebhookMatch = pathname.match(/^\/api\/webhooks\/krisp\/([a-f0-9]{64})$/);
+        if (krispWebhookMatch && req.method === 'POST') {
+            const webhookToken = krispWebhookMatch[1];
+            const authHeader = req.headers['authorization'];
+            
+            try {
+                const body = await parseBody(req);
+                const { processWebhook } = require('./krisp');
+                
+                const result = await processWebhook(webhookToken, authHeader, body);
+                
+                jsonResponse(res, {
+                    success: result.success,
+                    message: result.message,
+                    transcriptId: result.transcriptId
+                }, result.status || (result.success ? 200 : 400));
+            } catch (error) {
+                console.error('[Krisp Webhook] Error:', error);
+                jsonResponse(res, { error: error.message }, 500);
+            }
+            return;
+        }
+
         // ==================== Authentication API ====================
         
         // GET /api/auth/status - Check if auth is configured
@@ -3348,6 +3374,451 @@ async function handleAPI(req, res, pathname) {
             } else {
                 jsonResponse(res, { error: result.error }, 400);
             }
+            return;
+        }
+
+        // ==================== Krisp Integration API (Authenticated) ====================
+        
+        // GET /api/krisp/webhook - Get user's Krisp webhook config
+        if (pathname === '/api/krisp/webhook' && req.method === 'GET') {
+            if (!supabase || !supabase.isConfigured()) {
+                jsonResponse(res, { error: 'Not configured' }, 503);
+                return;
+            }
+            
+            const token = supabase.auth.extractToken(req);
+            const userResult = await supabase.auth.getUser(token);
+            
+            if (!userResult.success) {
+                jsonResponse(res, { error: 'Authentication required' }, 401);
+                return;
+            }
+            
+            const { getOrCreateWebhook } = require('./krisp');
+            const result = await getOrCreateWebhook(userResult.user.id);
+            
+            if (result.success) {
+                // Build full webhook URL
+                const appUrl = process.env.APP_URL || `http://localhost:${config.port}`;
+                const webhookUrl = `${appUrl}/api/webhooks/krisp/${result.webhook.webhook_token}`;
+                
+                jsonResponse(res, { 
+                    webhook: {
+                        ...result.webhook,
+                        webhook_url: webhookUrl
+                    }
+                });
+            } else {
+                jsonResponse(res, { error: result.error }, 400);
+            }
+            return;
+        }
+        
+        // POST /api/krisp/webhook - Create/get Krisp webhook
+        if (pathname === '/api/krisp/webhook' && req.method === 'POST') {
+            if (!supabase || !supabase.isConfigured()) {
+                jsonResponse(res, { error: 'Not configured' }, 503);
+                return;
+            }
+            
+            const token = supabase.auth.extractToken(req);
+            const userResult = await supabase.auth.getUser(token);
+            
+            if (!userResult.success) {
+                jsonResponse(res, { error: 'Authentication required' }, 401);
+                return;
+            }
+            
+            const { getOrCreateWebhook } = require('./krisp');
+            const result = await getOrCreateWebhook(userResult.user.id);
+            
+            if (result.success) {
+                const appUrl = process.env.APP_URL || `http://localhost:${config.port}`;
+                const webhookUrl = `${appUrl}/api/webhooks/krisp/${result.webhook.webhook_token}`;
+                
+                jsonResponse(res, { 
+                    webhook: {
+                        ...result.webhook,
+                        webhook_url: webhookUrl
+                    }
+                });
+            } else {
+                jsonResponse(res, { error: result.error }, 400);
+            }
+            return;
+        }
+        
+        // POST /api/krisp/webhook/regenerate - Regenerate webhook credentials
+        if (pathname === '/api/krisp/webhook/regenerate' && req.method === 'POST') {
+            if (!supabase || !supabase.isConfigured()) {
+                jsonResponse(res, { error: 'Not configured' }, 503);
+                return;
+            }
+            
+            const token = supabase.auth.extractToken(req);
+            const userResult = await supabase.auth.getUser(token);
+            
+            if (!userResult.success) {
+                jsonResponse(res, { error: 'Authentication required' }, 401);
+                return;
+            }
+            
+            const { regenerateWebhook } = require('./krisp');
+            const result = await regenerateWebhook(userResult.user.id);
+            
+            if (result.success) {
+                const appUrl = process.env.APP_URL || `http://localhost:${config.port}`;
+                const webhookUrl = `${appUrl}/api/webhooks/krisp/${result.webhook.webhook_token}`;
+                
+                jsonResponse(res, { 
+                    webhook: {
+                        ...result.webhook,
+                        webhook_url: webhookUrl
+                    }
+                });
+            } else {
+                jsonResponse(res, { error: result.error }, 400);
+            }
+            return;
+        }
+        
+        // PUT /api/krisp/webhook/toggle - Toggle webhook active status
+        if (pathname === '/api/krisp/webhook/toggle' && req.method === 'PUT') {
+            if (!supabase || !supabase.isConfigured()) {
+                jsonResponse(res, { error: 'Not configured' }, 503);
+                return;
+            }
+            
+            const token = supabase.auth.extractToken(req);
+            const userResult = await supabase.auth.getUser(token);
+            
+            if (!userResult.success) {
+                jsonResponse(res, { error: 'Authentication required' }, 401);
+                return;
+            }
+            
+            const body = await parseBody(req);
+            const { toggleWebhook } = require('./krisp');
+            const result = await toggleWebhook(userResult.user.id, body.is_active);
+            
+            if (result.success) {
+                jsonResponse(res, { success: true });
+            } else {
+                jsonResponse(res, { error: result.error }, 400);
+            }
+            return;
+        }
+        
+        // PUT /api/krisp/webhook/events - Update enabled events
+        if (pathname === '/api/krisp/webhook/events' && req.method === 'PUT') {
+            if (!supabase || !supabase.isConfigured()) {
+                jsonResponse(res, { error: 'Not configured' }, 503);
+                return;
+            }
+            
+            const token = supabase.auth.extractToken(req);
+            const userResult = await supabase.auth.getUser(token);
+            
+            if (!userResult.success) {
+                jsonResponse(res, { error: 'Authentication required' }, 401);
+                return;
+            }
+            
+            const body = await parseBody(req);
+            const { updateEnabledEvents } = require('./krisp');
+            const result = await updateEnabledEvents(userResult.user.id, body.events || []);
+            
+            if (result.success) {
+                jsonResponse(res, { events: result.events });
+            } else {
+                jsonResponse(res, { error: result.error }, 400);
+            }
+            return;
+        }
+        
+        // GET /api/krisp/transcripts - List user's transcripts
+        if (pathname === '/api/krisp/transcripts' && req.method === 'GET') {
+            if (!supabase || !supabase.isConfigured()) {
+                jsonResponse(res, { error: 'Not configured' }, 503);
+                return;
+            }
+            
+            const token = supabase.auth.extractToken(req);
+            const userResult = await supabase.auth.getUser(token);
+            
+            if (!userResult.success) {
+                jsonResponse(res, { error: 'Authentication required' }, 401);
+                return;
+            }
+            
+            const parsedUrl = parseUrl(req.url);
+            const { getUserTranscripts } = require('./krisp');
+            
+            const transcripts = await getUserTranscripts(userResult.user.id, {
+                status: parsedUrl.query.status,
+                projectId: parsedUrl.query.project_id,
+                limit: parseInt(parsedUrl.query.limit) || 50,
+                offset: parseInt(parsedUrl.query.offset) || 0
+            });
+            
+            jsonResponse(res, { transcripts });
+            return;
+        }
+        
+        // GET /api/krisp/transcripts/summary - Get transcripts summary
+        if (pathname === '/api/krisp/transcripts/summary' && req.method === 'GET') {
+            if (!supabase || !supabase.isConfigured()) {
+                jsonResponse(res, { error: 'Not configured' }, 503);
+                return;
+            }
+            
+            const token = supabase.auth.extractToken(req);
+            const userResult = await supabase.auth.getUser(token);
+            
+            if (!userResult.success) {
+                jsonResponse(res, { error: 'Authentication required' }, 401);
+                return;
+            }
+            
+            const { getTranscriptsSummary } = require('./krisp');
+            const summary = await getTranscriptsSummary(userResult.user.id);
+            
+            jsonResponse(res, { summary });
+            return;
+        }
+        
+        // GET /api/krisp/transcripts/:id - Get single transcript
+        const krispTranscriptMatch = pathname.match(/^\/api\/krisp\/transcripts\/([^/]+)$/);
+        if (krispTranscriptMatch && req.method === 'GET') {
+            if (!supabase || !supabase.isConfigured()) {
+                jsonResponse(res, { error: 'Not configured' }, 503);
+                return;
+            }
+            
+            const token = supabase.auth.extractToken(req);
+            const userResult = await supabase.auth.getUser(token);
+            
+            if (!userResult.success) {
+                jsonResponse(res, { error: 'Authentication required' }, 401);
+                return;
+            }
+            
+            const transcriptId = krispTranscriptMatch[1];
+            const { getTranscript } = require('./krisp');
+            const transcript = await getTranscript(transcriptId, userResult.user.id);
+            
+            if (transcript) {
+                jsonResponse(res, { transcript });
+            } else {
+                jsonResponse(res, { error: 'Transcript not found' }, 404);
+            }
+            return;
+        }
+        
+        // POST /api/krisp/transcripts/:id/assign - Assign transcript to project
+        const krispAssignMatch = pathname.match(/^\/api\/krisp\/transcripts\/([^/]+)\/assign$/);
+        if (krispAssignMatch && req.method === 'POST') {
+            if (!supabase || !supabase.isConfigured()) {
+                jsonResponse(res, { error: 'Not configured' }, 503);
+                return;
+            }
+            
+            const token = supabase.auth.extractToken(req);
+            const userResult = await supabase.auth.getUser(token);
+            
+            if (!userResult.success) {
+                jsonResponse(res, { error: 'Authentication required' }, 401);
+                return;
+            }
+            
+            const transcriptId = krispAssignMatch[1];
+            const body = await parseBody(req);
+            
+            if (!body.project_id) {
+                jsonResponse(res, { error: 'project_id required' }, 400);
+                return;
+            }
+            
+            const { assignProject } = require('./krisp');
+            const result = await assignProject(transcriptId, body.project_id, userResult.user.id);
+            
+            if (result.success) {
+                jsonResponse(res, result);
+            } else {
+                jsonResponse(res, { error: result.error }, 400);
+            }
+            return;
+        }
+        
+        // POST /api/krisp/transcripts/:id/skip - Skip/discard transcript
+        const krispSkipMatch = pathname.match(/^\/api\/krisp\/transcripts\/([^/]+)\/skip$/);
+        if (krispSkipMatch && req.method === 'POST') {
+            if (!supabase || !supabase.isConfigured()) {
+                jsonResponse(res, { error: 'Not configured' }, 503);
+                return;
+            }
+            
+            const token = supabase.auth.extractToken(req);
+            const userResult = await supabase.auth.getUser(token);
+            
+            if (!userResult.success) {
+                jsonResponse(res, { error: 'Authentication required' }, 401);
+                return;
+            }
+            
+            const transcriptId = krispSkipMatch[1];
+            const body = await parseBody(req);
+            
+            const { skipTranscript } = require('./krisp');
+            const result = await skipTranscript(transcriptId, userResult.user.id, body.reason);
+            
+            if (result.success) {
+                jsonResponse(res, { success: true });
+            } else {
+                jsonResponse(res, { error: result.error }, 400);
+            }
+            return;
+        }
+        
+        // POST /api/krisp/transcripts/:id/retry - Force retry processing
+        const krispRetryMatch = pathname.match(/^\/api\/krisp\/transcripts\/([^/]+)\/retry$/);
+        if (krispRetryMatch && req.method === 'POST') {
+            if (!supabase || !supabase.isConfigured()) {
+                jsonResponse(res, { error: 'Not configured' }, 503);
+                return;
+            }
+            
+            const token = supabase.auth.extractToken(req);
+            const userResult = await supabase.auth.getUser(token);
+            
+            if (!userResult.success) {
+                jsonResponse(res, { error: 'Authentication required' }, 401);
+                return;
+            }
+            
+            const transcriptId = krispRetryMatch[1];
+            const { QuarantineWorker } = require('./krisp');
+            const result = await QuarantineWorker.forceRetry(transcriptId);
+            
+            if (result.success) {
+                jsonResponse(res, result);
+            } else {
+                jsonResponse(res, { error: result.reason || 'Retry failed' }, 400);
+            }
+            return;
+        }
+        
+        // GET /api/krisp/mappings - List speaker mappings
+        if (pathname === '/api/krisp/mappings' && req.method === 'GET') {
+            if (!supabase || !supabase.isConfigured()) {
+                jsonResponse(res, { error: 'Not configured' }, 503);
+                return;
+            }
+            
+            const token = supabase.auth.extractToken(req);
+            const userResult = await supabase.auth.getUser(token);
+            
+            if (!userResult.success) {
+                jsonResponse(res, { error: 'Authentication required' }, 401);
+                return;
+            }
+            
+            const { SpeakerMatcher } = require('./krisp');
+            const matcher = new SpeakerMatcher();
+            const mappings = await matcher.getUserMappings(userResult.user.id);
+            
+            jsonResponse(res, { mappings });
+            return;
+        }
+        
+        // POST /api/krisp/mappings - Create speaker mapping
+        if (pathname === '/api/krisp/mappings' && req.method === 'POST') {
+            if (!supabase || !supabase.isConfigured()) {
+                jsonResponse(res, { error: 'Not configured' }, 503);
+                return;
+            }
+            
+            const token = supabase.auth.extractToken(req);
+            const userResult = await supabase.auth.getUser(token);
+            
+            if (!userResult.success) {
+                jsonResponse(res, { error: 'Authentication required' }, 401);
+                return;
+            }
+            
+            const body = await parseBody(req);
+            
+            if (!body.speaker_name || !body.contact_id || !body.project_id) {
+                jsonResponse(res, { error: 'speaker_name, contact_id, and project_id required' }, 400);
+                return;
+            }
+            
+            const { SpeakerMatcher } = require('./krisp');
+            const matcher = new SpeakerMatcher();
+            const result = await matcher.createMapping(
+                userResult.user.id,
+                body.speaker_name,
+                body.contact_id,
+                body.project_id,
+                { isGlobal: body.is_global, source: 'manual' }
+            );
+            
+            if (result.success) {
+                jsonResponse(res, { mapping: result.mapping });
+            } else {
+                jsonResponse(res, { error: result.error }, 400);
+            }
+            return;
+        }
+        
+        // DELETE /api/krisp/mappings/:id - Delete speaker mapping
+        const krispMappingDeleteMatch = pathname.match(/^\/api\/krisp\/mappings\/([^/]+)$/);
+        if (krispMappingDeleteMatch && req.method === 'DELETE') {
+            if (!supabase || !supabase.isConfigured()) {
+                jsonResponse(res, { error: 'Not configured' }, 503);
+                return;
+            }
+            
+            const token = supabase.auth.extractToken(req);
+            const userResult = await supabase.auth.getUser(token);
+            
+            if (!userResult.success) {
+                jsonResponse(res, { error: 'Authentication required' }, 401);
+                return;
+            }
+            
+            const mappingId = krispMappingDeleteMatch[1];
+            const { SpeakerMatcher } = require('./krisp');
+            const matcher = new SpeakerMatcher();
+            const result = await matcher.deleteMapping(mappingId, userResult.user.id);
+            
+            if (result.success) {
+                jsonResponse(res, { success: true });
+            } else {
+                jsonResponse(res, { error: result.error }, 400);
+            }
+            return;
+        }
+        
+        // GET /api/krisp/quarantine/stats - Get quarantine statistics
+        if (pathname === '/api/krisp/quarantine/stats' && req.method === 'GET') {
+            if (!supabase || !supabase.isConfigured()) {
+                jsonResponse(res, { error: 'Not configured' }, 503);
+                return;
+            }
+            
+            const token = supabase.auth.extractToken(req);
+            const userResult = await supabase.auth.getUser(token);
+            
+            if (!userResult.success) {
+                jsonResponse(res, { error: 'Authentication required' }, 401);
+                return;
+            }
+            
+            const { QuarantineWorker } = require('./krisp');
+            const stats = await QuarantineWorker.getStats();
+            
+            jsonResponse(res, { stats });
             return;
         }
 

@@ -9,6 +9,7 @@ import { profileService, UserProfile } from '../../services/profile';
 import { appStore } from '../../stores/app';
 import { toast } from '../../services/toast';
 import { http } from '../../services/api';
+import * as krispService from '../../services/krisp';
 
 const MODAL_ID = 'profile-modal';
 
@@ -722,6 +723,12 @@ function renderProfile(container: HTMLElement, profile: UserProfile, timezones?:
         </svg>
         Sessions
       </button>
+      <button class="profile-tab-btn" data-tab="integrations">
+        <svg class="profile-tab-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>
+        </svg>
+        Integrations
+      </button>
     </nav>
     
     <!-- Tab Content -->
@@ -888,6 +895,25 @@ function renderProfile(container: HTMLElement, profile: UserProfile, timezones?:
           </button>
         </div>
       </div>
+      
+      <!-- Integrations Tab -->
+      <div class="profile-section" id="section-integrations">
+        <div class="security-section">
+          <h3>
+            <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
+            </svg>
+            Krisp AI Meeting Assistant
+          </h3>
+          <p class="form-hint" style="margin-bottom: 16px;">
+            Connect your Krisp account to automatically import meeting transcriptions into GodMode.
+          </p>
+          
+          <div id="krisp-integration-content">
+            <div class="loading-spinner"></div>
+          </div>
+        </div>
+      </div>
     </div>
   `;
 
@@ -921,6 +947,9 @@ function bindEvents(container: HTMLElement): void {
 
       if (tabId === 'sessions') {
         loadSessions();
+      }
+      if (tabId === 'integrations') {
+        loadKrispIntegration(container);
       }
     });
   });
@@ -1236,6 +1265,214 @@ function escapeHtml(text: string): string {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
+}
+
+/**
+ * Load Krisp integration content
+ */
+async function loadKrispIntegration(container: HTMLElement): Promise<void> {
+  const contentEl = container.querySelector('#krisp-integration-content');
+  if (!contentEl) return;
+
+  try {
+    const webhook = await krispService.getWebhook();
+    const summary = await krispService.getTranscriptsSummary();
+
+    if (!webhook) {
+      contentEl.innerHTML = `
+        <div class="krisp-not-configured">
+          <p>Krisp integration is not configured yet.</p>
+          <button type="button" class="btn-sota primary" id="enable-krisp-btn">
+            <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
+            </svg>
+            Enable Krisp Integration
+          </button>
+        </div>
+      `;
+
+      const enableBtn = contentEl.querySelector('#enable-krisp-btn');
+      if (enableBtn) {
+        on(enableBtn as HTMLElement, 'click', async () => {
+          try {
+            await krispService.getWebhook(); // This creates the webhook if it doesn't exist
+            loadKrispIntegration(container);
+            toast.success('Krisp integration enabled');
+          } catch {
+            toast.error('Failed to enable Krisp integration');
+          }
+        });
+      }
+      return;
+    }
+
+    // Show webhook configuration
+    contentEl.innerHTML = `
+      <div class="krisp-config">
+        <div class="krisp-status">
+          <span class="status-indicator ${webhook.is_active ? 'active' : 'inactive'}"></span>
+          <span>${webhook.is_active ? 'Active' : 'Inactive'}</span>
+          <button type="button" class="btn-sota small ${webhook.is_active ? 'secondary' : 'primary'}" id="toggle-krisp-btn">
+            ${webhook.is_active ? 'Disable' : 'Enable'}
+          </button>
+        </div>
+
+        <div class="form-field">
+          <label>Webhook URL</label>
+          <div class="input-with-copy">
+            <input type="text" value="${escapeHtml(webhook.webhook_url)}" readonly>
+            <button type="button" class="btn-copy" data-copy="${escapeHtml(webhook.webhook_url)}" title="Copy URL">
+              <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="form-field">
+          <label>Authorization Token</label>
+          <div class="input-with-copy">
+            <input type="password" value="${escapeHtml(webhook.webhook_secret)}" readonly id="krisp-secret-input">
+            <button type="button" class="btn-toggle-visibility" id="toggle-secret-btn" title="Show/Hide">
+              <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+              </svg>
+            </button>
+            <button type="button" class="btn-copy" data-copy="${escapeHtml(webhook.webhook_secret)}" title="Copy Token">
+              <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+              </svg>
+            </button>
+          </div>
+          <span class="form-hint">Use this token in the Authorization header when configuring Krisp webhook.</span>
+        </div>
+
+        <div class="krisp-stats">
+          <div class="stat">
+            <span class="stat-value">${summary?.total_count || 0}</span>
+            <span class="stat-label">Total Transcripts</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value">${summary?.processed_count || 0}</span>
+            <span class="stat-label">Processed</span>
+          </div>
+          <div class="stat ${(summary?.quarantine_count || 0) + (summary?.ambiguous_count || 0) > 0 ? 'warning' : ''}">
+            <span class="stat-value">${(summary?.quarantine_count || 0) + (summary?.ambiguous_count || 0)}</span>
+            <span class="stat-label">Need Attention</span>
+          </div>
+        </div>
+
+        <div class="form-actions">
+          <button type="button" class="btn-sota secondary" id="regenerate-krisp-btn">
+            <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+            </svg>
+            Regenerate Credentials
+          </button>
+          <a href="#" class="btn-sota primary" id="view-transcripts-btn">
+            View Transcripts
+          </a>
+        </div>
+      </div>
+      
+      <style>
+        .krisp-config { padding: 16px 0; }
+        .krisp-status { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+        .status-indicator { width: 8px; height: 8px; border-radius: 50%; }
+        .status-indicator.active { background: #22c55e; }
+        .status-indicator.inactive { background: #94a3b8; }
+        .input-with-copy { display: flex; gap: 8px; }
+        .input-with-copy input { flex: 1; }
+        .btn-copy, .btn-toggle-visibility { padding: 8px; background: var(--bg-secondary, #f1f5f9); border: 1px solid var(--border-color, #e2e8f0); border-radius: 6px; cursor: pointer; }
+        .btn-copy:hover, .btn-toggle-visibility:hover { background: var(--bg-tertiary, #e2e8f0); }
+        .krisp-stats { display: flex; gap: 16px; margin: 24px 0; padding: 16px; background: var(--bg-secondary, #f8fafc); border-radius: 12px; }
+        .stat { flex: 1; text-align: center; }
+        .stat-value { display: block; font-size: 24px; font-weight: 600; color: var(--text-primary, #1e293b); }
+        .stat-label { font-size: 12px; color: var(--text-secondary, #64748b); }
+        .stat.warning .stat-value { color: #f59e0b; }
+        .btn-sota.small { padding: 4px 12px; font-size: 12px; }
+        .krisp-not-configured { text-align: center; padding: 32px; }
+        .krisp-not-configured p { margin-bottom: 16px; color: var(--text-secondary, #64748b); }
+        [data-theme="dark"] .krisp-stats { background: rgba(30,41,59,0.5); }
+        [data-theme="dark"] .btn-copy, [data-theme="dark"] .btn-toggle-visibility { background: rgba(30,41,59,0.8); border-color: rgba(255,255,255,0.1); }
+      </style>
+    `;
+
+    // Bind copy buttons
+    contentEl.querySelectorAll('.btn-copy').forEach(btn => {
+      on(btn as HTMLElement, 'click', () => {
+        const text = btn.getAttribute('data-copy') || '';
+        navigator.clipboard.writeText(text);
+        toast.success('Copied to clipboard');
+      });
+    });
+
+    // Toggle secret visibility
+    const toggleSecretBtn = contentEl.querySelector('#toggle-secret-btn');
+    const secretInput = contentEl.querySelector('#krisp-secret-input') as HTMLInputElement;
+    if (toggleSecretBtn && secretInput) {
+      on(toggleSecretBtn as HTMLElement, 'click', () => {
+        secretInput.type = secretInput.type === 'password' ? 'text' : 'password';
+      });
+    }
+
+    // Toggle webhook
+    const toggleBtn = contentEl.querySelector('#toggle-krisp-btn');
+    if (toggleBtn) {
+      on(toggleBtn as HTMLElement, 'click', async () => {
+        const newState = !webhook.is_active;
+        const success = await krispService.toggleWebhook(newState);
+        if (success) {
+          toast.success(newState ? 'Krisp integration enabled' : 'Krisp integration disabled');
+          loadKrispIntegration(container);
+        } else {
+          toast.error('Failed to update integration');
+        }
+      });
+    }
+
+    // Regenerate credentials
+    const regenerateBtn = contentEl.querySelector('#regenerate-krisp-btn');
+    if (regenerateBtn) {
+      on(regenerateBtn as HTMLElement, 'click', async () => {
+        if (!confirm('Are you sure? You will need to update the webhook URL in Krisp.')) return;
+        
+        const newWebhook = await krispService.regenerateWebhook();
+        if (newWebhook) {
+          toast.success('Credentials regenerated');
+          loadKrispIntegration(container);
+        } else {
+          toast.error('Failed to regenerate credentials');
+        }
+      });
+    }
+
+    // View transcripts link
+    const viewTranscriptsBtn = contentEl.querySelector('#view-transcripts-btn');
+    if (viewTranscriptsBtn) {
+      on(viewTranscriptsBtn as HTMLElement, 'click', (e) => {
+        e.preventDefault();
+        closeModal(MODAL_ID);
+        // TODO: Open KrispManager modal
+        toast.info('Krisp Transcripts manager coming soon');
+      });
+    }
+
+  } catch (error) {
+    console.error('[ProfileModal] Krisp integration error:', error);
+    contentEl.innerHTML = `
+      <div class="error-message">
+        <p>Failed to load Krisp integration. Please try again.</p>
+        <button type="button" class="btn-sota secondary" id="retry-krisp-btn">Retry</button>
+      </div>
+    `;
+
+    const retryBtn = contentEl.querySelector('#retry-krisp-btn');
+    if (retryBtn) {
+      on(retryBtn as HTMLElement, 'click', () => loadKrispIntegration(container));
+    }
+  }
 }
 
 export function closeProfileModal(): void {
