@@ -1,0 +1,216 @@
+/**
+ * Source of Truth Styles
+ * GodMode Design System
+ */
+
+/* ==================== SOT Tabs ==================== */
+.sot-tabs {
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.sot-tab {
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  transition: all var(--transition-fast);
+}
+
+.sot-tab:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.sot-tab.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+/* ==================== SOT Content ==================== */
+.sot-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+/* ==================== SOT Item ==================== */
+.sot-item {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.sot-item:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.sot-item-header {
+  display: flex;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+}
+
+.sot-item-content {
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+.sot-item-meta {
+  margin-top: var(--space-sm);
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+/* ==================== Status Badges ==================== */
+.status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.status-badge.open {
+  background: rgba(78, 205, 196, 0.2);
+  color: var(--success);
+}
+
+.status-badge.answered,
+.status-badge.completed,
+.status-badge.approved,
+.status-badge.mitigated {
+  background: rgba(78, 205, 196, 0.2);
+  color: var(--success);
+}
+
+.status-badge.pending,
+.status-badge.in_progress,
+.status-badge.proposed {
+  background: rgba(255, 193, 7, 0.2);
+  color: var(--warning);
+}
+
+.status-badge.dismissed,
+.status-badge.cancelled,
+.status-badge.rejected,
+.status-badge.accepted {
+  background: rgba(160, 160, 160, 0.2);
+  color: var(--text-muted);
+}
+
+/* ==================== Priority Badges ==================== */
+.priority-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.priority-badge.critical {
+  background: rgba(220, 53, 69, 0.2);
+  color: var(--danger);
+}
+
+.priority-badge.high {
+  background: rgba(233, 69, 96, 0.2);
+  color: var(--accent);
+}
+
+.priority-badge.medium {
+  background: rgba(255, 193, 7, 0.2);
+  color: var(--warning);
+}
+
+.priority-badge.low {
+  background: rgba(78, 205, 196, 0.2);
+  color: var(--success);
+}
+
+/* ==================== Impact Badges ==================== */
+.impact-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.impact-badge.high {
+  background: rgba(220, 53, 69, 0.2);
+  color: var(--danger);
+}
+
+.impact-badge.medium {
+  background: rgba(255, 193, 7, 0.2);
+  color: var(--warning);
+}
+
+.impact-badge.low {
+  background: rgba(78, 205, 196, 0.2);
+  color: var(--success);
+}
+
+/* ==================== Empty State ==================== */
+.empty-state {
+  text-align: center;
+  padding: var(--space-xl);
+  color: var(--text-muted);
+}
+
+.empty-state .empty-icon {
+  font-size: 48px;
+  margin-bottom: var(--space-md);
+}
+
+/* ==================== Stat Card ==================== */
+.stat-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  text-align: center;
+  transition: all var(--transition-fast);
+}
+
+.stat-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+
+.stat-value {
+  font-size: 32px;
+  font-weight: bold;
+  color: var(--accent);
+}
+
+.stat-label {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  margin-top: var(--space-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ==================== Mobile ==================== */
+@media (max-width: 767px) {
+  .sot-tabs {
+    flex-wrap: wrap;
+  }
+
+  .sot-tab {
+    flex: 1;
+    text-align: center;
+    min-width: 80px;
+  }
+}

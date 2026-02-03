@@ -1,0 +1,2772 @@
+{
+  "version": "2.2",
+  "entityTypes": {
+    "Answer": {
+      "icon": "message-circle",
+      "color": "#4CAF50",
+      "label": "Answer",
+      "properties": {
+        "id": {
+          "type": "string",
+          "required": true
+        },
+        "source": {
+          "enum": [
+            "manual",
+            "auto-detected",
+            "document",
+            "ai"
+          ],
+          "type": "string",
+          "description": "How the answer was obtained"
+        },
+        "content": {
+          "type": "string",
+          "required": true,
+          "searchable": true
+        },
+        "verified": {
+          "type": "boolean",
+          "default": false
+        },
+        "confidence": {
+          "type": "number",
+          "maximum": 1,
+          "minimum": 0
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "description": "An answer to a question with provenance tracking",
+      "sharedEntity": false,
+      "embeddingTemplate": "[Answer] {content}. Source: {source}"
+    },
+    "Briefing": {
+      "icon": "file-text",
+      "color": "#FF9800",
+      "label": "Briefing",
+      "properties": {
+        "id": {
+          "type": "string",
+          "required": true
+        },
+        "model": {
+          "type": "string",
+          "description": "AI model used"
+        },
+        "summary": {
+          "type": "string",
+          "searchable": true,
+          "description": "Short summary of the briefing"
+        },
+        "provider": {
+          "type": "string",
+          "description": "AI provider used"
+        },
+        "data_hash": {
+          "type": "string",
+          "description": "Hash of project data at time of generation"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "tokens_used": {
+          "type": "number",
+          "description": "Number of tokens used"
+        },
+        "stats_snapshot": {
+          "type": "object",
+          "description": "Snapshot of project statistics"
+        },
+        "generation_time_ms": {
+          "type": "number",
+          "description": "Time to generate in milliseconds"
+        }
+      },
+      "description": "A daily briefing summarizing project status and insights",
+      "sharedEntity": false,
+      "embeddingTemplate": "[Briefing] {summary}. Generated: {created_at}"
+    },
+    "Client": {
+      "icon": "briefcase",
+      "color": "#1ABC9C",
+      "label": "Client",
+      "properties": {
+        "id": {
+          "type": "string",
+          "required": true
+        },
+        "name": {
+          "type": "string",
+          "required": true,
+          "searchable": true
+        },
+        "size": {
+          "enum": [
+            "startup",
+            "small",
+            "medium",
+            "large",
+            "enterprise"
+          ],
+          "type": "string"
+        },
+        "notes": {
+          "type": "string",
+          "searchable": true
+        },
+        "status": {
+          "enum": [
+            "prospect",
+            "active",
+            "inactive",
+            "churned"
+          ],
+          "type": "string",
+          "default": "active"
+        },
+        "address": {
+          "type": "string"
+        },
+        "website": {
+          "type": "string"
+        },
+        "industry": {
+          "type": "string",
+          "searchable": true
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "description": {
+          "type": "string",
+          "searchable": true
+        },
+        "contractType": {
+          "enum": [
+            "fixed",
+            "time_materials",
+            "retainer",
+            "subscription"
+          ],
+          "type": "string"
+        },
+        "contractValue": {
+          "type": "number"
+        },
+        "primaryContact": {
+          "type": "string"
+        }
+      },
+      "description": "A client or customer organization",
+      "sharedEntity": true,
+      "embeddingTemplate": "[Client] {name} - {industry}. {description}. Contract: {contractType}"
+    },
+    "Conversation": {
+      "icon": "message-circle",
+      "color": "#9C27B0",
+      "label": "Conversation",
+      "properties": {
+        "id": {
+          "type": "string",
+          "required": true
+        },
+        "date": {
+          "type": "string",
+          "format": "date"
+        },
+        "name": {
+          "type": "string",
+          "required": true,
+          "searchable": true
+        },
+        "topic": {
+          "type": "string",
+          "searchable": true
+        },
+        "channel": {
+          "type": "string",
+          "description": "Channel or platform name"
+        },
+        "message_count": {
+          "type": "integer"
+        }
+      },
+      "description": "A chat conversation or message thread",
+      "sharedEntity": false,
+      "embeddingTemplate": "[Conversation] {name} in {channel}. Topic: {topic}"
+    },
+    "Decision": {
+      "icon": "check-circle",
+      "color": "#E74C3C",
+      "label": "Decision",
+      "properties": {
+        "id": {
+          "type": "string",
+          "required": true
+        },
+        "date": {
+          "type": "string",
+          "format": "date"
+        },
+        "title": {
+          "type": "string",
+          "required": true,
+          "searchable": true
+        },
+        "impact": {
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "proposed",
+            "approved",
+            "rejected",
+            "deferred",
+            "superseded"
+          ],
+          "type": "string",
+          "default": "proposed"
+        },
+        "category": {
+          "type": "string",
+          "searchable": true
+        },
+        "rationale": {
+          "type": "string",
+          "searchable": true
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "description": {
+          "type": "string",
+          "searchable": true
+        },
+        "alternatives": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "A decision or resolution made",
+      "sharedEntity": false,
+      "embeddingTemplate": "[Decision] {title} - {description}. Status: {status}. Rationale: {rationale}. Impact: {impact}"
+    },
+    "Document": {
+      "icon": "file-text",
+      "color": "#9B59B6",
+      "label": "Document",
+      "properties": {
+        "id": {
+          "type": "string",
+          "required": true
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "searchable": true
+        },
+        "type": {
+          "enum": [
+            "report",
+            "proposal",
+            "specification",
+            "contract",
+            "presentation",
+            "notes",
+            "guide",
+            "policy",
+            "other"
+          ],
+          "type": "string",
+          "default": "other"
+        },
+        "title": {
+          "type": "string",
+          "required": true,
+          "searchable": true
+        },
+        "status": {
+          "enum": [
+            "draft",
+            "review",
+            "approved",
+            "archived"
+          ],
+          "type": "string",
+          "default": "draft"
+        },
+        "content": {
+          "type": "string",
+          "searchable": true
+        },
+        "summary": {
+          "type": "string",
+          "searchable": true
+        },
+        "version": {
+          "type": "string"
+        },
+        "filePath": {
+          "type": "string"
+        },
+        "fileSize": {
+          "type": "number"
+        },
+        "fileType": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "description": {
+          "type": "string",
+          "description": "New property \"description\" for Document"
+        }
+      },
+      "description": "A document or file",
+      "sharedEntity": false,
+      "embeddingTemplate": "[Document] {title} (v{version}) - {type}. {summary}. Tags: {tags}"
+    },
+    "Email": {
+      "icon": "mail",
+      "color": "#2196F3",
+      "label": "Email",
+      "properties": {
+        "id": {
+          "type": "string",
+          "required": true
+        },
+        "intent": {
+          "enum": [
+            "request",
+            "information",
+            "question",
+            "action_needed",
+            "follow_up",
+            "introduction",
+            "thank_you",
+            "complaint",
+            "other"
+          ],
+          "type": "string",
+          "description": "Detected intent of the email"
+        },
+        "subject": {
+          "type": "string",
+          "searchable": true,
+          "description": "Email subject line"
+        },
+        "summary": {
+          "type": "string",
+          "searchable": true,
+          "description": "AI-generated summary"
+        },
+        "body_text": {
+          "type": "string",
+          "searchable": true,
+          "description": "Plain text body of the email"
+        },
+        "date_sent": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Date and time the email was sent"
+        },
+        "direction": {
+          "enum": [
+            "inbound",
+            "outbound",
+            "internal"
+          ],
+          "type": "string",
+          "description": "Email direction"
+        },
+        "from_name": {
+          "type": "string",
+          "searchable": true,
+          "description": "Sender display name"
+        },
+        "sentiment": {
+          "enum": [
+            "positive",
+            "neutral",
+            "negative",
+            "urgent"
+          ],
+          "type": "string",
+          "description": "Detected sentiment"
+        },
+        "thread_id": {
+          "type": "string",
+          "description": "Email thread identifier for grouping conversations"
+        },
+        "to_emails": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Recipient email addresses"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "from_email": {
+          "type": "string",
+          "searchable": true,
+          "description": "Sender email address"
+        },
+        "attachment_count": {
+          "type": "number",
+          "description": "Number of attachments"
+        },
+        "response_drafted": {
+          "type": "boolean",
+          "description": "Whether a draft response has been generated"
+        },
+        "requires_response": {
+          "type": "boolean",
+          "description": "Whether this email needs a response"
+        }
+      },
+      "description": "An email message with extracted entities and response tracking",
+      "sharedEntity": false,
+      "embeddingTemplate": "[Email] Subject: {subject}. From: {from_name}. Summary: {summary}"
+    },
+    "Fact": {
+      "icon": "info",
+      "color": "#95A5A6",
+      "label": "Fact",
+      "properties": {
+        "id": {
+          "type": "string",
+          "required": true
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "searchable": true
+        },
+        "source": {
+          "type": "string",
+          "searchable": true
+        },
+        "content": {
+          "type": "string",
+          "required": true,
+          "searchable": true
+        },
+        "category": {
+          "type": "string",
+          "searchable": true
+        },
+        "verified": {
+          "type": "boolean",
+          "default": false
+        },
+        "confidence": {
+          "type": "number",
+          "default": 0.8,
+          "maximum": 1,
+          "minimum": 0
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "description": "A piece of knowledge or information",
+      "sharedEntity": false,
+      "embeddingTemplate": "[Fact] {content}. Source: {source}. Category: {category}"
+    },
+    "Meeting": {
+      "icon": "calendar",
+      "color": "#FF6B6B",
+      "label": "Meeting",
+      "properties": {
+        "id": {
+          "type": "string",
+          "required": true
+        },
+        "date": {
+          "type": "string",
+          "format": "date-time",
+          "required": true
+        },
+        "type": {
+          "enum": [
+            "standup",
+            "planning",
+            "review",
+            "retrospective",
+            "workshop",
+            "interview",
+            "general"
+          ],
+          "type": "string",
+          "default": "general"
+        },
+        "notes": {
+          "type": "string",
+          "searchable": true
+        },
+        "title": {
+          "type": "string",
+          "required": true,
+          "searchable": true
+        },
+        "agenda": {
+          "type": "string",
+          "searchable": true
+        },
+        "summary": {
+          "type": "string",
+          "searchable": true
+        },
+        "duration": {
+          "type": "number",
+          "description": "Duration in minutes"
+        },
+        "location": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "isRecurring": {
+          "type": "boolean",
+          "default": false
+        },
+        "recordingUrl": {
+          "type": "string"
+        },
+        "transcriptId": {
+          "type": "string"
+        }
+      },
+      "description": "A meeting or discussion event",
+      "sharedEntity": false,
+      "embeddingTemplate": "[Meeting] {title} on {date} - {summary}. Agenda: {agenda}. Notes: {notes}"
+    },
+    "Organization": {
+      "icon": "building",
+      "color": "#8E44AD",
+      "label": "Organization",
+      "properties": {
+        "id": {
+          "type": "string",
+          "required": true
+        },
+        "name": {
+          "type": "string",
+          "required": true,
+          "searchable": true
+        },
+        "size": {
+          "enum": [
+            "small",
+            "medium",
+            "large",
+            "enterprise"
+          ],
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "company",
+            "startup",
+            "agency",
+            "nonprofit",
+            "government",
+            "educational",
+            "other"
+          ],
+          "type": "string",
+          "default": "company"
+        },
+        "address": {
+          "type": "string"
+        },
+        "country": {
+          "type": "string"
+        },
+        "founded": {
+          "type": "string",
+          "format": "date"
+        },
+        "website": {
+          "type": "string"
+        },
+        "industry": {
+          "type": "string",
+          "searchable": true
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "description": {
+          "type": "string",
+          "searchable": true
+        }
+      },
+      "description": "An organization or company",
+      "sharedEntity": true,
+      "embeddingTemplate": "[Organization] {name} - {type} in {industry}. {description}"
+    },
+    "Person": {
+      "icon": "user",
+      "color": "#4A90D9",
+      "label": "Person",
+      "properties": {
+        "id": {
+          "type": "string",
+          "required": true,
+          "description": "Unique identifier"
+        },
+        "bio": {
+          "type": "string",
+          "searchable": true,
+          "description": "Short biography"
+        },
+        "name": {
+          "type": "string",
+          "required": true,
+          "searchable": true,
+          "description": "Full name"
+        },
+        "role": {
+          "type": "string",
+          "searchable": true,
+          "description": "Job title or role"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "searchable": true,
+          "description": "Email address"
+        },
+        "phone": {
+          "type": "string",
+          "description": "Phone number"
+        },
+        "active": {
+          "type": "boolean",
+          "default": true,
+          "description": "Is person active"
+        },
+        "avatar": {
+          "type": "string",
+          "description": "URL to avatar image"
+        },
+        "skills": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "searchable": true,
+          "description": "List of skills"
+        },
+        "location": {
+          "type": "string",
+          "description": "Office location or city"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "department": {
+          "type": "string",
+          "description": "Department within organization"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "organization": {
+          "type": "string",
+          "searchable": true,
+          "description": "Company or organization"
+        }
+      },
+      "description": "A person or individual in the system",
+      "sharedEntity": true,
+      "embeddingTemplate": "[Person] {name} - {role} at {organization}. Skills: {skills}. {bio}"
+    },
+    "Project": {
+      "icon": "folder",
+      "color": "#50C878",
+      "label": "Project",
+      "properties": {
+        "id": {
+          "type": "string",
+          "required": true
+        },
+        "code": {
+          "type": "string",
+          "description": "Project code or identifier"
+        },
+        "name": {
+          "type": "string",
+          "required": true,
+          "searchable": true
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "searchable": true
+        },
+        "phase": {
+          "type": "string",
+          "description": "Current project phase"
+        },
+        "budget": {
+          "type": "number"
+        },
+        "status": {
+          "enum": [
+            "planning",
+            "active",
+            "on_hold",
+            "completed",
+            "cancelled"
+          ],
+          "type": "string",
+          "default": "planning"
+        },
+        "endDate": {
+          "type": "string",
+          "format": "date"
+        },
+        "priority": {
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "type": "string"
+        },
+        "startDate": {
+          "type": "string",
+          "format": "date"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "objectives": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "searchable": true
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "description": {
+          "type": "string",
+          "searchable": true
+        }
+      },
+      "description": "A project or initiative",
+      "sharedEntity": false,
+      "embeddingTemplate": "[Project] {name} ({code}) - {description}. Status: {status}, Phase: {phase}. Objectives: {objectives}"
+    },
+    "Project Management Tool": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "description": "New entity type detected: Project Management Tool"
+    },
+    "Question": {
+      "icon": "help-circle",
+      "color": "#E91E63",
+      "label": "Question",
+      "properties": {
+        "id": {
+          "type": "string",
+          "required": true
+        },
+        "answer": {
+          "type": "string",
+          "searchable": true,
+          "description": "The answer to the question"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "assigned",
+            "resolved",
+            "reopened"
+          ],
+          "type": "string",
+          "default": "pending"
+        },
+        "content": {
+          "type": "string",
+          "required": true,
+          "searchable": true,
+          "description": "The question text"
+        },
+        "context": {
+          "type": "string",
+          "searchable": true,
+          "description": "Why this question matters"
+        },
+        "category": {
+          "type": "string",
+          "searchable": true,
+          "description": "Question category (Technical, Business, Legal, etc.)"
+        },
+        "priority": {
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "type": "string",
+          "default": "medium"
+        },
+        "confidence": {
+          "type": "number",
+          "maximum": 1,
+          "minimum": 0,
+          "description": "Confidence in the answer"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "assigned_to": {
+          "type": "string",
+          "required": false,
+          "searchable": false
+        },
+        "reopened_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "resolved_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "source_file": {
+          "type": "string",
+          "required": false,
+          "searchable": false
+        },
+        "answer_source": {
+          "enum": [
+            "manual",
+            "manual-edit",
+            "auto-detected",
+            "document",
+            "ai"
+          ],
+          "type": "string",
+          "description": "How the answer was obtained"
+        },
+        "source_document": {
+          "type": "string",
+          "description": "Document that originated this question"
+        }
+      },
+      "description": "A question or inquiry requiring an answer",
+      "sharedEntity": false,
+      "embeddingTemplate": "[Question] {content}. Context: {context}. Answer: {answer}"
+    },
+    "Regulation": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "description": "New entity type detected: Regulation"
+    },
+    "Risk": {
+      "icon": "alert-triangle",
+      "color": "#E67E22",
+      "label": "Risk",
+      "properties": {
+        "id": {
+          "type": "string",
+          "required": true
+        },
+        "title": {
+          "type": "string",
+          "required": true,
+          "searchable": true
+        },
+        "impact": {
+          "type": "string",
+          "searchable": true
+        },
+        "status": {
+          "enum": [
+            "identified",
+            "analyzing",
+            "mitigating",
+            "monitoring",
+            "closed"
+          ],
+          "type": "string",
+          "default": "identified"
+        },
+        "category": {
+          "enum": [
+            "technical",
+            "schedule",
+            "budget",
+            "resource",
+            "scope",
+            "external",
+            "other"
+          ],
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "type": "string",
+          "default": "medium"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "mitigation": {
+          "type": "string",
+          "searchable": true
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "contingency": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string",
+          "searchable": true
+        },
+        "probability": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "type": "string",
+          "default": "medium"
+        }
+      },
+      "description": "A risk or potential issue",
+      "sharedEntity": false,
+      "embeddingTemplate": "[Risk] {title} - {description}. Severity: {severity}, Probability: {probability}. Mitigation: {mitigation}"
+    },
+    "Task": {
+      "icon": "check-square",
+      "color": "#3498DB",
+      "label": "Task",
+      "properties": {
+        "id": {
+          "type": "string",
+          "required": true
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "searchable": true
+        },
+        "title": {
+          "type": "string",
+          "required": true,
+          "searchable": true
+        },
+        "status": {
+          "enum": [
+            "todo",
+            "in_progress",
+            "blocked",
+            "review",
+            "done",
+            "cancelled"
+          ],
+          "type": "string",
+          "default": "todo"
+        },
+        "dueDate": {
+          "type": "string",
+          "format": "date"
+        },
+        "priority": {
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "urgent"
+          ],
+          "type": "string",
+          "default": "medium"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "actualHours": {
+          "type": "number"
+        },
+        "description": {
+          "type": "string",
+          "searchable": true
+        },
+        "completed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "estimatedHours": {
+          "type": "number"
+        }
+      },
+      "description": "A task or action item",
+      "sharedEntity": false,
+      "embeddingTemplate": "[Task] {title} - {description}. Status: {status}, Priority: {priority}. Due: {dueDate}"
+    },
+    "Team": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "description": "Entity type \"Team\" exists in graph (1 nodes) but not in ontology"
+    },
+    "Technology": {
+      "icon": "cpu",
+      "color": "#F39C12",
+      "label": "Technology",
+      "properties": {
+        "id": {
+          "type": "string",
+          "required": true
+        },
+        "cons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "name": {
+          "type": "string",
+          "required": true,
+          "searchable": true
+        },
+        "pros": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "searchable": true
+        },
+        "license": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "website": {
+          "type": "string"
+        },
+        "category": {
+          "enum": [
+            "language",
+            "framework",
+            "database",
+            "cloud",
+            "tool",
+            "library",
+            "platform",
+            "service",
+            "other"
+          ],
+          "type": "string",
+          "searchable": true
+        },
+        "maturity": {
+          "enum": [
+            "experimental",
+            "beta",
+            "stable",
+            "deprecated"
+          ],
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "description": {
+          "type": "string",
+          "searchable": true
+        },
+        "documentation": {
+          "type": "string"
+        }
+      },
+      "description": "A technology, tool, or framework",
+      "sharedEntity": true,
+      "embeddingTemplate": "[Technology] {name} ({category}) - {description}. Version: {version}. Tags: {tags}"
+    }
+  },
+  "relationTypes": {
+    "ABOUT": {
+      "label": "About",
+      "toTypes": [
+        "Person",
+        "Project",
+        "Technology",
+        "Client",
+        "Meeting"
+      ],
+      "fromTypes": [
+        "Fact"
+      ],
+      "properties": {
+        "relevance": {
+          "type": "number",
+          "maximum": 1,
+          "minimum": 0
+        }
+      },
+      "description": "Fact is about an entity",
+      "embeddingTemplate": "Fact about {to.name}: {from.content}"
+    },
+    "ABOUT_PROJECT": {
+      "label": "About Project",
+      "toTypes": [
+        "Project"
+      ],
+      "fromTypes": [
+        "Meeting"
+      ],
+      "properties": {},
+      "description": "Meeting is about a project",
+      "embeddingTemplate": "{from.title} is about {to.name}"
+    },
+    "AFFECTS": {
+      "label": "Affects",
+      "toTypes": [
+        "Project",
+        "Person",
+        "Technology"
+      ],
+      "fromTypes": [
+        "Decision",
+        "Risk"
+      ],
+      "properties": {
+        "impact": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "type": "string"
+        }
+      },
+      "description": "Decision or risk affects something",
+      "embeddingTemplate": "{from.title} affects {to.name}"
+    },
+    "ANSWER_FROM": {
+      "label": "Answer From",
+      "toTypes": [
+        "Document",
+        "Fact",
+        "Meeting"
+      ],
+      "fromTypes": [
+        "Question",
+        "Answer"
+      ],
+      "properties": {
+        "excerpt": {
+          "type": "string",
+          "description": "Relevant excerpt from source"
+        },
+        "confidence": {
+          "type": "number"
+        }
+      },
+      "description": "Answer was derived from a document or fact",
+      "embeddingTemplate": "Answer derived from {to.title}"
+    },
+    "ANSWERED_BY": {
+      "label": "Answered By",
+      "toTypes": [
+        "Person"
+      ],
+      "fromTypes": [
+        "Question"
+      ],
+      "properties": {
+        "confidence": {
+          "type": "number"
+        },
+        "answeredDate": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "description": "Question was answered by a person",
+      "embeddingTemplate": "Question '{from.content}' answered by {to.name}"
+    },
+    "ASSIGNED_TO": {
+      "label": "Assigned To",
+      "toTypes": [
+        "Person"
+      ],
+      "fromTypes": [
+        "Task"
+      ],
+      "properties": {
+        "assignedDate": {
+          "type": "string",
+          "format": "date"
+        }
+      },
+      "description": "Task is assigned to a person",
+      "embeddingTemplate": "{from.title} is assigned to {to.name}"
+    },
+    "ATTENDS": {
+      "label": "Attends",
+      "toTypes": [
+        "Meeting"
+      ],
+      "fromTypes": [
+        "Person"
+      ],
+      "properties": {
+        "role": {
+          "enum": [
+            "organizer",
+            "presenter",
+            "participant",
+            "optional"
+          ],
+          "type": "string"
+        },
+        "attended": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "description": "Person attends a meeting",
+      "embeddingTemplate": "{from.name} attends {to.title} as {role}"
+    },
+    "AUTHORED": {
+      "label": "Authored",
+      "toTypes": [
+        "Document"
+      ],
+      "fromTypes": [
+        "Person"
+      ],
+      "properties": {
+        "date": {
+          "type": "string",
+          "format": "date"
+        },
+        "contribution": {
+          "enum": [
+            "author",
+            "co-author",
+            "reviewer",
+            "contributor"
+          ],
+          "type": "string"
+        }
+      },
+      "description": "Person authored a document",
+      "embeddingTemplate": "{from.name} authored {to.title}"
+    },
+    "BRIEFING_FOR": {
+      "label": "Briefing For",
+      "toTypes": [
+        "Project"
+      ],
+      "fromTypes": [
+        "Briefing"
+      ],
+      "properties": {
+        "generatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "description": "Briefing was generated for a project",
+      "embeddingTemplate": "Briefing for project {to.name} on {from.created_at}"
+    },
+    "CLIENT_OF": {
+      "label": "Client Of",
+      "toTypes": [
+        "Project"
+      ],
+      "fromTypes": [
+        "Client"
+      ],
+      "crossGraph": true,
+      "properties": {
+        "startDate": {
+          "type": "string",
+          "format": "date"
+        },
+        "contractId": {
+          "type": "string"
+        }
+      },
+      "description": "Client has a project (cross-graph reference)",
+      "embeddingTemplate": "{from.name} is client for {to.name}"
+    },
+    "COMPLIES_WITH": {
+      "to": "Entity",
+      "from": "Entity",
+      "properties": {},
+      "description": "New relationship type: ACMEA → Dutch Pension Law"
+    },
+    "CONTACT_PERSON": {
+      "label": "Contact Person",
+      "toTypes": [
+        "Client"
+      ],
+      "fromTypes": [
+        "Person"
+      ],
+      "properties": {
+        "role": {
+          "type": "string"
+        },
+        "isPrimary": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "description": "Person is a contact for a client",
+      "embeddingTemplate": "{from.name} is contact for {to.name}"
+    },
+    "DEPENDS_ON": {
+      "label": "Depends On",
+      "toTypes": [
+        "Task",
+        "Technology"
+      ],
+      "fromTypes": [
+        "Task",
+        "Technology"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "blocking",
+            "soft",
+            "optional"
+          ],
+          "type": "string"
+        }
+      },
+      "description": "Task or technology depends on another",
+      "embeddingTemplate": "{from.name} depends on {to.name}"
+    },
+    "DISCUSSED": {
+      "to": "Entity",
+      "from": "Entity",
+      "properties": {},
+      "description": "New relationship type: Afonso → Dutch pension law"
+    },
+    "EMAIL_ANSWERS": {
+      "label": "Email Answers",
+      "toTypes": [
+        "Question"
+      ],
+      "fromTypes": [
+        "Email"
+      ],
+      "properties": {
+        "confidence": {
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ],
+          "type": "string"
+        }
+      },
+      "description": "Email provides an answer to a question",
+      "embeddingTemplate": "Email answers question: {to.content}"
+    },
+    "EMAIL_MENTIONS": {
+      "label": "Email Mentions",
+      "toTypes": [
+        "Person"
+      ],
+      "fromTypes": [
+        "Email"
+      ],
+      "properties": {
+        "context": {
+          "type": "string",
+          "description": "Context where person was mentioned"
+        }
+      },
+      "description": "Email mentions a person in its content",
+      "embeddingTemplate": "Email '{from.subject}' mentions {to.name}"
+    },
+    "EMAIL_REFERENCES": {
+      "label": "Email References",
+      "toTypes": [
+        "Document",
+        "Project",
+        "Technology"
+      ],
+      "fromTypes": [
+        "Email"
+      ],
+      "properties": {},
+      "description": "Email references a document or other entity",
+      "embeddingTemplate": "Email '{from.subject}' references {to.name}"
+    },
+    "EXTRACTED_FROM": {
+      "label": "Extracted From",
+      "toTypes": [
+        "Document",
+        "Meeting"
+      ],
+      "fromTypes": [
+        "Fact"
+      ],
+      "properties": {
+        "page": {
+          "type": "number"
+        },
+        "timestamp": {
+          "type": "string"
+        }
+      },
+      "description": "Fact was extracted from a document or meeting",
+      "embeddingTemplate": "{from.content} was extracted from {to.title}"
+    },
+    "FOR_CLIENT": {
+      "label": "For Client",
+      "toTypes": [
+        "Client"
+      ],
+      "fromTypes": [
+        "Project"
+      ],
+      "properties": {
+        "startDate": {
+          "type": "string",
+          "format": "date"
+        },
+        "contractId": {
+          "type": "string"
+        }
+      },
+      "description": "Project is for a client",
+      "embeddingTemplate": "{from.name} is a project for {to.name}"
+    },
+    "GUIDES": {
+      "to": "Entity",
+      "from": "Entity",
+      "properties": {},
+      "description": "New relationship type: Alexander → Afonso"
+    },
+    "HAS_ATTACHMENT": {
+      "label": "Has Attachment",
+      "toTypes": [
+        "Document"
+      ],
+      "fromTypes": [
+        "Email"
+      ],
+      "properties": {
+        "size": {
+          "type": "number"
+        },
+        "filename": {
+          "type": "string"
+        }
+      },
+      "description": "Email has an attached document",
+      "embeddingTemplate": "Email '{from.subject}' has attachment {to.title}"
+    },
+    "HAS_DOCUMENT": {
+      "label": "Has Document",
+      "toTypes": [
+        "Document"
+      ],
+      "fromTypes": [
+        "Project"
+      ],
+      "properties": {
+        "category": {
+          "type": "string"
+        },
+        "isDeliverable": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "description": "Project has an associated document",
+      "embeddingTemplate": "{from.name} has document {to.title}"
+    },
+    "HAS_FOLLOWUP": {
+      "label": "Has Follow-up",
+      "toTypes": [
+        "Question"
+      ],
+      "fromTypes": [
+        "Question"
+      ],
+      "properties": {
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "description": "Question has a follow-up question",
+      "embeddingTemplate": "Question '{from.content}' led to follow-up '{to.content}'"
+    },
+    "HAS_PARTICIPANT": {
+      "label": "Has Participant",
+      "toTypes": [
+        "Person"
+      ],
+      "fromTypes": [
+        "Meeting"
+      ],
+      "properties": {
+        "role": {
+          "type": "string"
+        },
+        "attended": {
+          "type": "boolean"
+        }
+      },
+      "description": "Meeting has a participant",
+      "embeddingTemplate": "{to.name} participated in {from.title}"
+    },
+    "HAS_SKILL": {
+      "label": "Has Skill",
+      "toTypes": [
+        "Technology"
+      ],
+      "fromTypes": [
+        "Person"
+      ],
+      "properties": {
+        "level": {
+          "enum": [
+            "beginner",
+            "intermediate",
+            "advanced",
+            "expert"
+          ],
+          "type": "string"
+        },
+        "certified": {
+          "type": "boolean",
+          "default": false
+        },
+        "yearsExperience": {
+          "type": "number"
+        }
+      },
+      "description": "Person has a technology skill",
+      "embeddingTemplate": "{from.name} has {level} skill in {to.name}"
+    },
+    "IDENTIFIED_IN": {
+      "label": "Identified In",
+      "toTypes": [
+        "Project",
+        "Meeting"
+      ],
+      "fromTypes": [
+        "Risk"
+      ],
+      "properties": {
+        "date": {
+          "type": "string",
+          "format": "date"
+        }
+      },
+      "description": "Risk was identified in a project or meeting",
+      "embeddingTemplate": "{from.title} was identified in {to.name}"
+    },
+    "INTEGRATES": {
+      "to": "Entity",
+      "from": "Entity",
+      "properties": {},
+      "description": "New relationship type: ACHMEA → Dutch Pension Law"
+    },
+    "INTEGRATES_WITH": {
+      "to": "Entity",
+      "from": "Entity",
+      "properties": {},
+      "description": "New relationship type: ACHMEA → Dutch Pension Law"
+    },
+    "INTRODUCED": {
+      "to": "Entity",
+      "from": "Entity",
+      "properties": {},
+      "description": "New relationship type: Luuc CGI → Kishor CGI"
+    },
+    "INTRODUCES": {
+      "to": "Entity",
+      "from": "Entity",
+      "properties": {},
+      "description": "New relationship type: Luuc → Kishor"
+    },
+    "KNOWS": {
+      "label": "Knows",
+      "toTypes": [
+        "Person"
+      ],
+      "fromTypes": [
+        "Person"
+      ],
+      "properties": {
+        "since": {
+          "type": "string",
+          "format": "date"
+        },
+        "context": {
+          "type": "string",
+          "description": "How they know each other"
+        },
+        "strength": {
+          "enum": [
+            "weak",
+            "moderate",
+            "strong"
+          ],
+          "type": "string"
+        }
+      },
+      "description": "Person knows another person",
+      "embeddingTemplate": "{from.name} knows {to.name} from {context}"
+    },
+    "MADE_BY": {
+      "label": "Made By",
+      "toTypes": [
+        "Person"
+      ],
+      "fromTypes": [
+        "Decision"
+      ],
+      "properties": {
+        "date": {
+          "type": "string",
+          "format": "date"
+        }
+      },
+      "description": "Decision was made by a person",
+      "embeddingTemplate": "{from.title} was decided by {to.name}"
+    },
+    "MADE_IN": {
+      "label": "Made In",
+      "toTypes": [
+        "Meeting"
+      ],
+      "fromTypes": [
+        "Decision"
+      ],
+      "properties": {},
+      "description": "Decision was made in a meeting",
+      "embeddingTemplate": "{from.title} was decided in {to.title}"
+    },
+    "MANAGES": {
+      "to": "Entity",
+      "from": "Entity",
+      "properties": {},
+      "description": "New relationship type: Luuc → Kishor"
+    },
+    "MENTIONED_IN": {
+      "to": "*",
+      "from": "*",
+      "properties": {},
+      "description": "Relation type \"MENTIONED_IN\" exists in graph (38 edges) but not in ontology"
+    },
+    "MENTIONS": {
+      "label": "Mentions",
+      "toTypes": [
+        "Person",
+        "Project",
+        "Technology",
+        "Client",
+        "Task",
+        "Decision",
+        "Risk"
+      ],
+      "fromTypes": [
+        "Meeting",
+        "Document",
+        "Fact"
+      ],
+      "properties": {
+        "count": {
+          "type": "number",
+          "default": 1
+        },
+        "context": {
+          "type": "string"
+        }
+      },
+      "description": "Generic mention relationship",
+      "embeddingTemplate": "{from.title} mentions {to.name}"
+    },
+    "OWNED_BY": {
+      "label": "Owned By",
+      "toTypes": [
+        "Person"
+      ],
+      "fromTypes": [
+        "Risk"
+      ],
+      "properties": {},
+      "description": "Risk is owned by a person",
+      "embeddingTemplate": "{from.title} is owned by {to.name}"
+    },
+    "PART_OF": {
+      "label": "Part Of",
+      "toTypes": [
+        "Project"
+      ],
+      "fromTypes": [
+        "Task"
+      ],
+      "properties": {
+        "milestone": {
+          "type": "string"
+        }
+      },
+      "description": "Task is part of a project",
+      "embeddingTemplate": "{from.title} is part of {to.name}"
+    },
+    "PARTICIPATED": {
+      "label": "Participated In",
+      "toTypes": [
+        "Conversation"
+      ],
+      "fromTypes": [
+        "Person"
+      ],
+      "properties": {
+        "message_count": {
+          "type": "integer",
+          "description": "Number of messages from this person"
+        },
+        "first_message_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "description": "Person participated in a conversation",
+      "embeddingTemplate": "{from.name} participated in {to.name}"
+    },
+    "PARTICIPATED_IN": {
+      "to": "*",
+      "from": "*",
+      "properties": {},
+      "description": "Relation type \"PARTICIPATED_IN\" exists in graph (33 edges) but not in ontology"
+    },
+    "PARTICIPATES_IN": {
+      "label": "Participates In",
+      "toTypes": [
+        "Project"
+      ],
+      "fromTypes": [
+        "Person"
+      ],
+      "crossGraph": true,
+      "properties": {
+        "role": {
+          "type": "string",
+          "description": "Role in the project"
+        },
+        "since": {
+          "type": "string",
+          "format": "date"
+        },
+        "until": {
+          "type": "string",
+          "format": "date"
+        },
+        "active": {
+          "type": "boolean",
+          "default": true
+        },
+        "allocation": {
+          "type": "number",
+          "description": "Percentage allocation (0-100)"
+        }
+      },
+      "description": "Person participates in a project (cross-graph reference)",
+      "embeddingTemplate": "{from.name} participates in {to.name} as {role}"
+    },
+    "QUESTION_ABOUT": {
+      "label": "Question About",
+      "toTypes": [
+        "Project",
+        "Technology",
+        "Person",
+        "Decision",
+        "Risk",
+        "Fact"
+      ],
+      "fromTypes": [
+        "Question"
+      ],
+      "properties": {
+        "relevance": {
+          "type": "number"
+        }
+      },
+      "description": "Question is about a specific topic/entity",
+      "embeddingTemplate": "Question about {to.name}: {from.content}"
+    },
+    "QUESTION_ASSIGNED_TO": {
+      "label": "Question Assigned To",
+      "toTypes": [
+        "Person"
+      ],
+      "fromTypes": [
+        "Question"
+      ],
+      "properties": {
+        "dueDate": {
+          "type": "string",
+          "format": "date"
+        },
+        "assignedDate": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "description": "Question is assigned to a person to answer",
+      "embeddingTemplate": "Question '{from.content}' assigned to {to.name}"
+    },
+    "QUESTION_FROM_DOCUMENT": {
+      "label": "Question From Document",
+      "toTypes": [
+        "Document",
+        "Meeting"
+      ],
+      "fromTypes": [
+        "Question"
+      ],
+      "properties": {
+        "extractedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "description": "Question was extracted from a document",
+      "embeddingTemplate": "Question '{from.content}' extracted from {to.title}"
+    },
+    "REFERENCES": {
+      "label": "References",
+      "toTypes": [
+        "Document",
+        "Project",
+        "Person",
+        "Technology"
+      ],
+      "fromTypes": [
+        "Document"
+      ],
+      "properties": {
+        "section": {
+          "type": "string"
+        }
+      },
+      "description": "Document references another document or entity",
+      "embeddingTemplate": "{from.title} references {to.name}"
+    },
+    "RELATED_TO": {
+      "label": "Related To",
+      "toTypes": [
+        "*"
+      ],
+      "fromTypes": [
+        "*"
+      ],
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "strength": {
+          "type": "number",
+          "default": 0.5,
+          "maximum": 1,
+          "minimum": 0
+        },
+        "description": {
+          "type": "string"
+        }
+      },
+      "description": "Generic relationship between entities",
+      "embeddingTemplate": "{from.name} is related to {to.name}"
+    },
+    "REPLIES_TO": {
+      "label": "Replies To",
+      "toTypes": [
+        "Email"
+      ],
+      "fromTypes": [
+        "Email"
+      ],
+      "properties": {},
+      "description": "Email is a reply to another email (threading)",
+      "embeddingTemplate": "Email '{from.subject}' replies to '{to.subject}'"
+    },
+    "REPORTS_TO": {
+      "label": "Reports To",
+      "toTypes": [
+        "Person"
+      ],
+      "fromTypes": [
+        "Person"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "direct",
+            "dotted",
+            "functional"
+          ],
+          "type": "string"
+        },
+        "since": {
+          "type": "string",
+          "format": "date"
+        }
+      },
+      "description": "Person reports to another person",
+      "embeddingTemplate": "{from.name} reports to {to.name}"
+    },
+    "RESULTED_IN": {
+      "label": "Resulted In",
+      "toTypes": [
+        "Decision",
+        "Task"
+      ],
+      "fromTypes": [
+        "Meeting"
+      ],
+      "properties": {
+        "priority": {
+          "type": "string"
+        }
+      },
+      "description": "Meeting resulted in a decision or task",
+      "embeddingTemplate": "{from.title} resulted in {to.title}"
+    },
+    "SENT": {
+      "label": "Sent",
+      "toTypes": [
+        "Email"
+      ],
+      "fromTypes": [
+        "Person"
+      ],
+      "properties": {
+        "date": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "description": "Person sent an email",
+      "embeddingTemplate": "{from.name} sent email '{to.subject}'"
+    },
+    "SENT_BY": {
+      "label": "Sent By",
+      "toTypes": [
+        "Person"
+      ],
+      "fromTypes": [
+        "Email"
+      ],
+      "properties": {
+        "date": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "description": "Email was sent by a person",
+      "embeddingTemplate": "Email '{from.subject}' sent by {to.name}"
+    },
+    "SENT_TO": {
+      "label": "Sent To",
+      "toTypes": [
+        "Person"
+      ],
+      "fromTypes": [
+        "Email"
+      ],
+      "properties": {
+        "recipientType": {
+          "enum": [
+            "to",
+            "cc",
+            "bcc"
+          ],
+          "type": "string",
+          "description": "Type of recipient"
+        }
+      },
+      "description": "Email was sent to a person",
+      "embeddingTemplate": "Email '{from.subject}' sent to {to.name}"
+    },
+    "USED_IN": {
+      "label": "Used In",
+      "toTypes": [
+        "Project"
+      ],
+      "fromTypes": [
+        "Technology"
+      ],
+      "crossGraph": true,
+      "properties": {
+        "purpose": {
+          "type": "string",
+          "description": "What the tech is used for"
+        },
+        "version": {
+          "type": "string"
+        },
+        "isPrimary": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "description": "Technology is used in a project (cross-graph reference)",
+      "embeddingTemplate": "{from.name} is used in {to.name} for {purpose}"
+    },
+    "USES": {
+      "to": "Entity",
+      "from": "Entity",
+      "properties": {},
+      "description": "New relationship type: ACHA Project → Knowledge Graph"
+    },
+    "USES_TECH": {
+      "label": "Uses Technology",
+      "toTypes": [
+        "Technology"
+      ],
+      "fromTypes": [
+        "Project"
+      ],
+      "properties": {
+        "purpose": {
+          "type": "string",
+          "description": "What the tech is used for"
+        },
+        "version": {
+          "type": "string"
+        },
+        "isPrimary": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "description": "Project uses a technology",
+      "embeddingTemplate": "{from.name} uses {to.name} for {purpose}"
+    },
+    "WORKS_AT": {
+      "label": "Works At",
+      "toTypes": [
+        "Organization"
+      ],
+      "fromTypes": [
+        "Person"
+      ],
+      "properties": {
+        "role": {
+          "type": "string",
+          "description": "Job title or role at the organization"
+        },
+        "since": {
+          "type": "string",
+          "format": "date",
+          "description": "Start date of employment"
+        },
+        "current": {
+          "type": "boolean",
+          "default": true,
+          "description": "Is currently employed"
+        },
+        "department": {
+          "type": "string",
+          "description": "Department within the organization"
+        }
+      },
+      "description": "Person works at an organization",
+      "embeddingTemplate": "{from.name} works at {to.name} as {role}"
+    },
+    "WORKS_ON": {
+      "label": "Works On",
+      "toTypes": [
+        "Project"
+      ],
+      "fromTypes": [
+        "Person"
+      ],
+      "properties": {
+        "role": {
+          "type": "string",
+          "description": "Role in the project"
+        },
+        "since": {
+          "type": "string",
+          "format": "date"
+        },
+        "until": {
+          "type": "string",
+          "format": "date"
+        },
+        "allocation": {
+          "type": "number",
+          "description": "Percentage allocation (0-100)"
+        }
+      },
+      "description": "Person works on a project",
+      "embeddingTemplate": "{from.name} works on {to.name} as {role}"
+    },
+    "WORKS_WITH": {
+      "from": "*",
+      "to": "*",
+      "description": "Relation type \"WORKS_WITH\" exists in graph (63 edges) but not in ontology",
+      "properties": {}
+    },
+    "OWNS": {
+      "from": "*",
+      "to": "*",
+      "description": "Relation type \"OWNS\" exists in graph (7 edges) but not in ontology",
+      "properties": {}
+    }
+  },
+  "queryPatterns": {
+    "answered_questions": {
+      "cypher": "MATCH (q:Question)-[:ANSWERED_BY]->(p:Person) WHERE q.status = 'resolved' RETURN q, p",
+      "pattern": "(answered|resolved) questions",
+      "entityTypes": [
+        "Question"
+      ],
+      "relationTypes": [
+        "ANSWERED_BY"
+      ]
+    },
+    "cross_project_people": {
+      "cypher": "MATCH (p:Person) WHERE size(p.projects) > 1 RETURN p",
+      "pattern": "who works (on|in) multiple projects",
+      "entityTypes": [
+        "Person"
+      ],
+      "crossProject": true,
+      "relationTypes": [
+        "PARTICIPATES_IN"
+      ]
+    },
+    "decisions_for": {
+      "cypher": "MATCH (d:Decision)-[:AFFECTS]->(proj:Project {name: $project}) RETURN d",
+      "pattern": "decisions (for|in|about) {project}",
+      "entityTypes": [
+        "Decision"
+      ],
+      "relationTypes": [
+        "AFFECTS"
+      ]
+    },
+    "followup_questions": {
+      "cypher": "MATCH (q1:Question)-[:HAS_FOLLOWUP]->(q2:Question) WHERE q1.content CONTAINS $question RETURN q2",
+      "pattern": "follow-up questions (from|for) {question}",
+      "entityTypes": [
+        "Question"
+      ],
+      "relationTypes": [
+        "HAS_FOLLOWUP"
+      ]
+    },
+    "meetings_about": {
+      "cypher": "MATCH (m:Meeting)-[:ABOUT_PROJECT]->(proj:Project {name: $project}) RETURN m ORDER BY m.date DESC",
+      "pattern": "(meetings|discussions) about {project}",
+      "entityTypes": [
+        "Meeting"
+      ],
+      "relationTypes": [
+        "ABOUT_PROJECT"
+      ]
+    },
+    "pending_questions": {
+      "cypher": "MATCH (q:Question) WHERE q.status = 'pending' RETURN q ORDER BY q.priority DESC",
+      "pattern": "(pending|open|unanswered) questions",
+      "entityTypes": [
+        "Question"
+      ],
+      "relationTypes": []
+    },
+    "person_projects": {
+      "cypher": "MATCH (p:Person {name: $person}) RETURN p.projects as projects",
+      "pattern": "(which|what) projects (does|is) {person} (work|working) on",
+      "entityTypes": [
+        "Project"
+      ],
+      "crossProject": true,
+      "relationTypes": [
+        "PARTICIPATES_IN"
+      ]
+    },
+    "project_connections": {
+      "cypher": "MATCH (p:Person) WHERE size(p.projects) > 1 RETURN p.name, p.projects",
+      "pattern": "(connections|links) between projects",
+      "entityTypes": [
+        "Person",
+        "Technology",
+        "Client"
+      ],
+      "crossProject": true,
+      "relationTypes": [
+        "PARTICIPATES_IN",
+        "USED_IN",
+        "CLIENT_OF"
+      ]
+    },
+    "questions_about_topic": {
+      "cypher": "MATCH (q:Question)-[:QUESTION_ABOUT]->(t) WHERE t.name CONTAINS $topic OR t.content CONTAINS $topic RETURN q",
+      "pattern": "questions about {topic}",
+      "entityTypes": [
+        "Question"
+      ],
+      "relationTypes": [
+        "QUESTION_ABOUT"
+      ]
+    },
+    "questions_for_person": {
+      "cypher": "MATCH (q:Question)-[:QUESTION_ASSIGNED_TO]->(p:Person {name: $person}) WHERE q.status <> 'resolved' RETURN q",
+      "pattern": "questions (for|assigned to) {person}",
+      "entityTypes": [
+        "Question"
+      ],
+      "relationTypes": [
+        "QUESTION_ASSIGNED_TO"
+      ]
+    },
+    "risks_for": {
+      "cypher": "MATCH (r:Risk)-[:IDENTIFIED_IN]->(proj:Project {name: $project}) RETURN r",
+      "pattern": "risks (for|in) {project}",
+      "entityTypes": [
+        "Risk"
+      ],
+      "relationTypes": [
+        "IDENTIFIED_IN"
+      ]
+    },
+    "tasks_assigned": {
+      "cypher": "MATCH (t:Task)-[:ASSIGNED_TO]->(p:Person {name: $person}) RETURN t",
+      "pattern": "tasks (assigned to|for) {person}",
+      "entityTypes": [
+        "Task"
+      ],
+      "relationTypes": [
+        "ASSIGNED_TO"
+      ]
+    },
+    "what_technologies": {
+      "cypher": "MATCH (proj:Project {name: $project})-[:USES_TECH]->(t:Technology) RETURN t",
+      "pattern": "what (tech|technologies|stack) (does|is used in) {project}",
+      "entityTypes": [
+        "Technology"
+      ],
+      "relationTypes": [
+        "USES_TECH"
+      ]
+    },
+    "who_answered": {
+      "cypher": "MATCH (q:Question)-[:ANSWERED_BY]->(p:Person) WHERE q.content CONTAINS $question RETURN p, q.answer",
+      "pattern": "who answered {question}",
+      "entityTypes": [
+        "Person"
+      ],
+      "relationTypes": [
+        "ANSWERED_BY"
+      ]
+    },
+    "who_knows": {
+      "cypher": "MATCH (p:Person)-[:HAS_SKILL]->(t:Technology {name: $technology}) RETURN p",
+      "pattern": "who knows {technology}",
+      "entityTypes": [
+        "Person"
+      ],
+      "relationTypes": [
+        "HAS_SKILL"
+      ]
+    },
+    "who_works_on": {
+      "cypher": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project {name: $project}) RETURN p",
+      "pattern": "who (works|is working) on {project}",
+      "entityTypes": [
+        "Person"
+      ],
+      "relationTypes": [
+        "WORKS_ON"
+      ]
+    }
+  },
+  "inferenceRules": [
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    }
+  ],
+  "lastUpdated": "2026-02-02T19:11:46.876Z"
+}

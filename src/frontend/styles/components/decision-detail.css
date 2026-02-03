@@ -1,0 +1,161 @@
+/**
+ * Decision Detail View Styles
+ * Extends question-detail-view (shared layout); decision-specific overrides
+ */
+
+.decision-detail-view.question-detail-view .decision-main .decision-content-text,
+.decision-detail-view.question-detail-view .question-text.decision-content-text {
+  font-size: var(--font-size-base);
+  line-height: 1.6;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.decision-detail-view .decision-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+
+.decision-detail-view .detail-actions {
+  display: flex;
+  gap: var(--space-md);
+  margin-top: var(--space-xl);
+  padding-top: var(--space-lg);
+  border-top: 1px solid var(--border);
+}
+
+.decision-detail-view .decision-timeline-section .decision-timeline-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.decision-timeline-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.decision-timeline-item .decision-event-type {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.decision-timeline-item .decision-event-actor {
+  color: var(--text-secondary);
+}
+
+.decision-timeline-item .decision-event-date {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.decision-similar-section .decision-similar-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.decision-similar-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  font-size: var(--font-size-sm);
+  cursor: default;
+}
+
+.decision-similar-item[role="button"] {
+  cursor: pointer;
+}
+
+.decision-similar-item[role="button"]:hover {
+  background: var(--bg-tertiary);
+}
+
+.decision-similar-score {
+  flex-shrink: 0;
+  font-weight: 600;
+  color: var(--accent);
+  min-width: 2.5em;
+}
+
+.decision-similar-content {
+  flex: 1;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+/* Inline edit form – align with risk/action detail edit form */
+.decision-detail-view .decision-detail-edit-form {
+  margin-top: var(--space-md);
+  padding: var(--space-lg);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+}
+
+.decision-detail-view .decision-detail-edit-form .btn-ai-suggest {
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+}
+
+.decision-detail-view .decision-detail-edit-form .decision-form label {
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.decision-detail-view .decision-detail-edit-form .decision-form textarea,
+.decision-detail-view .decision-detail-edit-form .decision-form select,
+.decision-detail-view .decision-detail-edit-form .decision-form input[type="text"] {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.decision-detail-view .decision-detail-edit-form .decision-form .form-group {
+  margin-bottom: var(--space-md);
+}
+
+.decision-detail-view .decision-detail-edit-form .form-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+}
+
+.decision-detail-view .decision-detail-edit-form .form-row .form-group {
+  flex: 1;
+  min-width: 120px;
+}
+
+.decision-detail-view .decision-detail-edit-form .detail-actions {
+  margin-top: var(--space-lg);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border);
+}
+
+/* Owner section: keep AI Suggest button visible (no shrink) */
+.decision-detail-view #decision-owner-section .section-header-sota .btn-ai-suggest {
+  flex-shrink: 0;
+}
+
+.decision-detail-view .decision-suggestions-panel .suggestion-card {
+  padding: var(--space-md);
+  background: var(--bg-card);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  margin-bottom: var(--space-sm);
+}

@@ -1,0 +1,222 @@
+/**
+ * Status Indicator Styles
+ * GodMode Design System
+ */
+
+/* ==================== Status Indicator ==================== */
+.status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 13px;
+  background: var(--bg-card);
+}
+
+/* ==================== Status Dot ==================== */
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.status-dot.connected {
+  background: var(--success);
+  box-shadow: 0 0 8px var(--success);
+}
+
+.status-dot.disconnected {
+  background: var(--error);
+}
+
+.status-dot.pending {
+  background: var(--warning);
+  animation: pulse 1.5s infinite;
+}
+
+.status-dot.loading {
+  background: var(--accent);
+  animation: pulse 1s infinite;
+}
+
+/* ==================== Status Badge ==================== */
+.status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+
+.status-badge.open,
+.status-badge.pending {
+  background: rgba(255, 230, 109, 0.2);
+  color: var(--warning);
+}
+
+.status-badge.answered,
+.status-badge.resolved,
+.status-badge.completed {
+  background: rgba(78, 205, 196, 0.2);
+  color: var(--success);
+}
+
+.status-badge.dismissed,
+.status-badge.cancelled {
+  background: rgba(160, 160, 160, 0.2);
+  color: var(--text-muted);
+}
+
+.status-badge.in-progress {
+  background: rgba(233, 69, 96, 0.2);
+  color: var(--accent);
+}
+
+.status-badge.overdue {
+  background: rgba(255, 107, 107, 0.2);
+  color: var(--error);
+}
+
+/* ==================== Health Score ==================== */
+.health-score {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-md);
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+}
+
+.health-score-value {
+  font-size: 48px;
+  font-weight: bold;
+  line-height: 1;
+}
+
+.health-score-value.excellent {
+  color: var(--success);
+}
+
+.health-score-value.good {
+  color: #7ed957;
+}
+
+.health-score-value.warning {
+  color: var(--warning);
+}
+
+.health-score-value.critical {
+  color: var(--error);
+}
+
+.health-score-label {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  margin-top: var(--space-xs);
+}
+
+/* ==================== Trend Indicators ==================== */
+.trend-indicator {
+  font-size: 11px;
+  margin-left: 4px;
+  font-weight: bold;
+  vertical-align: middle;
+}
+
+.trend-up.trend-positive::before {
+  content: "↑";
+  color: var(--success);
+}
+
+.trend-up.trend-negative::before {
+  content: "↑";
+  color: var(--error);
+}
+
+.trend-down.trend-positive::before {
+  content: "↓";
+  color: var(--success);
+}
+
+.trend-down.trend-negative::before {
+  content: "↓";
+  color: var(--error);
+}
+
+.trend-stable::before {
+  content: "→";
+  color: var(--text-secondary);
+  opacity: 0.5;
+}
+
+.trend-delta {
+  font-size: 10px;
+  opacity: 0.8;
+  margin-left: 2px;
+}
+
+/* ==================== Risk Heatmap ==================== */
+.heatmap-grid {
+  display: grid;
+  grid-template-columns: auto repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr) auto;
+  gap: 2px;
+  max-width: 200px;
+}
+
+.heatmap-cell {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: bold;
+  color: white;
+  transition: transform var(--transition-fast);
+}
+
+.heatmap-cell:hover {
+  transform: scale(1.1);
+}
+
+.heatmap-cell.empty {
+  opacity: 0.3;
+}
+
+.heatmap-label {
+  font-size: 9px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ==================== Invite Status ==================== */
+.invite-status {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+
+.invite-status.pending {
+  background: rgba(255, 230, 109, 0.2);
+  color: var(--warning);
+}
+
+.invite-status.accepted {
+  background: rgba(78, 205, 196, 0.2);
+  color: var(--success);
+}
+
+.invite-status.expired {
+  background: rgba(160, 160, 160, 0.2);
+  color: var(--text-muted);
+}

@@ -1,0 +1,303 @@
+/**
+ * Card Styles
+ * GodMode Design System
+ */
+
+/* ==================== Base Card ==================== */
+/* Note: Basic .card styles are in layout.css */
+
+/* ==================== Card Variants ==================== */
+.card-elevated {
+  box-shadow: var(--shadow-md);
+}
+
+.card-bordered {
+  border: 2px solid var(--border);
+}
+
+.card-accent {
+  border-left: 3px solid var(--accent);
+}
+
+.card-success {
+  border-left: 3px solid var(--success);
+}
+
+.card-warning {
+  border-left: 3px solid var(--warning);
+}
+
+.card-error {
+  border-left: 3px solid var(--error);
+}
+
+/* ==================== Card Header ==================== */
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-md);
+  padding-bottom: var(--space-md);
+  border-bottom: 1px solid var(--border);
+}
+
+.card-header h3 {
+  margin: 0;
+  font-size: var(--font-size-base);
+  color: var(--text-primary);
+}
+
+/* ==================== Card Body ==================== */
+.card-body {
+  padding: var(--space-md) 0;
+}
+
+/* ==================== Card Footer ==================== */
+.card-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border);
+}
+
+/* ==================== Priority Badges ==================== */
+.priority-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.priority-critical {
+  background: rgba(255, 107, 107, 0.2);
+  color: var(--error);
+}
+
+.priority-high {
+  background: rgba(255, 230, 109, 0.2);
+  color: var(--warning);
+}
+
+.priority-medium {
+  background: rgba(78, 205, 196, 0.2);
+  color: var(--success);
+}
+
+.priority-low {
+  background: rgba(160, 160, 160, 0.2);
+  color: var(--text-secondary);
+}
+
+/* ==================== Question Card ==================== */
+.question-card {
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+  margin-bottom: var(--space-sm);
+  border-left: 3px solid var(--accent);
+}
+
+.question-card.answered {
+  border-left-color: var(--success);
+  opacity: 0.8;
+}
+
+.question-card.dismissed {
+  border-left-color: var(--text-muted);
+  opacity: 0.6;
+}
+
+.question-card.sla-breached {
+  border-left-color: var(--error);
+  animation: pulse-sla 2s infinite;
+}
+
+@keyframes pulse-sla {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(229, 62, 62, 0); }
+  50% { box-shadow: 0 0 0 4px rgba(229, 62, 62, 0.2); }
+}
+
+.question-card .sla-badge {
+  background: var(--error);
+  color: white;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.question-card .auto-answer-badge {
+  background: var(--success);
+  color: white;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+}
+
+.question-card .card-followup {
+  font-size: var(--font-size-xs);
+  color: var(--accent);
+  margin-top: var(--space-xs);
+}
+
+/* Team member preview in generate dialog */
+.team-preview {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.team-members-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.team-member-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.team-member-item:hover {
+  background: var(--bg-secondary);
+}
+
+.team-member-item input[type="checkbox"] {
+  margin: 0;
+}
+
+.team-member-item .member-name {
+  flex: 1;
+  font-weight: 500;
+}
+
+.team-member-item .member-role {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.team-member-item .member-count {
+  color: var(--accent);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+}
+
+.total-preview {
+  margin-top: var(--space-md);
+  padding: var(--space-sm);
+  background: var(--accent);
+  color: white;
+  border-radius: var(--radius-sm);
+  text-align: center;
+  font-weight: 500;
+}
+
+/* ==================== Risk Card ==================== */
+.risk-card {
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+  margin-bottom: var(--space-sm);
+}
+
+.risk-card.high-impact {
+  border-left: 3px solid var(--error);
+}
+
+.risk-card.medium-impact {
+  border-left: 3px solid var(--warning);
+}
+
+.risk-card.low-impact {
+  border-left: 3px solid var(--success);
+}
+
+/* ==================== Action Card ==================== */
+.action-card {
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+  margin-bottom: var(--space-sm);
+}
+
+.action-card.completed {
+  opacity: 0.7;
+}
+
+.action-card.completed .action-task {
+  text-decoration: line-through;
+}
+
+.action-card.overdue {
+  border-left: 3px solid var(--error);
+}
+
+/* ==================== Member Card ==================== */
+.member-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-sm);
+}
+
+.member-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: bold;
+  font-size: 14px;
+}
+
+.member-info {
+  flex: 1;
+}
+
+.member-name {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.member-role {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+/* ==================== Contact Card ==================== */
+.contact-card {
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+  cursor: pointer;
+  transition: all var(--transition-normal);
+}
+
+.contact-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+/* ==================== Mobile Adjustments ==================== */
+@media (max-width: 767px) {
+  .priority-badge {
+    font-size: 10px;
+    padding: 3px 8px;
+  }
+}

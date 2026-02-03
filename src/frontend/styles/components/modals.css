@@ -1,0 +1,152 @@
+/**
+ * Modal Styles
+ * GodMode Design System
+ */
+
+/* ==================== Modal Overlay ==================== */
+.modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: none;
+  justify-content: center;
+  align-items: center;
+  z-index: var(--z-modal-backdrop);
+  padding: var(--space-md);
+  overflow-y: auto;
+}
+
+.modal.open,
+.modal[style*="display: flex"] {
+  display: flex;
+}
+
+/* ==================== Modal Content ==================== */
+.modal-content {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-xl);
+  padding: var(--space-xl);
+  max-width: 600px;
+  width: 90%;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: var(--shadow-xl);
+  animation: fadeIn var(--transition-normal);
+  position: relative;
+}
+
+/* ==================== Modal Header ==================== */
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-lg);
+  padding-bottom: var(--space-md);
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-header h2,
+.modal-header h3 {
+  margin: 0;
+  color: var(--accent);
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 24px;
+  padding: var(--space-xs);
+  line-height: 1;
+  transition: color var(--transition-fast);
+}
+
+.modal-close:hover {
+  color: var(--text-primary);
+}
+
+/* ==================== Modal Body ==================== */
+.modal-body {
+  margin-bottom: var(--space-lg);
+}
+
+/* ==================== Modal Footer ==================== */
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border);
+}
+
+/* ==================== Confirm Dialog ==================== */
+.confirm-dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--bg-card);
+  padding: var(--space-xl);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-xl);
+  z-index: calc(var(--z-modal) + 1);
+  max-width: 400px;
+  animation: fadeIn var(--transition-normal);
+}
+
+.confirm-dialog h3 {
+  margin: 0 0 var(--space-md) 0;
+  color: var(--text-primary);
+}
+
+.confirm-dialog p {
+  margin: 0 0 var(--space-lg) 0;
+  color: var(--text-secondary);
+}
+
+.confirm-dialog-buttons {
+  display: flex;
+  gap: var(--space-sm);
+  justify-content: flex-end;
+}
+
+/* ==================== Modal Sizes ==================== */
+.modal-sm .modal-content {
+  max-width: 400px;
+}
+
+.modal-lg .modal-content {
+  max-width: 800px;
+}
+
+.modal-xl .modal-content {
+  max-width: 1000px;
+}
+
+.modal-full .modal-content {
+  max-width: none;
+  width: 95%;
+  height: 90vh;
+}
+
+/* ==================== Mobile Adjustments ==================== */
+@media (max-width: 767px) {
+  .modal-content {
+    margin: var(--space-sm);
+    padding: var(--space-md);
+    max-height: 90vh;
+    width: calc(100% - var(--space-lg));
+  }
+  
+  .modal-footer {
+    flex-direction: column;
+  }
+  
+  .modal-footer .btn {
+    width: 100%;
+  }
+}

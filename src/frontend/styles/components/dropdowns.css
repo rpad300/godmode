@@ -1,0 +1,221 @@
+/**
+ * Dropdown Styles
+ * GodMode Design System
+ */
+
+/* ==================== Quick Actions Dropdown ==================== */
+.quick-actions-dropdown {
+  position: relative;
+}
+
+.quick-actions-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: var(--space-sm);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  min-width: 220px;
+  box-shadow: var(--shadow-lg);
+  z-index: var(--z-dropdown);
+  display: none;
+  padding: var(--space-sm);
+}
+
+.quick-actions-menu.show {
+  display: block;
+}
+
+.quick-actions-section {
+  padding: var(--space-xs) 0;
+}
+
+.quick-actions-section:not(:last-child) {
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--space-xs);
+  padding-bottom: var(--space-sm);
+}
+
+.quick-actions-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: var(--space-xs) var(--space-sm);
+  letter-spacing: 0.5px;
+}
+
+.quick-actions-menu button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 13px;
+  border-radius: var(--radius-md);
+  transition: background var(--transition-fast);
+  text-align: left;
+}
+
+.quick-actions-menu button:hover {
+  background: var(--bg-card);
+}
+
+.qa-icon {
+  width: 18px;
+  text-align: center;
+}
+
+.qa-badge {
+  margin-left: auto;
+  font-size: 10px;
+  padding: 2px 6px;
+  background: var(--accent);
+  color: white;
+  border-radius: 10px;
+}
+
+/* ==================== Actions Badge ==================== */
+.actions-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 18px;
+  height: 18px;
+  background: var(--error);
+  color: white;
+  font-size: 10px;
+  font-weight: bold;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.actions-badge.hidden {
+  display: none;
+}
+
+/* ==================== Export Menu ==================== */
+.export-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: var(--space-xs);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  min-width: 150px;
+  box-shadow: var(--shadow-lg);
+  z-index: var(--z-dropdown);
+  display: none;
+  padding: var(--space-xs);
+}
+
+.export-menu.show {
+  display: block;
+}
+
+.export-menu button {
+  display: block;
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 13px;
+  text-align: left;
+  border-radius: var(--radius-md);
+  transition: background var(--transition-fast);
+}
+
+.export-menu button:hover {
+  background: var(--bg-card);
+}
+
+/* ==================== Actions Dropdown (Table) ==================== */
+.actions-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: var(--space-xs);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  min-width: 180px;
+  box-shadow: var(--shadow-lg);
+  z-index: var(--z-dropdown);
+  padding: var(--space-xs);
+}
+
+.actions-dropdown button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  padding: var(--space-sm);
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast);
+}
+
+.actions-dropdown button:hover {
+  background: var(--bg-card);
+}
+
+.actions-dropdown button.danger {
+  color: var(--error);
+}
+
+.actions-dropdown button.danger:hover {
+  background: rgba(255, 107, 107, 0.1);
+}
+
+/* ==================== Filter Dropdown ==================== */
+.filter-dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.filter-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 6px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  transition: all var(--transition-fast);
+}
+
+.filter-btn:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.filter-btn.active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+/* ==================== Mobile Adjustments ==================== */
+@media (max-width: 767px) {
+  .actions-dropdown {
+    right: 0;
+    min-width: 200px;
+  }
+}

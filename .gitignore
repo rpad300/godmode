@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+
+# Data directory (user data)
+data/
+*.db
+
+# Build output
+dist/
+*.exe
+
+# Config with potential secrets
+config.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Temporary files
+temp/
+tmp/
+*.tmp

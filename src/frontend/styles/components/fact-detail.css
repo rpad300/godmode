@@ -1,0 +1,115 @@
+/**
+ * Fact Detail View Styles
+ * Extends question-detail-view (shared layout); fact-specific overrides only
+ */
+
+/* Reuse question-detail layout; only fact-specific overrides */
+.fact-detail-view.question-detail-view .fact-main .fact-content-text,
+.fact-detail-view.question-detail-view .question-text.fact-content-text {
+  font-size: var(--font-size-base);
+  line-height: 1.6;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.fact-detail-view .fact-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+
+.fact-detail-view .detail-actions {
+  display: flex;
+  gap: var(--space-md);
+  margin-top: var(--space-xl);
+  padding-top: var(--space-lg);
+  border-top: 1px solid var(--border);
+}
+
+.fact-detail-view .metadata-list {
+  margin: 0;
+}
+.fact-detail-view .metadata-list dt {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  margin-top: var(--space-sm);
+}
+.fact-detail-view .metadata-list dd {
+  margin: 0;
+  font-size: var(--font-size-sm);
+}
+
+.fact-detail-view .doc-link {
+  color: var(--accent);
+  text-decoration: none;
+}
+.fact-detail-view .doc-link:hover {
+  text-decoration: underline;
+}
+
+/* Timeline (fact events) */
+.fact-timeline-section .fact-timeline-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+.fact-timeline-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  font-size: var(--font-size-sm);
+}
+.fact-timeline-item .fact-event-type {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.fact-timeline-item .fact-event-actor {
+  color: var(--text-secondary);
+}
+.fact-timeline-item .fact-event-date {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+.fact-timeline-item.fact-event-verified .fact-event-type { color: var(--success); }
+.fact-timeline-item.fact-event-created .fact-event-type { color: var(--accent); }
+.fact-timeline-item.fact-event-conflict_detected .fact-event-type { color: var(--warning); }
+
+/* Similar facts */
+.fact-similar-section .fact-similar-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+.fact-similar-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  font-size: var(--font-size-sm);
+  cursor: default;
+}
+.fact-similar-item[role="button"] {
+  cursor: pointer;
+}
+.fact-similar-item[role="button"]:hover {
+  background: var(--bg-tertiary);
+}
+.fact-similar-score {
+  flex-shrink: 0;
+  font-weight: 600;
+  color: var(--accent);
+  min-width: 2.5em;
+}
+.fact-similar-content {
+  flex: 1;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}

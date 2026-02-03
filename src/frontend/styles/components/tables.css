@@ -1,0 +1,99 @@
+/**
+ * Table Styles
+ * GodMode Design System
+ */
+
+/* ==================== Base Table ==================== */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+th, td {
+  padding: 12px 15px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+th {
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+td {
+  color: var(--text-primary);
+}
+
+tbody tr:hover {
+  background: var(--bg-tertiary);
+}
+
+/* ==================== Table Variants ==================== */
+.table-striped tbody tr:nth-child(even) {
+  background: var(--bg-tertiary);
+}
+
+.table-bordered {
+  border: 1px solid var(--border);
+}
+
+.table-bordered th,
+.table-bordered td {
+  border: 1px solid var(--border);
+}
+
+.table-compact th,
+.table-compact td {
+  padding: 8px 10px;
+}
+
+/* ==================== Responsive Table ==================== */
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 767px) {
+  table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  th, td {
+    padding: 10px 8px;
+    font-size: 13px;
+  }
+}
+
+/* ==================== Table Actions ==================== */
+.table-actions {
+  display: flex;
+  gap: var(--space-xs);
+  justify-content: flex-end;
+}
+
+.table-actions .btn {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+/* ==================== Empty Table State ==================== */
+.table-empty {
+  text-align: center;
+  padding: var(--space-2xl);
+  color: var(--text-muted);
+}
+
+.table-empty svg {
+  width: 48px;
+  height: 48px;
+  margin-bottom: var(--space-md);
+  opacity: 0.5;
+}
