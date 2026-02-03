@@ -344,6 +344,126 @@ export async function getQuarantinedTranscripts(): Promise<KrispTranscript[]> {
   return getTranscripts({ status: ['quarantine', 'ambiguous'] });
 }
 
+// ==================== MCP Import ====================
+
+export interface McpMeeting {
+  meeting_id: string;
+  name: string;
+  date: string;
+  url?: string;
+  speakers?: string[];
+  attendees?: string[];
+  is_recurring?: boolean;
+  meeting_notes?: {
+    detailed_summary?: string;
+    key_points?: string[];
+    action_items?: string[];
+  };
+  transcript?: {
+    status?: string;
+    text?: string;
+  };
+}
+
+export interface McpSearchFilters {
+  search?: string;
+  after?: string;
+  before?: string;
+  participantDomains?: string[];
+  limit?: number;
+  offset?: number;
+}
+
+export interface ImportResult {
+  meetingId: string;
+  title?: string;
+  success: boolean;
+  transcriptId?: string;
+  error?: string;
+  duplicate?: boolean;
+}
+
+export interface ImportResponse {
+  success: boolean;
+  results: ImportResult[];
+  imported: number;
+  skipped: number;
+  failed: number;
+}
+
+export interface ImportHistoryItem {
+  id: string;
+  krisp_meeting_id: string;
+  krisp_title: string;
+  meeting_date: string;
+  status: string;
+  created_at: string;
+}
+
+/**
+ * Check which meetings have already been imported
+ */
+export async function getImportedMeetingIds(meetingIds: string[]): Promise<string[]> {
+  if (!meetingIds.length) return [];
+  
+  try {
+    const response = await http.get<{ imported: string[] }>(
+      `/api/krisp/mcp/imported?ids=${meetingIds.join(',')}`
+    );
+    return response.data.imported;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Import meetings from MCP data
+ */
+export async function importMeetings(
+  meetings: McpMeeting[], 
+  options: { forceReimport?: boolean } = {}
+): Promise<ImportResponse | null> {
+  try {
+    const response = await http.post<ImportResponse>('/api/krisp/mcp/import', {
+      meetings,
+      forceReimport: options.forceReimport
+    });
+    return response.data;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Import a single meeting
+ */
+export async function importMeeting(
+  meeting: McpMeeting,
+  options: { forceReimport?: boolean } = {}
+): Promise<ImportResult | null> {
+  const result = await importMeetings([meeting], options);
+  return result?.results[0] || null;
+}
+
+/**
+ * Get import history
+ */
+export async function getImportHistory(
+  options: { limit?: number; offset?: number } = {}
+): Promise<ImportHistoryItem[]> {
+  try {
+    const params = new URLSearchParams();
+    if (options.limit) params.set('limit', String(options.limit));
+    if (options.offset) params.set('offset', String(options.offset));
+    
+    const url = `/api/krisp/mcp/history${params.toString() ? '?' + params.toString() : ''}`;
+    const response = await http.get<{ history: ImportHistoryItem[] }>(url);
+    return response.data.history;
+  } catch {
+    return [];
+  }
+}
+
 // ==================== Helpers ====================
 
 /**

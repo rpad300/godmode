@@ -7,6 +7,7 @@ const WebhookHandler = require('./WebhookHandler');
 const { SpeakerMatcher, isUnidentifiedSpeaker, hasUnidentifiedSpeakers, PROJECT_CONFIDENCE_THRESHOLD } = require('./SpeakerMatcher');
 const TranscriptProcessor = require('./TranscriptProcessor');
 const QuarantineWorker = require('./QuarantineWorker');
+const McpBridge = require('./McpBridge');
 
 module.exports = {
     // Webhook handling
@@ -24,5 +25,8 @@ module.exports = {
     // Quarantine worker
     QuarantineWorker,
     startQuarantineWorker: QuarantineWorker.start,
-    stopQuarantineWorker: QuarantineWorker.stop
+    stopQuarantineWorker: QuarantineWorker.stop,
+    
+    // MCP Bridge for imports
+    ...McpBridge
 };

@@ -3859,6 +3859,105 @@ async function handleAPI(req, res, pathname) {
             return;
         }
 
+        // ==================== Krisp MCP Import API ====================
+        
+        // GET /api/krisp/mcp/imported - Get list of already imported meeting IDs
+        if (pathname === '/api/krisp/mcp/imported' && req.method === 'GET') {
+            if (!supabase || !supabase.isConfigured()) {
+                jsonResponse(res, { error: 'Not configured' }, 503);
+                return;
+            }
+            
+            const token = supabase.auth.extractToken(req);
+            const userResult = await supabase.auth.getUser(token);
+            
+            if (!userResult.success) {
+                jsonResponse(res, { error: 'Authentication required' }, 401);
+                return;
+            }
+            
+            try {
+                const parsedUrl = parseUrl(req.url);
+                const meetingIds = parsedUrl.query.ids ? parsedUrl.query.ids.split(',') : [];
+                
+                const { getImportedMeetingIds } = require('./krisp');
+                const imported = await getImportedMeetingIds(userResult.user.id, meetingIds);
+                
+                jsonResponse(res, { imported: Array.from(imported) });
+            } catch (error) {
+                console.error('[Krisp MCP] Error checking imported:', error);
+                jsonResponse(res, { error: error.message }, 500);
+            }
+            return;
+        }
+        
+        // POST /api/krisp/mcp/import - Import meetings from MCP data
+        if (pathname === '/api/krisp/mcp/import' && req.method === 'POST') {
+            if (!supabase || !supabase.isConfigured()) {
+                jsonResponse(res, { error: 'Not configured' }, 503);
+                return;
+            }
+            
+            const token = supabase.auth.extractToken(req);
+            const userResult = await supabase.auth.getUser(token);
+            
+            if (!userResult.success) {
+                jsonResponse(res, { error: 'Authentication required' }, 401);
+                return;
+            }
+            
+            try {
+                const body = await parseBody(req);
+                
+                if (!body || !body.meetings || !Array.isArray(body.meetings)) {
+                    jsonResponse(res, { error: 'Missing meetings array' }, 400);
+                    return;
+                }
+                
+                const { importMeetings } = require('./krisp');
+                const result = await importMeetings(userResult.user.id, body.meetings, {
+                    forceReimport: body.forceReimport === true
+                });
+                
+                jsonResponse(res, result);
+            } catch (error) {
+                console.error('[Krisp MCP] Import error:', error);
+                jsonResponse(res, { error: error.message }, 500);
+            }
+            return;
+        }
+        
+        // GET /api/krisp/mcp/history - Get import history
+        if (pathname === '/api/krisp/mcp/history' && req.method === 'GET') {
+            if (!supabase || !supabase.isConfigured()) {
+                jsonResponse(res, { error: 'Not configured' }, 503);
+                return;
+            }
+            
+            const token = supabase.auth.extractToken(req);
+            const userResult = await supabase.auth.getUser(token);
+            
+            if (!userResult.success) {
+                jsonResponse(res, { error: 'Authentication required' }, 401);
+                return;
+            }
+            
+            try {
+                const parsedUrl = parseUrl(req.url);
+                const limit = parseInt(parsedUrl.query.limit) || 50;
+                const offset = parseInt(parsedUrl.query.offset) || 0;
+                
+                const { getImportHistory } = require('./krisp');
+                const history = await getImportHistory(userResult.user.id, { limit, offset });
+                
+                jsonResponse(res, { history });
+            } catch (error) {
+                console.error('[Krisp MCP] History error:', error);
+                jsonResponse(res, { error: error.message }, 500);
+            }
+            return;
+        }
+
         // ==================== Audit Export API ====================
         
         // GET /api/projects/:id/audit/summary - Get audit summary
