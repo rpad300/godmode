@@ -8610,16 +8610,21 @@ NOTES_SUGGESTION: <additional notes to add>`;
         
         // Helper function to check superadmin status
         async function checkSuperAdmin(req, res) {
+            console.log('[Billing] checkSuperAdmin called');
             if (!supabase || !supabase.isConfigured()) {
+                console.log('[Billing] Supabase not configured');
                 jsonResponse(res, { error: 'Database not configured' }, 503);
                 return false;
             }
             const authResult = await supabase.auth.verifyRequest(req);
+            console.log('[Billing] Auth result:', authResult.authenticated, authResult.user?.id);
             if (!authResult.authenticated) {
+                console.log('[Billing] Not authenticated');
                 jsonResponse(res, { error: 'Authentication required' }, 401);
                 return false;
             }
             const isSuperAdmin = await supabase.auth.isSuperAdmin(authResult.user.id);
+            console.log('[Billing] isSuperAdmin:', isSuperAdmin);
             if (!isSuperAdmin) {
                 jsonResponse(res, { error: 'Superadmin access required' }, 403);
                 return false;
