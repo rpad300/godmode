@@ -1,4 +1,4 @@
-import{c as $,_ as L,t as x,g as N,o as b}from"./main-CBluqU6x.js";import"./modulepreload-polyfill-B5Qt9EMX.js";const S={Person:"#6366f1",Organization:"#8b5cf6",Project:"#10b981",Meeting:"#f59e0b",Document:"#3b82f6",Fact:"#22c55e",Decision:"#06b6d4",Risk:"#ef4444",Task:"#14b8a6",Question:"#f97316",Technology:"#eab308",Client:"#ec4899",Team:"#84cc16",Regulation:"#a3a3a3",Answer:"#22d3ee",Email:"#60a5fa",Conversation:"#c084fc",Action:"#4ade80",Briefing:"#fbbf24"};let w=new Map,k=new Map;function R(e={}){const n=$("div",{className:"graph-canvas-container"});return n.innerHTML=`
+import{c as $,_ as L,t as x,g as N,o as b}from"./main-BbrmTy0y.js";import"./modulepreload-polyfill-B5Qt9EMX.js";const S={Person:"#6366f1",Organization:"#8b5cf6",Project:"#10b981",Meeting:"#f59e0b",Document:"#3b82f6",Fact:"#22c55e",Decision:"#06b6d4",Risk:"#ef4444",Task:"#14b8a6",Question:"#f97316",Technology:"#eab308",Client:"#ec4899",Team:"#84cc16",Regulation:"#a3a3a3",Answer:"#22d3ee",Email:"#60a5fa",Conversation:"#c084fc",Action:"#4ade80",Briefing:"#fbbf24"};let w=new Map,k=new Map;function R(e={}){const n=$("div",{className:"graph-canvas-container"});return n.innerHTML=`
     <div class="graph-canvas-wrapper" style="position: relative; width: 100%; height: ${e.height||500}px;">
       <div class="graph-canvas-loading" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 8px;">
         <div class="loading-spinner"></div>
@@ -161,4 +161,4 @@ import{c as $,_ as L,t as x,g as N,o as b}from"./main-CBluqU6x.js";import"./modu
       ${s}
     </div>
   `;const c=15,v=window.innerWidth,m=window.innerHeight;d.style.left="-9999px",d.classList.add("visible");const y=d.getBoundingClientRect();let i=n+c,l=o-y.height/2;i+y.width>v-c&&(i=n-y.width-c),l<c&&(l=c),l+y.height>m-c&&(l=m-y.height-c),d.style.left=`${i}px`,d.style.top=`${l}px`}function _(e){const n=e?.querySelector("#graph-tooltip");n&&n.classList.remove("visible")}export{R as createGraphCanvas};
-//# sourceMappingURL=GraphCanvas-D2zfzI-p.js.map
+//# sourceMappingURL=GraphCanvas-BCiftEnC.js.map

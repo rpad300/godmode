@@ -860,10 +860,66 @@ function updateThemeButton(): void {
   }
 }
 
+// ==================== CLIENT-SIDE ROUTING ====================
+
+/** Valid tab names for routing */
+const VALID_TABS = ['dashboard', 'chat', 'sot', 'timeline', 'contacts', 'team-analysis', 'files', 'graph', 'emails', 'costs', 'history', 'roles', 'admin', 'org'];
+
+/**
+ * Get current tab from URL pathname
+ */
+function getTabFromUrl(): string {
+  const pathname = window.location.pathname;
+  // Match /app/tabname or /app/tabname/
+  const match = pathname.match(/^\/app\/([^/]+)/);
+  if (match && VALID_TABS.includes(match[1])) {
+    return match[1];
+  }
+  // Default to dashboard for /app or /app/
+  return 'dashboard';
+}
+
+/**
+ * Update browser URL for current tab (without page reload)
+ */
+function updateUrlForTab(tabName: string, replace = false): void {
+  const newPath = tabName === 'dashboard' ? '/app' : `/app/${tabName}`;
+  const currentPath = window.location.pathname;
+  
+  // Only update if path is different
+  if (currentPath !== newPath) {
+    if (replace) {
+      window.history.replaceState({ tab: tabName }, '', newPath);
+    } else {
+      window.history.pushState({ tab: tabName }, '', newPath);
+    }
+  }
+}
+
+/**
+ * Initialize URL-based routing
+ */
+function initRouting(): void {
+  // Handle browser back/forward buttons
+  window.addEventListener('popstate', (event) => {
+    const tab = event.state?.tab || getTabFromUrl();
+    switchTab(tab, false); // false = don't update URL again
+  });
+  
+  // On initial load, read tab from URL
+  const initialTab = getTabFromUrl();
+  if (initialTab !== 'dashboard') {
+    // If URL has a specific tab, switch to it (will happen after UI init)
+    setTimeout(() => switchTab(initialTab, true), 0); // true = replace URL state
+  }
+}
+
 /**
  * Switch to a tab
+ * @param tabName - The tab to switch to
+ * @param updateUrl - Whether to update the browser URL (default: true)
  */
-function switchTab(tabName: string): void {
+function switchTab(tabName: string, updateUrl = true): void {
   // Update sidebar nav items
   document.querySelectorAll('.nav-item[data-tab]').forEach(item => {
     item.classList.toggle('active', item.getAttribute('data-tab') === tabName);
@@ -879,6 +935,11 @@ function switchTab(tabName: string): void {
   const sidebar = document.getElementById('app-sidebar');
   if (sidebar) {
     sidebar.classList.remove('open');
+  }
+  
+  // Update browser URL (client-side routing)
+  if (updateUrl) {
+    updateUrlForTab(tabName);
   }
 
   // Update store
@@ -1739,6 +1800,10 @@ async function init(): Promise<void> {
   // Initialize UI
   initializeUI();
   console.log('🎨 UI initialized');
+  
+  // Initialize client-side routing (reads URL and activates correct tab)
+  initRouting();
+  console.log('🔀 Client-side routing initialized');
 
   // Load initial data (only if authenticated or auth not required)
   if (auth.isAuthenticated()) {

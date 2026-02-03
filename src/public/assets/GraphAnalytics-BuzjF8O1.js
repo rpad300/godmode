@@ -1,4 +1,4 @@
-import{c as f,o as v,t as r,g as l}from"./main-CBluqU6x.js";import"./modulepreload-polyfill-B5Qt9EMX.js";function H(t={}){const i={stats:null,communities:[],centrality:{topNodes:[]},bridges:[],insights:[],isLoading:!0},n=f("div",{className:"graph-analytics"});return n.innerHTML=`
+import{c as f,o as v,t as r,g as l}from"./main-BbrmTy0y.js";import"./modulepreload-polyfill-B5Qt9EMX.js";function H(t={}){const i={stats:null,communities:[],centrality:{topNodes:[]},bridges:[],insights:[],isLoading:!0},n=f("div",{className:"graph-analytics"});return n.innerHTML=`
     <div class="analytics-grid">
       <!-- Stats Cards Row -->
       <div class="stats-cards" id="stats-cards">
@@ -272,4 +272,4 @@ import{c as f,o as v,t as r,g as l}from"./main-CBluqU6x.js";import"./moduleprelo
       `).join("")}
     </div>
   `}}function g(t){return{Person:"#6366f1",Project:"#22c55e",Document:"#8b5cf6",Decision:"#06b6d4",Risk:"#ef4444",Question:"#f59e0b",Fact:"#84cc16",Meeting:"#ec4899",Task:"#3b82f6",Technology:"#f97316",Organization:"#a855f7",Client:"#14b8a6"}[t]||"#6b7280"}function M(t){return t.split(" ").map(i=>i.charAt(0)).join("").substring(0,2).toUpperCase()}function h(t){return t>=1e6?(t/1e6).toFixed(1)+"M":t>=1e3?(t/1e3).toFixed(1)+"K":String(t)}function o(t){const i=document.createElement("div");return i.textContent=t,i.innerHTML}export{H as createGraphAnalytics};
-//# sourceMappingURL=GraphAnalytics-z6nNL4iN.js.map
+//# sourceMappingURL=GraphAnalytics-BuzjF8O1.js.map
