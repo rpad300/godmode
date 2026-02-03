@@ -84,60 +84,6 @@ export async function showKrispManager(): Promise<void> {
 
   content.innerHTML = `
     <style>
-      /* Force KrispManager modal to be centered and on top */
-      [data-modal-id="krisp-manager-modal"] {
-        position: fixed !important;
-        top: 0 !important;
-        left: 0 !important;
-        right: 0 !important;
-        bottom: 0 !important;
-        display: flex !important;
-        justify-content: center !important;
-        align-items: center !important;
-        background: rgba(0, 0, 0, 0.75) !important;
-        z-index: 10000 !important;
-        padding: 24px;
-      }
-      [data-modal-id="krisp-manager-modal"] .modal-content {
-        max-width: 900px !important;
-        width: 95% !important;
-        max-height: 85vh !important;
-        margin: 0 !important;
-        position: relative !important;
-        background: var(--bg-primary, white);
-        border-radius: 16px;
-        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-        overflow: hidden;
-      }
-      [data-theme="dark"] [data-modal-id="krisp-manager-modal"] .modal-content {
-        background: #1e293b;
-        border: 1px solid rgba(255,255,255,0.1);
-      }
-      [data-modal-id="krisp-manager-modal"] .modal-header {
-        background: linear-gradient(135deg, #e11d48 0%, #be123c 100%);
-        color: white;
-        padding: 20px 24px;
-        margin: 0;
-        border-bottom: none;
-      }
-      [data-modal-id="krisp-manager-modal"] .modal-header h3 {
-        color: white;
-        font-size: 18px;
-        font-weight: 600;
-      }
-      [data-modal-id="krisp-manager-modal"] .modal-close {
-        color: rgba(255,255,255,0.8);
-      }
-      [data-modal-id="krisp-manager-modal"] .modal-close:hover {
-        color: white;
-      }
-      [data-modal-id="krisp-manager-modal"] .modal-body {
-        padding: 0;
-        margin: 0;
-        max-height: calc(85vh - 80px);
-        overflow-y: auto;
-      }
-      
       .krisp-manager {
         min-height: 450px;
         padding-bottom: 16px;

@@ -5,37 +5,62 @@
 
 /* ==================== Modal Overlay ==================== */
 .modal {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  background: rgba(0, 0, 0, 0.75);
   display: none;
   justify-content: center;
   align-items: center;
-  z-index: var(--z-modal-backdrop);
-  padding: var(--space-md);
+  z-index: 9999;
+  padding: 24px;
   overflow-y: auto;
+  /* Ensure centered overlay */
+  margin: 0 !important;
 }
 
 .modal.open,
 .modal[style*="display: flex"] {
-  display: flex;
+  display: flex !important;
 }
 
 /* ==================== Modal Content ==================== */
 .modal-content {
-  background: var(--bg-secondary);
-  border-radius: var(--radius-xl);
-  padding: var(--space-xl);
+  background: var(--bg-secondary, #ffffff);
+  border-radius: 16px;
+  padding: 0;
   max-width: 600px;
-  width: 90%;
+  width: 95%;
   max-height: 85vh;
-  overflow-y: auto;
-  box-shadow: var(--shadow-xl);
-  animation: fadeIn var(--transition-normal);
+  overflow: hidden;
+  box-shadow: 
+    0 25px 50px -12px rgba(0, 0, 0, 0.25),
+    0 0 0 1px rgba(0, 0, 0, 0.05);
+  animation: modalFadeIn 0.2s ease-out;
   position: relative;
+  /* Ensure centered */
+  margin: 0 !important;
+}
+
+@keyframes modalFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Dark mode modal content */
+[data-theme="dark"] .modal-content {
+  background: #1e293b;
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 /* ==================== Modal Header ==================== */
@@ -43,44 +68,58 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: var(--space-lg);
-  padding-bottom: var(--space-md);
-  border-bottom: 1px solid var(--border);
+  padding: 20px 24px;
+  background: linear-gradient(135deg, #e11d48 0%, #be123c 100%);
+  border-bottom: none;
+  margin: 0;
 }
 
 .modal-header h2,
 .modal-header h3 {
   margin: 0;
-  color: var(--accent);
+  color: white;
+  font-size: 18px;
+  font-weight: 600;
 }
 
 .modal-close {
   background: none;
   border: none;
-  color: var(--text-secondary);
+  color: rgba(255, 255, 255, 0.8);
   cursor: pointer;
-  font-size: 24px;
-  padding: var(--space-xs);
+  font-size: 28px;
+  padding: 4px 8px;
   line-height: 1;
-  transition: color var(--transition-fast);
+  transition: all 0.15s ease;
+  border-radius: 4px;
 }
 
 .modal-close:hover {
-  color: var(--text-primary);
+  color: white;
+  background: rgba(255, 255, 255, 0.1);
 }
 
 /* ==================== Modal Body ==================== */
 .modal-body {
-  margin-bottom: var(--space-lg);
+  padding: 24px;
+  overflow-y: auto;
+  max-height: calc(85vh - 140px);
+  margin: 0;
 }
 
 /* ==================== Modal Footer ==================== */
 .modal-footer {
   display: flex;
   justify-content: flex-end;
-  gap: var(--space-sm);
-  padding-top: var(--space-md);
-  border-top: 1px solid var(--border);
+  gap: 12px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--border, #e2e8f0);
+  background: var(--bg-tertiary, #f8fafc);
+}
+
+[data-theme="dark"] .modal-footer {
+  background: rgba(30, 41, 59, 0.5);
+  border-top-color: rgba(255, 255, 255, 0.1);
 }
 
 /* ==================== Confirm Dialog ==================== */
@@ -119,6 +158,10 @@
   max-width: 400px;
 }
 
+.modal-md .modal-content {
+  max-width: 600px;
+}
+
 .modal-lg .modal-content {
   max-width: 800px;
 }
@@ -131,6 +174,7 @@
   max-width: none;
   width: 95%;
   height: 90vh;
+  max-height: 90vh;
 }
 
 /* ==================== Mobile Adjustments ==================== */
