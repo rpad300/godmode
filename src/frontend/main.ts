@@ -272,10 +272,10 @@ function initializeUI(): void {
       updateAuthUI();
       updateDashboard();
       
-      // Show login screen if auth is configured
+      // Redirect to landing page if auth is configured
       if (appStore.getState().authConfigured) {
-        showAuthRequiredMessage();
         toast.info('Signed out successfully');
+        window.location.href = '/';
       } else {
         toast.info('Signed out');
       }
@@ -1745,9 +1745,10 @@ async function init(): Promise<void> {
     refreshData();
     console.log('📊 Data loading started');
   } else if (appStore.getState().authConfigured) {
-    // Auth required but not logged in - show integrated login screen
-    console.log('🔐 Authentication required - showing login');
-    showAuthRequiredMessage();
+    // Auth required but not logged in - redirect to landing page
+    console.log('🔐 Authentication required - redirecting to landing page');
+    window.location.href = '/';
+    return;
   } else {
     // Auth not configured - guest mode
     console.log('📊 Guest mode - loading data');

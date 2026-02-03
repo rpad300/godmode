@@ -1,4 +1,4 @@
-import{c as m,o as d,t as h,g as w}from"./index-K2FceEuD.js";function L(o={}){const e={messages:[],isLoading:!1,sessionId:crypto.randomUUID(),isRecording:!1},i=m("div",{className:"ai-copilot"});return i.innerHTML=`
+import{c as m,o as d,t as h,g as w}from"./main-CBluqU6x.js";import"./modulepreload-polyfill-B5Qt9EMX.js";function T(o={}){const e={messages:[],isLoading:!1,sessionId:crypto.randomUUID(),isRecording:!1},i=m("div",{className:"ai-copilot"});return i.innerHTML=`
     <div class="copilot-header">
       <div class="copilot-title">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -188,5 +188,5 @@ import{c as m,o as d,t as h,g as w}from"./index-K2FceEuD.js";function L(o={}){co
       <h3>Hello! I'm your AI assistant.</h3>
       <p>Ask me anything about your knowledge graph.</p>
     </div>
-  `}function b(o){o.scrollTop=o.scrollHeight}function B(o){return v(o).replace(/\*\*(.*?)\*\*/g,"<strong>$1</strong>").replace(/\*(.*?)\*/g,"<em>$1</em>").replace(/`(.*?)`/g,"<code>$1</code>").replace(/\n/g,"<br>")}function v(o){const e=document.createElement("div");return e.textContent=o,e.innerHTML}export{L as createAICopilot};
-//# sourceMappingURL=AICopilot-P5PtDsqd.js.map
+  `}function b(o){o.scrollTop=o.scrollHeight}function B(o){return v(o).replace(/\*\*(.*?)\*\*/g,"<strong>$1</strong>").replace(/\*(.*?)\*/g,"<em>$1</em>").replace(/`(.*?)`/g,"<code>$1</code>").replace(/\n/g,"<br>")}function v(o){const e=document.createElement("div");return e.textContent=o,e.innerHTML}export{T as createAICopilot};
+//# sourceMappingURL=AICopilot-C3OTUD6k.js.map

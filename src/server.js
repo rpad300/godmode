@@ -20666,9 +20666,21 @@ const server = http.createServer(async (req, res) => {
         return;
     }
 
-    // Static files
+    // Static files and routing
+    // Landing page on root
     if (pathname === '/') {
+        pathname = '/landing.html';
+    }
+    // App on /app
+    if (pathname === '/app' || pathname === '/app/') {
         pathname = '/index.html';
+    }
+    // Legal pages
+    if (pathname === '/terms' || pathname === '/terms/') {
+        pathname = '/terms.html';
+    }
+    if (pathname === '/privacy' || pathname === '/privacy/') {
+        pathname = '/privacy.html';
     }
 
     const filePath = path.join(PUBLIC_DIR, pathname);

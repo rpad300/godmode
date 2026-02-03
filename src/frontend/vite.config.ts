@@ -9,7 +9,12 @@ export default defineConfig({
     outDir: '../public',
     emptyOutDir: true,
     rollupOptions: {
-      input: resolve(__dirname, 'index.html'),
+      input: {
+        main: resolve(__dirname, 'index.html'),
+        landing: resolve(__dirname, 'landing.html'),
+        terms: resolve(__dirname, 'terms.html'),
+        privacy: resolve(__dirname, 'privacy.html'),
+      },
     },
     // Generate source maps for debugging
     sourcemap: true,

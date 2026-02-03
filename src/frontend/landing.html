@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="GodMode - Transforme documentos em conhecimento acionável. IA que extrai factos, decisões, riscos e ações de reuniões, emails e documentos.">
+  <meta name="theme-color" content="#1a1a2e">
+  
+  <!-- Open Graph -->
+  <meta property="og:title" content="GodMode - Processamento de Documentos com IA">
+  <meta property="og:description" content="Transforme documentos em conhecimento acionável. IA que extrai factos, decisões, riscos e ações.">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="pt_PT">
+  
+  <title>GodMode - Processamento de Documentos com IA</title>
+  
+  <!-- Favicon -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+</head>
+<body>
+  <!-- Top Bar -->
+  <header class="landing-header" id="landing-header">
+    <div class="landing-header-inner">
+      <a href="/" class="landing-logo">
+        <span class="landing-logo-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+          </svg>
+        </span>
+        <span class="landing-logo-text">GodMode</span>
+      </a>
+      
+      <nav class="landing-nav" id="landing-nav">
+        <a href="#produto" class="landing-nav-link">Produto</a>
+        <a href="#funcionalidades" class="landing-nav-link">Funcionalidades</a>
+        <a href="#casos-uso" class="landing-nav-link">Casos de Uso</a>
+        <a href="#seguranca" class="landing-nav-link">Segurança</a>
+        <a href="#faq" class="landing-nav-link">FAQ</a>
+      </nav>
+      
+      <div class="landing-header-actions">
+        <button class="landing-btn landing-btn-ghost" data-scroll-to="auth-form">Entrar</button>
+        <button class="landing-btn landing-btn-primary" data-scroll-to="auth-form">Começar</button>
+        <button class="landing-menu-toggle" id="menu-toggle" aria-label="Menu">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="3" y1="12" x2="21" y2="12"/>
+            <line x1="3" y1="6" x2="21" y2="6"/>
+            <line x1="3" y1="18" x2="21" y2="18"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Mobile Nav -->
+  <div class="landing-mobile-nav" id="mobile-nav">
+    <a href="#produto" class="landing-nav-link">Produto</a>
+    <a href="#funcionalidades" class="landing-nav-link">Funcionalidades</a>
+    <a href="#casos-uso" class="landing-nav-link">Casos de Uso</a>
+    <a href="#seguranca" class="landing-nav-link">Segurança</a>
+    <a href="#faq" class="landing-nav-link">FAQ</a>
+    <button class="landing-btn landing-btn-primary landing-btn-block" data-scroll-to="auth-form">Começar</button>
+  </div>
+
+  <main class="landing-main">
+    <!-- Hero Section -->
+    <section class="landing-hero">
+      <div class="landing-container">
+        <div class="landing-hero-grid">
+          <div class="landing-hero-content">
+            <h1 class="landing-hero-title">Transforme documentos em conhecimento acionável</h1>
+            <p class="landing-hero-subtitle">IA que extrai factos, decisões, riscos e ações de reuniões, emails e documentos. Centralize o conhecimento da sua equipa num só lugar.</p>
+            
+            <div class="landing-hero-bullets">
+              <div class="landing-bullet">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                </svg>
+                <span>Processamento rápido</span>
+              </div>
+              <div class="landing-bullet">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="3"/>
+                  <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+                </svg>
+                <span>Multi-provider IA</span>
+              </div>
+              <div class="landing-bullet">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                </svg>
+                <span>Dados seguros</span>
+              </div>
+            </div>
+            
+            <div class="landing-hero-ctas">
+              <button class="landing-btn landing-btn-primary landing-btn-lg" data-scroll-to="auth-form">
+                Começar agora
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="5" y1="12" x2="19" y2="12"/>
+                  <polyline points="12 5 19 12 12 19"/>
+                </svg>
+              </button>
+              <button class="landing-btn landing-btn-ghost landing-btn-lg" data-scroll-to="funcionalidades">
+                Ver funcionalidades
+              </button>
+            </div>
+          </div>
+          
+          <!-- Auth Form -->
+          <div class="landing-auth-card" id="auth-form">
+            <div class="landing-auth-tabs">
+              <button class="landing-auth-tab active" data-tab="login">Entrar</button>
+              <button class="landing-auth-tab" data-tab="register">Criar conta</button>
+            </div>
+            
+            <!-- Login Form -->
+            <form class="landing-auth-form" id="login-form">
+              <div class="landing-form-group">
+                <label for="login-email">Email</label>
+                <input type="email" id="login-email" name="email" required autocomplete="email" placeholder="seu@email.com">
+              </div>
+              <div class="landing-form-group">
+                <label for="login-password">Password</label>
+                <input type="password" id="login-password" name="password" required autocomplete="current-password" placeholder="A sua password">
+              </div>
+              <div class="landing-form-error" id="login-error"></div>
+              <button type="submit" class="landing-btn landing-btn-primary landing-btn-block">
+                <span class="btn-text">Entrar</span>
+                <span class="btn-loading" style="display: none;">A entrar...</span>
+              </button>
+              <div class="landing-form-links">
+                <button type="button" class="landing-link" id="forgot-password-link">Esqueci a password</button>
+              </div>
+            </form>
+            
+            <!-- Register Form -->
+            <form class="landing-auth-form" id="register-form" style="display: none;">
+              <div class="landing-form-group">
+                <label for="register-email">Email</label>
+                <input type="email" id="register-email" name="email" required autocomplete="email" placeholder="seu@email.com">
+              </div>
+              <div class="landing-form-group">
+                <label for="register-password">Password</label>
+                <input type="password" id="register-password" name="password" required autocomplete="new-password" placeholder="Mínimo 12 caracteres" minlength="12">
+                <span class="landing-form-hint">Use letras, números e símbolos</span>
+              </div>
+              <div class="landing-form-group">
+                <label for="register-confirm">Confirmar password</label>
+                <input type="password" id="register-confirm" name="confirm" required autocomplete="new-password" placeholder="Confirme a password">
+              </div>
+              <div class="landing-form-error" id="register-error"></div>
+              <button type="submit" class="landing-btn landing-btn-primary landing-btn-block">
+                <span class="btn-text">Criar conta</span>
+                <span class="btn-loading" style="display: none;">A criar...</span>
+              </button>
+            </form>
+            
+            <!-- Forgot Password Form -->
+            <form class="landing-auth-form" id="forgot-form" style="display: none;">
+              <p class="landing-form-description">Introduza o seu email para receber um link de recuperação.</p>
+              <div class="landing-form-group">
+                <label for="forgot-email">Email</label>
+                <input type="email" id="forgot-email" name="email" required autocomplete="email" placeholder="seu@email.com">
+              </div>
+              <div class="landing-form-error" id="forgot-error"></div>
+              <div class="landing-form-success" id="forgot-success"></div>
+              <button type="submit" class="landing-btn landing-btn-primary landing-btn-block">
+                <span class="btn-text">Enviar link</span>
+                <span class="btn-loading" style="display: none;">A enviar...</span>
+              </button>
+              <div class="landing-form-links">
+                <button type="button" class="landing-link" id="back-to-login-link">Voltar ao login</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Produto Section -->
+    <section class="landing-section" id="produto">
+      <div class="landing-container">
+        <div class="landing-section-header">
+          <h2>Como funciona</h2>
+          <p>Para quem precisa de extrair conhecimento de documentos dispersos</p>
+        </div>
+        
+        <div class="landing-steps">
+          <div class="landing-step">
+            <div class="landing-step-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+            </div>
+            <div class="landing-step-number">1</div>
+            <h3>Upload</h3>
+            <p>Arraste PDFs, Word, emails, transcrições de reuniões. Suportamos mais de 10 formatos.</p>
+          </div>
+          
+          <div class="landing-step">
+            <div class="landing-step-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+              </svg>
+            </div>
+            <div class="landing-step-number">2</div>
+            <h3>Processamento IA</h3>
+            <p>A IA extrai factos, decisões, riscos, perguntas e ações automaticamente.</p>
+          </div>
+          
+          <div class="landing-step">
+            <div class="landing-step-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <rect x="3" y="3" width="7" height="7"/>
+                <rect x="14" y="3" width="7" height="7"/>
+                <rect x="14" y="14" width="7" height="7"/>
+                <rect x="3" y="14" width="7" height="7"/>
+              </svg>
+            </div>
+            <div class="landing-step-number">3</div>
+            <h3>Visualização</h3>
+            <p>Dashboard interativo, chat RAG, timeline, grafo de conhecimento. Tudo num só lugar.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Funcionalidades Section -->
+    <section class="landing-section landing-section-alt" id="funcionalidades">
+      <div class="landing-container">
+        <div class="landing-section-header">
+          <h2>Funcionalidades</h2>
+          <p>Tudo o que precisa para gerir conhecimento de forma eficiente</p>
+        </div>
+        
+        <div class="landing-features-grid">
+          <div class="landing-feature">
+            <div class="landing-feature-icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="16" y1="13" x2="8" y2="13"/>
+                <line x1="16" y1="17" x2="8" y2="17"/>
+              </svg>
+            </div>
+            <h3>Extração automática</h3>
+            <p>Factos, decisões, riscos e ações extraídos automaticamente dos documentos.</p>
+          </div>
+          
+          <div class="landing-feature">
+            <div class="landing-feature-icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+              </svg>
+            </div>
+            <h3>Chat RAG</h3>
+            <p>Faça perguntas em linguagem natural e receba respostas com fontes citadas.</p>
+          </div>
+          
+          <div class="landing-feature">
+            <div class="landing-feature-icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="7" height="7"/>
+                <rect x="14" y="3" width="7" height="7"/>
+                <rect x="14" y="14" width="7" height="7"/>
+                <rect x="3" y="14" width="7" height="7"/>
+              </svg>
+            </div>
+            <h3>Dashboard inteligente</h3>
+            <p>Briefing diário, health score do projeto, alertas e tendências.</p>
+          </div>
+          
+          <div class="landing-feature">
+            <div class="landing-feature-icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                <circle cx="9" cy="7" r="4"/>
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+              </svg>
+            </div>
+            <h3>Gestão de equipas</h3>
+            <p>Contactos, equipas e organograma extraídos automaticamente.</p>
+          </div>
+          
+          <div class="landing-feature">
+            <div class="landing-feature-icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                <line x1="16" y1="2" x2="16" y2="6"/>
+                <line x1="8" y1="2" x2="8" y2="6"/>
+                <line x1="3" y1="10" x2="21" y2="10"/>
+              </svg>
+            </div>
+            <h3>Timeline</h3>
+            <p>Visualização cronológica de decisões, milestones e eventos.</p>
+          </div>
+          
+          <div class="landing-feature">
+            <div class="landing-feature-icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="3"/>
+                <circle cx="19" cy="5" r="2"/>
+                <circle cx="5" cy="19" r="2"/>
+                <line x1="14.5" y1="9.5" x2="17.5" y2="6.5"/>
+                <line x1="9.5" y1="14.5" x2="6.5" y2="17.5"/>
+              </svg>
+            </div>
+            <h3>Grafo de conhecimento</h3>
+            <p>Visualize relações entre entidades num grafo interativo.</p>
+          </div>
+          
+          <div class="landing-feature">
+            <div class="landing-feature-icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+              </svg>
+            </div>
+            <h3>Multi-provider</h3>
+            <p>Ollama (local), OpenAI, Claude, Gemini, DeepSeek e mais.</p>
+          </div>
+          
+          <div class="landing-feature">
+            <div class="landing-feature-icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="16 18 22 12 16 6"/>
+                <polyline points="8 6 2 12 8 18"/>
+              </svg>
+            </div>
+            <h3>API REST</h3>
+            <p>API completa para integração com outras ferramentas.</p>
+          </div>
+          
+          <div class="landing-feature">
+            <div class="landing-feature-icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
+                <rect x="2" y="14" width="20" height="8" rx="2" ry="2"/>
+                <line x1="6" y1="6" x2="6.01" y2="6"/>
+                <line x1="6" y1="18" x2="6.01" y2="18"/>
+              </svg>
+            </div>
+            <h3>Local ou cloud</h3>
+            <p>Processe localmente com Ollama ou use providers cloud.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Segurança Section -->
+    <section class="landing-section" id="seguranca">
+      <div class="landing-container">
+        <div class="landing-section-header">
+          <h2>Segurança e Compliance</h2>
+          <p>Os seus dados estão seguros connosco</p>
+        </div>
+        
+        <div class="landing-security-grid">
+          <div class="landing-security-item">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+            <div>
+              <h4>Autenticação segura</h4>
+              <p>Supabase Auth com suporte a OTP e verificação de email.</p>
+            </div>
+          </div>
+          
+          <div class="landing-security-item">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+              <line x1="16" y1="13" x2="8" y2="13"/>
+              <line x1="16" y1="17" x2="8" y2="17"/>
+            </svg>
+            <div>
+              <h4>Logs de auditoria</h4>
+              <p>Registo completo de todas as ações e alterações.</p>
+            </div>
+          </div>
+          
+          <div class="landing-security-item">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+              <circle cx="9" cy="7" r="4"/>
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+            </svg>
+            <div>
+              <h4>Permissões granulares</h4>
+              <p>Controlo de acesso por projeto e por utilizador.</p>
+            </div>
+          </div>
+          
+          <div class="landing-security-item">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+              <line x1="9" y1="3" x2="9" y2="21"/>
+            </svg>
+            <div>
+              <h4>Isolamento de dados</h4>
+              <p>Dados de cada projeto completamente isolados.</p>
+            </div>
+          </div>
+          
+          <div class="landing-security-item">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
+              <rect x="2" y="14" width="20" height="8" rx="2" ry="2"/>
+              <line x1="6" y1="6" x2="6.01" y2="6"/>
+              <line x1="6" y1="18" x2="6.01" y2="18"/>
+            </svg>
+            <div>
+              <h4>Processamento local</h4>
+              <p>Opção de usar Ollama para manter dados no seu servidor.</p>
+            </div>
+          </div>
+          
+          <div class="landing-security-item">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+            <div>
+              <h4>Sem partilha de dados</h4>
+              <p>Os seus dados nunca são partilhados com terceiros.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Casos de Uso Section -->
+    <section class="landing-section landing-section-alt" id="casos-uso">
+      <div class="landing-container">
+        <div class="landing-section-header">
+          <h2>Casos de Uso</h2>
+          <p>Solução versátil para diferentes equipas e necessidades</p>
+        </div>
+        
+        <div class="landing-usecases-grid">
+          <div class="landing-usecase">
+            <div class="landing-usecase-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+              </svg>
+            </div>
+            <h3>Gestão de Projetos</h3>
+            <p>Extraia decisões e ações de atas de reunião. Centralize informação de múltiplos documentos.</p>
+          </div>
+          
+          <div class="landing-usecase">
+            <div class="landing-usecase-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <line x1="18" y1="20" x2="18" y2="10"/>
+                <line x1="12" y1="20" x2="12" y2="4"/>
+                <line x1="6" y1="20" x2="6" y2="14"/>
+              </svg>
+            </div>
+            <h3>Operações / PMO</h3>
+            <p>Consolide riscos e milestones. Monitorize o health score de múltiplos projetos.</p>
+          </div>
+          
+          <div class="landing-usecase">
+            <div class="landing-usecase-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <line x1="12" y1="1" x2="12" y2="23"/>
+                <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+              </svg>
+            </div>
+            <h3>Vendas e Consultoria</h3>
+            <p>Analise propostas e contratos. Identifique requisitos e compromissos.</p>
+          </div>
+          
+          <div class="landing-usecase">
+            <div class="landing-usecase-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <polyline points="16 18 22 12 16 6"/>
+                <polyline points="8 6 2 12 8 18"/>
+              </svg>
+            </div>
+            <h3>IT e Engenharia</h3>
+            <p>Documente arquitecturas e decisões técnicas. Mantenha ADRs actualizados.</p>
+          </div>
+          
+          <div class="landing-usecase">
+            <div class="landing-usecase-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="14.31" y1="8" x2="20.05" y2="17.94"/>
+                <line x1="9.69" y1="8" x2="21.17" y2="8"/>
+                <line x1="7.38" y1="12" x2="13.12" y2="2.06"/>
+                <line x1="9.69" y1="16" x2="3.95" y2="6.06"/>
+                <line x1="14.31" y1="16" x2="2.83" y2="16"/>
+                <line x1="16.62" y1="12" x2="10.88" y2="21.94"/>
+              </svg>
+            </div>
+            <h3>Legal e Compliance</h3>
+            <p>Identifique cláusulas e obrigações contratuais. Rastreie decisões regulatórias.</p>
+          </div>
+          
+          <div class="landing-usecase">
+            <div class="landing-usecase-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                <circle cx="9" cy="7" r="4"/>
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+              </svg>
+            </div>
+            <h3>RH e Onboarding</h3>
+            <p>Centralize documentação de equipa. Facilite o onboarding de novos membros.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FAQ Section -->
+    <section class="landing-section" id="faq">
+      <div class="landing-container">
+        <div class="landing-section-header">
+          <h2>Perguntas Frequentes</h2>
+          <p>Respostas às dúvidas mais comuns</p>
+        </div>
+        
+        <div class="landing-faq-list">
+          <div class="landing-faq-item">
+            <button class="landing-faq-question" aria-expanded="false">
+              <span>Como funciona a autenticação?</span>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </button>
+            <div class="landing-faq-answer">
+              <p>Utilizamos Supabase Auth para autenticação segura. Pode criar conta com email e password, ou usar login por código OTP enviado para o seu email. A verificação de email é obrigatória para maior segurança.</p>
+            </div>
+          </div>
+          
+          <div class="landing-faq-item">
+            <button class="landing-faq-question" aria-expanded="false">
+              <span>Que tipos de ficheiros são suportados?</span>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </button>
+            <div class="landing-faq-answer">
+              <p>Suportamos PDF, DOCX, XLSX, PPTX, TXT, MD, HTML, CSV, JSON, e imagens (PNG, JPG). Para PDFs digitalizados, utilizamos modelos de visão para OCR automático.</p>
+            </div>
+          </div>
+          
+          <div class="landing-faq-item">
+            <button class="landing-faq-question" aria-expanded="false">
+              <span>Posso usar IA local com Ollama?</span>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </button>
+            <div class="landing-faq-answer">
+              <p>Sim! O GodMode suporta Ollama para processamento 100% local. Os seus dados nunca saem do seu servidor. Recomendamos os modelos qwen3:14b para texto e snowflake-arctic-embed para embeddings.</p>
+            </div>
+          </div>
+          
+          <div class="landing-faq-item">
+            <button class="landing-faq-question" aria-expanded="false">
+              <span>Os meus dados são partilhados com terceiros?</span>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </button>
+            <div class="landing-faq-answer">
+              <p>Não. Os seus dados nunca são partilhados com terceiros. Se usar providers cloud (OpenAI, etc.), os dados são enviados apenas para processamento, conforme as políticas de cada provider. Com Ollama, tudo fica local.</p>
+            </div>
+          </div>
+          
+          <div class="landing-faq-item">
+            <button class="landing-faq-question" aria-expanded="false">
+              <span>Que informação é extraída dos documentos?</span>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </button>
+            <div class="landing-faq-answer">
+              <p>Extraímos automaticamente: factos (categorizados), decisões (com responsável e data), riscos (com impacto e probabilidade), perguntas (com prioridade), ações (com responsável e prazo), pessoas e relações organizacionais.</p>
+            </div>
+          </div>
+          
+          <div class="landing-faq-item">
+            <button class="landing-faq-question" aria-expanded="false">
+              <span>Posso exportar os dados?</span>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </button>
+            <div class="landing-faq-answer">
+              <p>Sim. Pode exportar em Markdown (SOURCE_OF_TRUTH.md), JSON para integração com outras ferramentas, ou PDF formatado. A API REST também permite acesso programático a todos os dados.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA Final Section -->
+    <section class="landing-section landing-cta-section">
+      <div class="landing-container">
+        <div class="landing-cta-content">
+          <h2>Pronto para transformar os seus documentos em conhecimento?</h2>
+          <p>Comece hoje e veja a diferença que a extração automática de conhecimento pode fazer na sua equipa.</p>
+          <button class="landing-btn landing-btn-primary landing-btn-lg" data-scroll-to="auth-form">
+            Começar agora
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="5" y1="12" x2="19" y2="12"/>
+              <polyline points="12 5 19 12 12 19"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer class="landing-footer">
+    <div class="landing-container">
+      <div class="landing-footer-content">
+        <div class="landing-footer-brand">
+          <span class="landing-logo-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+            </svg>
+          </span>
+          <span>GodMode</span>
+        </div>
+        <div class="landing-footer-links">
+          <a href="/terms">Termos de Serviço</a>
+          <a href="/privacy">Política de Privacidade</a>
+        </div>
+        <div class="landing-footer-copyright">
+          © 2026 GodMode. Created by RPAD.
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Main Script -->
+  <script type="module" src="/landing.ts"></script>
+</body>
+</html>
