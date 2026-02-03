@@ -1,580 +1,612 @@
 # GodMode - AI-Powered Document Processing
 
-**Version:** 1.0.0
-**Author:** Paulo Dias
-**License:** MIT
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Node.js](https://img.shields.io/badge/Node.js-18%2B-green.svg)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org)
 
-A comprehensive document processing application with Ollama AI integration. Process documents and meeting transcripts to extract facts, decisions, questions, risks, action items, and relationships into a structured knowledge base with semantic search, RAG-powered chat, and advanced visualizations.
+**Version:** 1.0.0  
+**Author:** Paulo Dias
+
+A comprehensive document processing application with AI integration. Process documents and meeting transcripts to extract facts, decisions, questions, risks, action items, and relationships into a structured knowledge base with semantic search, RAG-powered chat, and advanced visualizations.
 
 ---
 
 ## Table of Contents
 
-1. [Features](#features)
-2. [Architecture](#architecture)
-3. [Installation](#installation)
-4. [Configuration](#configuration)
-5. [Usage Guide](#usage-guide)
-6. [Multi-Project Support](#multi-project-support)
-7. [Dashboard & Analytics](#dashboard--analytics)
-8. [Knowledge Extraction](#knowledge-extraction)
-9. [RAG & Semantic Search](#rag--semantic-search)
-10. [API Reference](#api-reference)
-11. [File Formats](#file-formats)
-12. [Troubleshooting](#troubleshooting)
+- [Features](#features)
+- [Requirements](#requirements)
+- [Quick Start](#quick-start)
+- [Detailed Setup](#detailed-setup)
+- [Configuration](#configuration)
+- [Running the Application](#running-the-application)
+- [Docker Setup](#docker-setup)
+- [Running Tests](#running-tests)
+- [Project Structure](#project-structure)
+- [API Reference](#api-reference)
+- [Troubleshooting](#troubleshooting)
+- [Run at Home](#run-at-home)
+- [Contributing](#contributing)
+- [License](#license)
 
 ---
 
 ## Features
 
 ### Core Processing
-| Feature | Description |
-|---------|-------------|
-| **Ollama Integration** | Connect to any Ollama instance (local or remote) |
-| **Multi-Model Support** | Text, vision, reasoning, and embedding models |
-| **Smart Chunking** | Automatic document splitting with overlap for context |
-| **Vision Processing** | OCR for scanned PDFs and images |
-| **MarkItDown Integration** | Microsoft's document converter for superior extraction |
-| **Deduplication** | Prevents reprocessing identical documents |
+- **Multi-Provider AI** - Ollama (local), OpenAI, Claude, Gemini, DeepSeek, and more
+- **Smart Document Processing** - PDFs, DOCX, XLSX, PPTX, HTML, images
+- **Vision Processing** - OCR for scanned documents and images
+- **Semantic Search** - RAG-powered knowledge retrieval
+- **Multi-Project Support** - Isolated knowledge bases per project
 
 ### Knowledge Extraction
-| Data Type | Description |
-|-----------|-------------|
-| **Facts** | Categorized: technical, process, policy, people, timeline, general |
+| Type | Description |
+|------|-------------|
+| **Facts** | Categorized: technical, process, policy, people, timeline |
 | **Decisions** | Track with owner, date, and status |
-| **Questions** | Priority-based (critical/high/medium) with assignees |
-| **Risks** | Impact/likelihood assessment with mitigation tracking |
-| **Action Items** | Tasks with owners, deadlines, completion status |
+| **Questions** | Priority-based with assignees |
+| **Risks** | Impact/likelihood assessment with mitigation |
+| **Actions** | Tasks with owners, deadlines, completion status |
 | **People** | Names, roles, organizations extracted automatically |
-| **Relationships** | Org chart: reports_to, manages, leads, member_of, works_with |
+| **Relationships** | Org chart: reports_to, manages, leads, works_with |
 
 ### Visualization & Analytics
 - **Dashboard** - Real-time stats with charts
-- **Daily Briefing** - AI-generated project status summary
-- **Project Health Score** - Overall health indicator (0-100)
+- **Daily Briefing** - AI-generated project summary
 - **Risk Heat Map** - Impact vs Likelihood matrix
 - **Timeline View** - Chronological decisions and milestones
 - **Org Chart** - Interactive relationship visualization
-- **Questions Status** - Priority breakdown with aging
-
-### Export & Integration
-- **Markdown Export** - SOURCE_OF_TRUTH.md, PENDING_QUESTIONS.md
-- **JSON Export** - Full knowledge base
-- **REST API** - 40+ endpoints for integration
-- **Clipboard Copy** - Quick sharing
 
 ---
 
-## Architecture
+## Requirements
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         GodMode App                              │
-├─────────────────────────────────────────────────────────────────┤
-│  Frontend (Vanilla JS)                                           │
-│  ├── Dashboard & Analytics                                       │
-│  ├── Chat/Q&A Interface                                          │
-│  ├── Source of Truth View                                        │
-│  ├── Timeline & Org Chart                                        │
-│  └── Settings & Configuration                                    │
-├─────────────────────────────────────────────────────────────────┤
-│  Backend (Node.js HTTP Server)                                   │
-│  ├── server.js      - API routes, file handling                  │
-│  ├── processor.js   - Document processing, AI extraction         │
-│  ├── storage.js     - JSON storage, multi-project                │
-│  └── ollama.js      - Ollama API client                          │
-├─────────────────────────────────────────────────────────────────┤
-│  Storage (JSON Files per Project)                                │
-│  ├── knowledge.json   - Facts, decisions, risks, people          │
-│  ├── questions.json   - Questions database                       │
-│  ├── documents.json   - Processed files registry                 │
-│  ├── embeddings.json  - Vector embeddings for RAG                │
-│  └── history.json     - Processing history                       │
-├─────────────────────────────────────────────────────────────────┤
-│  External Services                                               │
-│  └── Ollama Server (local or remote)                             │
-│      ├── Text Model (qwen3:14b)                                  │
-│      ├── Vision Model (qwen3-vl:8b)                              │
-│      └── Embedding Model (snowflake-arctic-embed)                │
-└─────────────────────────────────────────────────────────────────┘
-```
+### Minimum Requirements
+
+| Component | Version | Required |
+|-----------|---------|----------|
+| **Node.js** | 18.x or later | Yes |
+| **npm** | 9.x or later | Yes |
+| **RAM** | 4 GB | Yes |
+| **Disk** | 1 GB free | Yes |
+
+### Optional (Recommended)
+
+| Component | Purpose |
+|-----------|---------|
+| **Ollama** | Local AI processing (free, no API costs) |
+| **Docker** | Containerized services |
+| **Git** | Version control |
+
+### Supported Operating Systems
+
+- Windows 10/11
+- macOS 12+ (Intel and Apple Silicon)
+- Linux (Ubuntu 20.04+, Debian 11+, other modern distros)
 
 ---
 
-## Installation
+## Quick Start
 
-### Prerequisites
-
-1. **Node.js** v18 or later
-2. **Ollama** - For AI processing ([ollama.ai](https://ollama.ai))
-3. **MarkItDown** (optional) - Enhanced document extraction
-
-### Install MarkItDown (Recommended)
+### 1. Clone and Install
 
 ```bash
-pip install markitdown
-```
-
-### Quick Start
-
-```bash
-# Clone/download the app
-cd app
-
-# Install dependencies
+git clone https://github.com/YOUR-USERNAME/godmode.git
+cd godmode
 npm install
-
-# Start the server
-npm start
-
-# Open in browser
-# http://localhost:3005
 ```
 
-### Build Standalone Executable
+### 2. Configure Environment
 
 ```bash
-# Windows only
-npm run build
+# Copy the environment template
+cp .env.example .env
 
-# All platforms (Windows, Linux, macOS)
-npm run build:all
+# Edit .env with your settings (optional for Ollama-only use)
+```
 
-# Output: dist/GodMode.exe (or platform equivalent)
+### 3. Install Ollama (Recommended)
+
+Download from [ollama.ai](https://ollama.ai) and install, then:
+
+```bash
+# Pull required models
+ollama pull qwen3:14b
+ollama pull snowflake-arctic-embed:l
+```
+
+### 4. Start the Application
+
+```bash
+npm start
+```
+
+### 5. Open in Browser
+
+Navigate to: **http://localhost:3005**
+
+---
+
+## Detailed Setup
+
+### Step 1: Prerequisites
+
+#### Install Node.js
+
+**Windows:**
+Download from [nodejs.org](https://nodejs.org) (LTS version)
+
+**macOS:**
+```bash
+brew install node@18
+```
+
+**Linux (Ubuntu/Debian):**
+```bash
+curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+sudo apt-get install -y nodejs
+```
+
+#### Verify Installation
+```bash
+node --version  # Should be v18.x or higher
+npm --version   # Should be v9.x or higher
+```
+
+### Step 2: Clone Repository
+
+```bash
+git clone https://github.com/YOUR-USERNAME/godmode.git
+cd godmode
+```
+
+### Step 3: Run Setup Script
+
+**Windows (PowerShell):**
+```powershell
+.\scripts\setup.ps1
+```
+
+**Linux/macOS:**
+```bash
+chmod +x scripts/setup.sh
+./scripts/setup.sh
+```
+
+Or manually:
+```bash
+npm install
+cp .env.example .env
+npm run build:frontend
+```
+
+### Step 4: Install Ollama (Local AI)
+
+1. Download from [ollama.ai](https://ollama.ai)
+2. Install following the platform instructions
+3. Pull the required models:
+
+```bash
+# Text model (required for extraction)
+ollama pull qwen3:14b
+
+# Embedding model (required for RAG/semantic search)
+ollama pull snowflake-arctic-embed:l
+
+# Vision model (optional, for images/scanned PDFs)
+ollama pull qwen3-vl:8b
 ```
 
 ---
 
 ## Configuration
 
-### Ollama Setup
+### Environment Variables
 
-1. Install Ollama from [ollama.ai](https://ollama.ai)
-2. Pull required models:
+Copy `.env.example` to `.env` and configure:
 
 ```bash
-# Text model (required) - for extraction
-ollama pull qwen3:14b
-
-# Vision model (recommended) - for images/scanned PDFs
-ollama pull qwen3-vl:8b
-
-# Embedding model (required for RAG) - for semantic search
-ollama pull snowflake-arctic-embed:l
+cp .env.example .env
 ```
 
-### App Settings (via UI)
+#### Required Settings
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| **Host IP** | 127.0.0.1 | Ollama server address |
-| **Port** | 11434 | Ollama server port |
-| **Text Model** | qwen3:14b | Main extraction model |
-| **Vision Model** | qwen3-vl:8b | For images and scanned PDFs |
-| **Reasoning Model** | qwen3:14b | For chat/Q&A responses |
-| **Embedding Model** | snowflake-arctic-embed:l | For RAG semantic search |
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | 3005 | HTTP server port |
+| `APP_URL` | http://localhost:3005 | Base URL for the app |
 
-### config.json
+#### AI Providers (Optional)
 
-```json
-{
-  "projectName": "My Project",
-  "ollama": {
-    "host": "192.168.1.250",
-    "port": "11434",
-    "model": "qwen3:14b",
-    "visionModel": "qwen3-vl:8b",
-    "reasoningModel": "qwen3:14b"
-  },
-  "pdfToImages": true,
-  "prompts": {
-    "document": "",
-    "vision": "",
-    "transcript": ""
-  }
-}
+Configure the providers you want to use:
+
+```env
+# OpenAI
+OPENAI_API_KEY=sk-...
+
+# Anthropic Claude
+CLAUDE_API_KEY=sk-ant-...
+
+# Google Gemini
+GOOGLE_API_KEY=AIza...
+
+# DeepSeek
+DEEPSEEK_API_KEY=sk-...
 ```
 
-### Custom Extraction Prompts
+> **Note:** If using Ollama, no API keys are required. Configure Ollama settings via the UI.
 
-You can customize the AI extraction prompts for:
-- **Document Prompt** - PDFs, DOCX, text files
-- **Vision Prompt** - Scanned PDFs, images
-- **Transcript Prompt** - Meeting transcripts
+#### Supabase (Optional - for cloud sync)
 
-Leave empty to use optimized default prompts.
+```env
+SUPABASE_URL=https://yourproject.supabase.co
+SUPABASE_ANON_KEY=your-anon-key
+SUPABASE_SERVICE_KEY=your-service-key
+```
+
+### Ollama Configuration (via UI)
+
+1. Open the app at http://localhost:3005
+2. Go to **Settings** tab
+3. Configure:
+   - Host IP (default: 127.0.0.1)
+   - Port (default: 11434)
+   - Text Model (default: qwen3:14b)
+   - Embedding Model (default: snowflake-arctic-embed:l)
+4. Click **Test Connection**
 
 ---
 
-## Usage Guide
+## Running the Application
 
-### Basic Workflow
+### Development Mode
 
-```
-1. Configure Ollama    → Settings tab, test connection
-2. Upload files        → Drag to Documents or Transcripts zone
-3. Process             → Click "Process Files"
-4. Review              → Browse Dashboard, panels
-5. Chat                → Use RAG-powered Q&A
-6. Export              → Download markdown/JSON
+```bash
+# Start with hot-reload (backend + frontend)
+npm run dev
 ```
 
-### File Upload
+This runs:
+- Backend on http://localhost:3005
+- Frontend dev server on http://localhost:5173 (with proxy to backend)
 
-**Two methods:**
+### Production Mode (Local)
 
-1. **Drag & Drop** - Drag files to the upload zones in the sidebar
-2. **File System** - Place files directly in project folders:
-   - `data/projects/{id}/newinfo/` - Documents
-   - `data/projects/{id}/newtranscripts/` - Meeting transcripts
+```bash
+# Build frontend
+npm run build:frontend
 
-### Processing Modes
-
-| Mode | Description |
-|------|-------------|
-| **Content-First** | Extract raw content first, then synthesize (default) |
-| **Direct** | Process and extract in one pass |
-| **Chunked** | Large documents split into overlapping chunks |
-| **Vision** | Images converted and processed with vision model |
-
----
-
-## Multi-Project Support
-
-GodMode supports multiple independent projects, each with its own:
-- Knowledge base (facts, decisions, questions, risks)
-- Document archive
-- Processing history
-- Embeddings index
-
-### Project Management
-
-| Action | How |
-|--------|-----|
-| **Switch Project** | Click project dropdown in header |
-| **Create Project** | Settings → New Project |
-| **Delete Project** | Settings → Delete (cannot delete last project) |
-| **Set User Role** | Define your role for context in extractions |
-
-### Project Structure
-
+# Start server
+npm start
 ```
-app/data/projects/{project-id}/
-├── newinfo/                 # Pending documents
-├── newtranscripts/          # Pending transcripts
-├── archived/
-│   ├── documents/           # Processed documents
-│   └── meetings/            # Processed transcripts
-├── content/                 # Raw extracted content
-├── knowledge.json           # Facts, decisions, risks, people
-├── questions.json           # Questions database
-├── documents.json           # File registry
-├── embeddings.json          # Vector embeddings
-├── history.json             # Processing log
-├── stats_history.json       # Daily stats for trends
-├── SOURCE_OF_TRUTH.md       # Generated markdown
-└── PENDING_QUESTIONS.md     # Generated questions list
+
+### Background Running
+
+**Windows (Task Scheduler or Service):**
+```powershell
+# Run as background process
+Start-Process -NoNewWindow npm -ArgumentList "start"
+```
+
+**Linux/macOS (systemd):**
+```bash
+# Create service file
+sudo nano /etc/systemd/system/godmode.service
+```
+
+```ini
+[Unit]
+Description=GodMode AI Document Processing
+After=network.target
+
+[Service]
+Type=simple
+User=your-user
+WorkingDirectory=/path/to/godmode
+ExecStart=/usr/bin/npm start
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl enable godmode
+sudo systemctl start godmode
 ```
 
 ---
 
-## Dashboard & Analytics
+## Docker Setup
 
-### Daily Briefing
+### Start Ollama with Docker
 
-AI-generated summary including:
-- **Project Health** - Needs Attention / On Track / Excellent
-- **Critical Today** - Urgent items requiring action
-- **Trends** - Analysis of open risks and questions
-- **Next Steps** - Recommended actions
+```bash
+# Start Ollama container
+docker compose up ollama -d
 
-### Metrics Cards
+# Pull models (run inside container)
+docker exec -it godmode-ollama ollama pull qwen3:14b
+docker exec -it godmode-ollama ollama pull snowflake-arctic-embed:l
+```
 
-| Metric | Description |
-|--------|-------------|
-| **Facts** | Total extracted facts |
-| **Questions** | Open questions count |
-| **Decisions** | Recorded decisions |
-| **Risks** | Open risks |
-| **Actions** | Pending action items |
+### With GPU Support (NVIDIA)
 
-### Project Health Score (0-100)
+```bash
+# Start with GPU acceleration
+docker compose --profile gpu up ollama-gpu -d
+```
 
-Calculated from:
-- High-impact risks (negative)
-- Open critical questions (negative)
-- Completed actions (positive)
-- Decision coverage (positive)
+### Optional Services
 
-### Risk Heat Map
+```bash
+# Start FalkorDB (graph database)
+docker compose --profile graph up falkordb -d
 
-Visual matrix showing risks by:
-- **Y-axis**: Impact (Low → High)
-- **X-axis**: Likelihood (Low → High)
-- **Colors**: Green (low) → Yellow → Red (critical)
+# Start local Supabase
+docker compose --profile supabase up -d
 
-### Questions Status
+# Start all services
+docker compose --profile graph --profile supabase up -d
+```
 
-- Priority breakdown: Critical / High / Medium
-- Question Age: Fresh / Aging / Stale / Critical
+### Stop Services
+
+```bash
+docker compose down
+```
 
 ---
 
-## Knowledge Extraction
+## Running Tests
 
-### What Gets Extracted
+```bash
+# Run all tests
+npm test
 
-| Type | Fields | Example |
-|------|--------|---------|
-| **Fact** | content, category, confidence | "System uses OAuth 2.0 for authentication" |
-| **Decision** | content, owner, date | "Decided to use PostgreSQL - John - 2026-01-15" |
-| **Question** | content, priority, context, assigned_to | "What is the backup strategy? - High - Ops Team" |
-| **Risk** | content, impact, likelihood, mitigation | "Data loss if backup fails - High - Daily backups" |
-| **Action** | task, owner, deadline, status | "Configure monitoring - DevOps - 2026-02-01" |
-| **Person** | name, role, organization | "John Smith - Tech Lead - Acme Corp" |
-| **Relationship** | from, to, type | "John → Engineering Team → leads" |
+# Run unit tests only
+npm run test:unit
 
-### Confidence Scores
+# Run integration tests only
+npm run test:integration
 
-Each extracted item has a confidence score (0.0-1.0):
-- **0.9+** - High confidence
-- **0.7-0.9** - Medium confidence
-- **<0.7** - Low confidence (may need review)
+# Run with coverage report
+npm run test:coverage
 
-### Deduplication
+# Watch mode (re-run on changes)
+npm run test:watch
+```
 
-Automatic deduplication using:
-- Document hash (prevents reprocessing)
-- Jaccard similarity for facts (threshold: 0.90)
-- Exact match for questions
+### LLM Preflight Tests
+
+Test AI provider connectivity:
+
+```bash
+# Check configured providers
+npm run llm:preflight
+
+# Live test with actual API calls
+npm run llm:preflight:live
+```
 
 ---
 
-## RAG & Semantic Search
-
-### Building the Index
-
-1. Go to **Settings** → **Knowledge Base (RAG)**
-2. Select embedding model (e.g., `snowflake-arctic-embed:l`)
-3. Click **Rebuild** or wait for auto-rebuild after processing
-
-### Semantic Search
+## Project Structure
 
 ```
-GET /api/knowledge/search?q=authentication&semantic=true
-```
-
-Returns items ranked by semantic similarity, not just keyword match.
-
-### RAG-Powered Chat
-
-1. Go to **Chat/Q&A** tab
-2. Ask a question in natural language
-3. AI finds relevant context from knowledge base
-4. Responds with answer + source attribution
-
-### How It Works
-
-```
-User Question
-     ↓
-Generate Question Embedding
-     ↓
-Find Similar Items (cosine similarity)
-     ↓
-Build Context from Top-K Items
-     ↓
-Send to LLM with Context
-     ↓
-Response with Sources
+godmode/
+├── src/                    # Source code
+│   ├── server.js           # Main HTTP server
+│   ├── processor.js        # Document processing
+│   ├── storage.js          # Local JSON storage
+│   ├── ollama.js           # Ollama API client
+│   ├── frontend/           # TypeScript frontend (Vite)
+│   │   ├── components/     # UI components
+│   │   ├── services/       # API services
+│   │   ├── stores/         # State management
+│   │   └── styles/         # CSS styles
+│   ├── llm/                # LLM providers and routing
+│   ├── supabase/           # Supabase integration
+│   ├── graphrag/           # Graph RAG implementation
+│   └── public/             # Built frontend assets
+├── scripts/                # Setup and utility scripts
+├── tests/                  # Test suites
+├── supabase/               # Database migrations
+├── docs/                   # Documentation
+├── data/                   # Project data (gitignored)
+├── .env.example            # Environment template
+├── docker-compose.yml      # Docker services
+└── package.json            # Dependencies and scripts
 ```
 
 ---
 
 ## API Reference
 
+### Health Check
+
+```
+GET /health
+```
+
+Returns server health status.
+
 ### Configuration
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/config` | Get configuration |
 | POST | `/api/config` | Update configuration |
 
 ### Projects
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/projects` | List all projects |
 | POST | `/api/projects` | Create project |
 | GET | `/api/projects/current` | Get active project |
 | PUT | `/api/projects/:id/activate` | Switch project |
-| PUT | `/api/projects/:id` | Update project |
-| DELETE | `/api/projects/:id` | Delete project |
-
-### Ollama
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/ollama/test` | Test connection |
-| GET | `/api/ollama/models` | List models (categorized) |
-| GET | `/api/ollama/recommended` | Recommended models |
-| POST | `/api/ollama/pull` | Download model |
-| POST | `/api/ollama/unload` | Unload model from memory |
-
-### Processing
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/files` | List pending files |
-| POST | `/api/upload` | Upload files |
-| DELETE | `/api/files/:folder/:name` | Remove pending file |
-| POST | `/api/process` | Start processing |
-| GET | `/api/process/status` | Processing status |
 
 ### Knowledge Data
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/facts` | List facts |
 | GET | `/api/questions` | List questions |
-| PUT | `/api/questions/:id` | Update question |
-| DELETE | `/api/questions/:id` | Delete question |
 | GET | `/api/decisions` | List decisions |
 | GET | `/api/risks` | List risks |
-| PUT | `/api/risks/:id` | Update risk |
 | GET | `/api/actions` | List action items |
-| PUT | `/api/actions/:id` | Update action |
-| GET | `/api/people` | List people |
-| GET | `/api/relationships` | List relationships |
-| GET | `/api/org-chart` | Org chart data |
-| GET | `/api/timeline` | Timeline data |
 
-### Search & Chat
+### Processing
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/search?q=term` | Full-text search |
-| GET | `/api/knowledge/search?q=term&semantic=true` | Semantic search |
-| POST | `/api/ask` | Simple Q&A |
-| POST | `/api/chat` | RAG-powered chat |
+| POST | `/api/upload` | Upload files |
+| POST | `/api/process` | Start processing |
+| GET | `/api/process/status` | Get processing status |
 
-### RAG Management
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/knowledge/json` | Full knowledge JSON |
-| GET | `/api/knowledge/status` | Embedding status |
-| POST | `/api/knowledge/embed` | Generate embeddings |
-| POST | `/api/knowledge/regenerate` | Regenerate markdown |
-| POST | `/api/knowledge/synthesize` | AI synthesis of knowledge |
-
-### Export
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/source-of-truth` | SOURCE_OF_TRUTH.md content |
-| GET | `/api/export/knowledge` | Download knowledge.md |
-| GET | `/api/export/questions` | Download questions.md |
-
-### Dashboard
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/stats` | Dashboard statistics |
-| GET | `/api/briefing` | AI daily briefing |
-| GET | `/api/history` | Processing history |
-| GET | `/api/logs` | File processing logs |
-
----
-
-## File Formats
-
-### Supported Input Formats
-
-| Format | Method | Notes |
-|--------|--------|-------|
-| `.pdf` | MarkItDown / pdf-parse / Vision | Vision for scanned |
-| `.docx` | MarkItDown | Microsoft Word |
-| `.xlsx` | MarkItDown | Microsoft Excel |
-| `.pptx` | MarkItDown | Microsoft PowerPoint |
-| `.html` | MarkItDown | Web pages |
-| `.txt` | Native | Plain text |
-| `.md` | Native | Markdown |
-| `.json` | Native | JSON data |
-| `.csv` | Native | Comma-separated |
-| `.log` | Native | Log files |
-| `.png/.jpg` | Vision | Images (OCR) |
-
-### Output Formats
-
-| File | Content |
-|------|---------|
-| `SOURCE_OF_TRUTH.md` | All facts, decisions, risks, people |
-| `PENDING_QUESTIONS.md` | Open questions by priority |
-| `knowledge.json` | Full structured data |
-| `questions.json` | Questions database |
+For full API documentation, see `docs/api/openapi.yaml`.
 
 ---
 
 ## Troubleshooting
 
-### Connection Issues
+### Common Issues
 
-| Problem | Solution |
-|---------|----------|
-| "Not connected" | Check Ollama is running: `ollama serve` |
-| "Connection refused" | Verify host IP and port in Settings |
-| "Model not found" | Pull model: `ollama pull qwen3:14b` |
+#### "Cannot connect to Ollama"
 
-### Processing Issues
+1. Verify Ollama is running: `ollama serve`
+2. Check host/port in Settings (default: 127.0.0.1:11434)
+3. Test with: `curl http://localhost:11434/api/tags`
 
-| Problem | Solution |
-|---------|----------|
-| Empty extraction | Check model is responding: test in Settings |
-| Timeout | Large files - model may need more time |
-| JSON parse error | Model output malformed - try different model |
-| No transcripts appearing | Check file is in correct project folder |
+#### "Model not found"
 
-### Performance Issues
+Pull the required model:
+```bash
+ollama pull qwen3:14b
+```
 
-| Problem | Solution |
-|---------|----------|
-| Slow processing | Use smaller model (qwen3:8b) |
-| High memory | Unload unused models in Settings |
-| Large files | App auto-chunks, but very large may timeout |
-
-### Debug Commands
+#### Port 3005 already in use
 
 ```bash
-# Check Ollama status
-curl http://localhost:11434/api/tags
+# Windows
+npm run kill:3005
 
-# List models
-ollama list
+# Linux/macOS
+lsof -ti:3005 | xargs kill -9
+```
 
-# Test model
-ollama run qwen3:14b "Hello"
+#### npm install fails
 
-# View app logs
-# Check terminal where npm start is running
+```bash
+# Clear cache and retry
+rm -rf node_modules package-lock.json
+npm cache clean --force
+npm install
+```
+
+#### Frontend not loading
+
+```bash
+# Rebuild frontend
+npm run build:frontend
+```
+
+### Debug Mode
+
+```bash
+# Enable verbose logging
+DEBUG=true npm start
+```
+
+### Check Logs
+
+Server logs appear in the terminal where `npm start` is running.
+
+---
+
+## Run at Home
+
+### Local Network Access
+
+To access GodMode from other devices on your network:
+
+1. **Find your IP address:**
+   ```bash
+   # Windows
+   ipconfig
+   
+   # Linux/macOS
+   ip addr  # or ifconfig
+   ```
+
+2. **Configure the app:**
+   ```env
+   # In .env
+   APP_URL=http://192.168.1.100:3005
+   ```
+
+3. **Access from other devices:**
+   Open `http://YOUR-IP:3005` in a browser
+
+### Security Recommendations
+
+1. **Don't expose to internet** - Use VPN or reverse proxy with auth
+2. **Keep .env secure** - Never share API keys
+3. **Use firewall** - Only open port 3005 on local network
+4. **Regular updates** - Keep Node.js and dependencies updated
+
+### Running 24/7
+
+**Docker (recommended):**
+```bash
+docker compose up -d
+```
+
+**Systemd (Linux):**
+See [Running the Application](#running-the-application) section.
+
+**PM2 (cross-platform):**
+```bash
+npm install -g pm2
+pm2 start src/server.js --name godmode
+pm2 save
+pm2 startup
 ```
 
 ---
 
-## Technology Stack
+## Contributing
 
-| Component | Technology |
-|-----------|------------|
-| Backend | Node.js (pure HTTP, no framework) |
-| Frontend | Vanilla JavaScript, CSS |
-| Storage | JSON files (portable) |
-| AI | Ollama API |
-| Visualization | Chart.js, vis-network |
-| PDF | pdf-parse, pdf-to-img |
-| Document Conversion | MarkItDown (Microsoft) |
-| Packaging | pkg (standalone executables) |
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
----
+### Quick Guide
 
-## Credits
-
-- **Ollama** - Local LLM inference
-- **MarkItDown** - Microsoft document converter
-- **vis.js** - Network visualization
-- **Chart.js** - Charts and graphs
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/your-feature`
+3. Make changes and test: `npm test`
+4. Commit: `git commit -m "feat: add your feature"`
+5. Push: `git push origin feature/your-feature`
+6. Open a Pull Request
 
 ---
 
-*GodMode v1.0.0 - AI-Powered Document Processing*
+## License
+
+This project is licensed under the MIT License - see [LICENSE](LICENSE) for details.
+
+---
+
+## Acknowledgments
+
+- [Ollama](https://ollama.ai) - Local LLM inference
+- [Supabase](https://supabase.com) - Backend as a Service
+- [Vite](https://vitejs.dev) - Frontend tooling
+- [Chart.js](https://www.chartjs.org) - Visualizations
+- [vis.js](https://visjs.org) - Network visualization
+
+---
+
+*GodMode v1.0.0 - AI-Powered Document Processing*  
 *Created by Paulo Dias*

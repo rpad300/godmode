@@ -20636,6 +20636,23 @@ const server = http.createServer(async (req, res) => {
     const parsedUrl = parseUrl(req.url);
     let pathname = parsedUrl.pathname;
 
+    // Health check endpoint - simple and fast for monitoring
+    if (pathname === '/health' && req.method === 'GET') {
+        const healthStatus = {
+            status: 'ok',
+            timestamp: new Date().toISOString(),
+            version: '1.0.0',
+            uptime: process.uptime(),
+            memory: {
+                used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+                total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024)
+            }
+        };
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(healthStatus));
+        return;
+    }
+
     // API routes
     if (pathname.startsWith('/api/')) {
         await handleAPI(req, res, pathname);

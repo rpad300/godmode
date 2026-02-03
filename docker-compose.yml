@@ -1,0 +1,188 @@
+# =============================================================================
+# GodMode - Docker Compose Configuration
+# =============================================================================
+# This file provides containerized services for local development and deployment
+#
+# Quick Start:
+#   docker compose up              # Start all services
+#   docker compose up -d           # Start in background
+#   docker compose up ollama       # Start only Ollama
+#   docker compose down            # Stop all services
+#
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # GodMode Application
+  # ---------------------------------------------------------------------------
+  # Uncomment to run the app in a container
+  # By default, run the app outside Docker for easier development
+  # ---------------------------------------------------------------------------
+  # app:
+  #   build: .
+  #   ports:
+  #     - "3005:3005"
+  #   environment:
+  #     - NODE_ENV=production
+  #     - PORT=3005
+  #     - OLLAMA_HOST=ollama
+  #     - OLLAMA_PORT=11434
+  #   env_file:
+  #     - .env
+  #   volumes:
+  #     - ./data:/app/data
+  #   depends_on:
+  #     - ollama
+  #   restart: unless-stopped
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:3005/health"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+
+  # ---------------------------------------------------------------------------
+  # Ollama - Local AI Server
+  # ---------------------------------------------------------------------------
+  # Provides local LLM inference without cloud API costs
+  # GPU support: Use ollama-gpu profile for NVIDIA GPU acceleration
+  # ---------------------------------------------------------------------------
+  ollama:
+    image: ollama/ollama:latest
+    container_name: godmode-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      # Persist models between restarts
+      - ollama-models:/root/.ollama
+    restart: unless-stopped
+    # Uncomment for NVIDIA GPU support (requires nvidia-docker)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  # ---------------------------------------------------------------------------
+  # Ollama with GPU Support (alternative service)
+  # ---------------------------------------------------------------------------
+  # Use this instead of 'ollama' if you have an NVIDIA GPU
+  # Start with: docker compose up ollama-gpu
+  # ---------------------------------------------------------------------------
+  ollama-gpu:
+    image: ollama/ollama:latest
+    container_name: godmode-ollama-gpu
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    restart: unless-stopped
+    profiles:
+      - gpu
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # ---------------------------------------------------------------------------
+  # Supabase Local (Optional - for development without cloud)
+  # ---------------------------------------------------------------------------
+  # Full local Supabase stack for offline development
+  # Start with: docker compose --profile supabase up
+  # ---------------------------------------------------------------------------
+  supabase-db:
+    image: supabase/postgres:15.1.1.78
+    container_name: godmode-supabase-db
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    volumes:
+      - supabase-db-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    profiles:
+      - supabase
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  supabase-studio:
+    image: supabase/studio:20240422-5cf8f30
+    container_name: godmode-supabase-studio
+    ports:
+      - "3000:3000"
+    environment:
+      STUDIO_PG_META_URL: http://supabase-meta:8080
+      POSTGRES_PASSWORD: postgres
+      DEFAULT_ORGANIZATION_NAME: GodMode
+      DEFAULT_PROJECT_NAME: GodMode Local
+      SUPABASE_URL: http://localhost:8000
+      SUPABASE_PUBLIC_URL: http://localhost:8000
+    depends_on:
+      - supabase-db
+    restart: unless-stopped
+    profiles:
+      - supabase
+
+  # ---------------------------------------------------------------------------
+  # FalkorDB (Optional - for graph database features)
+  # ---------------------------------------------------------------------------
+  # Redis-compatible graph database for relationship queries
+  # Start with: docker compose --profile graph up
+  # ---------------------------------------------------------------------------
+  falkordb:
+    image: falkordb/falkordb:latest
+    container_name: godmode-falkordb
+    ports:
+      - "6379:6379"
+    volumes:
+      - falkordb-data:/data
+    restart: unless-stopped
+    profiles:
+      - graph
+    command: ["--requirepass", "godmode-local"]
+
+  # ---------------------------------------------------------------------------
+  # Redis (Optional - for caching)
+  # ---------------------------------------------------------------------------
+  # In-memory cache for improved performance
+  # Start with: docker compose --profile cache up
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: godmode-redis
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    profiles:
+      - cache
+    command: ["redis-server", "--appendonly", "yes"]
+
+# =============================================================================
+# Persistent Volumes
+# =============================================================================
+volumes:
+  ollama-models:
+    name: godmode-ollama-models
+  supabase-db-data:
+    name: godmode-supabase-db
+  falkordb-data:
+    name: godmode-falkordb
+  redis-data:
+    name: godmode-redis
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  default:
+    name: godmode-network

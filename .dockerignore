@@ -1,0 +1,57 @@
+# =============================================================================
+# Docker Build Ignore
+# =============================================================================
+
+# Git
+.git
+.gitignore
+
+# Dependencies (will be installed fresh)
+node_modules
+
+# Data and temp files
+data/
+temp/
+tmp/
+
+# Environment files (secrets)
+.env
+.env.*
+!.env.example
+src/.env
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build artifacts
+dist/
+*.exe
+coverage/
+
+# Documentation (not needed in container)
+docs/
+*.md
+!README.md
+
+# Tests (not needed in production)
+tests/
+*.test.js
+*.spec.js
+jest.config.js
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Local config
+config.json
+
+# Development files
+*.map
