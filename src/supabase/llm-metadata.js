@@ -1,15 +1,18 @@
 /**
  * LLM Model Metadata - Supabase Integration
  * Dynamic storage and retrieval of LLM model information
+ * 
+ * NOTE: Uses admin client (service_role) because this module handles server-side
+ * operations for LLM model metadata sync and cost calculations without user context.
  */
 
-const { getClient } = require('./index');
+const { getAdminClient } = require('./client');
 
 /**
  * Get model metadata from database
  */
 async function getModelMetadata(provider, modelId) {
-    const supabase = getClient();
+    const supabase = getAdminClient();
     if (!supabase) return null;
     
     try {
@@ -46,7 +49,7 @@ async function getModelMetadata(provider, modelId) {
  * Get all models for a provider
  */
 async function getModelsForProvider(provider) {
-    const supabase = getClient();
+    const supabase = getAdminClient();
     if (!supabase) return [];
     
     try {
@@ -82,7 +85,7 @@ async function getModelsGroupedByType(provider) {
  * Calculate cost from database pricing
  */
 async function calculateCost(provider, modelId, inputTokens, outputTokens) {
-    const supabase = getClient();
+    const supabase = getAdminClient();
     if (!supabase) return 0;
     
     try {
@@ -106,7 +109,7 @@ async function calculateCost(provider, modelId, inputTokens, outputTokens) {
  * Upsert model metadata (for sync)
  */
 async function upsertModelMetadata(metadata) {
-    const supabase = getClient();
+    const supabase = getAdminClient();
     if (!supabase) return { success: false, error: 'Supabase not configured' };
     
     try {
@@ -160,7 +163,7 @@ async function bulkUpsertModels(models) {
  * Get sync status for all providers
  */
 async function getSyncStatus() {
-    const supabase = getClient();
+    const supabase = getAdminClient();
     if (!supabase) return [];
     
     try {
@@ -180,7 +183,7 @@ async function getSyncStatus() {
  * Mark models as inactive for a provider (before sync)
  */
 async function markProviderModelsInactive(provider) {
-    const supabase = getClient();
+    const supabase = getAdminClient();
     if (!supabase) return;
     
     try {
@@ -198,7 +201,7 @@ async function markProviderModelsInactive(provider) {
  * Get all pricing data (for cost calculation fallback)
  */
 async function getAllPricing() {
-    const supabase = getClient();
+    const supabase = getAdminClient();
     if (!supabase) return {};
     
     try {

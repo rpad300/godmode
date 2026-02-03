@@ -198,8 +198,8 @@ class LLMQueueManager extends EventEmitter {
     async initDatabase() {
         try {
             this.dbQueue = require('../supabase/llm-queue');
-            const { getClient } = require('../supabase/client');
-            const client = getClient();
+            const { getAdminClient } = require('../supabase/client');
+            const client = getAdminClient();
             
             if (client) {
                 this.dbEnabled = true;
@@ -208,7 +208,7 @@ class LLMQueueManager extends EventEmitter {
                 // Start retry processor
                 this.startRetryProcessor();
             } else {
-                console.log('[LLMQueue] Database not configured, using in-memory only');
+                console.log('[LLMQueue] Database not configured (missing service_role key), using in-memory only');
             }
         } catch (error) {
             console.warn('[LLMQueue] Failed to initialize database:', error.message);

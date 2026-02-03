@@ -83,12 +83,20 @@ class OntologySync {
                     },
                     (payload) => this._handleChange(payload)
                 )
-                .subscribe((status) => {
+                .subscribe((status, err) => {
                     if (status === 'SUBSCRIBED') {
                         this.isListening = true;
                         console.log('[OntologySync] Subscribed to ontology_schema changes');
                     } else if (status === 'CHANNEL_ERROR') {
-                        console.error('[OntologySync] Channel error');
+                        // This can happen temporarily during connection establishment
+                        // or if Realtime is not enabled for the table
+                        console.warn('[OntologySync] Channel error (will retry):', err?.message || 'unknown');
+                        this.isListening = false;
+                    } else if (status === 'TIMED_OUT') {
+                        console.warn('[OntologySync] Subscription timed out, will retry');
+                        this.isListening = false;
+                    } else if (status === 'CLOSED') {
+                        console.log('[OntologySync] Channel closed');
                         this.isListening = false;
                     }
                 });

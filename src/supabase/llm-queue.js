@@ -1,9 +1,13 @@
 /**
  * LLM Queue Database Operations
  * Persistent queue for LLM requests with retry, audit, and project segregation
+ * 
+ * NOTE: Uses admin client (service_role) because the server processes LLM requests
+ * without an authenticated user context. The RLS policies for llm_requests require
+ * either an authenticated user or service_role access.
  */
 
-const { getClient } = require('./client');
+const { getAdminClient } = require('./client');
 const crypto = require('crypto');
 
 /**
@@ -33,9 +37,9 @@ async function enqueueRequest({
   metadata = {},
   deduplicate = false
 }) {
-  const client = getClient();
+  const client = getAdminClient();
   if (!client) {
-    return { success: false, error: 'Database not configured' };
+    return { success: false, error: 'Database not configured (missing service_role key)' };
   }
 
   try {
@@ -98,9 +102,9 @@ async function enqueueRequest({
  * Claim the next pending request (atomic operation)
  */
 async function claimNextRequest(projectId = null) {
-  const client = getClient();
+  const client = getAdminClient();
   if (!client) {
-    return { success: false, error: 'Database not configured' };
+    return { success: false, error: 'Database not configured (missing service_role key)' };
   }
 
   try {
@@ -145,9 +149,9 @@ async function completeRequest({
   outputTokens = null,
   estimatedCost = null
 }) {
-  const client = getClient();
+  const client = getAdminClient();
   if (!client) {
-    return { success: false, error: 'Database not configured' };
+    return { success: false, error: 'Database not configured (missing service_role key)' };
   }
 
   try {
@@ -179,9 +183,9 @@ async function failRequest({
   errorDetails = null,
   retry = true
 }) {
-  const client = getClient();
+  const client = getAdminClient();
   if (!client) {
-    return { success: false, error: 'Database not configured' };
+    return { success: false, error: 'Database not configured (missing service_role key)' };
   }
 
   try {
@@ -206,9 +210,9 @@ async function failRequest({
  * Cancel a pending request
  */
 async function cancelRequest(requestId) {
-  const client = getClient();
+  const client = getAdminClient();
   if (!client) {
-    return { success: false, error: 'Database not configured' };
+    return { success: false, error: 'Database not configured (missing service_role key)' };
   }
 
   try {
@@ -229,9 +233,9 @@ async function cancelRequest(requestId) {
  * Retry a failed request
  */
 async function retryRequest(requestId, resetAttempts = false) {
-  const client = getClient();
+  const client = getAdminClient();
   if (!client) {
-    return { success: false, error: 'Database not configured' };
+    return { success: false, error: 'Database not configured (missing service_role key)' };
   }
 
   try {
@@ -253,9 +257,9 @@ async function retryRequest(requestId, resetAttempts = false) {
  * Clear all pending requests for a project
  */
 async function clearQueue(projectId) {
-  const client = getClient();
+  const client = getAdminClient();
   if (!client) {
-    return { success: false, error: 'Database not configured' };
+    return { success: false, error: 'Database not configured (missing service_role key)' };
   }
 
   try {
@@ -276,9 +280,9 @@ async function clearQueue(projectId) {
  * Get queue status
  */
 async function getQueueStatus(projectId = null) {
-  const client = getClient();
+  const client = getAdminClient();
   if (!client) {
-    return { success: false, error: 'Database not configured' };
+    return { success: false, error: 'Database not configured (missing service_role key)' };
   }
 
   try {
@@ -313,9 +317,9 @@ async function getQueueStatus(projectId = null) {
  * Get pending requests
  */
 async function getPendingRequests(projectId, limit = 50) {
-  const client = getClient();
+  const client = getAdminClient();
   if (!client) {
-    return { success: false, error: 'Database not configured' };
+    return { success: false, error: 'Database not configured (missing service_role key)' };
   }
 
   try {
@@ -357,9 +361,9 @@ async function getPendingRequests(projectId, limit = 50) {
  * Get request history
  */
 async function getHistory(projectId = null, limit = 100, offset = 0) {
-  const client = getClient();
+  const client = getAdminClient();
   if (!client) {
-    return { success: false, error: 'Database not configured' };
+    return { success: false, error: 'Database not configured (missing service_role key)' };
   }
 
   try {
@@ -417,9 +421,9 @@ async function getHistory(projectId = null, limit = 100, offset = 0) {
  * Get statistics by context
  */
 async function getStatsByContext(projectId = null) {
-  const client = getClient();
+  const client = getAdminClient();
   if (!client) {
-    return { success: false, error: 'Database not configured' };
+    return { success: false, error: 'Database not configured (missing service_role key)' };
   }
 
   try {
@@ -449,9 +453,9 @@ async function getStatsByContext(projectId = null) {
  * Get failed requests that can be retried
  */
 async function getRetryableRequests(projectId = null, limit = 50) {
-  const client = getClient();
+  const client = getAdminClient();
   if (!client) {
-    return { success: false, error: 'Database not configured' };
+    return { success: false, error: 'Database not configured (missing service_role key)' };
   }
 
   try {
@@ -505,9 +509,9 @@ async function getRetryableRequests(projectId = null, limit = 50) {
  * Get a specific request with full details
  */
 async function getRequest(requestId) {
-  const client = getClient();
+  const client = getAdminClient();
   if (!client) {
-    return { success: false, error: 'Database not configured' };
+    return { success: false, error: 'Database not configured (missing service_role key)' };
   }
 
   try {
