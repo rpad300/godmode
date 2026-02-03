@@ -97,3 +97,8 @@ export type { Conversation as ConversationPreview } from './ConversationPreviewM
 // Email Preview Modal
 export { showEmailPreviewModal } from './EmailPreviewModal';
 export type { EmailData } from './EmailPreviewModal';
+
+// Krisp Modals
+export { showKrispManager, closeKrispManager } from './KrispManager';
+export { showProjectAssignmentModal, closeProjectAssignmentModal } from './ProjectAssignmentModal';
+export type { ProjectAssignmentModalProps } from './ProjectAssignmentModal';

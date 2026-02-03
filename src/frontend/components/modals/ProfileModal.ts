@@ -1451,11 +1451,12 @@ async function loadKrispIntegration(container: HTMLElement): Promise<void> {
     // View transcripts link
     const viewTranscriptsBtn = contentEl.querySelector('#view-transcripts-btn');
     if (viewTranscriptsBtn) {
-      on(viewTranscriptsBtn as HTMLElement, 'click', (e) => {
+      on(viewTranscriptsBtn as HTMLElement, 'click', async (e) => {
         e.preventDefault();
         closeModal(MODAL_ID);
-        // TODO: Open KrispManager modal
-        toast.info('Krisp Transcripts manager coming soon');
+        // Open KrispManager modal
+        const { showKrispManager } = await import('./KrispManager');
+        showKrispManager();
       });
     }
 
