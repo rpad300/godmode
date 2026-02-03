@@ -562,6 +562,23 @@ if (cleanupResult.decisions > 0 || cleanupResult.people > 0) {
 storage.recordDailyStats();
 processor = new DocumentProcessor(storage, ollama, config);
 
+// ==================== COOKIE SECURITY HELPER ====================
+/**
+ * Get cookie security flags based on environment/protocol
+ * - Production or HTTPS: include Secure flag
+ * - Development HTTP: omit Secure flag (allows cookies on localhost)
+ */
+function getCookieSecurityFlags(req) {
+    const isSecure = 
+        process.env.NODE_ENV === 'production' ||
+        req.headers['x-forwarded-proto'] === 'https' ||
+        (req.connection && req.connection.encrypted);
+    
+    return isSecure 
+        ? 'HttpOnly; Secure; SameSite=Lax' 
+        : 'HttpOnly; SameSite=Lax';
+}
+
 // ==================== LOAD GRAPH CONFIG FROM SUPABASE ====================
 // Try to load graph configuration from Supabase system_config table
 async function loadGraphConfigFromSupabase() {
@@ -1315,9 +1332,10 @@ async function handleAPI(req, res, pathname) {
                 }
                 
                 // Email confirmed - allow login
+                const cookieFlags = getCookieSecurityFlags(req);
                 res.setHeader('Set-Cookie', [
-                    `sb-access-token=${result.session.access_token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=3600`,
-                    `sb-refresh-token=${result.session.refresh_token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`
+                    `sb-access-token=${result.session.access_token}; ${cookieFlags}; Path=/; Max-Age=3600`,
+                    `sb-refresh-token=${result.session.refresh_token}; ${cookieFlags}; Path=/; Max-Age=2592000`
                 ]);
                 jsonResponse(res, {
                     success: true,
@@ -1340,9 +1358,10 @@ async function handleAPI(req, res, pathname) {
             await supabase.auth.logout(token);
             
             // Clear cookies
+            const logoutCookieFlags = getCookieSecurityFlags(req);
             res.setHeader('Set-Cookie', [
-                'sb-access-token=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0',
-                'sb-refresh-token=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0'
+                `sb-access-token=; ${logoutCookieFlags}; Path=/; Max-Age=0`,
+                `sb-refresh-token=; ${logoutCookieFlags}; Path=/; Max-Age=0`
             ]);
             
             jsonResponse(res, { success: true });
@@ -1396,9 +1415,10 @@ async function handleAPI(req, res, pathname) {
             const result = await supabase.auth.refreshToken(refreshMatch[1]);
             
             if (result.success) {
+                const refreshCookieFlags = getCookieSecurityFlags(req);
                 res.setHeader('Set-Cookie', [
-                    `sb-access-token=${result.session.access_token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=3600`,
-                    `sb-refresh-token=${result.session.refresh_token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`
+                    `sb-access-token=${result.session.access_token}; ${refreshCookieFlags}; Path=/; Max-Age=3600`,
+                    `sb-refresh-token=${result.session.refresh_token}; ${refreshCookieFlags}; Path=/; Max-Age=2592000`
                 ]);
                 jsonResponse(res, { success: true });
             } else {
@@ -1637,9 +1657,10 @@ async function handleAPI(req, res, pathname) {
                             
                             if (!verifyError && verifyData.session) {
                                 // Set session cookies (30 days)
+                                const otpCookieFlags = getCookieSecurityFlags(req);
                                 res.setHeader('Set-Cookie', [
-                                    `sb-access-token=${verifyData.session.access_token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=3600`,
-                                    `sb-refresh-token=${verifyData.session.refresh_token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`
+                                    `sb-access-token=${verifyData.session.access_token}; ${otpCookieFlags}; Path=/; Max-Age=3600`,
+                                    `sb-refresh-token=${verifyData.session.refresh_token}; ${otpCookieFlags}; Path=/; Max-Age=2592000`
                                 ]);
                                 
                                 // Invalidate all other OTPs for this email
