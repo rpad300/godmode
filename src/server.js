@@ -8608,12 +8608,30 @@ NOTES_SUGGESTION: <additional notes to add>`;
 
         // ==================== Billing API (Project Cost Control) ====================
         
+        // Helper function to check superadmin status
+        async function checkSuperAdmin(req, res) {
+            if (!supabase || !supabase.isConfigured()) {
+                jsonResponse(res, { error: 'Database not configured' }, 503);
+                return false;
+            }
+            const authResult = await supabase.auth.verifyRequest(req);
+            if (!authResult.authenticated) {
+                jsonResponse(res, { error: 'Authentication required' }, 401);
+                return false;
+            }
+            const isSuperAdmin = await supabase.auth.isSuperAdmin(authResult.user.id);
+            if (!isSuperAdmin) {
+                jsonResponse(res, { error: 'Superadmin access required' }, 403);
+                return false;
+            }
+            return authResult.user;
+        }
+        
         // GET /api/admin/billing/projects - Get all projects billing overview (superadmin)
         if (pathname === '/api/admin/billing/projects' && req.method === 'GET') {
             try {
-                if (!await isSuperAdmin(req)) {
-                    return jsonResponse(res, { error: 'Superadmin access required' }, 403);
-                }
+                const user = await checkSuperAdmin(req, res);
+                if (!user) return;
                 const billing = require('./supabase/billing');
                 const projects = await billing.getAllProjectsBilling();
                 jsonResponse(res, { success: true, projects });
@@ -8627,9 +8645,8 @@ NOTES_SUGGESTION: <additional notes to add>`;
         // GET /api/admin/billing/pricing - Get global pricing config (superadmin)
         if (pathname === '/api/admin/billing/pricing' && req.method === 'GET') {
             try {
-                if (!await isSuperAdmin(req)) {
-                    return jsonResponse(res, { error: 'Superadmin access required' }, 403);
-                }
+                const user = await checkSuperAdmin(req, res);
+                if (!user) return;
                 const billing = require('./supabase/billing');
                 const config = await billing.getGlobalPricingConfig();
                 jsonResponse(res, { success: true, config });
@@ -8643,17 +8660,15 @@ NOTES_SUGGESTION: <additional notes to add>`;
         // POST /api/admin/billing/pricing - Set global pricing config (superadmin)
         if (pathname === '/api/admin/billing/pricing' && req.method === 'POST') {
             try {
-                if (!await isSuperAdmin(req)) {
-                    return jsonResponse(res, { error: 'Superadmin access required' }, 403);
-                }
+                const user = await checkSuperAdmin(req, res);
+                if (!user) return;
                 const body = await parseBody(req);
-                const userId = await getUserIdFromRequest(req);
                 const billing = require('./supabase/billing');
                 const result = await billing.setGlobalPricingConfig({
                     fixedMarkupPercent: body.fixed_markup_percent,
                     periodType: body.period_type,
                     usdToEurRate: body.usd_to_eur_rate,
-                    updatedBy: userId
+                    updatedBy: user.id
                 });
                 jsonResponse(res, result);
             } catch (error) {
@@ -8666,9 +8681,8 @@ NOTES_SUGGESTION: <additional notes to add>`;
         // GET /api/admin/billing/pricing/tiers - Get global pricing tiers (superadmin)
         if (pathname === '/api/admin/billing/pricing/tiers' && req.method === 'GET') {
             try {
-                if (!await isSuperAdmin(req)) {
-                    return jsonResponse(res, { error: 'Superadmin access required' }, 403);
-                }
+                const user = await checkSuperAdmin(req, res);
+                if (!user) return;
                 const billing = require('./supabase/billing');
                 const config = await billing.getGlobalPricingConfig();
                 if (!config) {
@@ -8686,9 +8700,8 @@ NOTES_SUGGESTION: <additional notes to add>`;
         // POST /api/admin/billing/pricing/tiers - Set global pricing tiers (superadmin)
         if (pathname === '/api/admin/billing/pricing/tiers' && req.method === 'POST') {
             try {
-                if (!await isSuperAdmin(req)) {
-                    return jsonResponse(res, { error: 'Superadmin access required' }, 403);
-                }
+                const user = await checkSuperAdmin(req, res);
+                if (!user) return;
                 const body = await parseBody(req);
                 const billing = require('./supabase/billing');
                 const config = await billing.getGlobalPricingConfig();
@@ -8713,9 +8726,8 @@ NOTES_SUGGESTION: <additional notes to add>`;
             // GET /api/admin/billing/projects/:id - Get project billing summary
             if (subPath === '' && req.method === 'GET') {
                 try {
-                    if (!await isSuperAdmin(req)) {
-                        return jsonResponse(res, { error: 'Superadmin access required' }, 403);
-                    }
+                    const user = await checkSuperAdmin(req, res);
+                    if (!user) return;
                     const billing = require('./supabase/billing');
                     const summary = await billing.getProjectBillingSummary(projectId);
                     jsonResponse(res, { success: true, summary });
@@ -8729,9 +8741,8 @@ NOTES_SUGGESTION: <additional notes to add>`;
             // GET /api/admin/billing/projects/:id/balance - Get project balance
             if (subPath === '/balance' && req.method === 'GET') {
                 try {
-                    if (!await isSuperAdmin(req)) {
-                        return jsonResponse(res, { error: 'Superadmin access required' }, 403);
-                    }
+                    const user = await checkSuperAdmin(req, res);
+                    if (!user) return;
                     const billing = require('./supabase/billing');
                     const balance = await billing.checkProjectBalance(projectId);
                     jsonResponse(res, { success: true, ...balance });
@@ -8745,11 +8756,9 @@ NOTES_SUGGESTION: <additional notes to add>`;
             // POST /api/admin/billing/projects/:id/balance - Set project balance
             if (subPath === '/balance' && req.method === 'POST') {
                 try {
-                    if (!await isSuperAdmin(req)) {
-                        return jsonResponse(res, { error: 'Superadmin access required' }, 403);
-                    }
+                    const user = await checkSuperAdmin(req, res);
+                    if (!user) return;
                     const body = await parseBody(req);
-                    const userId = await getUserIdFromRequest(req);
                     const billing = require('./supabase/billing');
                     const notifications = require('./supabase/notifications');
                     
@@ -8759,7 +8768,7 @@ NOTES_SUGGESTION: <additional notes to add>`;
                         result = await billing.creditProjectBalance(
                             projectId, 
                             parseFloat(body.amount), 
-                            userId,
+                            user.id,
                             body.description || 'Balance added by admin'
                         );
                         
@@ -8775,12 +8784,12 @@ NOTES_SUGGESTION: <additional notes to add>`;
                                 parseFloat(body.amount), 
                                 result.new_balance,
                                 project?.name,
-                                userId
+                                user.id
                             );
                         }
                     } else if (body.unlimited !== undefined) {
                         // Set unlimited mode
-                        const success = await billing.setProjectUnlimited(projectId, body.unlimited, userId);
+                        const success = await billing.setProjectUnlimited(projectId, body.unlimited, user.id);
                         result = { success, unlimited: body.unlimited };
                     } else {
                         return jsonResponse(res, { error: 'Provide amount or unlimited flag' }, 400);
@@ -8797,9 +8806,8 @@ NOTES_SUGGESTION: <additional notes to add>`;
             // GET /api/admin/billing/projects/:id/transactions - Get balance transactions
             if (subPath === '/transactions' && req.method === 'GET') {
                 try {
-                    if (!await isSuperAdmin(req)) {
-                        return jsonResponse(res, { error: 'Superadmin access required' }, 403);
-                    }
+                    const user = await checkSuperAdmin(req, res);
+                    if (!user) return;
                     const parsedUrl = parseUrl(req.url || '');
                     const limit = parseInt(parsedUrl.query?.limit || '50', 10);
                     const billing = require('./supabase/billing');
@@ -8815,9 +8823,8 @@ NOTES_SUGGESTION: <additional notes to add>`;
             // GET /api/admin/billing/projects/:id/pricing - Get project pricing override
             if (subPath === '/pricing' && req.method === 'GET') {
                 try {
-                    if (!await isSuperAdmin(req)) {
-                        return jsonResponse(res, { error: 'Superadmin access required' }, 403);
-                    }
+                    const user = await checkSuperAdmin(req, res);
+                    if (!user) return;
                     const billing = require('./supabase/billing');
                     const override = await billing.getProjectPricingOverride(projectId);
                     const globalConfig = await billing.getGlobalPricingConfig();
@@ -8837,17 +8844,15 @@ NOTES_SUGGESTION: <additional notes to add>`;
             // POST /api/admin/billing/projects/:id/pricing - Set project pricing override
             if (subPath === '/pricing' && req.method === 'POST') {
                 try {
-                    if (!await isSuperAdmin(req)) {
-                        return jsonResponse(res, { error: 'Superadmin access required' }, 403);
-                    }
+                    const user = await checkSuperAdmin(req, res);
+                    if (!user) return;
                     const body = await parseBody(req);
-                    const userId = await getUserIdFromRequest(req);
                     const billing = require('./supabase/billing');
                     const result = await billing.setProjectPricingOverride(projectId, {
                         fixedMarkupPercent: body.fixed_markup_percent,
                         periodType: body.period_type,
                         usdToEurRate: body.usd_to_eur_rate,
-                        createdBy: userId
+                        createdBy: user.id
                     });
                     
                     // Set tiers if provided
@@ -8866,9 +8871,8 @@ NOTES_SUGGESTION: <additional notes to add>`;
             // DELETE /api/admin/billing/projects/:id/pricing - Remove project pricing override
             if (subPath === '/pricing' && req.method === 'DELETE') {
                 try {
-                    if (!await isSuperAdmin(req)) {
-                        return jsonResponse(res, { error: 'Superadmin access required' }, 403);
-                    }
+                    const user = await checkSuperAdmin(req, res);
+                    if (!user) return;
                     const billing = require('./supabase/billing');
                     const success = await billing.deleteProjectPricingOverride(projectId);
                     jsonResponse(res, { success });
