@@ -56,14 +56,14 @@ CREATE TABLE IF NOT EXISTS pricing_configs (
     created_by UUID REFERENCES auth.users(id),
     updated_by UUID REFERENCES auth.users(id),
     created_at TIMESTAMPTZ DEFAULT now(),
-    updated_at TIMESTAMPTZ DEFAULT now(),
-    
-    -- Constraints
-    CONSTRAINT pricing_global_unique UNIQUE (scope) WHERE scope = 'global',
-    CONSTRAINT pricing_project_unique UNIQUE (project_id) WHERE scope = 'project'
+    updated_at TIMESTAMPTZ DEFAULT now()
 );
 
--- Indexes
+-- Partial unique indexes (enforce only one global config, and one config per project)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pricing_global_unique ON pricing_configs(scope) WHERE scope = 'global';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pricing_project_unique ON pricing_configs(project_id) WHERE scope = 'project' AND project_id IS NOT NULL;
+
+-- Regular indexes
 CREATE INDEX IF NOT EXISTS idx_pricing_configs_scope ON pricing_configs(scope);
 CREATE INDEX IF NOT EXISTS idx_pricing_configs_project ON pricing_configs(project_id) WHERE project_id IS NOT NULL;
 
