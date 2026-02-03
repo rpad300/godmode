@@ -285,6 +285,34 @@ export async function deleteMapping(mappingId: string): Promise<boolean> {
   }
 }
 
+// ==================== AI Summary ====================
+
+export interface TranscriptSummary {
+  title: string;
+  date?: string;
+  duration?: number;
+  speakers: string[];
+  topic?: string;
+  keyPoints: string[];
+  actionItems: string[];
+  decisions?: string[];
+  nextSteps?: string;
+  notes?: string;
+  source: 'krisp_metadata' | 'ai_generated' | 'excerpt_fallback' | 'no_content';
+}
+
+/**
+ * Generate AI summary of a transcript
+ */
+export async function generateSummary(transcriptId: string): Promise<TranscriptSummary | null> {
+  try {
+    const response = await http.post<{ summary: TranscriptSummary }>(`/api/krisp/transcripts/${transcriptId}/summary`);
+    return response.data.summary;
+  } catch {
+    return null;
+  }
+}
+
 // ==================== Quarantine ====================
 
 /**

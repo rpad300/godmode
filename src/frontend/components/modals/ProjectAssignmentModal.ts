@@ -8,7 +8,7 @@ import { createModal, openModal, closeModal } from '../Modal';
 import { toast } from '../../services/toast';
 import { http } from '../../services/api';
 import * as krispService from '../../services/krisp';
-import type { KrispTranscript, ProjectCandidate } from '../../services/krisp';
+import type { KrispTranscript, ProjectCandidate, TranscriptSummary } from '../../services/krisp';
 
 const MODAL_ID = 'project-assignment-modal';
 
@@ -215,7 +215,109 @@ export async function showProjectAssignmentModal(props: ProjectAssignmentModalPr
         background: rgba(30,41,59,0.8);
         color: white;
       }
+      
+      /* Meeting Summary Styles */
+      .meeting-summary {
+        margin-bottom: 24px;
+        padding: 16px;
+        background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+        border-radius: 12px;
+        border: 1px solid #bae6fd;
+      }
+      [data-theme="dark"] .meeting-summary {
+        background: linear-gradient(135deg, rgba(14,165,233,0.1) 0%, rgba(56,189,248,0.05) 100%);
+        border-color: rgba(56,189,248,0.2);
+      }
+      .summary-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 12px;
+        font-weight: 600;
+        color: #0369a1;
+      }
+      [data-theme="dark"] .summary-header {
+        color: #38bdf8;
+      }
+      .summary-header svg {
+        width: 18px;
+        height: 18px;
+      }
+      .summary-topic {
+        font-size: 15px;
+        color: var(--text-primary, #1e293b);
+        margin-bottom: 12px;
+        line-height: 1.5;
+      }
+      .summary-section {
+        margin-bottom: 12px;
+      }
+      .summary-section:last-child {
+        margin-bottom: 0;
+      }
+      .summary-section-title {
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        color: #0369a1;
+        margin-bottom: 6px;
+        letter-spacing: 0.5px;
+      }
+      [data-theme="dark"] .summary-section-title {
+        color: #7dd3fc;
+      }
+      .summary-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+      }
+      .summary-list li {
+        position: relative;
+        padding-left: 16px;
+        font-size: 13px;
+        color: var(--text-secondary, #475569);
+        margin-bottom: 4px;
+        line-height: 1.4;
+      }
+      .summary-list li::before {
+        content: '•';
+        position: absolute;
+        left: 0;
+        color: #0ea5e9;
+      }
+      .summary-loading {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        color: var(--text-secondary, #64748b);
+        font-size: 14px;
+      }
+      .summary-loading .spinner {
+        width: 20px;
+        height: 20px;
+        border: 2px solid #e2e8f0;
+        border-top-color: #0ea5e9;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+      .summary-source {
+        font-size: 11px;
+        color: var(--text-tertiary, #94a3b8);
+        text-align: right;
+        margin-top: 8px;
+      }
     </style>
+    
+    <!-- Meeting Summary Section -->
+    <div class="meeting-summary" id="meeting-summary">
+      <div class="summary-loading">
+        <div class="spinner"></div>
+        <span>Generating meeting summary...</span>
+      </div>
+    </div>
     
     <div class="assignment-info">
       <div class="assignment-title">${escapeHtml(transcript.krisp_title || 'Untitled Meeting')}</div>
@@ -257,7 +359,8 @@ export async function showProjectAssignmentModal(props: ProjectAssignmentModalPr
   // Bind button events
   bindButtonEvents(content);
 
-  // Load projects and render
+  // Load summary and projects in parallel
+  loadMeetingSummary(content, transcript);
   await loadProjectOptions(content, transcript);
 }
 
@@ -419,6 +522,119 @@ async function loadProjectOptions(container: HTMLElement, transcript: KrispTrans
   } catch (error) {
     console.error('[ProjectAssignmentModal] Error loading projects:', error);
     contentEl.innerHTML = '<p style="color: #dc2626;">Failed to load projects. Please try again.</p>';
+  }
+}
+
+/**
+ * Load and display meeting summary
+ */
+async function loadMeetingSummary(container: HTMLElement, transcript: KrispTranscript): Promise<void> {
+  const summaryEl = container.querySelector('#meeting-summary');
+  if (!summaryEl) return;
+
+  try {
+    const summary = await krispService.generateSummary(transcript.id);
+
+    if (!summary) {
+      summaryEl.innerHTML = `
+        <div class="summary-header">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+          </svg>
+          Meeting Summary
+        </div>
+        <p style="color: var(--text-secondary); font-size: 13px;">Unable to generate summary.</p>
+      `;
+      return;
+    }
+
+    // Build summary HTML
+    let html = `
+      <div class="summary-header">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+        </svg>
+        Meeting Summary
+      </div>
+    `;
+
+    // Topic/main subject
+    if (summary.topic) {
+      html += `<div class="summary-topic">${escapeHtml(summary.topic)}</div>`;
+    } else if (summary.notes) {
+      html += `<div class="summary-topic">${escapeHtml(summary.notes)}</div>`;
+    }
+
+    // Key Points
+    if (summary.keyPoints && summary.keyPoints.length > 0) {
+      html += `
+        <div class="summary-section">
+          <div class="summary-section-title">Key Points</div>
+          <ul class="summary-list">
+            ${summary.keyPoints.slice(0, 5).map(point => `<li>${escapeHtml(String(point))}</li>`).join('')}
+          </ul>
+        </div>
+      `;
+    }
+
+    // Action Items
+    if (summary.actionItems && summary.actionItems.length > 0) {
+      html += `
+        <div class="summary-section">
+          <div class="summary-section-title">Action Items</div>
+          <ul class="summary-list">
+            ${summary.actionItems.slice(0, 5).map(item => `<li>${escapeHtml(String(item))}</li>`).join('')}
+          </ul>
+        </div>
+      `;
+    }
+
+    // Decisions
+    if (summary.decisions && summary.decisions.length > 0) {
+      html += `
+        <div class="summary-section">
+          <div class="summary-section-title">Decisions</div>
+          <ul class="summary-list">
+            ${summary.decisions.slice(0, 3).map(dec => `<li>${escapeHtml(String(dec))}</li>`).join('')}
+          </ul>
+        </div>
+      `;
+    }
+
+    // Next Steps
+    if (summary.nextSteps) {
+      html += `
+        <div class="summary-section">
+          <div class="summary-section-title">Next Steps</div>
+          <p style="font-size: 13px; color: var(--text-secondary); margin: 0;">${escapeHtml(summary.nextSteps)}</p>
+        </div>
+      `;
+    }
+
+    // Source indicator
+    const sourceLabels: Record<string, string> = {
+      'krisp_metadata': 'From Krisp',
+      'ai_generated': 'AI Generated',
+      'excerpt_fallback': 'Excerpt',
+      'no_content': ''
+    };
+    if (summary.source && sourceLabels[summary.source]) {
+      html += `<div class="summary-source">${sourceLabels[summary.source]}</div>`;
+    }
+
+    summaryEl.innerHTML = html;
+
+  } catch (error) {
+    console.error('[ProjectAssignmentModal] Summary error:', error);
+    summaryEl.innerHTML = `
+      <div class="summary-header">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+        </svg>
+        Meeting Summary
+      </div>
+      <p style="color: var(--text-secondary); font-size: 13px;">Could not load summary.</p>
+    `;
   }
 }
 

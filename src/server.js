@@ -3821,6 +3821,40 @@ async function handleAPI(req, res, pathname) {
             jsonResponse(res, { stats });
             return;
         }
+        
+        // POST /api/krisp/transcripts/:id/summary - Generate AI summary
+        const krispSummaryMatch = pathname.match(/^\/api\/krisp\/transcripts\/([^/]+)\/summary$/);
+        if (krispSummaryMatch && req.method === 'POST') {
+            if (!supabase || !supabase.isConfigured()) {
+                jsonResponse(res, { error: 'Not configured' }, 503);
+                return;
+            }
+            
+            const token = supabase.auth.extractToken(req);
+            const userResult = await supabase.auth.getUser(token);
+            
+            if (!userResult.success) {
+                jsonResponse(res, { error: 'Authentication required' }, 401);
+                return;
+            }
+            
+            const transcriptId = krispSummaryMatch[1];
+            
+            try {
+                const { generateTranscriptSummary } = require('./krisp');
+                const result = await generateTranscriptSummary(transcriptId, userResult.user.id);
+                
+                if (result.success) {
+                    jsonResponse(res, { summary: result.summary });
+                } else {
+                    jsonResponse(res, { error: result.error }, 400);
+                }
+            } catch (error) {
+                console.error('[Krisp Summary] Error:', error);
+                jsonResponse(res, { error: error.message }, 500);
+            }
+            return;
+        }
 
         // ==================== Audit Export API ====================
         
