@@ -1,4 +1,4 @@
-import{c as x,e as k,i as j,o as m,d as g,s as w,t as l,q as S,u as M,h as $}from"./main-DWLLl9lh.js";import"./modulepreload-polyfill-B5Qt9EMX.js";const p="project-assignment-modal";let d=null,f=[];async function P(s){d=s;const{transcript:a}=s,i=document.querySelector(`[data-modal-id="${p}"]`);i&&i.remove();const t=x("div",{className:"project-assignment"});t.innerHTML=`
+import{c as x,e as k,i as j,o as m,d as g,s as w,t as l,v as S,w as M,h as $}from"./main-QO_ajBNL.js";import"./modulepreload-polyfill-B5Qt9EMX.js";const p="project-assignment-modal";let d=null,f=[];async function q(s){d=s;const{transcript:a}=s,i=document.querySelector(`[data-modal-id="${p}"]`);i&&i.remove();const t=x("div",{className:"project-assignment"});t.innerHTML=`
     <style>
       .project-assignment {
         padding: 16px 0;
@@ -418,5 +418,5 @@ import{c as x,e as k,i as j,o as m,d as g,s as w,t as l,q as S,u as M,h as $}fro
         </button>
       </div>
       <p style="color: var(--text-secondary); font-size: 13px;">Could not load summary.</p>
-    `,y(s,a)}}}function y(s,a){const i=s.querySelector(".refresh-summary-btn");i&&m(i,"click",async t=>{t.preventDefault(),t.stopPropagation(),await v(s,a,!0),l.success("Summary regenerated")})}function n(s){const a=document.createElement("div");return a.textContent=s,a.innerHTML}export{P as showProjectAssignmentModal};
-//# sourceMappingURL=ProjectAssignmentModal-BbDHvKU7.js.map
+    `,y(s,a)}}}function y(s,a){const i=s.querySelector(".refresh-summary-btn");i&&m(i,"click",async t=>{t.preventDefault(),t.stopPropagation(),await v(s,a,!0),l.success("Summary regenerated")})}function n(s){const a=document.createElement("div");return a.textContent=s,a.innerHTML}export{q as showProjectAssignmentModal};
+//# sourceMappingURL=ProjectAssignmentModal-DUg3ORwB.js.map

@@ -1,4 +1,4 @@
-import{c as S,t as y,h as z}from"./main-DWLLl9lh.js";import{teamAnalysisStore as g}from"./teamAnalysis-b6DZM1KK.js";import"./modulepreload-polyfill-B5Qt9EMX.js";let f=null;function le(){const n=S("div",{className:"team-analysis-panel"});return n.innerHTML=`
+import{c as S,t as y,h as z}from"./main-QO_ajBNL.js";import{teamAnalysisStore as g}from"./teamAnalysis-b6DZM1KK.js";import"./modulepreload-polyfill-B5Qt9EMX.js";let f=null;function le(){const n=S("div",{className:"team-analysis-panel"});return n.innerHTML=`
         <style>
             .team-analysis-panel {
                 padding: 24px;
@@ -983,4 +983,4 @@ import{c as S,t as y,h as z}from"./main-DWLLl9lh.js";import{teamAnalysisStore as
                 Failed to load people. Please try again.
             </p>
         `}}export{le as createTeamAnalysis};
-//# sourceMappingURL=TeamAnalysis-DUkpfUHY.js.map
+//# sourceMappingURL=TeamAnalysis-BKKnhQ7M.js.map
