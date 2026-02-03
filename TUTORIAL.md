@@ -1,7 +1,7 @@
 # GodMode - Tutorial Completo
 
 **Versão:** 1.0.0  
-**Autor:** Paulo Dias  
+**Autor:** RPAD  
 **Licença:** MIT
 
 ---
@@ -945,4 +945,4 @@ Para questões ou sugestões, consulte a documentação ou o código fonte.
 ---
 
 *GodMode v1.0.0 - AI-Powered Document Processing*  
-*Created by Paulo Dias*
+*Created by RPAD*

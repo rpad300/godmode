@@ -5,7 +5,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org)
 
 **Version:** 1.0.0  
-**Author:** Paulo Dias
+**Author:** RPAD
 
 A comprehensive document processing application with AI integration. Process documents and meeting transcripts to extract facts, decisions, questions, risks, action items, and relationships into a structured knowledge base with semantic search, RAG-powered chat, and advanced visualizations.
 
@@ -609,4 +609,4 @@ This project is licensed under the MIT License - see [LICENSE](LICENSE) for deta
 ---
 
 *GodMode v1.0.0 - AI-Powered Document Processing*  
-*Created by Paulo Dias*
+*Created by RPAD*

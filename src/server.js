@@ -20689,7 +20689,7 @@ server.listen(PORT, async () => {
     const projectName = (currentProject?.name) || 'No project';
     console.log(`
 ╔════════════════════════════════════════════════════════════╗
-║       GodMode by Paulo Dias - Ready                        ║
+║       GodMode by RPAD - Ready                              ║
 ╠════════════════════════════════════════════════════════════╣
 ║  Server running at: http://localhost:${PORT}                  ║
 ║  Active project:    ${projectName.substring(0, 40).padEnd(40)}║

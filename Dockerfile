@@ -38,7 +38,7 @@ RUN npm prune --production
 FROM node:18-alpine AS production
 
 # Labels
-LABEL maintainer="Paulo Dias"
+LABEL maintainer="RPAD"
 LABEL description="GodMode - AI-Powered Document Processing"
 LABEL version="1.0.0"
 
