@@ -5,6 +5,8 @@
 
 const client = require('./client');
 const auth = require('./auth');
+const otp = require('./otp');
+const email = require('./email');
 const invites = require('./invites');
 const activity = require('./activity');
 const members = require('./members');
@@ -44,6 +46,26 @@ module.exports = {
         verifyRequest: auth.verifyRequest,
         requireAuth: auth.requireAuth,
         requireSuperAdmin: auth.requireSuperAdmin
+    },
+    
+    // OTP (One-Time Password)
+    otp: {
+        createOTP: otp.createOTP,
+        verifyOTP: otp.verifyOTP,
+        invalidateOTPs: otp.invalidateOTPs,
+        cleanupExpiredOTPs: otp.cleanupExpiredOTPs,
+        checkRateLimit: otp.checkRateLimit,
+        getConfig: otp.getConfig
+    },
+    
+    // Email
+    email: {
+        isConfigured: email.isConfigured,
+        send: email.sendEmail,
+        sendInvitation: email.sendInvitationEmail,
+        sendLoginCode: email.sendLoginCodeEmail,
+        sendEmailConfirmation: email.sendEmailConfirmationEmail,
+        sendNewDeviceLogin: email.sendNewDeviceLoginEmail
     },
     
     // Invites

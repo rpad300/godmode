@@ -18,6 +18,30 @@ export interface LoginRequest {
   password: string;
 }
 
+export interface OTPRequestResponse {
+  success: boolean;
+  message?: string;
+  expiresInMinutes?: number;
+  config?: OTPConfig;
+  retryAfter?: number;
+}
+
+export interface OTPVerifyResponse {
+  success: boolean;
+  user?: AuthUser;
+  redirectTo?: string;
+  error?: string;
+  attemptsRemaining?: number;
+  needsEmailVerification?: boolean;
+  fallbackToPassword?: boolean;
+}
+
+export interface OTPConfig {
+  codeLength: number;
+  expirationMinutes: number;
+  resendCooldownSeconds: number;
+}
+
 export interface RegisterRequest {
   email: string;
   password: string;
@@ -262,6 +286,75 @@ export async function refreshSession(): Promise<boolean> {
 }
 
 /**
+ * Request OTP code for passwordless login
+ */
+export async function requestLoginCode(email: string): Promise<OTPRequestResponse> {
+  const response = await http.post<OTPRequestResponse>('/api/auth/otp/request', { email });
+  return response.data;
+}
+
+/**
+ * Verify OTP code and complete login
+ */
+export async function verifyLoginCode(email: string, code: string): Promise<User> {
+  const response = await http.post<OTPVerifyResponse>('/api/auth/otp/verify', { email, code });
+  
+  if (!response.data.success) {
+    const error = new Error(response.data.error || 'Verification failed') as Error & {
+      attemptsRemaining?: number;
+      needsEmailVerification?: boolean;
+      fallbackToPassword?: boolean;
+    };
+    error.attemptsRemaining = response.data.attemptsRemaining;
+    error.needsEmailVerification = response.data.needsEmailVerification;
+    error.fallbackToPassword = response.data.fallbackToPassword;
+    throw error;
+  }
+  
+  // Handle redirect if needed (magic link flow)
+  if (response.data.redirectTo) {
+    window.location.href = response.data.redirectTo;
+    throw new Error('Redirecting...');
+  }
+  
+  if (!response.data.user) {
+    throw new Error('Login completed but no user data received');
+  }
+  
+  const user = mapAuthUserToUser(response.data.user);
+  appStore.setCurrentUser(user);
+  return user;
+}
+
+/**
+ * Get OTP configuration
+ */
+export async function getOTPConfig(): Promise<OTPConfig> {
+  try {
+    const response = await http.get<OTPConfig>('/api/auth/otp/config');
+    return response.data;
+  } catch {
+    // Return defaults if API fails
+    return {
+      codeLength: 6,
+      expirationMinutes: 10,
+      resendCooldownSeconds: 60
+    };
+  }
+}
+
+/**
+ * Confirm email with code
+ */
+export async function confirmEmail(email: string, code: string): Promise<void> {
+  const response = await http.post<{ success: boolean; message?: string; error?: string }>('/api/auth/confirm-email', { email, code });
+  
+  if (!response.data.success) {
+    throw new Error(response.data.error || 'Confirmation failed');
+  }
+}
+
+/**
  * Map AuthUser to app User type
  * Note: role here is the APPLICATION role (superadmin/user) from user_profiles,
  * NOT the project role (owner/admin/write/read) from project_members
@@ -332,4 +425,9 @@ export const auth = {
   getCurrentUser,
   onAuthRequired,
   triggerAuthRequired,
+  // OTP / Magic Code
+  requestLoginCode,
+  verifyLoginCode,
+  getOTPConfig,
+  confirmEmail,
 };

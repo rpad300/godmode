@@ -1207,7 +1207,7 @@ async function handleAPI(req, res, pathname) {
                 if (result.session) {
                     res.setHeader('Set-Cookie', [
                         `sb-access-token=${result.session.access_token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=3600`,
-                        `sb-refresh-token=${result.session.refresh_token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=604800`
+                        `sb-refresh-token=${result.session.refresh_token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`
                     ]);
                 }
                 jsonResponse(res, result);
@@ -1233,7 +1233,7 @@ async function handleAPI(req, res, pathname) {
                 // Set httpOnly cookies for session
                 res.setHeader('Set-Cookie', [
                     `sb-access-token=${result.session.access_token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=3600`,
-                    `sb-refresh-token=${result.session.refresh_token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=604800`
+                    `sb-refresh-token=${result.session.refresh_token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`
                 ]);
                 jsonResponse(res, {
                     success: true,
@@ -1314,7 +1314,7 @@ async function handleAPI(req, res, pathname) {
             if (result.success) {
                 res.setHeader('Set-Cookie', [
                     `sb-access-token=${result.session.access_token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=3600`,
-                    `sb-refresh-token=${result.session.refresh_token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=604800`
+                    `sb-refresh-token=${result.session.refresh_token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`
                 ]);
                 jsonResponse(res, { success: true });
             } else {
@@ -1350,6 +1350,411 @@ async function handleAPI(req, res, pathname) {
                 jsonResponse(res, result);
             } else {
                 jsonResponse(res, result, 400);
+            }
+            return;
+        }
+
+        // ==================== OTP Authentication API ====================
+        
+        // POST /api/auth/otp/request - Request OTP code for login
+        if (pathname === '/api/auth/otp/request' && req.method === 'POST') {
+            if (!supabase || !supabase.isConfigured()) {
+                jsonResponse(res, { error: 'Authentication not configured' }, 503);
+                return;
+            }
+            
+            const body = await parseBody(req);
+            const { email } = body;
+            
+            if (!email || !email.includes('@')) {
+                jsonResponse(res, { error: 'Valid email is required' }, 400);
+                return;
+            }
+            
+            // Get client IP for rate limiting
+            const requestIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || 
+                              req.headers['x-real-ip'] || 
+                              req.socket?.remoteAddress || null;
+            const userAgent = req.headers['user-agent'] || null;
+            
+            try {
+                // Check if user exists (for login, user must exist)
+                const { getAdminClient } = require('./supabase/client');
+                const admin = getAdminClient();
+                
+                if (admin) {
+                    const { data: existingUser } = await admin
+                        .from('user_profiles')
+                        .select('id')
+                        .eq('email', email.toLowerCase())
+                        .maybeSingle();
+                    
+                    // For security, don't reveal if email exists
+                    // But we can still create OTP (will fail silently on verify if no user)
+                }
+                
+                // Create OTP
+                const otp = require('./supabase/otp');
+                const result = await otp.createOTP(email, 'login', requestIp, userAgent);
+                
+                if (!result.success) {
+                    // Return rate limit info if applicable
+                    if (result.retryAfter) {
+                        jsonResponse(res, { 
+                            error: result.error,
+                            retryAfter: result.retryAfter
+                        }, 429);
+                    } else {
+                        jsonResponse(res, { error: result.error }, 400);
+                    }
+                    return;
+                }
+                
+                // Send email with OTP code
+                const emailService = require('./supabase/email');
+                const emailResult = await emailService.sendLoginCodeEmail({
+                    to: email,
+                    code: result.code,
+                    expiresInMinutes: result.expiresInMinutes
+                });
+                
+                if (!emailResult.success) {
+                    console.error('[Auth] Failed to send OTP email:', emailResult.error);
+                    // Don't reveal email sending failure to user (security)
+                }
+                
+                // Always return success (don't reveal if email exists or was sent)
+                jsonResponse(res, { 
+                    success: true,
+                    message: 'If an account exists with this email, you will receive a login code.',
+                    expiresInMinutes: result.expiresInMinutes,
+                    config: otp.getConfig()
+                });
+                
+            } catch (err) {
+                console.error('[Auth] OTP request error:', err.message);
+                jsonResponse(res, { error: 'Failed to process request' }, 500);
+            }
+            return;
+        }
+        
+        // POST /api/auth/otp/verify - Verify OTP code and login
+        if (pathname === '/api/auth/otp/verify' && req.method === 'POST') {
+            if (!supabase || !supabase.isConfigured()) {
+                jsonResponse(res, { error: 'Authentication not configured' }, 503);
+                return;
+            }
+            
+            const body = await parseBody(req);
+            const { email, code } = body;
+            
+            if (!email || !code) {
+                jsonResponse(res, { error: 'Email and code are required' }, 400);
+                return;
+            }
+            
+            // Validate code format
+            if (!/^\d{6}$/.test(code)) {
+                jsonResponse(res, { error: 'Invalid code format. Please enter 6 digits.' }, 400);
+                return;
+            }
+            
+            try {
+                const otp = require('./supabase/otp');
+                const verifyResult = await otp.verifyOTP(email, code, 'login');
+                
+                if (!verifyResult.success) {
+                    jsonResponse(res, { 
+                        error: verifyResult.error,
+                        attemptsRemaining: verifyResult.attemptsRemaining
+                    }, 401);
+                    return;
+                }
+                
+                // OTP verified - create session for the user
+                const { getAdminClient } = require('./supabase/client');
+                const admin = getAdminClient();
+                
+                if (!admin) {
+                    jsonResponse(res, { error: 'Database not configured' }, 503);
+                    return;
+                }
+                
+                // Find user by email
+                const { data: userData, error: userError } = await admin.auth.admin.listUsers();
+                
+                if (userError) {
+                    console.error('[Auth] Failed to list users:', userError.message);
+                    jsonResponse(res, { error: 'Authentication failed' }, 500);
+                    return;
+                }
+                
+                const user = userData.users.find(u => u.email?.toLowerCase() === email.toLowerCase());
+                
+                if (!user) {
+                    jsonResponse(res, { error: 'No account found with this email' }, 404);
+                    return;
+                }
+                
+                // Check if email is confirmed
+                if (!user.email_confirmed_at) {
+                    jsonResponse(res, { 
+                        error: 'Please confirm your email address first',
+                        needsEmailVerification: true
+                    }, 403);
+                    return;
+                }
+                
+                // Generate session tokens using Supabase Admin API
+                // Create a magic link session for the user
+                const { data: sessionData, error: sessionError } = await admin.auth.admin.generateLink({
+                    type: 'magiclink',
+                    email: user.email
+                });
+                
+                if (sessionError || !sessionData) {
+                    console.error('[Auth] Failed to generate session:', sessionError?.message);
+                    
+                    // Fallback: Try to use signInWithPassword with a temporary approach
+                    // This is a workaround - in production, you'd want proper session generation
+                    jsonResponse(res, { 
+                        error: 'Failed to create session. Please try password login.',
+                        fallbackToPassword: true
+                    }, 500);
+                    return;
+                }
+                
+                // Get user profile
+                const profile = await supabase.auth.getUserProfile(user.id);
+                
+                // For OTP login, we need to create the session differently
+                // Since we can't easily create tokens, redirect to verify the generated link
+                // Or use a custom session approach
+                
+                // Alternative: Use the Supabase client to exchange the token
+                const { getClient } = require('./supabase/client');
+                const client = getClient();
+                
+                if (sessionData.properties?.hashed_token) {
+                    // We have a magic link token - verify it
+                    const verifyUrl = sessionData.properties.verification_url || sessionData.properties.action_link;
+                    
+                    // Extract token from URL and verify
+                    if (verifyUrl) {
+                        const urlParams = new URL(verifyUrl);
+                        const token = urlParams.searchParams.get('token') || urlParams.hash?.split('access_token=')[1]?.split('&')[0];
+                        
+                        if (token) {
+                            // Verify the token and get session
+                            const { data: verifyData, error: verifyError } = await client.auth.verifyOtp({
+                                token_hash: sessionData.properties.hashed_token,
+                                type: 'magiclink'
+                            });
+                            
+                            if (!verifyError && verifyData.session) {
+                                // Set session cookies (30 days)
+                                res.setHeader('Set-Cookie', [
+                                    `sb-access-token=${verifyData.session.access_token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=3600`,
+                                    `sb-refresh-token=${verifyData.session.refresh_token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`
+                                ]);
+                                
+                                // Invalidate all other OTPs for this email
+                                await otp.invalidateOTPs(email, 'login');
+                                
+                                // Send new device notification (optional)
+                                const emailService = require('./supabase/email');
+                                const requestIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || 
+                                                  req.headers['x-real-ip'] || 
+                                                  req.socket?.remoteAddress || null;
+                                const userAgent = req.headers['user-agent'] || null;
+                                
+                                // Fire and forget - don't wait
+                                emailService.sendNewDeviceLoginEmail({
+                                    to: email,
+                                    deviceInfo: userAgent,
+                                    loginTime: new Date().toISOString(),
+                                    ipAddress: requestIp
+                                }).catch(e => console.log('[Auth] Device notification skipped:', e.message));
+                                
+                                jsonResponse(res, {
+                                    success: true,
+                                    user: {
+                                        id: user.id,
+                                        email: user.email,
+                                        email_confirmed_at: user.email_confirmed_at,
+                                        created_at: user.created_at,
+                                        user_metadata: user.user_metadata,
+                                        profile: profile
+                                    }
+                                });
+                                return;
+                            }
+                        }
+                    }
+                }
+                
+                // If we couldn't create a proper session, return the magic link
+                // The frontend can redirect to it
+                if (sessionData.properties?.action_link) {
+                    jsonResponse(res, {
+                        success: true,
+                        redirectTo: sessionData.properties.action_link,
+                        message: 'Please click the link to complete login'
+                    });
+                    return;
+                }
+                
+                // Last resort - inform user to use password login
+                jsonResponse(res, { 
+                    error: 'OTP verification succeeded but session creation failed. Please use password login.',
+                    otpVerified: true
+                }, 500);
+                
+            } catch (err) {
+                console.error('[Auth] OTP verify error:', err.message);
+                jsonResponse(res, { error: 'Verification failed' }, 500);
+            }
+            return;
+        }
+        
+        // POST /api/auth/otp/resend - Resend OTP code (alias for request)
+        if (pathname === '/api/auth/otp/resend' && req.method === 'POST') {
+            // Redirect to request handler (same logic with rate limiting)
+            // This is just a semantic alias for the frontend
+            const body = await parseBody(req);
+            req.body = body;
+            // Fall through to request handler by rewriting pathname
+        }
+        
+        // GET /api/auth/otp/config - Get OTP configuration for frontend
+        if (pathname === '/api/auth/otp/config' && req.method === 'GET') {
+            try {
+                const otp = require('./supabase/otp');
+                jsonResponse(res, otp.getConfig());
+            } catch (err) {
+                jsonResponse(res, { 
+                    codeLength: 6, 
+                    expirationMinutes: 10, 
+                    resendCooldownSeconds: 60 
+                });
+            }
+            return;
+        }
+        
+        // GET /api/auth/confirm-email - Confirm email via link
+        if (pathname === '/api/auth/confirm-email' && req.method === 'GET') {
+            const code = url.searchParams.get('code');
+            const email = url.searchParams.get('email');
+            
+            if (!code || !email) {
+                // Redirect to frontend error page
+                res.writeHead(302, { 
+                    'Location': '/?auth=confirm-error&message=missing-params' 
+                });
+                res.end();
+                return;
+            }
+            
+            try {
+                const otp = require('./supabase/otp');
+                const verifyResult = await otp.verifyOTP(email, code, 'email_confirm');
+                
+                if (!verifyResult.success) {
+                    res.writeHead(302, { 
+                        'Location': `/?auth=confirm-error&message=${encodeURIComponent(verifyResult.error)}` 
+                    });
+                    res.end();
+                    return;
+                }
+                
+                // Mark email as confirmed in Supabase
+                const { getAdminClient } = require('./supabase/client');
+                const admin = getAdminClient();
+                
+                if (admin) {
+                    // Find and update user
+                    const { data: userData } = await admin.auth.admin.listUsers();
+                    const user = userData?.users?.find(u => u.email?.toLowerCase() === email.toLowerCase());
+                    
+                    if (user && !user.email_confirmed_at) {
+                        await admin.auth.admin.updateUserById(user.id, {
+                            email_confirm: true
+                        });
+                    }
+                }
+                
+                // Invalidate all confirmation OTPs for this email
+                await otp.invalidateOTPs(email, 'email_confirm');
+                
+                // Redirect to success page
+                res.writeHead(302, { 
+                    'Location': '/?auth=confirmed&email=' + encodeURIComponent(email) 
+                });
+                res.end();
+                
+            } catch (err) {
+                console.error('[Auth] Email confirmation error:', err.message);
+                res.writeHead(302, { 
+                    'Location': '/?auth=confirm-error&message=server-error' 
+                });
+                res.end();
+            }
+            return;
+        }
+        
+        // POST /api/auth/confirm-email - Confirm email via code (API)
+        if (pathname === '/api/auth/confirm-email' && req.method === 'POST') {
+            if (!supabase || !supabase.isConfigured()) {
+                jsonResponse(res, { error: 'Authentication not configured' }, 503);
+                return;
+            }
+            
+            const body = await parseBody(req);
+            const { email, code } = body;
+            
+            if (!email || !code) {
+                jsonResponse(res, { error: 'Email and code are required' }, 400);
+                return;
+            }
+            
+            try {
+                const otp = require('./supabase/otp');
+                const verifyResult = await otp.verifyOTP(email, code, 'email_confirm');
+                
+                if (!verifyResult.success) {
+                    jsonResponse(res, { 
+                        error: verifyResult.error,
+                        attemptsRemaining: verifyResult.attemptsRemaining
+                    }, 401);
+                    return;
+                }
+                
+                // Mark email as confirmed
+                const { getAdminClient } = require('./supabase/client');
+                const admin = getAdminClient();
+                
+                if (admin) {
+                    const { data: userData } = await admin.auth.admin.listUsers();
+                    const user = userData?.users?.find(u => u.email?.toLowerCase() === email.toLowerCase());
+                    
+                    if (user && !user.email_confirmed_at) {
+                        await admin.auth.admin.updateUserById(user.id, {
+                            email_confirm: true
+                        });
+                    }
+                }
+                
+                // Invalidate all confirmation OTPs
+                await otp.invalidateOTPs(email, 'email_confirm');
+                
+                jsonResponse(res, { 
+                    success: true, 
+                    message: 'Email confirmed successfully. You can now log in.' 
+                });
+                
+            } catch (err) {
+                console.error('[Auth] Email confirmation error:', err.message);
+                jsonResponse(res, { error: 'Confirmation failed' }, 500);
             }
             return;
         }

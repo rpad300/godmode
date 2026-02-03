@@ -30,6 +30,13 @@ const PUBLIC_ROUTES = [
     '/api/auth/register',
     '/api/auth/password-reset',
     '/api/auth/refresh',
+    '/api/auth/forgot-password',
+    '/api/auth/reset-password',
+    '/api/auth/otp/request',
+    '/api/auth/otp/verify',
+    '/api/auth/otp/resend',
+    '/api/auth/otp/config',
+    '/api/auth/confirm-email',
     '/api/health',
     '/api/status',
     '/api/version',
@@ -317,6 +324,106 @@ function rateLimit(req, res, next) {
 }
 
 /**
+ * OTP-specific rate limiting middleware
+ * More restrictive than general rate limiting
+ */
+const otpRateLimitMap = new Map();
+const OTP_RATE_LIMITS = {
+    perMinute: { max: 2, window: 60000 },      // 2 requests per minute
+    perHour: { max: 10, window: 3600000 },     // 10 requests per hour
+    perDay: { max: 20, window: 86400000 }      // 20 requests per day
+};
+
+function otpRateLimit(req, res, next) {
+    // Get identifier: prefer email from body, fall back to IP
+    let identifier;
+    try {
+        // For OTP requests, the email is in the body
+        if (req.body && req.body.email) {
+            identifier = `email:${req.body.email.toLowerCase()}`;
+        } else {
+            identifier = `ip:${getClientIp(req)}`;
+        }
+    } catch {
+        identifier = `ip:${getClientIp(req)}`;
+    }
+    
+    const now = Date.now();
+    
+    let record = otpRateLimitMap.get(identifier);
+    
+    if (!record) {
+        record = {
+            minuteStart: now,
+            minuteCount: 0,
+            hourStart: now,
+            hourCount: 0,
+            dayStart: now,
+            dayCount: 0
+        };
+        otpRateLimitMap.set(identifier, record);
+    }
+    
+    // Reset windows if expired
+    if (now - record.minuteStart > OTP_RATE_LIMITS.perMinute.window) {
+        record.minuteStart = now;
+        record.minuteCount = 0;
+    }
+    if (now - record.hourStart > OTP_RATE_LIMITS.perHour.window) {
+        record.hourStart = now;
+        record.hourCount = 0;
+    }
+    if (now - record.dayStart > OTP_RATE_LIMITS.perDay.window) {
+        record.dayStart = now;
+        record.dayCount = 0;
+    }
+    
+    // Check limits
+    if (record.minuteCount >= OTP_RATE_LIMITS.perMinute.max) {
+        const retryAfter = Math.ceil((record.minuteStart + OTP_RATE_LIMITS.perMinute.window - now) / 1000);
+        return res.status(429).json({
+            error: 'Too many code requests. Please wait before trying again.',
+            code: 'OTP_RATE_LIMITED',
+            retryAfter
+        });
+    }
+    
+    if (record.hourCount >= OTP_RATE_LIMITS.perHour.max) {
+        const retryAfter = Math.ceil((record.hourStart + OTP_RATE_LIMITS.perHour.window - now) / 1000);
+        return res.status(429).json({
+            error: 'Too many code requests this hour. Please try again later.',
+            code: 'OTP_RATE_LIMITED_HOUR',
+            retryAfter
+        });
+    }
+    
+    if (record.dayCount >= OTP_RATE_LIMITS.perDay.max) {
+        return res.status(429).json({
+            error: 'Daily limit reached. Please try again tomorrow.',
+            code: 'OTP_RATE_LIMITED_DAY',
+            retryAfter: Math.ceil((record.dayStart + OTP_RATE_LIMITS.perDay.window - now) / 1000)
+        });
+    }
+    
+    // Increment counters
+    record.minuteCount++;
+    record.hourCount++;
+    record.dayCount++;
+    
+    next();
+}
+
+/**
+ * Get client IP address from request
+ */
+function getClientIp(req) {
+    return req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
+           req.headers['x-real-ip'] ||
+           req.socket?.remoteAddress ||
+           'unknown';
+}
+
+/**
  * Global authentication handler for all routes
  * Use this to protect all /api routes except public ones
  */
@@ -342,8 +449,10 @@ module.exports = {
     requireSuperAdmin,
     optionalAuth,
     rateLimit,
+    otpRateLimit,
     globalAuthHandler,
     isPublicRoute,
     verifyToken,
+    getClientIp,
     PUBLIC_ROUTES
 };

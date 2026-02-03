@@ -310,6 +310,127 @@
   }
 }
 
+/* ==================== OTP / Magic Code Inputs ==================== */
+
+/* Auth divider */
+.auth-divider {
+  display: flex;
+  align-items: center;
+  text-align: center;
+  margin: var(--spacing-sm) 0;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  flex: 1;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.auth-divider span {
+  padding: 0 var(--spacing-md);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+/* OTP input group */
+.otp-input-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.otp-inputs {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+}
+
+.otp-digit {
+  width: 48px !important;
+  height: 56px !important;
+  padding: 0 !important;
+  font-size: 24px !important;
+  font-weight: 600;
+  text-align: center;
+  border: 2px solid var(--color-border) !important;
+  border-radius: var(--radius-md) !important;
+  background: var(--color-surface) !important;
+  color: var(--color-text);
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.1s;
+}
+
+.otp-digit:focus {
+  border-color: var(--color-primary) !important;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2) !important;
+  transform: scale(1.05);
+}
+
+.otp-digit:not(:placeholder-shown) {
+  border-color: var(--color-primary);
+  background: var(--color-bg) !important;
+}
+
+.otp-separator {
+  font-size: 24px;
+  color: var(--color-text-muted);
+  margin: 0 var(--spacing-xs);
+}
+
+/* OTP resend section */
+.otp-resend {
+  text-align: center;
+  margin-top: var(--spacing-sm);
+}
+
+.otp-resend .btn-link:disabled {
+  color: var(--color-text-muted);
+}
+
+/* Confirmation icon */
+.confirm-icon {
+  text-align: center;
+  font-size: 48px;
+  margin-bottom: var(--spacing-md);
+}
+
+/* Form description strong */
+.form-description strong {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+/* Secondary button style */
+.btn-secondary {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+}
+
+.btn-secondary:hover {
+  background: var(--color-surface-hover);
+  border-color: var(--color-border-hover);
+}
+
+/* Mobile responsive OTP inputs */
+@media (max-width: 480px) {
+  .otp-digit {
+    width: 40px !important;
+    height: 48px !important;
+    font-size: 20px !important;
+  }
+  
+  .otp-inputs {
+    gap: var(--spacing-xs);
+  }
+  
+  .otp-separator {
+    font-size: 18px;
+    margin: 0 2px;
+  }
+}
+
 /* ==================== Auth Required Overlay ==================== */
 .auth-required-overlay {
   position: absolute;
