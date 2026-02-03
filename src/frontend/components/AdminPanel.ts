@@ -8,6 +8,14 @@ import { createElement, on } from '../utils/dom';
 import { http } from '../services/api';
 import { toast } from '../services/toast';
 import { appStore } from '../stores/app';
+import { 
+  billingService, 
+  type ProjectBillingOverview, 
+  type PricingConfig, 
+  type PricingTier,
+  formatEur, 
+  formatTokens 
+} from '../services/billing';
 
 // Types
 interface SystemConfig {
@@ -92,6 +100,13 @@ interface TeamAnalysisSettings {
 let teamAnalysisSettings: TeamAnalysisSettings = { enabled: true, access: 'admin_only' };
 let teamAnalysisLoaded = false;
 let teamAnalysisLoading = false;
+
+// Billing state
+let billingProjects: ProjectBillingOverview[] = [];
+let globalPricingConfig: PricingConfig | null = null;
+let globalPricingTiers: PricingTier[] = [];
+let billingLoaded = false;
+let billingLoading = false;
 
 /**
  * Load system configuration
@@ -324,6 +339,7 @@ function renderNav(): string {
     { id: 'prompts', label: 'Prompts', icon: 'M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z' },
     { id: 'processing', label: 'Processing', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z' },
     { id: 'team-analysis', label: 'Team Analysis', icon: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z' },
+    { id: 'billing', label: 'Billing', icon: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
     { id: 'audit', label: 'Audit Log', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01' },
   ];
 
@@ -1129,6 +1145,233 @@ function renderQueueSection(): string {
 }
 
 /**
+ * Load billing data
+ */
+async function loadBillingData(): Promise<void> {
+  if (billingLoading) return;
+  billingLoading = true;
+  
+  try {
+    // Load all data in parallel
+    const [projects, config, tiersData] = await Promise.all([
+      billingService.getAllProjectsBilling(),
+      billingService.getGlobalPricingConfig(),
+      billingService.getGlobalPricingTiers()
+    ]);
+    
+    billingProjects = projects;
+    globalPricingConfig = config;
+    globalPricingTiers = tiersData.tiers;
+    billingLoaded = true;
+    
+    console.log('[AdminPanel] Loaded billing data:', { 
+      projects: projects.length, 
+      config: !!config,
+      tiers: tiersData.tiers.length 
+    });
+  } catch (error) {
+    console.error('[AdminPanel] Error loading billing data:', error);
+    toast.error('Failed to load billing data');
+  } finally {
+    billingLoading = false;
+  }
+}
+
+/**
+ * Render Billing section
+ */
+function renderBillingSection(): string {
+  // Show loading state
+  if (billingLoading && !billingLoaded) {
+    return `
+      <div class="admin-section">
+        <div class="admin-section-header">
+          <h3>Billing & Cost Control</h3>
+          <p>Manage project balances, pricing, and cost limits</p>
+        </div>
+        <div class="admin-card" style="text-align: center; padding: 40px;">
+          <div class="spinner"></div>
+          <p style="margin-top: 16px;">Loading billing data...</p>
+        </div>
+      </div>
+    `;
+  }
+  
+  // Format tier display
+  const tiersDisplay = globalPricingTiers.length > 0 
+    ? globalPricingTiers.map((tier, i) => {
+        const prevLimit = i > 0 ? globalPricingTiers[i - 1].token_limit : 0;
+        const fromStr = formatTokens(prevLimit || 0);
+        const toStr = tier.token_limit ? formatTokens(tier.token_limit) : '∞';
+        return `${tier.name || `Tier ${i + 1}`}: ${fromStr}-${toStr} tokens → +${tier.markup_percent}%`;
+      }).join('<br>')
+    : 'No tiers configured (using fixed markup)';
+  
+  return `
+    <div class="admin-section">
+      <div class="admin-section-header">
+        <h3>Billing & Cost Control</h3>
+        <p>Manage project balances, pricing, and cost limits</p>
+      </div>
+
+      <!-- Global Pricing Configuration -->
+      <div class="admin-card">
+        <h4 style="margin-bottom: 16px;">Global Pricing Configuration</h4>
+        
+        <div class="admin-form-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 16px;">
+          <div class="form-group">
+            <label>Fixed Markup (%)</label>
+            <input type="number" id="global-markup-percent" class="form-input" 
+                   value="${globalPricingConfig?.fixed_markup_percent ?? 0}" min="0" max="500" step="0.1">
+            <small class="text-muted">Applied when no tier matches</small>
+          </div>
+          
+          <div class="form-group">
+            <label>Period Type</label>
+            <select id="global-period-type" class="form-input">
+              <option value="monthly" ${globalPricingConfig?.period_type === 'monthly' ? 'selected' : ''}>Monthly</option>
+              <option value="weekly" ${globalPricingConfig?.period_type === 'weekly' ? 'selected' : ''}>Weekly</option>
+            </select>
+            <small class="text-muted">Tier reset period</small>
+          </div>
+          
+          <div class="form-group">
+            <label>USD to EUR Rate</label>
+            <input type="number" id="global-usd-eur-rate" class="form-input" 
+                   value="${globalPricingConfig?.usd_to_eur_rate ?? 0.92}" min="0.01" step="0.001">
+            <small class="text-muted">For cost conversion</small>
+          </div>
+        </div>
+        
+        <div style="display: flex; justify-content: flex-end; gap: 8px;">
+          <button class="btn-primary" id="save-global-pricing-btn">Save Global Pricing</button>
+        </div>
+      </div>
+      
+      <!-- Pricing Tiers -->
+      <div class="admin-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <div>
+            <h4>Pricing Tiers (Volume Discount)</h4>
+            <p class="text-muted" style="font-size: 13px; margin-top: 4px;">
+              Lower markup as projects consume more tokens per period
+            </p>
+          </div>
+          <button class="btn-sm btn-primary" id="add-tier-btn">+ Add Tier</button>
+        </div>
+        
+        <div id="pricing-tiers-list">
+          ${globalPricingTiers.length > 0 ? globalPricingTiers.map((tier, i) => `
+            <div class="tier-row" data-tier-index="${i}" style="display: grid; grid-template-columns: 150px 150px 120px auto; gap: 12px; align-items: center; padding: 12px; background: var(--bg-secondary); border-radius: 6px; margin-bottom: 8px;">
+              <input type="text" class="form-input tier-name" placeholder="Tier Name" value="${tier.name || `Tier ${i + 1}`}">
+              <input type="number" class="form-input tier-limit" placeholder="Token Limit" value="${tier.token_limit || ''}" min="0" ${tier.token_limit === null ? 'disabled' : ''}>
+              <div style="display: flex; align-items: center; gap: 4px;">
+                <input type="number" class="form-input tier-markup" placeholder="Markup %" value="${tier.markup_percent}" min="0" step="0.1" style="width: 80px;">
+                <span>%</span>
+              </div>
+              <div style="display: flex; justify-content: flex-end; gap: 8px;">
+                <label style="display: flex; align-items: center; gap: 4px; font-size: 12px;">
+                  <input type="checkbox" class="tier-unlimited" ${tier.token_limit === null ? 'checked' : ''}>
+                  Unlimited
+                </label>
+                <button class="btn-sm btn-danger remove-tier-btn" data-index="${i}">✕</button>
+              </div>
+            </div>
+          `).join('') : `
+            <div style="text-align: center; padding: 20px; color: var(--text-tertiary);">
+              No tiers configured. Using fixed markup of ${globalPricingConfig?.fixed_markup_percent ?? 0}% for all usage.
+            </div>
+          `}
+        </div>
+        
+        ${globalPricingTiers.length > 0 ? `
+          <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
+            <button class="btn-primary" id="save-tiers-btn">Save Tiers</button>
+          </div>
+        ` : ''}
+      </div>
+
+      <!-- Projects Billing Overview -->
+      <div class="admin-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <div>
+            <h4>Projects Billing</h4>
+            <p class="text-muted" style="font-size: 13px; margin-top: 4px;">
+              ${billingProjects.length} projects | 
+              ${billingProjects.filter(p => p.is_blocked).length} blocked | 
+              ${billingProjects.filter(p => p.unlimited_balance).length} unlimited
+            </p>
+          </div>
+          <button class="btn-sm" id="refresh-billing-btn">↻ Refresh</button>
+        </div>
+        
+        <div style="overflow-x: auto;">
+          <table class="data-table" style="width: 100%; border-collapse: collapse;">
+            <thead>
+              <tr style="background: var(--bg-tertiary);">
+                <th style="text-align: left; padding: 8px;">Project</th>
+                <th style="text-align: right; padding: 8px;">Balance</th>
+                <th style="text-align: center; padding: 8px;">Status</th>
+                <th style="text-align: right; padding: 8px;">Tokens (Period)</th>
+                <th style="text-align: right; padding: 8px;">Cost (Period)</th>
+                <th style="text-align: center; padding: 8px;">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${billingProjects.length > 0 ? billingProjects.map(p => `
+                <tr style="border-bottom: 1px solid var(--border-color);">
+                  <td style="padding: 12px 8px;">
+                    <div style="font-weight: 500;">${escapeHtml(p.project_name)}</div>
+                    ${p.current_tier_name ? `<small class="text-muted">Tier: ${p.current_tier_name}</small>` : ''}
+                  </td>
+                  <td style="text-align: right; padding: 8px;">
+                    ${p.unlimited_balance 
+                      ? '<span style="color: var(--success-color);">∞ Unlimited</span>' 
+                      : formatEur(p.balance_eur)}
+                  </td>
+                  <td style="text-align: center; padding: 8px;">
+                    ${p.is_blocked 
+                      ? '<span class="badge badge-danger">Blocked</span>' 
+                      : p.unlimited_balance
+                        ? '<span class="badge badge-success">Unlimited</span>'
+                        : '<span class="badge badge-primary">Active</span>'}
+                  </td>
+                  <td style="text-align: right; padding: 8px;">${formatTokens(p.tokens_this_period)}</td>
+                  <td style="text-align: right; padding: 8px;">${formatEur(p.billable_cost_this_period)}</td>
+                  <td style="text-align: center; padding: 8px;">
+                    <div style="display: flex; justify-content: center; gap: 4px;">
+                      <button class="btn-sm add-balance-btn" data-project-id="${p.project_id}" data-project-name="${escapeHtml(p.project_name)}" title="Add Balance">💰</button>
+                      <button class="btn-sm toggle-unlimited-btn" data-project-id="${p.project_id}" data-unlimited="${p.unlimited_balance}" title="${p.unlimited_balance ? 'Disable Unlimited' : 'Enable Unlimited'}">
+                        ${p.unlimited_balance ? '🔓' : '🔒'}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              `).join('') : `
+                <tr>
+                  <td colspan="6" style="text-align: center; padding: 20px; color: var(--text-tertiary);">
+                    No projects found
+                  </td>
+                </tr>
+              `}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Escape HTML for safe rendering
+ */
+function escapeHtml(text: string): string {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+/**
  * Render Audit Log section
  */
 function renderAuditSection(): string {
@@ -1265,6 +1508,8 @@ function renderSectionContent(): string {
       return renderProcessingSection();
     case 'team-analysis':
       return renderTeamAnalysisSection();
+    case 'billing':
+      return renderBillingSection();
     case 'audit':
       return renderAuditSection();
     default:
@@ -1289,6 +1534,16 @@ function bindSectionEvents(container: HTMLElement): void {
         renderAdminPanel(container);
         await loadTeamAnalysisSettings();
         renderAdminPanel(container);
+      } else if (newSection === 'billing') {
+        // Load billing data
+        if (!billingLoaded) {
+          billingLoading = true;
+          renderAdminPanel(container);
+          await loadBillingData();
+          renderAdminPanel(container);
+        } else {
+          renderAdminPanel(container);
+        }
       } else {
         renderAdminPanel(container);
       }
@@ -2714,6 +2969,160 @@ function bindSectionEvents(container: HTMLElement): void {
       renderAdminPanel(container);
     });
   }
+
+  // =========================
+  // BILLING SECTION EVENTS
+  // =========================
+  
+  // Save global pricing config
+  const saveGlobalPricingBtn = container.querySelector('#save-global-pricing-btn');
+  if (saveGlobalPricingBtn) {
+    on(saveGlobalPricingBtn as HTMLElement, 'click', async () => {
+      const fixedMarkup = parseFloat((container.querySelector('#global-markup-percent') as HTMLInputElement)?.value || '0');
+      const periodType = (container.querySelector('#global-period-type') as HTMLSelectElement)?.value || 'monthly';
+      const usdToEur = parseFloat((container.querySelector('#global-usd-eur-rate') as HTMLInputElement)?.value || '0.92');
+      
+      const result = await billingService.setGlobalPricingConfig({
+        fixed_markup_percent: fixedMarkup,
+        period_type: periodType as 'monthly' | 'weekly',
+        usd_to_eur_rate: usdToEur
+      });
+      
+      if (result.success) {
+        toast.success('Global pricing saved');
+        billingLoaded = false;
+        await loadBillingData();
+        renderAdminPanel(container);
+      } else {
+        toast.error(result.error || 'Failed to save');
+      }
+    });
+  }
+  
+  // Add tier button
+  const addTierBtn = container.querySelector('#add-tier-btn');
+  if (addTierBtn) {
+    on(addTierBtn as HTMLElement, 'click', () => {
+      // Add a new tier to the list
+      globalPricingTiers.push({
+        id: '',
+        pricing_config_id: globalPricingConfig?.id || '',
+        token_limit: 100000,
+        markup_percent: 20,
+        name: `Tier ${globalPricingTiers.length + 1}`,
+        tier_order: globalPricingTiers.length
+      });
+      renderAdminPanel(container);
+    });
+  }
+  
+  // Remove tier buttons
+  container.querySelectorAll('.remove-tier-btn').forEach(btn => {
+    on(btn as HTMLElement, 'click', () => {
+      const index = parseInt(btn.getAttribute('data-index') || '0', 10);
+      globalPricingTiers.splice(index, 1);
+      renderAdminPanel(container);
+    });
+  });
+  
+  // Tier unlimited checkboxes
+  container.querySelectorAll('.tier-unlimited').forEach(checkbox => {
+    on(checkbox as HTMLElement, 'change', () => {
+      const row = (checkbox as HTMLElement).closest('.tier-row') as HTMLElement;
+      const limitInput = row?.querySelector('.tier-limit') as HTMLInputElement;
+      if (limitInput) {
+        limitInput.disabled = (checkbox as HTMLInputElement).checked;
+        if ((checkbox as HTMLInputElement).checked) {
+          limitInput.value = '';
+        }
+      }
+    });
+  });
+  
+  // Save tiers button
+  const saveTiersBtn = container.querySelector('#save-tiers-btn');
+  if (saveTiersBtn) {
+    on(saveTiersBtn as HTMLElement, 'click', async () => {
+      const tiers: Array<{ token_limit: number | null; markup_percent: number; name?: string }> = [];
+      container.querySelectorAll('.tier-row').forEach(row => {
+        const name = (row.querySelector('.tier-name') as HTMLInputElement)?.value || '';
+        const limitValue = (row.querySelector('.tier-limit') as HTMLInputElement)?.value;
+        const markup = parseFloat((row.querySelector('.tier-markup') as HTMLInputElement)?.value || '0');
+        const unlimited = (row.querySelector('.tier-unlimited') as HTMLInputElement)?.checked;
+        
+        tiers.push({
+          token_limit: unlimited ? null : (limitValue ? parseInt(limitValue, 10) : null),
+          markup_percent: markup,
+          name: name || undefined
+        });
+      });
+      
+      const result = await billingService.setGlobalPricingTiers(tiers);
+      if (result.success) {
+        toast.success('Pricing tiers saved');
+        billingLoaded = false;
+        await loadBillingData();
+        renderAdminPanel(container);
+      } else {
+        toast.error(result.error || 'Failed to save tiers');
+      }
+    });
+  }
+  
+  // Refresh billing button
+  const refreshBillingBtn = container.querySelector('#refresh-billing-btn');
+  if (refreshBillingBtn) {
+    on(refreshBillingBtn as HTMLElement, 'click', async () => {
+      billingLoaded = false;
+      await loadBillingData();
+      renderAdminPanel(container);
+      toast.info('Billing data refreshed');
+    });
+  }
+  
+  // Add balance buttons
+  container.querySelectorAll('.add-balance-btn').forEach(btn => {
+    on(btn as HTMLElement, 'click', async () => {
+      const projectId = btn.getAttribute('data-project-id');
+      const projectName = btn.getAttribute('data-project-name');
+      if (!projectId) return;
+      
+      const amount = prompt(`Enter amount in EUR to add to "${projectName}":`);
+      if (!amount || isNaN(parseFloat(amount))) return;
+      
+      const result = await billingService.creditProjectBalance(projectId, parseFloat(amount));
+      if (result.success) {
+        toast.success(`Added €${parseFloat(amount).toFixed(2)} to ${projectName}. New balance: €${result.new_balance?.toFixed(2)}`);
+        billingLoaded = false;
+        await loadBillingData();
+        renderAdminPanel(container);
+      } else {
+        toast.error(result.error || 'Failed to add balance');
+      }
+    });
+  });
+  
+  // Toggle unlimited buttons
+  container.querySelectorAll('.toggle-unlimited-btn').forEach(btn => {
+    on(btn as HTMLElement, 'click', async () => {
+      const projectId = btn.getAttribute('data-project-id');
+      const isUnlimited = btn.getAttribute('data-unlimited') === 'true';
+      if (!projectId) return;
+      
+      const action = isUnlimited ? 'disable unlimited mode' : 'enable unlimited mode';
+      if (!confirm(`Are you sure you want to ${action} for this project?`)) return;
+      
+      const result = await billingService.setProjectUnlimited(projectId, !isUnlimited);
+      if (result.success) {
+        toast.success(`Unlimited mode ${isUnlimited ? 'disabled' : 'enabled'}`);
+        billingLoaded = false;
+        await loadBillingData();
+        renderAdminPanel(container);
+      } else {
+        toast.error(result.error || 'Failed to update');
+      }
+    });
+  });
 
   // Refresh audit
   const refreshAuditBtn = container.querySelector('#refresh-audit');

@@ -8,6 +8,11 @@ import { createModal, openModal, closeModal } from './Modal';
 import { costsService, CostSummary, RecentCostRequest } from '../services/graph';
 import { formatCurrency, formatNumber } from '../utils/format';
 import { toast } from '../services/toast';
+import { billingService, type ProjectBillingSummary, formatEur, formatTokens } from '../services/billing';
+import { appStore } from '../stores/app';
+
+// Billing state
+let billingSummary: ProjectBillingSummary | null = null;
 
 const BUDGET_MODAL_ID = 'costs-budget-modal';
 
@@ -86,10 +91,17 @@ async function loadCosts(container: HTMLElement, period: 'day' | 'week' | 'month
   content.innerHTML = '<div class="loading">Loading...</div>';
 
   try {
-    const [data, recentRequests] = await Promise.all([
+    // Get current project ID
+    const state = appStore.getState();
+    const projectId = state.currentProject?.id;
+    
+    const [data, recentRequests, billing] = await Promise.all([
       costsService.getSummary(period),
       costsService.getRecentRequests(20),
+      projectId ? billingService.getProjectBillingSummary(projectId) : Promise.resolve(null)
     ]);
+    
+    billingSummary = billing;
     renderCosts(content, data, recentRequests);
     const periodRangeEl = container.querySelector('#costs-period-range');
     if (periodRangeEl) periodRangeEl.textContent = formatPeriod(data.period ?? { start: '', end: '' });
@@ -160,7 +172,53 @@ function renderCosts(
       ? '<div class="costs-empty-state">No cost data for this period. LLM usage from Chat, document processing, and other features will appear here.</div>'
       : '';
 
+  // Build billing banner HTML
+  let billingBannerHtml = '';
+  if (billingSummary) {
+    const balanceDisplay = billingSummary.unlimited_balance 
+      ? '<span style="color: var(--success-color); font-weight: 600;">∞ Unlimited</span>'
+      : formatEur(billingSummary.balance_eur);
+    
+    const statusBadge = billingSummary.unlimited_balance
+      ? '<span class="badge badge-success" style="font-size: 11px;">Unlimited</span>'
+      : billingSummary.balance_eur <= 0
+        ? '<span class="badge badge-danger" style="font-size: 11px;">Blocked</span>'
+        : billingSummary.balance_percent_used >= 80
+          ? '<span class="badge badge-warning" style="font-size: 11px;">Low Balance</span>'
+          : '<span class="badge badge-primary" style="font-size: 11px;">Active</span>';
+    
+    billingBannerHtml = `
+      <div class="billing-summary-banner" style="background: var(--bg-secondary); border-radius: 8px; padding: 16px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+        <div style="display: flex; align-items: center; gap: 24px;">
+          <div>
+            <div style="font-size: 12px; color: var(--text-tertiary); margin-bottom: 4px;">Project Balance</div>
+            <div style="font-size: 18px; font-weight: 600;">${balanceDisplay}</div>
+          </div>
+          <div>
+            <div style="font-size: 12px; color: var(--text-tertiary); margin-bottom: 4px;">Status</div>
+            <div>${statusBadge}</div>
+          </div>
+          ${billingSummary.current_tier_name ? `
+          <div>
+            <div style="font-size: 12px; color: var(--text-tertiary); margin-bottom: 4px;">Current Tier</div>
+            <div style="font-size: 14px;">${billingSummary.current_tier_name} (+${billingSummary.current_markup_percent}%)</div>
+          </div>
+          ` : ''}
+        </div>
+        <div style="display: flex; align-items: center; gap: 24px; color: var(--text-secondary); font-size: 13px;">
+          <div>
+            <strong>${formatTokens(billingSummary.tokens_this_period)}</strong> tokens this period
+          </div>
+          <div>
+            <strong>${formatEur(billingSummary.billable_cost_this_period)}</strong> billed (${billingSummary.period_key})
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   container.innerHTML = `
+    ${billingBannerHtml}
     <div class="costs-dashboard-row">
       <div class="costs-stats-grid stats-grid">
         <div class="costs-stat-card stat-card" data-stat-id="cost-total">
