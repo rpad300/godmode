@@ -1148,16 +1148,20 @@ function renderQueueSection(): string {
  * Load billing data
  */
 async function loadBillingData(): Promise<void> {
-  if (billingLoading) return;
-  billingLoading = true;
+  // Guard is now in bindSectionEvents, so we just proceed with loading
+  // billingLoading is already set to true by caller
+  console.log('[AdminPanel] loadBillingData() starting...');
   
   try {
     // Load all data in parallel
+    console.log('[AdminPanel] Calling billing API...');
     const [projects, config, tiersData] = await Promise.all([
       billingService.getAllProjectsBilling(),
       billingService.getGlobalPricingConfig(),
       billingService.getGlobalPricingTiers()
     ]);
+    
+    console.log('[AdminPanel] API responses:', { projects, config, tiersData });
     
     billingProjects = projects;
     globalPricingConfig = config;
@@ -1536,11 +1540,11 @@ function bindSectionEvents(container: HTMLElement): void {
         renderAdminPanel(container);
       } else if (newSection === 'billing') {
         // Load billing data
-        if (!billingLoaded) {
-          billingLoading = true;
-          renderAdminPanel(container);
-          await loadBillingData();
-          renderAdminPanel(container);
+        if (!billingLoaded && !billingLoading) {
+          billingLoading = true;        // Set loading flag BEFORE rendering
+          renderAdminPanel(container);  // Show loading state
+          await loadBillingData();      // Load data (guard removed, just loads)
+          renderAdminPanel(container);  // Re-render with data
         } else {
           renderAdminPanel(container);
         }

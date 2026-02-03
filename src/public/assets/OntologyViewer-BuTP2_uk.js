@@ -1,4 +1,4 @@
-import{c as j,o as h,t as c,g}from"./index-DRjFKNx1.js";function Q(e={}){const s={schema:null,suggestions:[],typeStats:null,syncStatus:null,changes:[],workerStatus:null,workerStats:null,jobs:[],jobLog:[],compliance:null,falkorBrowserInfo:null,unusedTypes:null,activeTab:"entities",searchQuery:"",isLoading:!0,isAnalyzing:!1,isSyncing:!1},i=j("div",{className:"ontology-viewer"});return i.innerHTML=`
+import{c as j,o as h,t as c,g}from"./index-B7lpKXA5.js";function Q(e={}){const s={schema:null,suggestions:[],typeStats:null,syncStatus:null,changes:[],workerStatus:null,workerStats:null,jobs:[],jobLog:[],compliance:null,falkorBrowserInfo:null,unusedTypes:null,activeTab:"entities",searchQuery:"",isLoading:!0,isAnalyzing:!1,isSyncing:!1},i=j("div",{className:"ontology-viewer"});return i.innerHTML=`
     <div class="ontology-header">
       <div class="ontology-tabs">
         <button class="ontology-tab active" data-tab="entities">
@@ -816,4 +816,4 @@ import{c as j,o as h,t as c,g}from"./index-DRjFKNx1.js";function Q(e={}){const s
       <span class="stat">${o} relations</span>
       <span class="stat">${r} patterns</span>
     `}t&&s.schema&&(t.innerHTML=`Schema v${s.schema.version}`)}function x(e,s){const i=e.querySelector("#suggestions-badge");i&&(s.suggestions.length>0?(i.textContent=String(s.suggestions.length),i.style.display=""):i.style.display="none")}function u(e){const s=document.createElement("div");return s.textContent=e,s.innerHTML}export{Q as createOntologyViewer};
-//# sourceMappingURL=OntologyViewer-tcfBpjSo.js.map
+//# sourceMappingURL=OntologyViewer-BuTP2_uk.js.map
