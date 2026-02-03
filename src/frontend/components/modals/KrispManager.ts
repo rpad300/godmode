@@ -54,11 +54,12 @@ let containerRef: HTMLElement | null = null;
 
 /**
  * Show Krisp Manager modal
+ * @param initialTab - Optional tab to open by default
  */
-export async function showKrispManager(): Promise<void> {
+export async function showKrispManager(initialTab: TabId = 'transcripts'): Promise<void> {
   // Reset state
   state = {
-    activeTab: 'transcripts',
+    activeTab: initialTab,
     transcripts: [],
     quarantine: [],
     mappings: [],
@@ -478,19 +479,19 @@ export async function showKrispManager(): Promise<void> {
     </style>
     
     <div class="krisp-tabs">
-      <button class="krisp-tab active" data-tab="transcripts">
+      <button class="krisp-tab ${initialTab === 'transcripts' ? 'active' : ''}" data-tab="transcripts">
         Transcripts
         <span class="badge" id="transcripts-count">0</span>
       </button>
-      <button class="krisp-tab" data-tab="quarantine">
+      <button class="krisp-tab ${initialTab === 'quarantine' ? 'active' : ''}" data-tab="quarantine">
         Quarantine
         <span class="badge warning" id="quarantine-count">0</span>
       </button>
-      <button class="krisp-tab" data-tab="mappings">
+      <button class="krisp-tab ${initialTab === 'mappings' ? 'active' : ''}" data-tab="mappings">
         Mappings
         <span class="badge" id="mappings-count">0</span>
       </button>
-      <button class="krisp-tab" data-tab="import">
+      <button class="krisp-tab ${initialTab === 'import' ? 'active' : ''}" data-tab="import">
         Import
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-left: 6px;">
           <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>

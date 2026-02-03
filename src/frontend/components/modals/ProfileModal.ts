@@ -1274,6 +1274,10 @@ async function loadKrispIntegration(container: HTMLElement): Promise<void> {
   const contentEl = container.querySelector('#krisp-integration-content');
   if (!contentEl) return;
 
+  // Check if user is superadmin (has MCP access)
+  const currentUser = appStore.getState().currentUser;
+  const isSuperAdmin = currentUser?.role === 'superadmin';
+
   try {
     const webhook = await krispService.getWebhook();
     const summary = await krispService.getTranscriptsSummary();
@@ -1309,6 +1313,23 @@ async function loadKrispIntegration(container: HTMLElement): Promise<void> {
     // Show webhook configuration
     contentEl.innerHTML = `
       <div class="krisp-config">
+        ${isSuperAdmin ? `
+        <div class="krisp-mcp-banner">
+          <div class="mcp-icon">
+            <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+            </svg>
+          </div>
+          <div class="mcp-info">
+            <strong>MCP Direct Access</strong>
+            <span>As a Super Admin, you can import meetings directly via MCP without webhook configuration.</span>
+          </div>
+          <button type="button" class="btn-sota primary" id="mcp-import-btn">
+            Import via MCP
+          </button>
+        </div>
+        ` : ''}
+        
         <div class="krisp-status">
           <span class="status-indicator ${webhook.is_active ? 'active' : 'inactive'}"></span>
           <span>${webhook.is_active ? 'Active' : 'Inactive'}</span>
@@ -1394,6 +1415,50 @@ async function loadKrispIntegration(container: HTMLElement): Promise<void> {
         .btn-sota.small { padding: 4px 12px; font-size: 12px; }
         .krisp-not-configured { text-align: center; padding: 32px; }
         .krisp-not-configured p { margin-bottom: 16px; color: var(--text-secondary, #64748b); }
+        .krisp-mcp-banner {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 16px;
+          background: linear-gradient(135deg, #dbeafe 0%, #e0f2fe 100%);
+          border: 1px solid #93c5fd;
+          border-radius: 12px;
+          margin-bottom: 20px;
+        }
+        .mcp-icon {
+          width: 40px;
+          height: 40px;
+          background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+          border-radius: 10px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+        }
+        .mcp-icon svg { color: white; }
+        .mcp-info {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+        .mcp-info strong {
+          font-size: 14px;
+          color: #1e40af;
+        }
+        .mcp-info span {
+          font-size: 12px;
+          color: #3b82f6;
+        }
+        .krisp-mcp-banner .btn-sota {
+          flex-shrink: 0;
+        }
+        [data-theme="dark"] .krisp-mcp-banner {
+          background: linear-gradient(135deg, rgba(59,130,246,0.15) 0%, rgba(29,78,216,0.1) 100%);
+          border-color: rgba(59,130,246,0.3);
+        }
+        [data-theme="dark"] .mcp-info strong { color: #93c5fd; }
+        [data-theme="dark"] .mcp-info span { color: #60a5fa; }
         [data-theme="dark"] .krisp-stats { background: rgba(30,41,59,0.5); }
         [data-theme="dark"] .btn-copy, [data-theme="dark"] .btn-toggle-visibility { background: rgba(30,41,59,0.8); border-color: rgba(255,255,255,0.1); }
       </style>
@@ -1414,6 +1479,17 @@ async function loadKrispIntegration(container: HTMLElement): Promise<void> {
     if (toggleSecretBtn && secretInput) {
       on(toggleSecretBtn as HTMLElement, 'click', () => {
         secretInput.type = secretInput.type === 'password' ? 'text' : 'password';
+      });
+    }
+
+    // MCP Import button (superadmin only)
+    const mcpImportBtn = contentEl.querySelector('#mcp-import-btn');
+    if (mcpImportBtn) {
+      on(mcpImportBtn as HTMLElement, 'click', async () => {
+        closeModal(MODAL_ID);
+        // Open KrispManager directly on the Import tab
+        const { showKrispManager } = await import('./KrispManager');
+        showKrispManager('import');
       });
     }
 
