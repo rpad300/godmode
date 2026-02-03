@@ -12,13 +12,26 @@
  *   node scripts/billing-rollout.js --dry-run
  */
 
-require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
 
-const { createClient } = require('@supabase/supabase-js');
+// Load environment variables from src/.env
+const envPath = path.join(__dirname, '..', 'src', '.env');
+if (fs.existsSync(envPath)) {
+    const content = fs.readFileSync(envPath, 'utf-8');
+    content.split('\n').forEach(line => {
+        const match = line.trim().match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*["']?(.+?)["']?\s*$/);
+        if (match && !process.env[match[1]]) {
+            process.env[match[1]] = match[2];
+        }
+    });
+}
+
+const { createClient } = require(path.join(__dirname, '..', 'node_modules', '@supabase', 'supabase-js'));
 
 // Configuration
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
+const SUPABASE_URL = process.env.SUPABASE_PROJECT_URL || process.env.SUPABASE_URL;
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_PROJECT_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
 
 const args = process.argv.slice(2);
 const isDryRun = args.includes('--dry-run');
