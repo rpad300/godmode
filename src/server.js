@@ -1370,15 +1370,23 @@ async function handleAPI(req, res, pathname) {
         
         // GET /api/auth/me - Get current user
         if (pathname === '/api/auth/me' && req.method === 'GET') {
+            // DEBUG: Log cookie info
+            const cookieHeader = req.headers.cookie || '';
+            console.log('[Auth Debug] /api/auth/me - Cookie header:', cookieHeader ? `"${cookieHeader.substring(0, 100)}..."` : '(empty)');
+            console.log('[Auth Debug] /api/auth/me - Has sb-access-token:', cookieHeader.includes('sb-access-token'));
+            
             if (!supabase || !supabase.isConfigured()) {
                 // Return unauthenticated state instead of error
+                console.log('[Auth Debug] Supabase not configured');
                 jsonResponse(res, { authenticated: false, user: null });
                 return;
             }
             
             const token = supabase.auth.extractToken(req);
+            console.log('[Auth Debug] Extracted token:', token ? `${token.substring(0, 20)}...` : '(null)');
             if (!token) {
                 // Return unauthenticated state with 200 OK
+                console.log('[Auth Debug] No token - returning unauthenticated');
                 jsonResponse(res, { authenticated: false, user: null });
                 return;
             }
@@ -20692,8 +20700,9 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/') {
         pathname = '/landing.html';
     }
-    // App on /app
-    if (pathname === '/app' || pathname === '/app/') {
+    // App on /app - SPA fallback: any /app/* route serves index.html
+    // This allows client-side routing to work on page refresh
+    if (pathname === '/app' || pathname === '/app/' || pathname.startsWith('/app/')) {
         pathname = '/index.html';
     }
     // Legal pages
