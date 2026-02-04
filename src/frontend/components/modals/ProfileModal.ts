@@ -46,10 +46,36 @@ export function showProfileModal(props: ProfileModalProps = {}): void {
     onClose: props.onClose,
   });
 
+  // Force modal overlay to be centered
+  modal.style.cssText = `
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    background: rgba(0, 0, 0, 0.75) !important;
+    z-index: 9999 !important;
+    padding: 24px !important;
+    margin: 0 !important;
+  `;
+  
   // Remove default modal styling for custom design
   const modalContent = modal.querySelector('.modal-content') as HTMLElement;
   if (modalContent) {
-    modalContent.style.cssText = 'background: transparent; box-shadow: none; padding: 0; max-width: 720px;';
+    modalContent.style.cssText = `
+      background: transparent;
+      box-shadow: none;
+      padding: 0;
+      max-width: 720px;
+      width: 95%;
+      margin: 0 !important;
+      position: relative !important;
+    `;
   }
   const modalHeader = modal.querySelector('.modal-header') as HTMLElement;
   if (modalHeader) {

@@ -1,4 +1,4 @@
-import{c as m,o as d,t as h,g as w}from"./main-QO_ajBNL.js";import"./modulepreload-polyfill-B5Qt9EMX.js";function T(o={}){const e={messages:[],isLoading:!1,sessionId:crypto.randomUUID(),isRecording:!1},i=m("div",{className:"ai-copilot"});return i.innerHTML=`
+import{c as m,o as d,t as h,g as w}from"./main-B76Pfb6r.js";import"./modulepreload-polyfill-B5Qt9EMX.js";function T(o={}){const e={messages:[],isLoading:!1,sessionId:crypto.randomUUID(),isRecording:!1},i=m("div",{className:"ai-copilot"});return i.innerHTML=`
     <div class="copilot-header">
       <div class="copilot-title">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -189,4 +189,4 @@ import{c as m,o as d,t as h,g as w}from"./main-QO_ajBNL.js";import"./moduleprelo
       <p>Ask me anything about your knowledge graph.</p>
     </div>
   `}function b(o){o.scrollTop=o.scrollHeight}function B(o){return v(o).replace(/\*\*(.*?)\*\*/g,"<strong>$1</strong>").replace(/\*(.*?)\*/g,"<em>$1</em>").replace(/`(.*?)`/g,"<code>$1</code>").replace(/\n/g,"<br>")}function v(o){const e=document.createElement("div");return e.textContent=o,e.innerHTML}export{T as createAICopilot};
-//# sourceMappingURL=AICopilot-D5MLE5oE.js.map
+//# sourceMappingURL=AICopilot-BRb3lMz2.js.map

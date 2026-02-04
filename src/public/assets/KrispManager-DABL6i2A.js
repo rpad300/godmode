@@ -1,8 +1,9 @@
-const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["assets/ProjectAssignmentModal-DUg3ORwB.js","assets/main-QO_ajBNL.js","assets/modulepreload-polyfill-B5Qt9EMX.js","assets/main-Cf3xxxdT.css"])))=>i.map(i=>d[i]);
-import{d as h,c as k,e as y,i as w,o as d,j as M,k as $,l as S,m as A,t as p,n as x,p as v,r as T,_ as I,s as _,q,u as z}from"./main-QO_ajBNL.js";import"./modulepreload-polyfill-B5Qt9EMX.js";const g="krisp-manager-modal";let a={activeTab:"transcripts",transcripts:[],quarantine:[],mappings:[],loading:!1,selectedTranscript:null,mcpMeetings:[],importedIds:new Set,selectedMeetings:new Set,importFilters:{search:"",after:"",before:"",domain:""}},m=null;async function Y(){a={activeTab:"transcripts",transcripts:[],quarantine:[],mappings:[],loading:!1,selectedTranscript:null,mcpMeetings:[],importedIds:new Set,selectedMeetings:new Set,importFilters:{search:"",after:"",before:"",domain:""}};const e=document.querySelector(`[data-modal-id="${g}"]`);e&&e.remove();const t=k("div",{className:"krisp-manager"});m=t,t.innerHTML=`
+const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["assets/ProjectAssignmentModal-CIS0mszD.js","assets/main-B76Pfb6r.js","assets/modulepreload-polyfill-B5Qt9EMX.js","assets/main-zW5eqfTk.css"])))=>i.map(i=>d[i]);
+import{d as h,c as k,e as y,i as w,o as d,j as M,k as $,l as S,m as A,t as p,n as x,p as v,r as I,_,s as q,q as T,u as z}from"./main-B76Pfb6r.js";import"./modulepreload-polyfill-B5Qt9EMX.js";const g="krisp-manager-modal";let a={activeTab:"transcripts",transcripts:[],quarantine:[],mappings:[],loading:!1,selectedTranscript:null,mcpMeetings:[],importedIds:new Set,selectedMeetings:new Set,importFilters:{search:"",after:"",before:"",domain:""}},m=null;async function Y(e="transcripts"){a={activeTab:e,transcripts:[],quarantine:[],mappings:[],loading:!1,selectedTranscript:null,mcpMeetings:[],importedIds:new Set,selectedMeetings:new Set,importFilters:{search:"",after:"",before:"",domain:""}};const t=document.querySelector(`[data-modal-id="${g}"]`);t&&t.remove();const i=k("div",{className:"krisp-manager"});m=i,i.innerHTML=`
     <style>
       .krisp-manager {
-        min-height: 500px;
+        min-height: 450px;
+        padding-bottom: 16px;
       }
       .krisp-tabs {
         display: flex;
@@ -394,19 +395,19 @@ import{d as h,c as k,e as y,i as w,o as d,j as M,k as $,l as S,m as A,t as p,n a
     </style>
     
     <div class="krisp-tabs">
-      <button class="krisp-tab active" data-tab="transcripts">
+      <button class="krisp-tab ${e==="transcripts"?"active":""}" data-tab="transcripts">
         Transcripts
         <span class="badge" id="transcripts-count">0</span>
       </button>
-      <button class="krisp-tab" data-tab="quarantine">
+      <button class="krisp-tab ${e==="quarantine"?"active":""}" data-tab="quarantine">
         Quarantine
         <span class="badge warning" id="quarantine-count">0</span>
       </button>
-      <button class="krisp-tab" data-tab="mappings">
+      <button class="krisp-tab ${e==="mappings"?"active":""}" data-tab="mappings">
         Mappings
         <span class="badge" id="mappings-count">0</span>
       </button>
-      <button class="krisp-tab" data-tab="import">
+      <button class="krisp-tab ${e==="import"?"active":""}" data-tab="import">
         Import
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-left: 6px;">
           <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
@@ -419,7 +420,7 @@ import{d as h,c as k,e as y,i as w,o as d,j as M,k as $,l as S,m as A,t as p,n a
         <div class="loading-spinner"></div>
       </div>
     </div>
-  `;const i=y({id:g,title:"Krisp Transcripts",content:t,size:"xl"});document.body.appendChild(i),w(g),j(t),await c("transcripts")}function j(e){const t=e.querySelectorAll(".krisp-tab");t.forEach(i=>{d(i,"click",async()=>{const r=i.getAttribute("data-tab");r!==a.activeTab&&(t.forEach(s=>s.classList.remove("active")),i.classList.add("active"),a.activeTab=r,await c(r))})})}async function c(e){if(!m)return;const t=m.querySelector("#krisp-content");if(t){t.innerHTML='<div class="krisp-loading"><div class="loading-spinner"></div></div>',a.loading=!0;try{switch(e){case"transcripts":await L(t);break;case"quarantine":await C(t);break;case"mappings":await E(t);break;case"import":await R(t);break}}catch(i){console.error("[KrispManager] Error loading tab:",i),t.innerHTML='<div class="krisp-empty"><p>Failed to load. Please try again.</p></div>'}finally{a.loading=!1}}}async function L(e){const t=await S({limit:50});if(a.transcripts=t,b("transcripts-count",t.length),t.length===0){e.innerHTML=`
+  `;const r=y({id:g,title:"Krisp Transcripts",content:i,size:"xl"});document.body.appendChild(r),w(g),j(i),await c("transcripts")}function j(e){const t=e.querySelectorAll(".krisp-tab");t.forEach(i=>{d(i,"click",async()=>{const r=i.getAttribute("data-tab");r!==a.activeTab&&(t.forEach(s=>s.classList.remove("active")),i.classList.add("active"),a.activeTab=r,await c(r))})})}async function c(e){if(!m)return;const t=m.querySelector("#krisp-content");if(t){t.innerHTML='<div class="krisp-loading"><div class="loading-spinner"></div></div>',a.loading=!0;try{switch(e){case"transcripts":await L(t);break;case"quarantine":await C(t);break;case"mappings":await E(t);break;case"import":await R(t);break}}catch(i){console.error("[KrispManager] Error loading tab:",i),t.innerHTML='<div class="krisp-empty"><p>Failed to load. Please try again.</p></div>'}finally{a.loading=!1}}}async function L(e){const t=await S({limit:50});if(a.transcripts=t,b("transcripts-count",t.length),t.length===0){e.innerHTML=`
       <div class="krisp-empty">
         <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
@@ -496,7 +497,7 @@ import{d as h,c as k,e as y,i as w,o as d,j as M,k as $,l as S,m as A,t as p,n a
         </svg>
       </button>
     </div>
-  `}function F(e){e.querySelectorAll(".krisp-item").forEach(t=>{d(t,"click",()=>{const i=t.getAttribute("data-id"),r=a.transcripts.find(s=>s.id===i);r&&N(r)})})}function B(e){e.querySelectorAll(".retry-btn").forEach(t=>{d(t,"click",async i=>{i.stopPropagation();const r=t.getAttribute("data-id");if(!r)return;t.textContent="...",await T(r)?(p.success("Retry queued"),await c("quarantine")):(p.error("Retry failed"),t.textContent="Retry")})}),e.querySelectorAll(".assign-btn").forEach(t=>{d(t,"click",async i=>{i.stopPropagation();const r=t.getAttribute("data-id"),s=a.quarantine.find(n=>n.id===r);if(s){const{showProjectAssignmentModal:n}=await I(async()=>{const{showProjectAssignmentModal:o}=await import("./ProjectAssignmentModal-DUg3ORwB.js");return{showProjectAssignmentModal:o}},__vite__mapDeps([0,1,2,3]));n({transcript:s,onAssign:async()=>{await c("quarantine")}})}})}),e.querySelectorAll(".skip-btn").forEach(t=>{d(t,"click",async i=>{i.stopPropagation();const r=t.getAttribute("data-id");if(!r||!confirm("Are you sure you want to skip this transcript?"))return;await _(r,"Manually skipped")?(p.success("Transcript skipped"),await c("quarantine")):p.error("Failed to skip")})})}function K(e){e.querySelectorAll(".delete-mapping-btn").forEach(t=>{d(t,"click",async i=>{i.stopPropagation();const r=t.getAttribute("data-id");if(!r||!confirm("Are you sure you want to delete this mapping?"))return;await A(r)?(p.success("Mapping deleted"),await c("mappings")):p.error("Failed to delete")})})}function N(e){const t=[`Title: ${e.display_title||e.krisp_title}`,`Status: ${e.status}`,`Speakers: ${e.speakers?.join(", ")||"None"}`,`Project: ${e.projects?.name||"Not assigned"}`].join(`
+  `}function F(e){e.querySelectorAll(".krisp-item").forEach(t=>{d(t,"click",()=>{const i=t.getAttribute("data-id"),r=a.transcripts.find(s=>s.id===i);r&&N(r)})})}function B(e){e.querySelectorAll(".retry-btn").forEach(t=>{d(t,"click",async i=>{i.stopPropagation();const r=t.getAttribute("data-id");if(!r)return;t.textContent="...",await I(r)?(p.success("Retry queued"),await c("quarantine")):(p.error("Retry failed"),t.textContent="Retry")})}),e.querySelectorAll(".assign-btn").forEach(t=>{d(t,"click",async i=>{i.stopPropagation();const r=t.getAttribute("data-id"),s=a.quarantine.find(n=>n.id===r);if(s){const{showProjectAssignmentModal:n}=await _(async()=>{const{showProjectAssignmentModal:o}=await import("./ProjectAssignmentModal-CIS0mszD.js");return{showProjectAssignmentModal:o}},__vite__mapDeps([0,1,2,3]));n({transcript:s,onAssign:async()=>{await c("quarantine")}})}})}),e.querySelectorAll(".skip-btn").forEach(t=>{d(t,"click",async i=>{i.stopPropagation();const r=t.getAttribute("data-id");if(!r||!confirm("Are you sure you want to skip this transcript?"))return;await q(r,"Manually skipped")?(p.success("Transcript skipped"),await c("quarantine")):p.error("Failed to skip")})})}function K(e){e.querySelectorAll(".delete-mapping-btn").forEach(t=>{d(t,"click",async i=>{i.stopPropagation();const r=t.getAttribute("data-id");if(!r||!confirm("Are you sure you want to delete this mapping?"))return;await A(r)?(p.success("Mapping deleted"),await c("mappings")):p.error("Failed to delete")})})}function N(e){const t=[`Title: ${e.display_title||e.krisp_title}`,`Status: ${e.status}`,`Speakers: ${e.speakers?.join(", ")||"None"}`,`Project: ${e.projects?.name||"Not assigned"}`].join(`
 `);alert(t)}function b(e,t){if(!m)return;const i=m.querySelector(`#${e}`);i&&(i.textContent=String(t))}async function R(e){e.innerHTML=`
     <div class="import-note">
       <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -564,7 +565,7 @@ CallMcpTool({
         </button>
       </div>
     </div>
-  `,Q(e)}function Q(e){const t=e.querySelector("#import-parse-btn");t&&d(t,"click",async()=>{const i=e.querySelector("#import-paste-data");if(!i?.value.trim()){p.error("Please paste the meeting data first");return}try{const r=JSON.parse(i.value),s=V(r);if(s.length===0){p.error("No meetings found in the pasted data");return}const n=s.map(f=>f.meeting_id),o=await q(n);a.importedIds=new Set(o),a.mcpMeetings=s,a.selectedMeetings=new Set,u(e),p.success(`Found ${s.length} meetings`)}catch(r){console.error("[KrispManager] Parse error:",r),p.error("Failed to parse meeting data. Make sure it's valid JSON.")}})}function V(e){if(Array.isArray(e))return e.filter(t=>t.meeting_id);if(typeof e=="object"&&e!==null){const t=e;if(Array.isArray(t.meetings))return t.meetings.filter(i=>i.meeting_id);if(Array.isArray(t.results))return t.results.filter(i=>i.meeting_id);if(Array.isArray(t.data))return t.data.filter(i=>i.meeting_id);if(t.meeting_id)return[t]}return[]}function u(e){const t=e.querySelector("#import-results");if(!t)return;const i=a.mcpMeetings,r=a.selectedMeetings.size,s=i.filter(n=>!a.importedIds.has(n.meeting_id)).length;t.innerHTML=`
+  `,Q(e)}function Q(e){const t=e.querySelector("#import-parse-btn");t&&d(t,"click",async()=>{const i=e.querySelector("#import-paste-data");if(!i?.value.trim()){p.error("Please paste the meeting data first");return}try{const r=JSON.parse(i.value),s=V(r);if(s.length===0){p.error("No meetings found in the pasted data");return}const n=s.map(f=>f.meeting_id),o=await T(n);a.importedIds=new Set(o),a.mcpMeetings=s,a.selectedMeetings=new Set,u(e),p.success(`Found ${s.length} meetings`)}catch(r){console.error("[KrispManager] Parse error:",r),p.error("Failed to parse meeting data. Make sure it's valid JSON.")}})}function V(e){if(Array.isArray(e))return e.filter(t=>t.meeting_id);if(typeof e=="object"&&e!==null){const t=e;if(Array.isArray(t.meetings))return t.meetings.filter(i=>i.meeting_id);if(Array.isArray(t.results))return t.results.filter(i=>i.meeting_id);if(Array.isArray(t.data))return t.data.filter(i=>i.meeting_id);if(t.meeting_id)return[t]}return[]}function u(e){const t=e.querySelector("#import-results");if(!t)return;const i=a.mcpMeetings,r=a.selectedMeetings.size,s=i.filter(n=>!a.importedIds.has(n.meeting_id)).length;t.innerHTML=`
     <div class="import-header">
       <label>
         <input type="checkbox" id="select-all" ${r===s&&s>0?"checked":""} />
@@ -600,4 +601,4 @@ CallMcpTool({
       </div>
     </div>
   `}function G(e){const t=e.querySelector("#select-all");t&&d(t,"change",()=>{t.checked?a.mcpMeetings.forEach(s=>{a.importedIds.has(s.meeting_id)||a.selectedMeetings.add(s.meeting_id)}):a.selectedMeetings.clear(),u(e)}),e.querySelectorAll(".import-meeting").forEach(r=>{d(r,"click",s=>{const n=r.getAttribute("data-id");!n||a.importedIds.has(n)||(a.selectedMeetings.has(n)?a.selectedMeetings.delete(n):a.selectedMeetings.add(n),u(e))})});const i=e.querySelector("#import-selected-btn");i&&d(i,"click",async()=>{if(a.selectedMeetings.size===0)return;i.setAttribute("disabled","true"),i.innerHTML='<span class="loading-spinner" style="width: 16px; height: 16px;"></span> Importing...';const r=a.mcpMeetings.filter(n=>a.selectedMeetings.has(n.meeting_id)),s=await z(r);s?(p.success(`Imported ${s.imported} meetings${s.skipped>0?`, ${s.skipped} skipped`:""}`),s.results.forEach(n=>{n.success&&a.importedIds.add(n.meetingId)}),a.selectedMeetings.clear(),u(e)):(p.error("Import failed"),i.removeAttribute("disabled"),i.innerHTML=`Import ${a.selectedMeetings.size} Meetings`)})}function l(e){const t=document.createElement("div");return t.textContent=e,t.innerHTML}function Z(){h(g)}export{Z as closeKrispManager,Y as showKrispManager};
-//# sourceMappingURL=KrispManager-BiUeCUpW.js.map
+//# sourceMappingURL=KrispManager-DABL6i2A.js.map
