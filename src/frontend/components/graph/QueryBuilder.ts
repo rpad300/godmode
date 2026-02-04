@@ -147,8 +147,8 @@ export function createQueryBuilder(props: QueryBuilderProps = {}): HTMLElement {
     </div>
     
     <!-- AI Generate Modal -->
-    <div class="modal-overlay hidden" id="ai-modal">
-      <div class="modal ai-generate-modal">
+    <div class="graph-modal-overlay hidden" id="ai-modal">
+      <div class="graph-ai-modal ai-generate-modal">
         <div class="modal-header">
           <h3>Generate Query with AI</h3>
           <button class="modal-close" id="ai-modal-close">

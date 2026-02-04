@@ -3411,8 +3411,8 @@
 .object-value,
 .array-value { color: var(--graph-warning); }
 
-/* AI Modal */
-.modal-overlay {
+/* AI Modal - Graph-specific (prefixed to avoid conflicts with global modals) */
+.graph-modal-overlay {
   position: fixed;
   top: 0;
   left: 0;
@@ -3426,7 +3426,7 @@
   z-index: 1000;
 }
 
-.modal {
+.graph-ai-modal {
   background: var(--graph-surface);
   border: 1px solid var(--graph-border);
   border-radius: 0.75rem;
@@ -3435,7 +3435,7 @@
   width: 100%;
 }
 
-.modal-header {
+.graph-ai-modal .modal-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -3443,14 +3443,14 @@
   border-bottom: 1px solid var(--graph-border);
 }
 
-.modal-header h3 {
+.graph-ai-modal .modal-header h3 {
   font-size: 1rem;
   font-weight: 600;
   color: var(--graph-text);
   margin: 0;
 }
 
-.modal-close {
+.graph-ai-modal .modal-close {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3463,11 +3463,11 @@
   cursor: pointer;
 }
 
-.modal-close:hover {
+.graph-ai-modal .modal-close:hover {
   background: var(--graph-bg);
 }
 
-.modal-body {
+.graph-ai-modal .modal-body {
   padding: 1rem;
 }
 
