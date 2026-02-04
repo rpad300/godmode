@@ -850,6 +850,8 @@ const { handleProjectMembers } = require('./features/projects/routes');
 const { handleKrispWebhook, handleKrispApi } = require('./features/krisp/routes');
 const { handleLlm } = require('./features/llm/routes');
 const { handleKnowledge } = require('./features/knowledge/routes');
+const { handleNotifications } = require('./features/notifications/routes');
+const { handleSearch } = require('./features/search/routes');
 
 // API Routes
 async function handleAPI(req, res, pathname) {
@@ -888,6 +890,12 @@ async function handleAPI(req, res, pathname) {
 
         // ==================== Knowledge Routes (extracted to features/knowledge/routes.js) ====================
         if (await handleKnowledge({ req, res, pathname, storage, config, llm, llmConfig })) return;
+
+        // ==================== Notifications Routes (extracted to features/notifications/routes.js) ====================
+        if (await handleNotifications({ req, res, pathname, supabase })) return;
+
+        // ==================== Search Routes (extracted to features/search/routes.js) ====================
+        if (await handleSearch({ req, res, pathname, supabase })) return;
 
         // Krisp Webhook routes removed - now handled by handleKrispWebhook() above
 
