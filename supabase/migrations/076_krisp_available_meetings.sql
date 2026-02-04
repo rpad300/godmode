@@ -72,7 +72,7 @@ FOR ALL USING (auth.uid() = user_id);
 CREATE POLICY "Superadmin views all krisp available meetings"
 ON krisp_available_meetings
 FOR SELECT USING (
-    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'superadmin')
+    EXISTS (SELECT 1 FROM user_profiles WHERE id = auth.uid() AND role = 'superadmin')
 );
 
 -- Updated at trigger
