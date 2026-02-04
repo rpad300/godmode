@@ -476,6 +476,40 @@ export async function showKrispManager(initialTab: TabId = 'transcripts'): Promi
         border-color: rgba(251,191,36,0.3);
         color: #fcd34d;
       }
+      .import-stats {
+        display: flex;
+        gap: 16px;
+        margin-bottom: 16px;
+        padding: 16px;
+        background: var(--bg-secondary, #f8fafc);
+        border-radius: 8px;
+      }
+      .stat-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        flex: 1;
+      }
+      .stat-value {
+        font-size: 24px;
+        font-weight: 700;
+        color: var(--primary, #e11d48);
+      }
+      .stat-label {
+        font-size: 11px;
+        color: var(--text-secondary, #64748b);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+      .import-meeting-summary {
+        font-size: 12px;
+        color: var(--text-secondary, #64748b);
+        margin-top: 4px;
+        line-height: 1.4;
+      }
+      [data-theme="dark"] .import-stats {
+        background: rgba(255,255,255,0.03);
+      }
     </style>
     
     <div class="krisp-tabs">
@@ -873,10 +907,30 @@ function updateBadge(id: string, count: number): void {
 // ==================== Import Tab ====================
 
 /**
- * Load import tab
+ * Load import tab - fetches available meetings from the catalog
  */
 async function loadImport(container: HTMLElement): Promise<void> {
-  // Render the import UI with filters
+  // Fetch available meetings from the API
+  const result = await krispService.getAvailableMeetings({
+    limit: 100,
+    showImported: true,
+    startDate: state.importFilters.after || undefined,
+    endDate: state.importFilters.before || undefined,
+    search: state.importFilters.search || undefined
+  });
+
+  const stats = result?.stats || {
+    total_available: 0,
+    total_imported: 0,
+    total_pending: 0,
+    last_sync: null
+  };
+
+  const lastSync = stats.last_sync 
+    ? new Date(stats.last_sync).toLocaleString()
+    : 'Never';
+
+  // Render the import UI
   container.innerHTML = `
     <div class="import-note">
       <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -884,8 +938,27 @@ async function loadImport(container: HTMLElement): Promise<void> {
       </svg>
       <div>
         <strong>Import from Krisp</strong><br>
-        Use the search filters below to find meetings in your Krisp account. 
-        The search uses the Krisp MCP - make sure you have it connected in Cursor.
+        Meetings synced from Krisp are shown below. To sync new meetings, ask Cursor: 
+        <em>"sincroniza as meetings do Krisp"</em>
+      </div>
+    </div>
+    
+    <div class="import-stats">
+      <div class="stat-item">
+        <span class="stat-value">${stats.total_available}</span>
+        <span class="stat-label">Available</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-value">${stats.total_imported}</span>
+        <span class="stat-label">Imported</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-value">${stats.total_pending}</span>
+        <span class="stat-label">Pending</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-value" style="font-size: 12px;">${lastSync}</span>
+        <span class="stat-label">Last Sync</span>
       </div>
     </div>
     
@@ -898,259 +971,159 @@ async function loadImport(container: HTMLElement): Promise<void> {
         To Date
         <input type="date" id="import-before" value="${state.importFilters.before}" />
       </label>
-      <label>
-        Participant Domain
-        <input type="text" id="import-domain" placeholder="e.g. company.com" value="${state.importFilters.domain}" />
-      </label>
       <div class="search-row">
         <label style="flex: 1;">
-          Search Text
-          <input type="text" id="import-search" placeholder="Search by title, content, attendees..." value="${state.importFilters.search}" />
+          Search
+          <input type="text" id="import-search" placeholder="Search by title..." value="${state.importFilters.search}" />
         </label>
-        <button class="search-btn" id="import-search-btn">
-          Search Krisp
+        <button class="search-btn" id="import-filter-btn">
+          Filter
         </button>
       </div>
     </div>
     
     <div id="import-results">
-      <div class="krisp-empty">
-        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
-        </svg>
-        <p>Use the filters above to search for meetings</p>
-        <p style="font-size: 12px; margin-top: 8px;">Tip: Set a date range to find recent meetings</p>
-      </div>
+      ${renderAvailableMeetingsList(result?.meetings || [])}
     </div>
   `;
+  
+  // Store meetings in state
+  if (result?.meetings) {
+    state.mcpMeetings = result.meetings.map(m => ({
+      meeting_id: m.krisp_meeting_id,
+      name: m.meeting_name,
+      date: m.meeting_date,
+      speakers: m.speakers,
+      attendees: m.attendees,
+      meeting_notes: {
+        key_points: m.key_points,
+        action_items: m.action_items
+      }
+    }));
+    state.importedIds = new Set(
+      result.meetings.filter(m => m.is_imported).map(m => m.krisp_meeting_id)
+    );
+  }
   
   bindImportFilters(container);
 }
 
 /**
- * Bind import filter events
+ * Render available meetings list
  */
-function bindImportFilters(container: HTMLElement): void {
-  const searchBtn = container.querySelector('#import-search-btn');
-  
-  if (searchBtn) {
-    on(searchBtn as HTMLElement, 'click', () => {
-      // Save filter values to state
-      const afterInput = container.querySelector('#import-after') as HTMLInputElement;
-      const beforeInput = container.querySelector('#import-before') as HTMLInputElement;
-      const domainInput = container.querySelector('#import-domain') as HTMLInputElement;
-      const searchInput = container.querySelector('#import-search') as HTMLInputElement;
-      
-      state.importFilters = {
-        after: afterInput?.value || '',
-        before: beforeInput?.value || '',
-        domain: domainInput?.value || '',
-        search: searchInput?.value || ''
-      };
-      
-      // Show instructions for MCP search
-      showMcpSearchInstructions(container);
-    });
-  }
-  
-  // Enter key triggers search
-  const searchInput = container.querySelector('#import-search');
-  if (searchInput) {
-    on(searchInput as HTMLElement, 'keydown', (e: KeyboardEvent) => {
-      if (e.key === 'Enter') {
-        searchBtn?.dispatchEvent(new Event('click'));
-      }
-    });
-  }
-}
-
-/**
- * Show MCP search instructions
- * Since MCP calls need to be made through Cursor, we show the user how to do it
- */
-function showMcpSearchInstructions(container: HTMLElement): void {
-  const resultsEl = container.querySelector('#import-results');
-  if (!resultsEl) return;
-  
-  const { after, before, domain, search } = state.importFilters;
-  
-  // Build the MCP call example
-  const args: Record<string, unknown> = {};
-  if (after) args.after = after;
-  if (before) args.before = before;
-  if (domain) args.participant_domains = [domain];
-  if (search) args.search = search;
-  args.limit = 50;
-  args.fields = ['name', 'date', 'speakers', 'attendees', 'meeting_notes'];
-  
-  const mcpCall = JSON.stringify(args, null, 2);
-  
-  resultsEl.innerHTML = `
-    <div style="background: var(--bg-secondary, #f8fafc); border-radius: 8px; padding: 16px;">
-      <h4 style="margin: 0 0 12px 0; font-size: 14px;">Search Krisp Meetings</h4>
-      <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 12px;">
-        To search your Krisp meetings, use the Krisp MCP in Cursor. Copy the command below:
-      </p>
-      <div style="background: #1e293b; color: #e2e8f0; padding: 12px; border-radius: 6px; font-family: monospace; font-size: 12px; white-space: pre-wrap; overflow-x: auto;">
-CallMcpTool({
-  server: "user-Krisp",
-  toolName: "search_meetings",
-  arguments: ${mcpCall}
-})</div>
-      <p style="font-size: 12px; color: var(--text-secondary); margin-top: 12px;">
-        After getting the results, paste the meeting data below to import:
-      </p>
-      <textarea id="import-paste-data" placeholder="Paste the search_meetings results here..." style="width: 100%; min-height: 120px; margin-top: 8px; padding: 12px; border: 1px solid var(--border-color); border-radius: 6px; font-family: monospace; font-size: 12px; resize: vertical;"></textarea>
-      <div style="display: flex; gap: 12px; margin-top: 12px;">
-        <button id="import-parse-btn" style="padding: 8px 16px; background: var(--primary, #e11d48); color: white; border: none; border-radius: 6px; cursor: pointer;">
-          Parse Meetings
-        </button>
+function renderAvailableMeetingsList(meetings: krispService.AvailableMeeting[]): string {
+  if (meetings.length === 0) {
+    return `
+      <div class="krisp-empty">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
+        </svg>
+        <p>No meetings synced yet</p>
+        <p style="font-size: 12px; margin-top: 8px;">
+          Ask Cursor to sync: <em>"sincroniza as meetings do Krisp de [data] a [data]"</em>
+        </p>
       </div>
-    </div>
-  `;
-  
-  bindPasteDataHandler(container);
-}
-
-/**
- * Bind paste data handler
- */
-function bindPasteDataHandler(container: HTMLElement): void {
-  const parseBtn = container.querySelector('#import-parse-btn');
-  
-  if (parseBtn) {
-    on(parseBtn as HTMLElement, 'click', async () => {
-      const textarea = container.querySelector('#import-paste-data') as HTMLTextAreaElement;
-      if (!textarea?.value.trim()) {
-        toast.error('Please paste the meeting data first');
-        return;
-      }
-      
-      try {
-        const data = JSON.parse(textarea.value);
-        const meetings = extractMeetingsFromMcpResponse(data);
-        
-        if (meetings.length === 0) {
-          toast.error('No meetings found in the pasted data');
-          return;
-        }
-        
-        // Check which are already imported
-        const meetingIds = meetings.map(m => m.meeting_id);
-        const importedIds = await krispService.getImportedMeetingIds(meetingIds);
-        state.importedIds = new Set(importedIds);
-        state.mcpMeetings = meetings;
-        state.selectedMeetings = new Set();
-        
-        // Render meeting list
-        renderMeetingList(container);
-        
-        toast.success(`Found ${meetings.length} meetings`);
-        
-      } catch (error) {
-        console.error('[KrispManager] Parse error:', error);
-        toast.error('Failed to parse meeting data. Make sure it\'s valid JSON.');
-      }
-    });
+    `;
   }
-}
 
-/**
- * Extract meetings from MCP response
- */
-function extractMeetingsFromMcpResponse(data: unknown): McpMeeting[] {
-  // Handle various response formats
-  if (Array.isArray(data)) {
-    return data.filter(m => m.meeting_id);
-  }
-  if (typeof data === 'object' && data !== null) {
-    const obj = data as Record<string, unknown>;
-    if (Array.isArray(obj.meetings)) {
-      return obj.meetings.filter((m: McpMeeting) => m.meeting_id);
-    }
-    if (Array.isArray(obj.results)) {
-      return obj.results.filter((m: McpMeeting) => m.meeting_id);
-    }
-    if (Array.isArray(obj.data)) {
-      return obj.data.filter((m: McpMeeting) => m.meeting_id);
-    }
-    // Single meeting
-    if (obj.meeting_id) {
-      return [obj as McpMeeting];
-    }
-  }
-  return [];
-}
-
-/**
- * Render meeting list for import
- */
-function renderMeetingList(container: HTMLElement): void {
-  const resultsEl = container.querySelector('#import-results');
-  if (!resultsEl) return;
+  const notImportedCount = meetings.filter(m => !m.is_imported).length;
   
-  const meetings = state.mcpMeetings;
-  const selectedCount = state.selectedMeetings.size;
-  const notImportedCount = meetings.filter(m => !state.importedIds.has(m.meeting_id)).length;
-  
-  resultsEl.innerHTML = `
+  return `
     <div class="import-header">
       <label>
-        <input type="checkbox" id="select-all" ${selectedCount === notImportedCount && notImportedCount > 0 ? 'checked' : ''} />
+        <input type="checkbox" id="select-all" />
         Select All (${notImportedCount} available)
       </label>
       <span class="count">Showing ${meetings.length} meetings</span>
     </div>
     
     <div class="krisp-list">
-      ${meetings.map(m => renderImportMeetingItem(m)).join('')}
+      ${meetings.map(m => renderAvailableMeetingItem(m)).join('')}
     </div>
     
     <div class="import-footer">
-      <span class="selected-count">${selectedCount} selected</span>
-      <button class="import-btn" id="import-selected-btn" ${selectedCount === 0 ? 'disabled' : ''}>
+      <span class="selected-count" id="selected-count">0 selected</span>
+      <button class="import-btn" id="import-selected-btn" disabled>
         <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
         </svg>
-        Import ${selectedCount} Meeting${selectedCount !== 1 ? 's' : ''}
+        Import Selected
       </button>
     </div>
   `;
-  
-  bindMeetingListActions(container);
 }
 
 /**
- * Render single import meeting item
+ * Render single available meeting item
  */
-function renderImportMeetingItem(meeting: McpMeeting): string {
-  const isImported = state.importedIds.has(meeting.meeting_id);
-  const isSelected = state.selectedMeetings.has(meeting.meeting_id);
+function renderAvailableMeetingItem(meeting: krispService.AvailableMeeting): string {
+  const isImported = meeting.is_imported;
+  const isSelected = state.selectedMeetings.has(meeting.krisp_meeting_id);
   const speakers = meeting.speakers?.join(', ') || meeting.attendees?.join(', ') || 'No participants';
-  const date = meeting.date ? new Date(meeting.date).toLocaleDateString('en-US', { 
+  const date = meeting.meeting_date ? new Date(meeting.meeting_date).toLocaleDateString('en-US', { 
     month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit'
   }) : '';
   
   return `
-    <div class="import-meeting ${isSelected ? 'selected' : ''} ${isImported ? 'imported' : ''}" data-id="${meeting.meeting_id}">
+    <div class="import-meeting ${isSelected ? 'selected' : ''} ${isImported ? 'imported' : ''}" data-id="${meeting.krisp_meeting_id}">
       <input type="checkbox" ${isSelected ? 'checked' : ''} ${isImported ? 'disabled' : ''} />
       <div class="import-meeting-content">
         <div class="import-meeting-title">
-          ${escapeHtml(meeting.name || 'Untitled Meeting')}
+          ${escapeHtml(meeting.meeting_name || 'Untitled Meeting')}
           ${isImported ? '<span class="imported-badge">Imported</span>' : ''}
         </div>
         <div class="import-meeting-meta">
-          ${date} · ${speakers}
+          ${date} · ${escapeHtml(speakers.substring(0, 100))}${speakers.length > 100 ? '...' : ''}
         </div>
+        ${meeting.summary ? `<div class="import-meeting-summary">${escapeHtml(meeting.summary.substring(0, 150))}${meeting.summary.length > 150 ? '...' : ''}</div>` : ''}
       </div>
     </div>
   `;
 }
 
 /**
- * Bind meeting list actions
+ * Bind import filter events
  */
-function bindMeetingListActions(container: HTMLElement): void {
+function bindImportFilters(container: HTMLElement): void {
+  const filterBtn = container.querySelector('#import-filter-btn');
+  
+  if (filterBtn) {
+    on(filterBtn as HTMLElement, 'click', async () => {
+      // Save filter values to state
+      const afterInput = container.querySelector('#import-after') as HTMLInputElement;
+      const beforeInput = container.querySelector('#import-before') as HTMLInputElement;
+      const searchInput = container.querySelector('#import-search') as HTMLInputElement;
+      
+      state.importFilters = {
+        after: afterInput?.value || '',
+        before: beforeInput?.value || '',
+        domain: '',
+        search: searchInput?.value || ''
+      };
+      
+      // Reload the import tab with new filters
+      await loadImport(container);
+    });
+  }
+  
+  // Enter key triggers filter
+  const searchInput = container.querySelector('#import-search');
+  if (searchInput) {
+    on(searchInput as HTMLElement, 'keydown', (e: KeyboardEvent) => {
+      if (e.key === 'Enter') {
+        filterBtn?.dispatchEvent(new Event('click'));
+      }
+    });
+  }
+  
+  // Bind meeting list actions
+  bindAvailableMeetingListActions(container);
+}
+
+/**
+ * Bind available meeting list actions
+ */
+function bindAvailableMeetingListActions(container: HTMLElement): void {
   // Select all checkbox
   const selectAll = container.querySelector('#select-all');
   if (selectAll) {
@@ -1168,13 +1141,16 @@ function bindMeetingListActions(container: HTMLElement): void {
         state.selectedMeetings.clear();
       }
       
-      renderMeetingList(container);
+      updateImportSelectionUI(container);
     });
   }
   
   // Individual meeting checkboxes
   container.querySelectorAll('.import-meeting').forEach(item => {
     on(item as HTMLElement, 'click', (e) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT') return; // Let checkbox handle itself
+      
       const id = item.getAttribute('data-id');
       if (!id || state.importedIds.has(id)) return;
       
@@ -1185,8 +1161,25 @@ function bindMeetingListActions(container: HTMLElement): void {
         state.selectedMeetings.add(id);
       }
       
-      renderMeetingList(container);
+      updateImportSelectionUI(container);
     });
+    
+    // Also handle checkbox change directly
+    const checkbox = item.querySelector('input[type="checkbox"]');
+    if (checkbox) {
+      on(checkbox as HTMLElement, 'change', () => {
+        const id = item.getAttribute('data-id');
+        if (!id || state.importedIds.has(id)) return;
+        
+        if ((checkbox as HTMLInputElement).checked) {
+          state.selectedMeetings.add(id);
+        } else {
+          state.selectedMeetings.delete(id);
+        }
+        
+        updateImportSelectionUI(container);
+      });
+    }
   });
   
   // Import button
@@ -1198,32 +1191,79 @@ function bindMeetingListActions(container: HTMLElement): void {
       importBtn.setAttribute('disabled', 'true');
       importBtn.innerHTML = '<span class="loading-spinner" style="width: 16px; height: 16px;"></span> Importing...';
       
-      // Get selected meetings data
-      const selectedMeetings = state.mcpMeetings.filter(m => state.selectedMeetings.has(m.meeting_id));
+      // Get selected meeting IDs (krisp_meeting_id)
+      const selectedIds = Array.from(state.selectedMeetings);
       
-      // Import via API
-      const result = await krispService.importMeetings(selectedMeetings);
+      // Import via new API
+      const result = await krispService.importAvailableMeetings(selectedIds);
       
       if (result) {
-        toast.success(`Imported ${result.imported} meetings${result.skipped > 0 ? `, ${result.skipped} skipped` : ''}`);
+        if (result.imported > 0) {
+          toast.success(`Imported ${result.imported} meeting${result.imported !== 1 ? 's' : ''}`);
+        }
+        if (result.errors.length > 0) {
+          toast.warning(`${result.errors.length} failed to import`);
+        }
         
-        // Add newly imported to the set
-        result.results.forEach(r => {
-          if (r.success) {
-            state.importedIds.add(r.meetingId);
-          }
-        });
-        
+        // Reload to show updated state
         state.selectedMeetings.clear();
-        renderMeetingList(container);
+        await loadImport(container);
       } else {
         toast.error('Import failed');
         importBtn.removeAttribute('disabled');
-        importBtn.innerHTML = `Import ${state.selectedMeetings.size} Meetings`;
+        importBtn.innerHTML = `Import Selected`;
       }
     });
   }
 }
+
+/**
+ * Update import selection UI
+ */
+function updateImportSelectionUI(container: HTMLElement): void {
+  const selectedCount = state.selectedMeetings.size;
+  
+  // Update selected count
+  const countEl = container.querySelector('#selected-count');
+  if (countEl) {
+    countEl.textContent = `${selectedCount} selected`;
+  }
+  
+  // Update import button
+  const importBtn = container.querySelector('#import-selected-btn');
+  if (importBtn) {
+    if (selectedCount > 0) {
+      importBtn.removeAttribute('disabled');
+      importBtn.innerHTML = `
+        <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+        </svg>
+        Import ${selectedCount} Meeting${selectedCount !== 1 ? 's' : ''}
+      `;
+    } else {
+      importBtn.setAttribute('disabled', 'true');
+      importBtn.innerHTML = `
+        <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+        </svg>
+        Import Selected
+      `;
+    }
+  }
+  
+  // Update checkboxes visual state
+  container.querySelectorAll('.import-meeting').forEach(item => {
+    const id = item.getAttribute('data-id');
+    const checkbox = item.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    
+    if (id && checkbox && !state.importedIds.has(id)) {
+      const isSelected = state.selectedMeetings.has(id);
+      checkbox.checked = isSelected;
+      item.classList.toggle('selected', isSelected);
+    }
+  });
+}
+
 
 /**
  * Escape HTML

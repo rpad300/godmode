@@ -3958,6 +3958,142 @@ async function handleAPI(req, res, pathname) {
             return;
         }
 
+        // ==================== Krisp Available Meetings API ====================
+        
+        // POST /api/krisp/available/sync - Sync meetings from MCP (called by Cursor agent)
+        if (pathname === '/api/krisp/available/sync' && req.method === 'POST') {
+            if (!supabase || !supabase.isConfigured()) {
+                jsonResponse(res, { error: 'Not configured' }, 503);
+                return;
+            }
+            
+            const token = supabase.auth.extractToken(req);
+            const userResult = await supabase.auth.getUser(token);
+            
+            if (!userResult.success) {
+                jsonResponse(res, { error: 'Authentication required' }, 401);
+                return;
+            }
+            
+            try {
+                const body = await parseBody(req);
+                const { meetings } = body;
+                
+                if (!meetings || !Array.isArray(meetings)) {
+                    jsonResponse(res, { error: 'meetings array is required' }, 400);
+                    return;
+                }
+                
+                const { syncMeetingsFromMcp } = require('./krisp');
+                const result = await syncMeetingsFromMcp(userResult.user.id, meetings);
+                
+                jsonResponse(res, result);
+            } catch (error) {
+                console.error('[Krisp Available] Sync error:', error);
+                jsonResponse(res, { error: error.message }, 500);
+            }
+            return;
+        }
+        
+        // GET /api/krisp/available - Get available meetings
+        if (pathname === '/api/krisp/available' && req.method === 'GET') {
+            if (!supabase || !supabase.isConfigured()) {
+                jsonResponse(res, { error: 'Not configured' }, 503);
+                return;
+            }
+            
+            const token = supabase.auth.extractToken(req);
+            const userResult = await supabase.auth.getUser(token);
+            
+            if (!userResult.success) {
+                jsonResponse(res, { error: 'Authentication required' }, 401);
+                return;
+            }
+            
+            try {
+                const parsedUrl = parseUrl(req.url);
+                const options = {
+                    limit: parseInt(parsedUrl.query.limit) || 50,
+                    offset: parseInt(parsedUrl.query.offset) || 0,
+                    showImported: parsedUrl.query.showImported !== 'false',
+                    startDate: parsedUrl.query.startDate || null,
+                    endDate: parsedUrl.query.endDate || null,
+                    search: parsedUrl.query.search || null
+                };
+                
+                const { getAvailableMeetings } = require('./krisp');
+                const result = await getAvailableMeetings(userResult.user.id, options);
+                
+                jsonResponse(res, result);
+            } catch (error) {
+                console.error('[Krisp Available] List error:', error);
+                jsonResponse(res, { error: error.message }, 500);
+            }
+            return;
+        }
+        
+        // POST /api/krisp/available/import - Import selected meetings
+        if (pathname === '/api/krisp/available/import' && req.method === 'POST') {
+            if (!supabase || !supabase.isConfigured()) {
+                jsonResponse(res, { error: 'Not configured' }, 503);
+                return;
+            }
+            
+            const token = supabase.auth.extractToken(req);
+            const userResult = await supabase.auth.getUser(token);
+            
+            if (!userResult.success) {
+                jsonResponse(res, { error: 'Authentication required' }, 401);
+                return;
+            }
+            
+            try {
+                const body = await parseBody(req);
+                const { meetingIds } = body;
+                
+                if (!meetingIds || !Array.isArray(meetingIds) || meetingIds.length === 0) {
+                    jsonResponse(res, { error: 'meetingIds array is required' }, 400);
+                    return;
+                }
+                
+                const { importSelectedMeetings } = require('./krisp');
+                const result = await importSelectedMeetings(userResult.user.id, meetingIds);
+                
+                jsonResponse(res, result);
+            } catch (error) {
+                console.error('[Krisp Available] Import error:', error);
+                jsonResponse(res, { error: error.message }, 500);
+            }
+            return;
+        }
+        
+        // GET /api/krisp/available/stats - Get sync statistics
+        if (pathname === '/api/krisp/available/stats' && req.method === 'GET') {
+            if (!supabase || !supabase.isConfigured()) {
+                jsonResponse(res, { error: 'Not configured' }, 503);
+                return;
+            }
+            
+            const token = supabase.auth.extractToken(req);
+            const userResult = await supabase.auth.getUser(token);
+            
+            if (!userResult.success) {
+                jsonResponse(res, { error: 'Authentication required' }, 401);
+                return;
+            }
+            
+            try {
+                const { getSyncStats } = require('./krisp');
+                const stats = await getSyncStats(userResult.user.id);
+                
+                jsonResponse(res, { stats });
+            } catch (error) {
+                console.error('[Krisp Available] Stats error:', error);
+                jsonResponse(res, { error: error.message }, 500);
+            }
+            return;
+        }
+
         // ==================== Audit Export API ====================
         
         // GET /api/projects/:id/audit/summary - Get audit summary

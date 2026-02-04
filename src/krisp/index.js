@@ -8,6 +8,7 @@ const { SpeakerMatcher, isUnidentifiedSpeaker, hasUnidentifiedSpeakers, PROJECT_
 const TranscriptProcessor = require('./TranscriptProcessor');
 const QuarantineWorker = require('./QuarantineWorker');
 const McpBridge = require('./McpBridge');
+const AvailableMeetings = require('./AvailableMeetings');
 
 module.exports = {
     // Webhook handling
@@ -28,5 +29,8 @@ module.exports = {
     stopQuarantineWorker: QuarantineWorker.stop,
     
     // MCP Bridge for imports
-    ...McpBridge
+    ...McpBridge,
+    
+    // Available meetings catalog (MCP sync)
+    ...AvailableMeetings
 };

@@ -464,6 +464,118 @@ export async function getImportHistory(
   }
 }
 
+// ==================== Available Meetings (MCP Sync) ====================
+
+export interface AvailableMeeting {
+  id: string;
+  user_id: string;
+  krisp_meeting_id: string;
+  meeting_name: string;
+  meeting_date: string;
+  meeting_url?: string;
+  is_recurring: boolean;
+  attendees: string[];
+  speakers: string[];
+  key_points: string[];
+  action_items: unknown[];
+  summary?: string;
+  is_imported: boolean;
+  imported_at?: string;
+  imported_transcript_id?: string;
+  first_seen_at: string;
+  last_synced_at: string;
+}
+
+export interface AvailableMeetingsStats {
+  total_available: number;
+  total_imported: number;
+  total_pending: number;
+  oldest_meeting?: string;
+  newest_meeting?: string;
+  last_sync?: string;
+}
+
+export interface AvailableMeetingsResponse {
+  meetings: AvailableMeeting[];
+  stats: AvailableMeetingsStats;
+}
+
+export interface SyncMeetingsResponse {
+  success: boolean;
+  synced: number;
+  errors: number;
+}
+
+export interface ImportAvailableResponse {
+  success: boolean;
+  imported: number;
+  errors: Array<{ meetingId: string; error: string }>;
+}
+
+/**
+ * Get available meetings from catalog
+ */
+export async function getAvailableMeetings(options: {
+  limit?: number;
+  offset?: number;
+  showImported?: boolean;
+  startDate?: string;
+  endDate?: string;
+  search?: string;
+} = {}): Promise<AvailableMeetingsResponse | null> {
+  try {
+    const params = new URLSearchParams();
+    if (options.limit) params.set('limit', String(options.limit));
+    if (options.offset) params.set('offset', String(options.offset));
+    if (options.showImported === false) params.set('showImported', 'false');
+    if (options.startDate) params.set('startDate', options.startDate);
+    if (options.endDate) params.set('endDate', options.endDate);
+    if (options.search) params.set('search', options.search);
+    
+    const url = `/api/krisp/available${params.toString() ? '?' + params.toString() : ''}`;
+    const response = await http.get<AvailableMeetingsResponse>(url);
+    return response.data;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Sync meetings from MCP (called by Cursor agent)
+ */
+export async function syncMeetingsFromMcp(meetings: McpMeeting[]): Promise<SyncMeetingsResponse | null> {
+  try {
+    const response = await http.post<SyncMeetingsResponse>('/api/krisp/available/sync', { meetings });
+    return response.data;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Import selected available meetings
+ */
+export async function importAvailableMeetings(meetingIds: string[]): Promise<ImportAvailableResponse | null> {
+  try {
+    const response = await http.post<ImportAvailableResponse>('/api/krisp/available/import', { meetingIds });
+    return response.data;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Get available meetings stats
+ */
+export async function getAvailableMeetingsStats(): Promise<AvailableMeetingsStats | null> {
+  try {
+    const response = await http.get<{ stats: AvailableMeetingsStats }>('/api/krisp/available/stats');
+    return response.data.stats;
+  } catch {
+    return null;
+  }
+}
+
 // ==================== Helpers ====================
 
 /**
