@@ -564,8 +564,8 @@ async function showAnalyzeContactsModal(): Promise<void> {
                     return `
                         <label class="contact-item" style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: var(--bg-secondary); border-radius: 10px; cursor: pointer; transition: all 0.15s; border: 2px solid transparent;" data-contact-id="${c.id}">
                             <input type="checkbox" class="contact-checkbox" data-id="${c.id}" data-name="${c.name || 'Unknown'}" style="width: 18px; height: 18px; accent-color: var(--primary-color);">
-                            ${c.avatar_url 
-                                ? `<img src="${c.avatar_url}" alt="${c.name}" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover;">`
+                            ${(c.avatar_url || c.photo_url)
+                                ? `<img src="${c.avatar_url || c.photo_url}" alt="${c.name}" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover;">`
                                 : `<div style="width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg, #9b59b6 0%, #8e44ad 100%); display: flex; align-items: center; justify-content: center; color: white; font-weight: 600; font-size: 14px;">${initials}</div>`
                             }
                             <div style="flex: 1;">
@@ -819,7 +819,7 @@ function renderProfileCard(profile: BehavioralProfile): string {
     const initials = name.split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase();
     const role = contact.role || contact.organization || 'No role';
     const confidence = profile.confidence_level || 'low';
-    const avatarUrl = contact.avatar_url;
+    const avatarUrl = contact.avatar_url || contact.photo_url;
     const contactId = (profile as any).contact_id || profile.person_id;
 
     return `
@@ -1201,7 +1201,7 @@ function buildNameResolver(profiles: any[]): (name: string) => { name: string; i
             name: realName,
             initials,
             role: contact.role || contact.organization || '',
-            avatarUrl: contact.avatar_url
+            avatarUrl: contact.avatar_url || contact.photo_url
         };
         
         // Map various patterns
@@ -1281,6 +1281,14 @@ function renderTeamDynamics(container: Element, state: any): void {
     const tensionClass = `tension-${teamAnalysis.tension_level || 'low'}`;
     const cohesionColor = teamAnalysis.cohesion_score >= 70 ? '#27ae60' : 
                           teamAnalysis.cohesion_score >= 40 ? '#f39c12' : '#e74c3c';
+    
+    // Get additional analysis data
+    const analysisData = teamAnalysis.analysis_data || {};
+    const analysisDate = analysisData.analysis_date || teamAnalysis.last_analysis_at;
+    const recommendations = analysisData.recommendations || [];
+    const riskFactors = analysisData.risk_factors || [];
+    const commFlow = analysisData.communication_flow || {};
+    const dominantPattern = analysisData.dominant_communication_pattern || '';
 
     container.innerHTML = `
         <div class="team-dynamics-header">
@@ -1300,13 +1308,278 @@ function renderTeamDynamics(container: Element, state: any): void {
                 <div class="team-size-value">${teamAnalysis.team_size || 0}</div>
                 <div class="team-size-label">Team Members</div>
             </div>
+            <div class="analysis-meta-card">
+                <div class="meta-icon">📊</div>
+                <div class="meta-details">
+                    <span class="meta-label">Analysis Date</span>
+                    <span class="meta-value">${analysisDate ? new Date(analysisDate).toLocaleDateString() : 'N/A'}</span>
+                </div>
+            </div>
         </div>
+
+        ${dominantPattern ? `
+            <div class="executive-summary-section">
+                <div class="summary-header">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="12" y1="16" x2="12" y2="12"/>
+                        <line x1="12" y1="8" x2="12.01" y2="8"/>
+                    </svg>
+                    <h3>Executive Summary</h3>
+                </div>
+                <p class="summary-text">${replacePersonNames(dominantPattern, resolveName)}</p>
+            </div>
+        ` : ''}
+
+        ${renderInfluenceScoreboard(profiles || [], resolveName)}
+
+        ${renderCommunicationFlow(commFlow, resolveName)}
 
         <div class="team-dynamics-grid">
             ${renderInfluenceMapV2(teamAnalysis.influence_map || [], resolveName)}
             ${renderAlliancesV2(teamAnalysis.alliances || [], resolveName)}
             ${renderTensionsV2(teamAnalysis.tensions || [], resolveName)}
-            ${renderPowerCentersV2(teamAnalysis.analysis_data?.power_centers || [], resolveName)}
+            ${renderPowerCentersV2(analysisData.power_centers || [], resolveName)}
+        </div>
+
+        ${renderRiskFactors(riskFactors)}
+        ${renderRecommendations(recommendations, resolveName)}
+    `;
+}
+
+/**
+ * Render influence scoreboard - ranking of team members by influence
+ */
+function renderInfluenceScoreboard(profiles: any[], resolveName: (name: string) => any): string {
+    if (!profiles?.length) return '';
+
+    // Sort profiles by influence score (descending)
+    const sortedProfiles = [...profiles]
+        .filter(p => p.influence_score !== undefined)
+        .sort((a, b) => (b.influence_score || 0) - (a.influence_score || 0));
+
+    if (sortedProfiles.length === 0) return '';
+
+    const maxScore = Math.max(...sortedProfiles.map(p => p.influence_score || 0), 100);
+
+    // Medal icons for top 3
+    const medals = ['🥇', '🥈', '🥉'];
+
+    return `
+        <div class="influence-scoreboard-section">
+            <div class="scoreboard-header">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                </svg>
+                <h3>Influence Scoreboard</h3>
+                <span class="section-badge" style="background: rgba(251, 191, 36, 0.15); color: #f59e0b;">
+                    ${sortedProfiles.length} members ranked
+                </span>
+            </div>
+            <div class="scoreboard-list">
+                ${sortedProfiles.map((profile, index) => {
+                    const contact = profile.contact || {};
+                    const name = contact.name || profile.person_name || 'Unknown';
+                    const role = contact.role || contact.organization || '';
+                    const avatarUrl = contact.avatar_url || contact.photo_url;
+                    const initials = name.split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase();
+                    const score = profile.influence_score || 0;
+                    const barWidth = (score / maxScore) * 100;
+                    const rank = index + 1;
+                    const medal = medals[index] || '';
+                    const isTopThree = index < 3;
+                    
+                    // Risk indicator
+                    const riskLevel = profile.risk_tolerance || profile.risk_level || 'medium';
+                    const riskColors: Record<string, string> = {
+                        'low': '#10b981',
+                        'medium': '#f59e0b',
+                        'high': '#ef4444'
+                    };
+                    const riskColor = riskColors[riskLevel] || riskColors['medium'];
+                    
+                    // Communication style snippet
+                    const commStyle = profile.communication_style || profile.profile_data?.communication_identity?.dominant_style || '';
+                    const styleSnippet = commStyle.split(';')[0]?.substring(0, 50) || '';
+
+                    return `
+                        <div class="scoreboard-item ${isTopThree ? 'top-three' : ''}">
+                            <div class="rank-badge ${isTopThree ? 'rank-' + rank : ''}">
+                                ${medal || rank}
+                            </div>
+                            <div class="scoreboard-avatar">
+                                ${avatarUrl 
+                                    ? `<img src="${avatarUrl}" alt="${name}">`
+                                    : `<span class="avatar-initials">${initials}</span>`
+                                }
+                            </div>
+                            <div class="scoreboard-info">
+                                <div class="scoreboard-name">${name}</div>
+                                <div class="scoreboard-role">${role}</div>
+                                ${styleSnippet ? `<div class="scoreboard-style">${styleSnippet}</div>` : ''}
+                            </div>
+                            <div class="scoreboard-metrics">
+                                <div class="influence-meter">
+                                    <div class="meter-label">Influence</div>
+                                    <div class="meter-bar">
+                                        <div class="meter-fill" style="width: ${barWidth}%;"></div>
+                                    </div>
+                                    <div class="meter-value">${score}</div>
+                                </div>
+                                <div class="risk-indicator" style="--risk-color: ${riskColor};">
+                                    <span class="risk-dot"></span>
+                                    <span class="risk-text">${riskLevel} risk</span>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Render communication flow section
+ */
+function renderCommunicationFlow(commFlow: any, resolveName: (name: string) => any): string {
+    if (!commFlow || (!commFlow.bottlenecks?.length && !commFlow.information_brokers?.length)) {
+        return '';
+    }
+
+    return `
+        <div class="communication-flow-section">
+            <div class="flow-header">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+                </svg>
+                <h3>Communication Flow</h3>
+            </div>
+            <div class="flow-cards">
+                ${commFlow.bottlenecks?.length ? `
+                    <div class="flow-card bottleneck-card">
+                        <div class="flow-card-header">
+                            <span class="flow-icon">🚧</span>
+                            <h4>Bottlenecks</h4>
+                        </div>
+                        <ul class="flow-list">
+                            ${commFlow.bottlenecks.map((b: string) => `<li>${replacePersonNames(b, resolveName)}</li>`).join('')}
+                        </ul>
+                    </div>
+                ` : ''}
+                ${commFlow.information_brokers?.length ? `
+                    <div class="flow-card broker-card">
+                        <div class="flow-card-header">
+                            <span class="flow-icon">🔗</span>
+                            <h4>Information Brokers</h4>
+                        </div>
+                        <div class="broker-chips">
+                            ${commFlow.information_brokers.map((b: string) => renderPersonChip(b, resolveName)).join('')}
+                        </div>
+                        <p class="flow-hint">Key connectors who bridge information across the team</p>
+                    </div>
+                ` : ''}
+                ${commFlow.central_nodes?.length ? `
+                    <div class="flow-card central-card">
+                        <div class="flow-card-header">
+                            <span class="flow-icon">⭐</span>
+                            <h4>Central Nodes</h4>
+                        </div>
+                        <div class="broker-chips">
+                            ${commFlow.central_nodes.map((n: string) => renderPersonChip(n, resolveName)).join('')}
+                        </div>
+                        <p class="flow-hint">Most connected team members</p>
+                    </div>
+                ` : ''}
+                ${commFlow.isolated_members?.length ? `
+                    <div class="flow-card isolated-card">
+                        <div class="flow-card-header">
+                            <span class="flow-icon">🏝️</span>
+                            <h4>Isolated Members</h4>
+                        </div>
+                        <div class="broker-chips">
+                            ${commFlow.isolated_members.map((m: string) => renderPersonChip(m, resolveName)).join('')}
+                        </div>
+                        <p class="flow-hint">Members with fewer connections - may need inclusion</p>
+                    </div>
+                ` : ''}
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Replace Person_X names in text with real names
+ */
+function replacePersonNames(text: string, resolveName: (name: string) => any): string {
+    return text.replace(/Person_(\d+)/g, (match) => {
+        const resolved = resolveName(match);
+        return resolved.name || match;
+    });
+}
+
+/**
+ * Render risk factors section
+ */
+function renderRiskFactors(riskFactors: string[]): string {
+    if (!riskFactors?.length) return '';
+
+    return `
+        <div class="risk-factors-section">
+            <div class="section-header">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                    <line x1="12" y1="9" x2="12" y2="13"/>
+                    <line x1="12" y1="17" x2="12.01" y2="17"/>
+                </svg>
+                <h3>Risk Factors</h3>
+                <span class="section-badge risk-badge">${riskFactors.length} identified</span>
+            </div>
+            <div class="risk-list">
+                ${riskFactors.map((risk, i) => `
+                    <div class="risk-item">
+                        <span class="risk-number">${i + 1}</span>
+                        <p>${risk}</p>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Render recommendations section
+ */
+function renderRecommendations(recommendations: string[], resolveName: (name: string) => any): string {
+    if (!recommendations?.length) return '';
+
+    return `
+        <div class="recommendations-section">
+            <div class="section-header">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M9 11l3 3L22 4"/>
+                    <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+                </svg>
+                <h3>Recommendations</h3>
+                <span class="section-badge rec-badge">${recommendations.length} actions</span>
+            </div>
+            <div class="recommendations-list">
+                ${recommendations.map((rec, i) => `
+                    <div class="recommendation-item">
+                        <div class="rec-icon">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"/>
+                                <path d="M12 16v-4"/>
+                                <path d="M12 8h.01"/>
+                            </svg>
+                        </div>
+                        <div class="rec-content">
+                            <span class="rec-number">Action ${i + 1}</span>
+                            <p>${replacePersonNames(rec, resolveName)}</p>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
         </div>
     `;
 }
@@ -1316,6 +1589,15 @@ function renderTeamDynamics(container: Element, state: any): void {
  */
 function renderInfluenceMapV2(influenceMap: any[], resolveName: (name: string) => any): string {
     if (!influenceMap.length) return '';
+
+    // Type colors and icons
+    const typeConfig: Record<string, { color: string; bg: string; icon: string; desc: string }> = {
+        'direct': { color: '#3b82f6', bg: '#eff6ff', icon: '→', desc: 'Direct influence through communication and decisions' },
+        'technical': { color: '#8b5cf6', bg: '#f5f3ff', icon: '⚙', desc: 'Influence through technical expertise and knowledge' },
+        'political': { color: '#f59e0b', bg: '#fffbeb', icon: '♟', desc: 'Influence through organizational dynamics and alliances' },
+        'social': { color: '#10b981', bg: '#ecfdf5', icon: '🤝', desc: 'Influence through relationships and social capital' },
+        'resource': { color: '#ef4444', bg: '#fef2f2', icon: '📊', desc: 'Influence through control of resources' }
+    };
 
     return `
         <div class="dynamics-card">
@@ -1328,28 +1610,53 @@ function renderInfluenceMapV2(influenceMap: any[], resolveName: (name: string) =
                 <span class="dynamics-count">${influenceMap.length} connections</span>
             </div>
             <div class="dynamics-list">
-                ${influenceMap.slice(0, 8).map(inf => {
+                ${influenceMap.slice(0, 10).map(inf => {
                     const strengthPct = Math.round((inf.strength || 0.5) * 100);
                     const strengthLabel = strengthPct >= 70 ? 'Strong' : strengthPct >= 40 ? 'Moderate' : 'Weak';
+                    const infType = (inf.influence_type || 'direct').toLowerCase();
+                    const config = typeConfig[infType] || typeConfig['direct'];
+                    const hasEvidence = inf.evidence && inf.evidence.length > 10;
+                    const itemId = `inf-${Math.random().toString(36).substr(2, 9)}`;
+                    
                     return `
-                        <div class="dynamics-item influence-item">
-                            <div class="influence-flow">
-                                ${renderPersonChip(inf.from_person, resolveName)}
-                                <div class="influence-arrow">
-                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                        <line x1="5" y1="12" x2="19" y2="12"/>
-                                        <polyline points="12 5 19 12 12 19"/>
+                        <div class="dynamics-item influence-item expandable-item" data-item-id="${itemId}">
+                            <div class="influence-main-row">
+                                <div class="influence-flow">
+                                    ${renderPersonChip(inf.from_person, resolveName)}
+                                    <div class="influence-arrow">
+                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <line x1="5" y1="12" x2="19" y2="12"/>
+                                            <polyline points="12 5 19 12 12 19"/>
+                                        </svg>
+                                    </div>
+                                    ${renderPersonChip(inf.to_person, resolveName)}
+                                </div>
+                                <div class="influence-meta">
+                                    <span class="type-badge" style="background: ${config.bg}; color: ${config.color};" title="${config.desc}">
+                                        <span class="type-icon">${config.icon}</span>
+                                        ${infType}
+                                    </span>
+                                </div>
+                                <div class="influence-strength-container">
+                                    <div class="strength-value">${strengthPct}%</div>
+                                    <div class="strength-bar-mini">
+                                        <div class="strength-fill-mini" style="width: ${strengthPct}%; background: ${config.color};"></div>
+                                    </div>
+                                    <div class="strength-label">${strengthLabel}</div>
+                                </div>
+                                ${hasEvidence ? `<button class="expand-btn" onclick="this.closest('.expandable-item').classList.toggle('expanded')" title="Show details">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <polyline points="6 9 12 15 18 9"/>
                                     </svg>
-                                </div>
-                                ${renderPersonChip(inf.to_person, resolveName)}
+                                </button>` : ''}
                             </div>
-                            <div class="influence-strength-container">
-                                <div class="strength-value">${strengthPct}%</div>
-                                <div class="strength-bar-mini">
-                                    <div class="strength-fill-mini" style="width: ${strengthPct}%"></div>
+                            ${hasEvidence ? `
+                                <div class="item-details">
+                                    <div class="evidence-text">
+                                        <strong>Evidence:</strong> ${replacePersonNames(inf.evidence, resolveName)}
+                                    </div>
                                 </div>
-                                <div class="strength-label">${strengthLabel}</div>
-                            </div>
+                            ` : ''}
                         </div>
                     `;
                 }).join('')}
@@ -1363,6 +1670,14 @@ function renderInfluenceMapV2(influenceMap: any[], resolveName: (name: string) =
  */
 function renderAlliancesV2(alliances: any[], resolveName: (name: string) => any): string {
     if (!alliances.length) return '';
+
+    // Alliance type colors
+    const typeConfig: Record<string, { color: string; bg: string; icon: string; desc: string }> = {
+        'natural': { color: '#10b981', bg: '#ecfdf5', icon: '🌱', desc: 'Organic alliance based on shared values and goals' },
+        'circumstantial': { color: '#6366f1', bg: '#eef2ff', icon: '🔗', desc: 'Alliance formed due to shared circumstances or challenges' },
+        'strategic': { color: '#f59e0b', bg: '#fffbeb', icon: '♟', desc: 'Deliberate alliance for mutual benefit' },
+        'historical': { color: '#8b5cf6', bg: '#f5f3ff', icon: '📜', desc: 'Long-standing alliance based on history' }
+    };
 
     return `
         <div class="dynamics-card alliance-card">
@@ -1384,18 +1699,52 @@ function renderAlliancesV2(alliances: any[], resolveName: (name: string) => any)
                     }
                     const strengthPct = Math.round((all.strength || 0.5) * 100);
                     const bondLabel = strengthPct >= 70 ? 'Strong bond' : strengthPct >= 40 ? 'Moderate bond' : 'Weak bond';
+                    const allianceType = (all.alliance_type || 'natural').toLowerCase();
+                    const config = typeConfig[allianceType] || typeConfig['natural'];
+                    const hasEvidence = all.evidence && all.evidence.length > 10;
+                    const hasSharedValues = all.shared_values && all.shared_values.length > 0;
+                    const itemId = `all-${Math.random().toString(36).substr(2, 9)}`;
+                    
                     return `
-                        <div class="dynamics-item alliance-item">
-                            <div class="alliance-members">
-                                ${members.map((m: string) => renderPersonChip(m, resolveName)).join('<span class="alliance-connector">&</span>')}
-                            </div>
-                            <div class="alliance-strength-container">
-                                <div class="strength-value alliance-value">${strengthPct}%</div>
-                                <div class="strength-bar-mini alliance-bar">
-                                    <div class="strength-fill-mini" style="width: ${strengthPct}%"></div>
+                        <div class="dynamics-item alliance-item expandable-item" data-item-id="${itemId}">
+                            <div class="alliance-main-row">
+                                <div class="alliance-members">
+                                    ${members.map((m: string) => renderPersonChip(m, resolveName)).join('<span class="alliance-connector">&</span>')}
                                 </div>
-                                <div class="strength-label">${bondLabel}</div>
+                                <div class="alliance-meta">
+                                    <span class="type-badge" style="background: ${config.bg}; color: ${config.color};" title="${config.desc}">
+                                        <span class="type-icon">${config.icon}</span>
+                                        ${allianceType}
+                                    </span>
+                                </div>
+                                <div class="alliance-strength-container">
+                                    <div class="strength-value alliance-value">${strengthPct}%</div>
+                                    <div class="strength-bar-mini alliance-bar">
+                                        <div class="strength-fill-mini" style="width: ${strengthPct}%; background: ${config.color};"></div>
+                                    </div>
+                                    <div class="strength-label">${bondLabel}</div>
+                                </div>
+                                ${(hasEvidence || hasSharedValues) ? `<button class="expand-btn" onclick="this.closest('.expandable-item').classList.toggle('expanded')" title="Show details">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <polyline points="6 9 12 15 18 9"/>
+                                    </svg>
+                                </button>` : ''}
                             </div>
+                            ${(hasEvidence || hasSharedValues) ? `
+                                <div class="item-details">
+                                    ${hasSharedValues ? `
+                                        <div class="shared-values">
+                                            <strong>Shared Values:</strong>
+                                            <ul>${all.shared_values.map((v: string) => `<li>${v}</li>`).join('')}</ul>
+                                        </div>
+                                    ` : ''}
+                                    ${hasEvidence ? `
+                                        <div class="evidence-text">
+                                            <strong>Evidence:</strong> ${replacePersonNames(all.evidence, resolveName)}
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            ` : ''}
                         </div>
                     `;
                 }).join('')}
@@ -1410,6 +1759,22 @@ function renderAlliancesV2(alliances: any[], resolveName: (name: string) => any)
 function renderTensionsV2(tensions: any[], resolveName: (name: string) => any): string {
     if (!tensions.length) return '';
 
+    // Tension type colors
+    const typeConfig: Record<string, { color: string; bg: string; icon: string; desc: string }> = {
+        'technical': { color: '#8b5cf6', bg: '#f5f3ff', icon: '⚙', desc: 'Disagreements about technical approaches or solutions' },
+        'resource': { color: '#f59e0b', bg: '#fffbeb', icon: '📊', desc: 'Competition for resources, time, or attention' },
+        'political': { color: '#ef4444', bg: '#fef2f2', icon: '♟', desc: 'Power dynamics and organizational influence conflicts' },
+        'communication': { color: '#3b82f6', bg: '#eff6ff', icon: '💬', desc: 'Misunderstandings or communication style clashes' },
+        'values': { color: '#10b981', bg: '#ecfdf5', icon: '⚖', desc: 'Differences in core values or priorities' }
+    };
+
+    // Level colors
+    const levelColors: Record<string, { color: string; bg: string }> = {
+        'high': { color: '#dc2626', bg: '#fef2f2' },
+        'medium': { color: '#f59e0b', bg: '#fffbeb' },
+        'low': { color: '#10b981', bg: '#ecfdf5' }
+    };
+
     return `
         <div class="dynamics-card tension-card">
             <div class="dynamics-card-header">
@@ -1419,6 +1784,7 @@ function renderTensionsV2(tensions: any[], resolveName: (name: string) => any): 
                     <line x1="12" y1="17" x2="12.01" y2="17"/>
                 </svg>
                 <h3>Tensions</h3>
+                <span class="dynamics-count">${tensions.length} identified</span>
             </div>
             <div class="dynamics-list">
                 ${tensions.map(t => {
@@ -1426,13 +1792,49 @@ function renderTensionsV2(tensions: any[], resolveName: (name: string) => any): 
                     if (typeof between === 'string') {
                         between = between.split(/[\s,]+/).filter((m: string) => m.trim());
                     }
-                    const levelClass = `tension-level-${t.level || 'low'}`;
+                    const level = (t.level || 'low').toLowerCase();
+                    const levelClass = `tension-level-${level}`;
+                    const levelConfig = levelColors[level] || levelColors['low'];
+                    const tensionType = (t.tension_type || 'communication').toLowerCase();
+                    const config = typeConfig[tensionType] || typeConfig['communication'];
+                    const hasEvidence = t.evidence && t.evidence.length > 10;
+                    const hasTriggers = t.triggers && t.triggers.length > 0;
+                    const itemId = `ten-${Math.random().toString(36).substr(2, 9)}`;
+                    
                     return `
-                        <div class="dynamics-item tension-item ${levelClass}">
-                            <div class="tension-parties">
-                                ${between.slice(0, 2).map((p: string) => renderPersonChip(p, resolveName)).join('<span class="tension-vs">↔</span>')}
+                        <div class="dynamics-item tension-item expandable-item ${levelClass}" data-item-id="${itemId}">
+                            <div class="tension-main-row">
+                                <div class="tension-parties">
+                                    ${between.slice(0, 2).map((p: string) => renderPersonChip(p, resolveName)).join('<span class="tension-vs">↔</span>')}
+                                </div>
+                                <div class="tension-meta">
+                                    <span class="type-badge" style="background: ${config.bg}; color: ${config.color};" title="${config.desc}">
+                                        <span class="type-icon">${config.icon}</span>
+                                        ${tensionType}
+                                    </span>
+                                </div>
+                                <span class="tension-badge" style="background: ${levelConfig.bg}; color: ${levelConfig.color};">${level}</span>
+                                ${(hasEvidence || hasTriggers) ? `<button class="expand-btn" onclick="this.closest('.expandable-item').classList.toggle('expanded')" title="Show details">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <polyline points="6 9 12 15 18 9"/>
+                                    </svg>
+                                </button>` : ''}
                             </div>
-                            <span class="tension-badge ${levelClass}">${t.level || 'low'}</span>
+                            ${(hasEvidence || hasTriggers) ? `
+                                <div class="item-details">
+                                    ${hasTriggers ? `
+                                        <div class="triggers-list">
+                                            <strong>Triggers:</strong>
+                                            <ul>${t.triggers.map((tr: string) => `<li>${tr}</li>`).join('')}</ul>
+                                        </div>
+                                    ` : ''}
+                                    ${hasEvidence ? `
+                                        <div class="evidence-text">
+                                            <strong>Evidence:</strong> ${replacePersonNames(t.evidence, resolveName)}
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            ` : ''}
                         </div>
                     `;
                 }).join('')}
@@ -1447,6 +1849,15 @@ function renderTensionsV2(tensions: any[], resolveName: (name: string) => any): 
 function renderPowerCentersV2(powerCenters: any[], resolveName: (name: string) => any): string {
     if (!powerCenters.length) return '';
 
+    // Power type configuration
+    const typeConfig: Record<string, { color: string; bg: string; icon: string; desc: string }> = {
+        'technical': { color: '#8b5cf6', bg: '#f5f3ff', icon: '⚙', desc: 'Power through technical expertise and knowledge' },
+        'formal': { color: '#3b82f6', bg: '#eff6ff', icon: '👔', desc: 'Power through official role and authority' },
+        'informal': { color: '#f59e0b', bg: '#fffbeb', icon: '💬', desc: 'Power through relationships and influence' },
+        'social': { color: '#10b981', bg: '#ecfdf5', icon: '🤝', desc: 'Power through social connections and trust' },
+        'resource': { color: '#ef4444', bg: '#fef2f2', icon: '📊', desc: 'Power through control of resources' }
+    };
+
     return `
         <div class="dynamics-card power-card">
             <div class="dynamics-card-header">
@@ -1459,29 +1870,44 @@ function renderPowerCentersV2(powerCenters: any[], resolveName: (name: string) =
             <div class="dynamics-list">
                 ${powerCenters.map(pc => {
                     const reachPct = Math.round(pc.influence_reach || 50);
-                    const powerType = pc.power_type || 'influence';
-                    const powerIcon = powerType === 'technical' ? '🔧' : 
-                                      powerType === 'formal' ? '👔' : 
-                                      powerType === 'social' ? '🤝' : 
-                                      powerType === 'informal' ? '💬' : '⚡';
+                    const powerType = (pc.power_type || 'informal').toLowerCase();
+                    const config = typeConfig[powerType] || typeConfig['informal'];
+                    const hasDependencies = pc.dependencies && pc.dependencies.length > 0;
+                    const itemId = `pow-${Math.random().toString(36).substr(2, 9)}`;
+                    
                     return `
-                        <div class="dynamics-item power-item">
-                            <div class="power-person">
-                                ${renderPersonChip(pc.person, resolveName)}
-                            </div>
-                            <div class="power-details">
-                                <span class="power-type-badge">
-                                    <span class="power-icon">${powerIcon}</span>
-                                    ${powerType}
-                                </span>
-                            </div>
-                            <div class="power-reach-container">
-                                <div class="strength-value power-value">${reachPct}%</div>
-                                <div class="strength-bar-mini power-bar">
-                                    <div class="strength-fill-mini" style="width: ${reachPct}%"></div>
+                        <div class="dynamics-item power-item expandable-item" data-item-id="${itemId}">
+                            <div class="power-main-row">
+                                <div class="power-person">
+                                    ${renderPersonChip(pc.person, resolveName)}
                                 </div>
-                                <div class="strength-label">reach</div>
+                                <div class="power-details">
+                                    <span class="type-badge" style="background: ${config.bg}; color: ${config.color};" title="${config.desc}">
+                                        <span class="type-icon">${config.icon}</span>
+                                        ${powerType}
+                                    </span>
+                                </div>
+                                <div class="power-reach-container">
+                                    <div class="strength-value power-value">${reachPct}%</div>
+                                    <div class="strength-bar-mini power-bar">
+                                        <div class="strength-fill-mini" style="width: ${reachPct}%; background: ${config.color};"></div>
+                                    </div>
+                                    <div class="strength-label">reach</div>
+                                </div>
+                                ${hasDependencies ? `<button class="expand-btn" onclick="this.closest('.expandable-item').classList.toggle('expanded')" title="Show details">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <polyline points="6 9 12 15 18 9"/>
+                                    </svg>
+                                </button>` : ''}
                             </div>
+                            ${hasDependencies ? `
+                                <div class="item-details">
+                                    <div class="dependencies-list">
+                                        <strong>Power Sources:</strong>
+                                        <ul>${pc.dependencies.map((d: string) => `<li>${d}</li>`).join('')}</ul>
+                                    </div>
+                                </div>
+                            ` : ''}
                         </div>
                     `;
                 }).join('')}
@@ -1672,7 +2098,7 @@ function initializeNetwork(graphData: { nodes: any[]; edges: any[] }, profileLoo
         const profile = profileLookup[n.id] || {};
         const contact = profile.contact || {};
         const name = n.label || contact.name || 'Unknown';
-        const avatarUrl = contact.avatar_url;
+        const avatarUrl = contact.avatar_url || contact.photo_url;
         const role = contact.role || n.properties?.role || '';
         const influenceScore = profile.influence_score || n.properties?.influenceScore || 50;
         
@@ -1836,7 +2262,7 @@ function showNodeDetails(nodeData: any, profile: any): void {
     const commStyle = profile?.communication_style || 'Unknown';
     const motivation = profile?.dominant_motivation || 'Unknown';
     const initials = getInitials(name);
-    const avatarUrl = contact.avatar_url;
+    const avatarUrl = contact.avatar_url || contact.photo_url;
     
     panel.innerHTML = `
         <div class="node-detail-card">

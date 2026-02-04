@@ -8,15 +8,15 @@ const { SpeakerMatcher } = require('./SpeakerMatcher');
 
 /**
  * Generate formatted display title
- * Format: "{project_number} - {meeting_title}"
+ * Format: "{project_name} - {meeting_title}"
  */
-function generateDisplayTitle(projectNumber, krispTitle) {
+function generateDisplayTitle(projectName, krispTitle) {
     if (!krispTitle) {
         krispTitle = 'Meeting Transcript';
     }
 
-    if (projectNumber) {
-        return `${projectNumber} - ${krispTitle}`;
+    if (projectName) {
+        return `${projectName} - ${krispTitle}`;
     }
 
     return krispTitle;
@@ -156,13 +156,13 @@ async function processTranscript(transcriptId, options = {}) {
         // 7. Get project details for title
         const { data: project } = await supabase
             .from('projects')
-            .select('id, name, project_number')
+            .select('id, name')
             .eq('id', projectId)
             .single();
 
-        // 8. Generate display title
+        // 8. Generate display title (use project name since project_number doesn't exist)
         const displayTitle = generateDisplayTitle(
-            project?.project_number,
+            project?.name,
             transcript.krisp_title
         );
 
@@ -264,22 +264,26 @@ async function createDocument(supabase, { projectId, userId, title, content, met
             content = '';
         }
 
-        // Create document record
+        // Generate a file hash for duplicate detection
+        const crypto = require('crypto');
+        const fileHash = crypto.createHash('md5').update(title + Date.now()).digest('hex');
+
+        // Create document record as transcript type
+        // Using columns that exist in the documents table (based on storage.js)
         const { data: document, error } = await supabase
             .from('documents')
             .insert({
                 project_id: projectId,
                 uploaded_by: userId,
                 title: title,
-                original_filename: `${title}.txt`,
-                file_type: 'text/plain',
+                filename: `${title}.txt`,
+                filepath: 'krisp-import',
+                file_hash: fileHash,
+                file_type: 'transcript',
                 file_size: content.length,
                 content: content,
-                extracted_text: content,
-                metadata: {
-                    ...metadata,
-                    processed_at: new Date().toISOString()
-                },
+                summary: metadata?.key_points?.join('; ') || null,
+                doc_type: 'transcript',  // Mark as transcript for proper categorization
                 status: 'processed',
                 processed_at: new Date().toISOString()
             })
@@ -319,20 +323,32 @@ async function assignProject(transcriptId, projectId, userId) {
     }
 
     try {
-        // Verify user has access to the project
-        const { data: membership } = await supabase
-            .from('project_members')
+        // Check if user is superadmin
+        const { data: userProfile } = await supabase
+            .from('user_profiles')
             .select('role')
-            .eq('project_id', projectId)
-            .eq('user_id', userId)
+            .eq('id', userId)
             .single();
+        
+        const isSuperadmin = userProfile?.role === 'superadmin';
 
-        if (!membership) {
-            return { success: false, error: 'User does not have access to this project' };
+        // Verify user has access to the project (superadmins can access any project)
+        if (!isSuperadmin) {
+            const { data: membership } = await supabase
+                .from('project_members')
+                .select('role')
+                .eq('project_id', projectId)
+                .eq('user_id', userId)
+                .single();
+
+            if (!membership) {
+                return { success: false, error: 'User does not have access to this project' };
+            }
         }
 
-        // Update transcript
-        await supabase
+        // Update transcript with project assignment - set status to 'matched' first
+        // processTranscript will update to 'processed' after creating the document
+        let query = supabase
             .from('krisp_transcripts')
             .update({
                 matched_project_id: projectId,
@@ -340,11 +356,16 @@ async function assignProject(transcriptId, projectId, userId) {
                 status: 'matched',
                 status_reason: 'Manually assigned by user'
             })
-            .eq('id', transcriptId)
-            .eq('user_id', userId);
+            .eq('id', transcriptId);
+        
+        if (!isSuperadmin) {
+            query = query.eq('user_id', userId);
+        }
+        
+        await query;
 
-        // Process the transcript now
-        const result = await processTranscript(transcriptId);
+        // Process the transcript now - this will create the document and set status to 'processed'
+        const result = await processTranscript(transcriptId, { forceReprocess: true });
         
         return result;
 
@@ -390,7 +411,7 @@ async function getTranscript(transcriptId, userId = null) {
         .from('krisp_transcripts')
         .select(`
             *,
-            projects:matched_project_id (id, name, project_number)
+            projects:matched_project_id (id, name)
         `)
         .eq('id', transcriptId);
 
@@ -404,6 +425,7 @@ async function getTranscript(transcriptId, userId = null) {
 
 /**
  * Get transcripts for a user with filtering
+ * Superadmins can see all transcripts
  */
 async function getUserTranscripts(userId, options = {}) {
     const supabase = getAdminClient();
@@ -418,13 +440,26 @@ async function getUserTranscripts(userId, options = {}) {
         orderDir = 'desc'
     } = options;
 
+    // Check if user is superadmin
+    const { data: userProfile } = await supabase
+        .from('user_profiles')
+        .select('role')
+        .eq('id', userId)
+        .single();
+    
+    const isSuperadmin = userProfile?.role === 'superadmin';
+
     let query = supabase
         .from('krisp_transcripts')
         .select(`
             *,
-            projects:matched_project_id (id, name, project_number)
-        `)
-        .eq('user_id', userId);
+            projects:matched_project_id (id, name)
+        `);
+    
+    // Only filter by user_id if not superadmin
+    if (!isSuperadmin) {
+        query = query.eq('user_id', userId);
+    }
 
     if (status) {
         if (Array.isArray(status)) {

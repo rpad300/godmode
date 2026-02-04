@@ -7,7 +7,9 @@ import { createElement, on } from '../../utils/dom';
 import { createModal, openModal, closeModal } from '../Modal';
 import { toast } from '../../services/toast';
 import * as krispService from '../../services/krisp';
+import * as projectsService from '../../services/projects';
 import type { KrispTranscript, KrispSpeakerMapping, McpMeeting } from '../../services/krisp';
+import type { ProjectListItem } from '../../services/projects';
 
 const MODAL_ID = 'krisp-manager-modal';
 
@@ -30,6 +32,9 @@ interface KrispManagerState {
     before: string;
     domain: string;
   };
+  // Projects for import
+  projects: ProjectListItem[];
+  selectedProjectId: string;
 }
 
 let state: KrispManagerState = {
@@ -47,7 +52,9 @@ let state: KrispManagerState = {
     after: '',
     before: '',
     domain: ''
-  }
+  },
+  projects: [],
+  selectedProjectId: ''
 };
 
 let containerRef: HTMLElement | null = null;
@@ -208,6 +215,61 @@ export async function showKrispManager(initialTab: TabId = 'transcripts'): Promi
       .krisp-item-actions {
         display: flex;
         gap: 8px;
+      }
+      .krisp-item.needs-project {
+        border: 1px solid rgba(225, 29, 72, 0.2);
+        background: rgba(225, 29, 72, 0.02);
+      }
+      .krisp-item-assign {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-shrink: 0;
+      }
+      .krisp-item-assign select {
+        padding: 6px 10px;
+        border: 1px solid var(--border-color, #e2e8f0);
+        border-radius: 6px;
+        font-size: 12px;
+        background: white;
+        min-width: 150px;
+        cursor: pointer;
+      }
+      .krisp-item-assign select:focus {
+        outline: none;
+        border-color: var(--primary, #e11d48);
+      }
+      .krisp-item-assign button {
+        padding: 6px 12px;
+        font-size: 12px;
+        border-radius: 6px;
+        border: none;
+        background: var(--primary, #e11d48);
+        color: white;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .krisp-item-assign button:disabled {
+        background: #cbd5e1;
+        cursor: not-allowed;
+      }
+      .krisp-item-assign button:not(:disabled):hover {
+        background: #be123c;
+      }
+      .project-tag {
+        padding: 2px 6px;
+        background: rgba(225, 29, 72, 0.1);
+        color: var(--primary, #e11d48);
+        border-radius: 4px;
+        font-size: 11px;
+      }
+      [data-theme="dark"] .krisp-item-assign select {
+        background: rgba(30,41,59,0.8);
+        color: white;
+        border-color: rgba(255,255,255,0.1);
+      }
+      [data-theme="dark"] .krisp-item.needs-project {
+        background: rgba(225, 29, 72, 0.05);
       }
       .krisp-item-actions button {
         padding: 6px 12px;
@@ -407,6 +469,42 @@ export async function showKrispManager(initialTab: TabId = 'transcripts'): Promi
         color: var(--text-secondary, #64748b);
         margin-top: 2px;
       }
+      .import-project-selector {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 16px;
+        background: var(--bg-secondary, #f8fafc);
+        border-radius: 8px;
+        margin-bottom: 16px;
+      }
+      .import-project-selector label {
+        font-weight: 500;
+        font-size: 14px;
+        color: var(--text-primary, #1e293b);
+        white-space: nowrap;
+      }
+      .import-project-selector select {
+        flex: 1;
+        padding: 8px 12px;
+        border: 1px solid var(--border-color, #e2e8f0);
+        border-radius: 6px;
+        background: white;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      .import-project-selector select:focus {
+        outline: none;
+        border-color: var(--primary, #e11d48);
+      }
+      [data-theme="dark"] .import-project-selector {
+        background: rgba(30,41,59,0.5);
+      }
+      [data-theme="dark"] .import-project-selector select {
+        background: rgba(30,41,59,0.8);
+        color: white;
+        border-color: rgba(255,255,255,0.1);
+      }
       .import-footer {
         display: flex;
         align-items: center;
@@ -506,6 +604,124 @@ export async function showKrispManager(initialTab: TabId = 'transcripts'): Promi
         color: var(--text-secondary, #64748b);
         margin-top: 4px;
         line-height: 1.4;
+      }
+      .import-meeting-actions {
+        display: flex;
+        gap: 8px;
+        flex-shrink: 0;
+      }
+      .summary-btn {
+        padding: 6px 12px;
+        font-size: 11px;
+        border-radius: 6px;
+        border: 1px solid var(--border-color, #e2e8f0);
+        background: white;
+        cursor: pointer;
+        transition: all 0.2s;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        white-space: nowrap;
+      }
+      .summary-btn:hover {
+        background: var(--bg-secondary, #f8fafc);
+        border-color: var(--primary, #e11d48);
+      }
+      .summary-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .summary-btn svg {
+        width: 14px;
+        height: 14px;
+      }
+      .summary-modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0,0,0,0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+      }
+      .summary-modal {
+        background: white;
+        border-radius: 12px;
+        width: 90%;
+        max-width: 600px;
+        max-height: 80vh;
+        overflow: hidden;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      }
+      .summary-modal-header {
+        padding: 16px 20px;
+        border-bottom: 1px solid var(--border-color, #e2e8f0);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .summary-modal-header h3 {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 600;
+      }
+      .summary-modal-close {
+        background: none;
+        border: none;
+        cursor: pointer;
+        font-size: 20px;
+        color: var(--text-secondary, #64748b);
+        padding: 4px;
+      }
+      .summary-modal-body {
+        padding: 20px;
+        overflow-y: auto;
+        max-height: calc(80vh - 60px);
+      }
+      .summary-section {
+        margin-bottom: 20px;
+      }
+      .summary-section:last-child {
+        margin-bottom: 0;
+      }
+      .summary-section h4 {
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        color: var(--text-secondary, #64748b);
+        margin: 0 0 8px 0;
+        letter-spacing: 0.5px;
+      }
+      .summary-section p {
+        margin: 0;
+        color: var(--text-primary, #1e293b);
+        line-height: 1.6;
+      }
+      .summary-section ul {
+        margin: 0;
+        padding-left: 20px;
+        color: var(--text-primary, #1e293b);
+      }
+      .summary-section li {
+        margin-bottom: 6px;
+        line-height: 1.4;
+      }
+      .summary-loading {
+        text-align: center;
+        padding: 40px;
+        color: var(--text-secondary, #64748b);
+      }
+      [data-theme="dark"] .summary-btn {
+        background: rgba(30,41,59,0.8);
+        border-color: rgba(255,255,255,0.1);
+        color: white;
+      }
+      [data-theme="dark"] .summary-modal {
+        background: var(--bg-primary, #0f172a);
+        color: white;
       }
       [data-theme="dark"] .import-stats {
         background: rgba(255,255,255,0.03);
@@ -615,8 +831,14 @@ async function loadTabContent(tabId: TabId): Promise<void> {
  * Load transcripts list
  */
 async function loadTranscripts(container: HTMLElement): Promise<void> {
-  const transcripts = await krispService.getTranscripts({ limit: 50 });
+  // Fetch transcripts and projects in parallel
+  const [transcripts, projects] = await Promise.all([
+    krispService.getTranscripts({ limit: 50 }),
+    projectsService.getProjects()
+  ]);
+  
   state.transcripts = transcripts;
+  state.projects = projects;
 
   // Update badge
   updateBadge('transcripts-count', transcripts.length);
@@ -696,13 +918,19 @@ async function loadMappings(container: HTMLElement): Promise<void> {
  * Render transcript item
  */
 function renderTranscriptItem(transcript: KrispTranscript): string {
-  const { label, color } = krispService.formatStatus(transcript.status);
+  const { label } = krispService.formatStatus(transcript.status);
   const duration = krispService.formatDuration(transcript.duration_minutes);
   const date = transcript.meeting_date ? new Date(transcript.meeting_date).toLocaleDateString() : '-';
   const speakers = transcript.speakers?.length || 0;
+  const needsProject = transcript.status === 'pending' && !transcript.matched_project_id;
+  
+  // Build project options for pending transcripts without project
+  const projectOptions = state.projects.map(p => 
+    `<option value="${p.id}">${escapeHtml(p.name)}</option>`
+  ).join('');
 
   return `
-    <div class="krisp-item" data-id="${transcript.id}">
+    <div class="krisp-item ${needsProject ? 'needs-project' : ''}" data-id="${transcript.id}">
       <div class="krisp-item-icon">
         <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
@@ -714,10 +942,29 @@ function renderTranscriptItem(transcript: KrispTranscript): string {
           <span>${date}</span>
           <span>${duration}</span>
           <span>${speakers} speakers</span>
-          ${transcript.projects?.name ? `<span>${escapeHtml(transcript.projects.name)}</span>` : ''}
+          ${transcript.projects?.name ? `<span class="project-tag">${escapeHtml(transcript.projects.name)}</span>` : ''}
         </div>
       </div>
-      <span class="krisp-item-status status-${transcript.status}">${label}</span>
+      ${needsProject ? `
+        <div class="krisp-item-assign">
+          <select class="assign-project-select" data-transcript-id="${transcript.id}">
+            <option value="">Select project...</option>
+            ${projectOptions}
+          </select>
+          <button class="assign-project-btn" data-transcript-id="${transcript.id}" disabled>
+            Assign
+          </button>
+        </div>
+      ` : transcript.status === 'matched' ? `
+        <div class="krisp-item-actions">
+          <span class="krisp-item-status status-${transcript.status}">${label}</span>
+          <button class="process-btn primary" data-id="${transcript.id}" title="Process and create document">
+            Process
+          </button>
+        </div>
+      ` : `
+        <span class="krisp-item-status status-${transcript.status}">${label}</span>
+      `}
     </div>
   `;
 }
@@ -779,12 +1026,84 @@ function renderMappingItem(mapping: KrispSpeakerMapping): string {
  * Bind transcript click actions
  */
 function bindTranscriptActions(container: HTMLElement): void {
+  // Click to show details (but not when clicking assign controls)
   container.querySelectorAll('.krisp-item').forEach(item => {
-    on(item as HTMLElement, 'click', () => {
+    on(item as HTMLElement, 'click', (e) => {
+      const target = e.target as HTMLElement;
+      // Ignore clicks on assign controls
+      if (target.closest('.krisp-item-assign')) return;
+      
       const id = item.getAttribute('data-id');
       const transcript = state.transcripts.find(t => t.id === id);
       if (transcript) {
         showTranscriptDetail(transcript);
+      }
+    });
+  });
+  
+  // Project selection dropdowns
+  container.querySelectorAll('.assign-project-select').forEach(select => {
+    on(select as HTMLElement, 'change', () => {
+      const transcriptId = select.getAttribute('data-transcript-id');
+      const btn = container.querySelector(`.assign-project-btn[data-transcript-id="${transcriptId}"]`) as HTMLButtonElement;
+      if (btn) {
+        btn.disabled = !(select as HTMLSelectElement).value;
+      }
+    });
+    
+    // Stop propagation to prevent item click
+    on(select as HTMLElement, 'click', (e) => e.stopPropagation());
+  });
+  
+  // Assign project buttons
+  container.querySelectorAll('.assign-project-btn').forEach(btn => {
+    on(btn as HTMLElement, 'click', async (e) => {
+      e.stopPropagation();
+      const transcriptId = btn.getAttribute('data-transcript-id');
+      if (!transcriptId) return;
+      
+      const select = container.querySelector(`.assign-project-select[data-transcript-id="${transcriptId}"]`) as HTMLSelectElement;
+      const projectId = select?.value;
+      if (!projectId) return;
+      
+      // Disable button and show loading
+      (btn as HTMLButtonElement).disabled = true;
+      btn.textContent = 'Assigning...';
+      
+      const success = await krispService.assignProject(transcriptId, projectId);
+      
+      if (success) {
+        const project = state.projects.find(p => p.id === projectId);
+        toast.success(`Assigned to ${project?.name || 'project'}`);
+        // Reload the transcripts list
+        await loadTranscripts(container);
+      } else {
+        toast.error('Failed to assign project');
+        (btn as HTMLButtonElement).disabled = false;
+        btn.textContent = 'Assign';
+      }
+    });
+  });
+  
+  // Process buttons (for MATCHED transcripts)
+  container.querySelectorAll('.process-btn').forEach(btn => {
+    on(btn as HTMLElement, 'click', async (e) => {
+      e.stopPropagation();
+      const id = btn.getAttribute('data-id');
+      if (!id) return;
+
+      btn.textContent = 'Processing...';
+      (btn as HTMLButtonElement).disabled = true;
+      
+      const success = await krispService.processTranscript(id);
+      
+      if (success) {
+        toast.success('Transcript processed - document created');
+        await loadTranscripts(container);
+      } else {
+        toast.error('Processing failed');
+        btn.textContent = 'Process';
+        (btn as HTMLButtonElement).disabled = false;
       }
     });
   });
@@ -878,19 +1197,133 @@ function bindMappingActions(container: HTMLElement): void {
 }
 
 /**
- * Show transcript detail (simple for now)
+ * Show transcript detail modal
  */
 function showTranscriptDetail(transcript: KrispTranscript): void {
-  // For now, just show an alert with basic info
-  // In phase 3, this could be a full detail modal
-  const info = [
-    `Title: ${transcript.display_title || transcript.krisp_title}`,
-    `Status: ${transcript.status}`,
-    `Speakers: ${transcript.speakers?.join(', ') || 'None'}`,
-    `Project: ${transcript.projects?.name || 'Not assigned'}`,
-  ].join('\n');
-
-  alert(info);
+  const needsProject = transcript.status === 'pending' && !transcript.matched_project_id;
+  const { label } = krispService.formatStatus(transcript.status);
+  const date = transcript.meeting_date 
+    ? new Date(transcript.meeting_date).toLocaleDateString('pt-PT', { 
+        day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+      }) 
+    : '-';
+  
+  // Build project options
+  const projectOptions = state.projects.map(p => 
+    `<option value="${p.id}">${escapeHtml(p.name)}</option>`
+  ).join('');
+  
+  const overlay = document.createElement('div');
+  overlay.className = 'summary-modal-overlay';
+  overlay.innerHTML = `
+    <div class="summary-modal" style="max-width: 500px;">
+      <div class="summary-modal-header">
+        <h3>${escapeHtml(transcript.display_title || transcript.krisp_title || 'Meeting Details')}</h3>
+        <button class="summary-modal-close">&times;</button>
+      </div>
+      <div class="summary-modal-body">
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+          <div>
+            <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">Status</div>
+            <span class="krisp-item-status status-${transcript.status}" style="display: inline-block;">${label}</span>
+          </div>
+          
+          <div>
+            <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">Date</div>
+            <div style="font-weight: 500;">${date}</div>
+          </div>
+          
+          <div>
+            <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">Speakers</div>
+            <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+              ${(transcript.speakers || []).map(s => `<span style="padding: 4px 8px; background: var(--bg-secondary); border-radius: 4px; font-size: 13px;">${escapeHtml(s)}</span>`).join('')}
+              ${(!transcript.speakers || transcript.speakers.length === 0) ? '<span style="color: var(--text-secondary);">No speakers</span>' : ''}
+            </div>
+          </div>
+          
+          <div>
+            <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">Project</div>
+            ${transcript.projects?.name 
+              ? `<span class="project-tag">${escapeHtml(transcript.projects.name)}</span>`
+              : `<span style="color: var(--text-secondary);">Not assigned</span>`
+            }
+          </div>
+          
+          ${needsProject ? `
+            <div style="padding-top: 16px; border-top: 1px solid var(--border-color);">
+              <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">Assign to Project</div>
+              <div style="display: flex; gap: 8px;">
+                <select id="detail-project-select" style="flex: 1; padding: 8px 12px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 14px;">
+                  <option value="">Select project...</option>
+                  ${projectOptions}
+                </select>
+                <button id="detail-assign-btn" disabled style="padding: 8px 16px; background: var(--primary); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 500;">
+                  Assign
+                </button>
+              </div>
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    </div>
+  `;
+  
+  document.body.appendChild(overlay);
+  
+  // Close button
+  const closeBtn = overlay.querySelector('.summary-modal-close');
+  closeBtn?.addEventListener('click', () => overlay.remove());
+  
+  // Click outside to close
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.remove();
+  });
+  
+  // ESC to close
+  const handleEsc = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      overlay.remove();
+      document.removeEventListener('keydown', handleEsc);
+    }
+  };
+  document.addEventListener('keydown', handleEsc);
+  
+  // Project assignment handlers (if needed)
+  if (needsProject) {
+    const select = overlay.querySelector('#detail-project-select') as HTMLSelectElement;
+    const btn = overlay.querySelector('#detail-assign-btn') as HTMLButtonElement;
+    
+    select?.addEventListener('change', () => {
+      btn.disabled = !select.value;
+    });
+    
+    btn?.addEventListener('click', async () => {
+      const projectId = select.value;
+      if (!projectId) return;
+      
+      btn.disabled = true;
+      btn.textContent = 'Assigning...';
+      
+      const success = await krispService.assignProject(transcript.id, projectId);
+      
+      if (success) {
+        const project = state.projects.find(p => p.id === projectId);
+        toast.success(`Assigned to ${project?.name || 'project'}`);
+        overlay.remove();
+        // Reload transcripts
+        if (containerRef) {
+          const contentEl = containerRef.querySelector('#krisp-content');
+          if (contentEl) {
+            await loadTranscripts(contentEl as HTMLElement);
+          }
+        }
+      } else {
+        toast.error('Failed to assign project');
+        btn.disabled = false;
+        btn.textContent = 'Assign';
+      }
+    });
+  }
 }
 
 /**
@@ -910,15 +1343,21 @@ function updateBadge(id: string, count: number): void {
  * Load import tab - fetches available meetings from the catalog
  */
 async function loadImport(container: HTMLElement): Promise<void> {
-  // Fetch available meetings from the API
-  const result = await krispService.getAvailableMeetings({
-    limit: 100,
-    showImported: true,
-    startDate: state.importFilters.after || undefined,
-    endDate: state.importFilters.before || undefined,
-    search: state.importFilters.search || undefined
-  });
+  // Fetch available meetings and projects in parallel
+  const [result, projects] = await Promise.all([
+    krispService.getAvailableMeetings({
+      limit: 100,
+      showImported: true,
+      startDate: state.importFilters.after || undefined,
+      endDate: state.importFilters.before || undefined,
+      search: state.importFilters.search || undefined
+    }),
+    projectsService.getProjects()
+  ]);
 
+  // Store projects in state
+  state.projects = projects;
+  
   const stats = result?.stats || {
     total_available: 0,
     total_imported: 0,
@@ -929,6 +1368,11 @@ async function loadImport(container: HTMLElement): Promise<void> {
   const lastSync = stats.last_sync 
     ? new Date(stats.last_sync).toLocaleString()
     : 'Never';
+
+  // Build project options HTML
+  const projectOptions = state.projects.map(p => 
+    `<option value="${p.id}" ${state.selectedProjectId === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`
+  ).join('');
 
   // Render the import UI
   container.innerHTML = `
@@ -960,6 +1404,14 @@ async function loadImport(container: HTMLElement): Promise<void> {
         <span class="stat-value" style="font-size: 12px;">${lastSync}</span>
         <span class="stat-label">Last Sync</span>
       </div>
+    </div>
+    
+    <div class="import-project-selector">
+      <label for="import-project">Import to Project:</label>
+      <select id="import-project">
+        <option value="">-- Select a project --</option>
+        ${projectOptions}
+      </select>
     </div>
     
     <div class="import-filters">
@@ -1054,15 +1506,37 @@ function renderAvailableMeetingsList(meetings: krispService.AvailableMeeting[]):
 }
 
 /**
+ * Safely parse JSON array field (speakers/attendees may be stored as JSON strings)
+ */
+function parseArrayField(field: unknown): string[] {
+  if (!field) return [];
+  if (Array.isArray(field)) return field;
+  if (typeof field === 'string') {
+    try {
+      const parsed = JSON.parse(field);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+/**
  * Render single available meeting item
  */
 function renderAvailableMeetingItem(meeting: krispService.AvailableMeeting): string {
   const isImported = meeting.is_imported;
   const isSelected = state.selectedMeetings.has(meeting.krisp_meeting_id);
-  const speakers = meeting.speakers?.join(', ') || meeting.attendees?.join(', ') || 'No participants';
+  const speakersArr = parseArrayField(meeting.speakers);
+  const attendeesArr = parseArrayField(meeting.attendees);
+  const speakers = speakersArr.length > 0 ? speakersArr.join(', ') : (attendeesArr.length > 0 ? attendeesArr.join(', ') : 'No participants');
   const date = meeting.meeting_date ? new Date(meeting.meeting_date).toLocaleDateString('en-US', { 
     month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit'
   }) : '';
+  
+  const keyPointsArr = parseArrayField(meeting.key_points);
+  const hasSummary = meeting.summary || keyPointsArr.length > 0;
   
   return `
     <div class="import-meeting ${isSelected ? 'selected' : ''} ${isImported ? 'imported' : ''}" data-id="${meeting.krisp_meeting_id}">
@@ -1076,6 +1550,14 @@ function renderAvailableMeetingItem(meeting: krispService.AvailableMeeting): str
           ${date} · ${escapeHtml(speakers.substring(0, 100))}${speakers.length > 100 ? '...' : ''}
         </div>
         ${meeting.summary ? `<div class="import-meeting-summary">${escapeHtml(meeting.summary.substring(0, 150))}${meeting.summary.length > 150 ? '...' : ''}</div>` : ''}
+      </div>
+      <div class="import-meeting-actions">
+        <button class="summary-btn" data-meeting-id="${meeting.krisp_meeting_id}" title="${hasSummary ? 'View/Refresh Summary' : 'Generate AI Summary'}">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+          </svg>
+          ${hasSummary ? 'Summary' : 'AI Summary'}
+        </button>
       </div>
     </div>
   `;
@@ -1103,6 +1585,14 @@ function bindImportFilters(container: HTMLElement): void {
       
       // Reload the import tab with new filters
       await loadImport(container);
+    });
+  }
+  
+  // Project selector change handler
+  const projectSelect = container.querySelector('#import-project');
+  if (projectSelect) {
+    on(projectSelect as HTMLElement, 'change', () => {
+      state.selectedProjectId = (projectSelect as HTMLSelectElement).value;
     });
   }
   
@@ -1145,11 +1635,27 @@ function bindAvailableMeetingListActions(container: HTMLElement): void {
     });
   }
   
+  // Summary buttons
+  container.querySelectorAll('.summary-btn').forEach(btn => {
+    on(btn as HTMLElement, 'click', async (e) => {
+      e.stopPropagation();
+      const meetingId = btn.getAttribute('data-meeting-id');
+      if (!meetingId) return;
+      
+      // Find the meeting in state
+      const meeting = state.mcpMeetings.find(m => m.meeting_id === meetingId);
+      if (!meeting) return;
+      
+      // Show summary modal
+      await showSummaryModal(meetingId, meeting.name || 'Meeting Summary');
+    });
+  });
+  
   // Individual meeting checkboxes
   container.querySelectorAll('.import-meeting').forEach(item => {
     on(item as HTMLElement, 'click', (e) => {
       const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT') return; // Let checkbox handle itself
+      if (target.tagName === 'INPUT' || target.closest('.summary-btn')) return; // Let checkbox and summary btn handle themselves
       
       const id = item.getAttribute('data-id');
       if (!id || state.importedIds.has(id)) return;
@@ -1188,18 +1694,25 @@ function bindAvailableMeetingListActions(container: HTMLElement): void {
     on(importBtn as HTMLElement, 'click', async () => {
       if (state.selectedMeetings.size === 0) return;
       
+      // Check if a project is selected
+      if (!state.selectedProjectId) {
+        toast.warning('Please select a project to import meetings into');
+        return;
+      }
+      
       importBtn.setAttribute('disabled', 'true');
       importBtn.innerHTML = '<span class="loading-spinner" style="width: 16px; height: 16px;"></span> Importing...';
       
       // Get selected meeting IDs (krisp_meeting_id)
       const selectedIds = Array.from(state.selectedMeetings);
       
-      // Import via new API
-      const result = await krispService.importAvailableMeetings(selectedIds);
+      // Import via new API with projectId
+      const result = await krispService.importAvailableMeetings(selectedIds, state.selectedProjectId);
       
       if (result) {
         if (result.imported > 0) {
-          toast.success(`Imported ${result.imported} meeting${result.imported !== 1 ? 's' : ''}`);
+          const project = state.projects.find(p => p.id === state.selectedProjectId);
+          toast.success(`Imported ${result.imported} meeting${result.imported !== 1 ? 's' : ''} to ${project?.name || 'project'}`);
         }
         if (result.errors.length > 0) {
           toast.warning(`${result.errors.length} failed to import`);
@@ -1264,6 +1777,198 @@ function updateImportSelectionUI(container: HTMLElement): void {
   });
 }
 
+
+/**
+ * Show summary modal for a meeting
+ */
+async function showSummaryModal(meetingId: string, meetingName: string): Promise<void> {
+  // Create modal overlay
+  const overlay = createElement('div', { className: 'summary-modal-overlay' });
+  overlay.innerHTML = `
+    <div class="summary-modal">
+      <div class="summary-modal-header">
+        <h3>${escapeHtml(meetingName)}</h3>
+        <button class="summary-modal-close">&times;</button>
+      </div>
+      <div class="summary-modal-body">
+        <div class="summary-loading">
+          <div class="loading-spinner"></div>
+          <p style="margin-top: 12px;">Generating AI summary...</p>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  document.body.appendChild(overlay);
+  
+  // Close handlers
+  const closeModal = () => {
+    overlay.remove();
+  };
+  
+  on(overlay.querySelector('.summary-modal-close') as HTMLElement, 'click', closeModal);
+  on(overlay, 'click', (e) => {
+    if (e.target === overlay) closeModal();
+  });
+  
+  // Escape key closes
+  const escHandler = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      closeModal();
+      document.removeEventListener('keydown', escHandler);
+    }
+  };
+  document.addEventListener('keydown', escHandler);
+  
+  // Generate summary
+  try {
+    const result = await krispService.generateAvailableMeetingSummary(meetingId);
+    const bodyEl = overlay.querySelector('.summary-modal-body');
+    
+    if (!bodyEl) return;
+    
+    if (result?.success && result.summary) {
+      const { key_points, action_items, excerpt, speakers, attendees, meeting_date, mentioned_people } = result.summary;
+      
+      // Combine speakers and attendees for participants
+      const allParticipants = [...(speakers || []), ...(attendees || [])];
+      const uniqueParticipants = [...new Set(allParticipants)];
+      
+      // Filter mentioned people to exclude those already in participants
+      const mentionedFiltered = (mentioned_people || []).filter(
+        p => !uniqueParticipants.some(up => up.toLowerCase() === p.toLowerCase())
+      );
+      
+      bodyEl.innerHTML = `
+        ${meeting_date ? `
+          <div class="summary-section" style="padding-bottom: 12px; margin-bottom: 16px; border-bottom: 1px solid var(--border-color, #e2e8f0);">
+            <div style="display: flex; align-items: center; gap: 8px; color: var(--text-secondary, #64748b); font-size: 13px;">
+              <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+              </svg>
+              ${new Date(meeting_date).toLocaleDateString('pt-PT', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+            </div>
+          </div>
+        ` : ''}
+        
+        ${uniqueParticipants.length > 0 ? `
+          <div class="summary-section">
+            <h4>Participants</h4>
+            <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+              ${uniqueParticipants.map(p => `
+                <span style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: var(--bg-secondary, #f1f5f9); border-radius: 16px; font-size: 13px;">
+                  <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+                  </svg>
+                  ${escapeHtml(p)}
+                </span>
+              `).join('')}
+            </div>
+          </div>
+        ` : ''}
+        
+        ${mentionedFiltered.length > 0 ? `
+          <div class="summary-section">
+            <h4>Also Mentioned</h4>
+            <p style="font-size: 12px; color: var(--text-secondary, #64748b); margin-bottom: 8px;">People referenced in the discussion:</p>
+            <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+              ${mentionedFiltered.map(p => `
+                <span style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: rgba(59, 130, 246, 0.1); border: 1px dashed rgba(59, 130, 246, 0.3); border-radius: 16px; font-size: 13px; color: #3b82f6;">
+                  <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+                  </svg>
+                  ${escapeHtml(p)}
+                </span>
+              `).join('')}
+            </div>
+          </div>
+        ` : ''}
+        
+        ${excerpt ? `
+          <div class="summary-section">
+            <h4>Summary</h4>
+            <p>${escapeHtml(excerpt)}</p>
+          </div>
+        ` : ''}
+        
+        ${key_points && key_points.length > 0 ? `
+          <div class="summary-section">
+            <h4>Key Points</h4>
+            <ul>
+              ${key_points.map(point => `<li>${escapeHtml(point)}</li>`).join('')}
+            </ul>
+          </div>
+        ` : ''}
+        
+        ${action_items && action_items.length > 0 ? `
+          <div class="summary-section">
+            <h4>Action Items</h4>
+            <ul>
+              ${action_items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}
+            </ul>
+          </div>
+        ` : ''}
+        
+        ${(!excerpt && (!key_points || key_points.length === 0) && (!action_items || action_items.length === 0) && uniqueParticipants.length === 0) ? `
+          <div class="summary-section">
+            <p style="color: var(--text-secondary);">No summary data available for this meeting. The meeting may not have enough content to generate a summary.</p>
+          </div>
+        ` : ''}
+        
+        <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-color, #e2e8f0); text-align: right;">
+          <button class="summary-btn refresh-summary-btn" data-meeting-id="${meetingId}">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+            </svg>
+            Refresh Summary
+          </button>
+        </div>
+      `;
+      
+      // Bind refresh button
+      const refreshBtn = bodyEl.querySelector('.refresh-summary-btn');
+      if (refreshBtn) {
+        on(refreshBtn as HTMLElement, 'click', async () => {
+          bodyEl.innerHTML = `
+            <div class="summary-loading">
+              <div class="loading-spinner"></div>
+              <p style="margin-top: 12px;">Regenerating AI summary...</p>
+            </div>
+          `;
+          
+          // Re-call the API
+          const newResult = await krispService.generateAvailableMeetingSummary(meetingId);
+          if (newResult?.success && newResult.summary) {
+            // Close and reopen to refresh
+            closeModal();
+            await showSummaryModal(meetingId, meetingName);
+          } else {
+            bodyEl.innerHTML = `
+              <div class="summary-section">
+                <p style="color: var(--error, #dc2626);">Failed to regenerate summary. Please try again.</p>
+              </div>
+            `;
+          }
+        });
+      }
+    } else {
+      bodyEl.innerHTML = `
+        <div class="summary-section">
+          <p style="color: var(--error, #dc2626);">${escapeHtml(result?.error || 'Failed to generate summary. Please try again.')}</p>
+        </div>
+      `;
+    }
+  } catch (error) {
+    const bodyEl = overlay.querySelector('.summary-modal-body');
+    if (bodyEl) {
+      bodyEl.innerHTML = `
+        <div class="summary-section">
+          <p style="color: var(--error, #dc2626);">An error occurred while generating the summary.</p>
+        </div>
+      `;
+    }
+  }
+}
 
 /**
  * Escape HTML

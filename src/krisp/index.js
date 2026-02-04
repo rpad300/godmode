@@ -21,7 +21,8 @@ module.exports = {
     PROJECT_CONFIDENCE_THRESHOLD,
     
     // Transcript processing
-    ...TranscriptProcessor,
+    TranscriptProcessor,  // Export as object for .processTranscript access
+    ...TranscriptProcessor,  // Also spread individual functions
     
     // Quarantine worker
     QuarantineWorker,

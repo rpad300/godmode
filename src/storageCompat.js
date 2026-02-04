@@ -811,13 +811,38 @@ class StorageCompat {
      * Adds the participant name as an alias for future auto-matching
      */
     async linkParticipantToContact(participantName, contactId) {
-        const contact = this.getContactById(contactId);
+        console.log(`[StorageCompat] linkParticipantToContact: "${participantName}" -> ${contactId}`);
+        
+        // Try cache first, but also query Supabase directly to be sure
+        let contact = this.getContactById(contactId);
+        
+        // If not in cache and we have Supabase, fetch directly
+        if (!contact && this._supabase) {
+            console.log('[StorageCompat] Contact not in cache, fetching from Supabase...');
+            try {
+                const { data } = await this._supabase.supabase
+                    .from('contacts')
+                    .select('*')
+                    .eq('id', contactId)
+                    .single();
+                if (data) {
+                    contact = data;
+                    // Add to cache
+                    this._cache.contacts.push(contact);
+                }
+            } catch (e) {
+                console.warn('[StorageCompat] Failed to fetch contact from Supabase:', e.message);
+            }
+        }
+        
         if (!contact) {
+            console.error('[StorageCompat] Contact not found:', contactId);
             throw new Error('Contact not found');
         }
         
         // Don't add if it's already the main name
         if (contact.name?.toLowerCase().trim() === participantName?.toLowerCase().trim()) {
+            console.log('[StorageCompat] Name matches contact name, skipping');
             return { linked: false, reason: 'Name matches contact name' };
         }
         
@@ -825,6 +850,7 @@ class StorageCompat {
         const aliases = contact.aliases || [];
         const normalizedName = participantName.trim();
         if (aliases.some(a => a?.toLowerCase() === normalizedName.toLowerCase())) {
+            console.log('[StorageCompat] Alias already exists, skipping');
             return { linked: false, reason: 'Alias already exists' };
         }
         
@@ -833,18 +859,103 @@ class StorageCompat {
         
         if (this._supabase) {
             try {
+                console.log('[StorageCompat] Updating contact aliases in Supabase...');
                 await this._supabase.updateContact(contactId, { aliases: updatedAliases });
+                console.log('[StorageCompat] Aliases updated successfully');
             } catch (e) {
-                console.warn('[StorageCompat] linkParticipantToContact error:', e.message);
+                console.error('[StorageCompat] linkParticipantToContact error:', e.message);
                 throw e;
             }
         }
         
         // Update cache
-        contact.aliases = updatedAliases;
+        const cacheIdx = this._cache.contacts.findIndex(c => c.id === contactId);
+        if (cacheIdx !== -1) {
+            this._cache.contacts[cacheIdx].aliases = updatedAliases;
+        }
         
-        console.log(`[StorageCompat] Linked "${participantName}" to contact "${contact.name}"`);
+        console.log(`[StorageCompat] ✓ Linked "${participantName}" to contact "${contact.name}" (aliases: ${updatedAliases.length})`);
         return { linked: true, contactId, contactName: contact.name, alias: normalizedName };
+    }
+
+    /**
+     * Unlink a participant name from its associated contact
+     * Removes the participant name from the contact's aliases
+     */
+    async unlinkParticipant(participantName) {
+        console.log(`[StorageCompat] unlinkParticipant: "${participantName}"`);
+        
+        if (!participantName) {
+            return { unlinked: false, reason: 'No participant name provided' };
+        }
+        
+        const normalizedName = participantName.trim().toLowerCase();
+        
+        // Find the contact that has this alias - check cache first
+        let contact = this._cache.contacts.find(c => {
+            if (c.aliases && Array.isArray(c.aliases)) {
+                return c.aliases.some(alias => 
+                    alias?.toLowerCase().trim() === normalizedName
+                );
+            }
+            return false;
+        });
+        
+        // If not in cache and we have Supabase, search directly
+        if (!contact && this._supabase) {
+            console.log('[StorageCompat] Alias not found in cache, searching Supabase...');
+            try {
+                const projectId = this._supabase.getProjectId();
+                const { data: contacts } = await this._supabase.supabase
+                    .from('contacts')
+                    .select('*')
+                    .eq('project_id', projectId)
+                    .is('deleted_at', null);
+                
+                if (contacts) {
+                    contact = contacts.find(c => {
+                        if (c.aliases && Array.isArray(c.aliases)) {
+                            return c.aliases.some(alias => 
+                                alias?.toLowerCase().trim() === normalizedName
+                            );
+                        }
+                        return false;
+                    });
+                }
+            } catch (e) {
+                console.warn('[StorageCompat] Failed to search contacts in Supabase:', e.message);
+            }
+        }
+        
+        if (!contact) {
+            console.log('[StorageCompat] No linked contact found for alias');
+            return { unlinked: false, reason: 'No linked contact found' };
+        }
+        
+        // Remove the alias
+        const updatedAliases = (contact.aliases || []).filter(
+            a => a?.toLowerCase().trim() !== normalizedName
+        );
+        
+        if (this._supabase) {
+            try {
+                console.log('[StorageCompat] Removing alias from contact in Supabase...');
+                await this._supabase.updateContact(contact.id, { aliases: updatedAliases });
+                console.log('[StorageCompat] Alias removed successfully');
+            } catch (e) {
+                console.error('[StorageCompat] unlinkParticipant error:', e.message);
+                throw e;
+            }
+        }
+        
+        // Update cache
+        const cacheIdx = this._cache.contacts.findIndex(c => c.id === contact.id);
+        if (cacheIdx !== -1) {
+            this._cache.contacts[cacheIdx].aliases = updatedAliases;
+        }
+        
+        console.log(`[StorageCompat] ✓ Unlinked "${participantName}" from contact "${contact.name}"`);
+        return { unlinked: true, contactId: contact.id, contactName: contact.name };
     }
 
     /**

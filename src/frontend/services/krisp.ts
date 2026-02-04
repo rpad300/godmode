@@ -237,6 +237,18 @@ export async function retryTranscript(transcriptId: string): Promise<boolean> {
   }
 }
 
+/**
+ * Process a MATCHED transcript (create document)
+ */
+export async function processTranscript(transcriptId: string): Promise<boolean> {
+  try {
+    await http.post(`/api/krisp/transcripts/${transcriptId}/process`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // ==================== Speaker Mappings ====================
 
 /**
@@ -555,9 +567,12 @@ export async function syncMeetingsFromMcp(meetings: McpMeeting[]): Promise<SyncM
 /**
  * Import selected available meetings
  */
-export async function importAvailableMeetings(meetingIds: string[]): Promise<ImportAvailableResponse | null> {
+export async function importAvailableMeetings(meetingIds: string[], projectId?: string): Promise<ImportAvailableResponse | null> {
   try {
-    const response = await http.post<ImportAvailableResponse>('/api/krisp/available/import', { meetingIds });
+    const response = await http.post<ImportAvailableResponse>('/api/krisp/available/import', { 
+      meetingIds,
+      projectId 
+    });
     return response.data;
   } catch {
     return null;
@@ -571,6 +586,37 @@ export async function getAvailableMeetingsStats(): Promise<AvailableMeetingsStat
   try {
     const response = await http.get<{ stats: AvailableMeetingsStats }>('/api/krisp/available/stats');
     return response.data.stats;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * AI Summary result interface
+ */
+export interface MeetingSummary {
+  key_points: string[];
+  action_items: string[];
+  excerpt: string;
+  speakers?: string[];
+  attendees?: string[];
+  meeting_date?: string;
+  mentioned_people?: string[];
+}
+
+export interface GenerateSummaryResponse {
+  success: boolean;
+  summary?: MeetingSummary;
+  error?: string;
+}
+
+/**
+ * Generate AI summary for a specific available meeting
+ */
+export async function generateAvailableMeetingSummary(meetingId: string): Promise<GenerateSummaryResponse | null> {
+  try {
+    const response = await http.post<GenerateSummaryResponse>('/api/krisp/available/summary', { meetingId });
+    return response.data;
   } catch {
     return null;
   }

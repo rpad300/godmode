@@ -2454,6 +2454,102 @@ async function handleAPI(req, res, pathname) {
             return;
         }
 
+        // POST /api/projects/:id/members/add-contact - Add contact as team member (for analysis)
+        if (pathname.match(/^\/api\/projects\/([^/]+)\/members\/add-contact$/) && req.method === 'POST') {
+            if (!supabase || !supabase.isConfigured()) {
+                jsonResponse(res, { error: 'Authentication not configured' }, 503);
+                return;
+            }
+            
+            const projectId = pathname.match(/^\/api\/projects\/([^/]+)\/members\/add-contact$/)[1];
+            const body = await parseBody(req);
+            
+            if (!body.contact_id) {
+                jsonResponse(res, { error: 'contact_id is required' }, 400);
+                return;
+            }
+            
+            try {
+                const client = supabase.getAdminClient();
+                
+                // Verify contact exists
+                const { data: contact, error: contactError } = await client
+                    .from('contacts')
+                    .select('id, name, role, organization, email')
+                    .eq('id', body.contact_id)
+                    .single();
+                
+                if (contactError || !contact) {
+                    jsonResponse(res, { error: 'Contact not found' }, 404);
+                    return;
+                }
+                
+                // Link contact to project if not already linked
+                const { error: linkError } = await client
+                    .from('contact_projects')
+                    .upsert({
+                        contact_id: body.contact_id,
+                        project_id: projectId
+                    }, {
+                        onConflict: 'contact_id,project_id',
+                        ignoreDuplicates: true
+                    });
+                
+                if (linkError) {
+                    console.log('[API] Note: contact_projects link error (may already exist):', linkError.message);
+                }
+                
+                // Check if team_profile already exists
+                const { data: existingProfile } = await client
+                    .from('team_profiles')
+                    .select('id')
+                    .eq('project_id', projectId)
+                    .eq('contact_id', body.contact_id)
+                    .single();
+                
+                if (!existingProfile) {
+                    // Create team_profile for this contact (ready for analysis)
+                    const { error: profileError } = await client
+                        .from('team_profiles')
+                        .insert({
+                            project_id: projectId,
+                            contact_id: body.contact_id,
+                            person_name: contact.name,
+                            profile_data: {
+                                role: contact.role || 'Unknown',
+                                organization: contact.organization,
+                                added_manually: true,
+                                pending_analysis: true
+                            },
+                            influence_score: 50,
+                            risk_level: 'medium',
+                            transcripts_analyzed: [],
+                            last_analyzed_at: null
+                        });
+                    
+                    if (profileError) {
+                        console.error('[API] Error creating team profile:', profileError.message);
+                        jsonResponse(res, { error: profileError.message }, 400);
+                        return;
+                    }
+                    
+                    console.log(`[API] Created team profile for contact ${contact.name} in project ${projectId}`);
+                } else {
+                    console.log(`[API] Team profile already exists for contact ${contact.name}`);
+                }
+                
+                jsonResponse(res, { 
+                    success: true, 
+                    message: `${contact.name} added to team`,
+                    contact: contact
+                });
+            } catch (e) {
+                console.error('[API] Error adding contact to team:', e.message);
+                jsonResponse(res, { error: e.message }, 500);
+            }
+            return;
+        }
+
         // DELETE /api/projects/:id/members/:userId - Remove member
         if (pathname.match(/^\/api\/projects\/([^/]+)\/members\/([^/]+)$/) && req.method === 'DELETE') {
             if (!supabase || !supabase.isConfigured()) {
@@ -3708,6 +3804,40 @@ async function handleAPI(req, res, pathname) {
             return;
         }
         
+        // POST /api/krisp/transcripts/:id/process - Process a MATCHED transcript
+        const krispProcessMatch = pathname.match(/^\/api\/krisp\/transcripts\/([^/]+)\/process$/);
+        if (krispProcessMatch && req.method === 'POST') {
+            if (!supabase || !supabase.isConfigured()) {
+                jsonResponse(res, { error: 'Not configured' }, 503);
+                return;
+            }
+            
+            const token = supabase.auth.extractToken(req);
+            const userResult = await supabase.auth.getUser(token);
+            
+            if (!userResult.success) {
+                jsonResponse(res, { error: 'Authentication required' }, 401);
+                return;
+            }
+            
+            const transcriptId = krispProcessMatch[1];
+            
+            try {
+                const { TranscriptProcessor } = require('./krisp');
+                const result = await TranscriptProcessor.processTranscript(transcriptId, { forceReprocess: true });
+                
+                if (result && result.success !== false) {
+                    jsonResponse(res, { success: true, ...result });
+                } else {
+                    jsonResponse(res, { error: result?.error || 'Processing failed' }, 400);
+                }
+            } catch (error) {
+                console.error('[API] Process transcript error:', error);
+                jsonResponse(res, { error: error.message }, 500);
+            }
+            return;
+        }
+        
         // GET /api/krisp/mappings - List speaker mappings
         if (pathname === '/api/krisp/mappings' && req.method === 'GET') {
             if (!supabase || !supabase.isConfigured()) {
@@ -4049,7 +4179,7 @@ async function handleAPI(req, res, pathname) {
             
             try {
                 const body = await parseBody(req);
-                const { meetingIds } = body;
+                const { meetingIds, projectId } = body;
                 
                 if (!meetingIds || !Array.isArray(meetingIds) || meetingIds.length === 0) {
                     jsonResponse(res, { error: 'meetingIds array is required' }, 400);
@@ -4057,7 +4187,7 @@ async function handleAPI(req, res, pathname) {
                 }
                 
                 const { importSelectedMeetings } = require('./krisp');
-                const result = await importSelectedMeetings(userResult.user.id, meetingIds);
+                const result = await importSelectedMeetings(userResult.user.id, meetingIds, projectId);
                 
                 jsonResponse(res, result);
             } catch (error) {
@@ -4089,6 +4219,185 @@ async function handleAPI(req, res, pathname) {
                 jsonResponse(res, { stats });
             } catch (error) {
                 console.error('[Krisp Available] Stats error:', error);
+                jsonResponse(res, { error: error.message }, 500);
+            }
+            return;
+        }
+        
+        // GET /api/krisp/available/needs-transcript - Get meetings that need full transcript fetch
+        if (pathname === '/api/krisp/available/needs-transcript' && req.method === 'GET') {
+            if (!supabase || !supabase.isConfigured()) {
+                jsonResponse(res, { error: 'Not configured' }, 503);
+                return;
+            }
+            
+            const token = supabase.auth.extractToken(req);
+            const userResult = await supabase.auth.getUser(token);
+            
+            if (!userResult.success) {
+                jsonResponse(res, { error: 'Authentication required' }, 401);
+                return;
+            }
+            
+            try {
+                const { getMeetingsNeedingTranscript } = require('./krisp');
+                const limit = parseInt(params.get('limit')) || 10;
+                const meetings = await getMeetingsNeedingTranscript(userResult.user.id, limit);
+                
+                jsonResponse(res, { 
+                    meetings,
+                    count: meetings.length,
+                    message: meetings.length > 0 
+                        ? `${meetings.length} meetings need full transcript fetch via MCP get_document`
+                        : 'All meetings have full transcripts'
+                });
+            } catch (error) {
+                console.error('[Krisp Available] Needs transcript error:', error);
+                jsonResponse(res, { error: error.message }, 500);
+            }
+            return;
+        }
+        
+        // POST /api/krisp/available/transcript - Update full transcript from MCP get_document
+        // Also extracts and downloads audio if available
+        if (pathname === '/api/krisp/available/transcript' && req.method === 'POST') {
+            if (!supabase || !supabase.isConfigured()) {
+                jsonResponse(res, { error: 'Not configured' }, 503);
+                return;
+            }
+            
+            const token = supabase.auth.extractToken(req);
+            const userResult = await supabase.auth.getUser(token);
+            
+            if (!userResult.success) {
+                jsonResponse(res, { error: 'Authentication required' }, 401);
+                return;
+            }
+            
+            try {
+                const body = await parseBody(req);
+                const { meetingId, fullTranscript, downloadAudio = true } = body;
+                
+                if (!meetingId || !fullTranscript) {
+                    jsonResponse(res, { error: 'meetingId and fullTranscript are required' }, 400);
+                    return;
+                }
+                
+                const { updateMeetingWithContent, syncImportedTranscript } = require('./krisp');
+                
+                // Update meeting with transcript and optionally download audio
+                const result = await updateMeetingWithContent(
+                    userResult.user.id, 
+                    meetingId, 
+                    fullTranscript,
+                    { downloadAudio }
+                );
+                
+                // Also sync to imported transcript if exists
+                if (result.success) {
+                    const syncResult = await syncImportedTranscript(meetingId);
+                    result.syncedTranscript = syncResult.success && !syncResult.notImported;
+                    result.syncChanges = syncResult.changes;
+                }
+                
+                jsonResponse(res, result);
+            } catch (error) {
+                console.error('[Krisp Available] Transcript update error:', error);
+                jsonResponse(res, { error: error.message }, 500);
+            }
+            return;
+        }
+        
+        // GET /api/krisp/stale - Get imported transcripts with outdated data
+        if (pathname === '/api/krisp/stale' && req.method === 'GET') {
+            if (!supabase || !supabase.isConfigured()) {
+                jsonResponse(res, { error: 'Not configured' }, 503);
+                return;
+            }
+            
+            const token = supabase.auth.extractToken(req);
+            const userResult = await supabase.auth.getUser(token);
+            
+            if (!userResult.success) {
+                jsonResponse(res, { error: 'Authentication required' }, 401);
+                return;
+            }
+            
+            try {
+                const { getStaleTranscripts } = require('./krisp');
+                const stale = await getStaleTranscripts(userResult.user.id);
+                
+                jsonResponse(res, { 
+                    stale,
+                    count: stale.length,
+                    message: stale.length > 0 
+                        ? `${stale.length} imported transcripts have outdated data`
+                        : 'All imported transcripts are up to date'
+                });
+            } catch (error) {
+                console.error('[Krisp] Stale transcripts error:', error);
+                jsonResponse(res, { error: error.message }, 500);
+            }
+            return;
+        }
+        
+        // POST /api/krisp/sync-updates - Sync all stale transcripts with new data
+        if (pathname === '/api/krisp/sync-updates' && req.method === 'POST') {
+            if (!supabase || !supabase.isConfigured()) {
+                jsonResponse(res, { error: 'Not configured' }, 503);
+                return;
+            }
+            
+            const token = supabase.auth.extractToken(req);
+            const userResult = await supabase.auth.getUser(token);
+            
+            if (!userResult.success) {
+                jsonResponse(res, { error: 'Authentication required' }, 401);
+                return;
+            }
+            
+            try {
+                const { syncAllStaleTranscripts } = require('./krisp');
+                const result = await syncAllStaleTranscripts(userResult.user.id);
+                
+                jsonResponse(res, result);
+            } catch (error) {
+                console.error('[Krisp] Sync updates error:', error);
+                jsonResponse(res, { error: error.message }, 500);
+            }
+            return;
+        }
+        
+        // POST /api/krisp/available/summary - Generate AI summary for a meeting
+        if (pathname === '/api/krisp/available/summary' && req.method === 'POST') {
+            if (!supabase || !supabase.isConfigured()) {
+                jsonResponse(res, { error: 'Not configured' }, 503);
+                return;
+            }
+            
+            const token = supabase.auth.extractToken(req);
+            const userResult = await supabase.auth.getUser(token);
+            
+            if (!userResult.success) {
+                jsonResponse(res, { error: 'Authentication required' }, 401);
+                return;
+            }
+            
+            try {
+                const body = await parseBody(req);
+                const { meetingId } = body;
+                
+                if (!meetingId) {
+                    jsonResponse(res, { error: 'meetingId is required' }, 400);
+                    return;
+                }
+                
+                const { generateMeetingSummary } = require('./krisp');
+                const result = await generateMeetingSummary(meetingId);
+                
+                jsonResponse(res, result);
+            } catch (error) {
+                console.error('[Krisp Available] Summary error:', error);
                 jsonResponse(res, { error: error.message }, 500);
             }
             return;
@@ -8061,7 +8370,12 @@ ANSWERED: no`;
                     console.log(`[Contacts] Graph sync warning: ${syncErr.message}`);
                 }
                 
-                jsonResponse(res, { ok: true, id: contactId, graphSynced });
+                jsonResponse(res, { 
+                    ok: true, 
+                    id: contactId, 
+                    contact: { id: contactId, name: body.name },
+                    graphSynced 
+                });
             } catch (error) {
                 jsonResponse(res, { ok: false, error: error.message }, 500);
             }
@@ -8335,6 +8649,7 @@ ANSWERED: no`;
         if (pathname === '/api/contacts/link-participant' && req.method === 'POST') {
             const body = await parseBody(req);
             const projectId = body?.project_id || body?.projectId || req.headers['x-project-id'];
+            console.log(`[Contacts] link-participant: "${body?.participantName}" -> ${body?.contactId} (project: ${projectId})`);
             if (projectId && storage._supabase) storage._supabase.setProject(projectId);
             
             if (!body.participantName || !body.contactId) {
@@ -8357,6 +8672,45 @@ ANSWERED: no`;
                                  MERGE (p)-[:ALIAS_OF]->(c)
                                  SET p.linked_contact_id = $contactId`,
                                 { participantName: body.participantName, contactId: body.contactId }
+                            );
+                        }
+                    } catch (syncErr) {
+                        console.log(`[Contacts] Graph sync warning: ${syncErr.message}`);
+                    }
+                }
+                
+                jsonResponse(res, { ok: true, ...result });
+            } catch (error) {
+                jsonResponse(res, { ok: false, error: error.message }, 500);
+            }
+            return;
+        }
+
+        // POST /api/contacts/unlink-participant - Unlink a participant from a contact
+        if (pathname === '/api/contacts/unlink-participant' && req.method === 'POST') {
+            const body = await parseBody(req);
+            const projectId = body?.project_id || body?.projectId || req.headers['x-project-id'];
+            if (projectId && storage._supabase) storage._supabase.setProject(projectId);
+            
+            if (!body.participantName) {
+                jsonResponse(res, { ok: false, error: 'participantName is required' }, 400);
+                return;
+            }
+            
+            try {
+                // Remove alias from contact if exists
+                const result = await storage.unlinkParticipant(body.participantName);
+                
+                // Sync with FalkorDB - remove alias relationship
+                if (result.unlinked) {
+                    try {
+                        const graphProvider = storage.getGraphProvider();
+                        if (graphProvider && graphProvider.connected) {
+                            await graphProvider.query(
+                                `MATCH (p:Person {name: $participantName})-[r:ALIAS_OF]->(c:Contact)
+                                 DELETE r
+                                 SET p.linked_contact_id = null`,
+                                { participantName: body.participantName }
                             );
                         }
                     } catch (syncErr) {
@@ -15700,13 +16054,88 @@ IMPORTANT RULES:
             try {
                 const { data, error } = await storage._supabase.supabase
                     .from('documents')
-                    .select('extraction_result, ai_title, ai_summary')
+                    .select('extraction_result, project_id')
                     .eq('id', docId)
                     .single();
                 
                 if (error) throw error;
-                jsonResponse(res, { extraction: data?.extraction_result || null });
+                
+                let extraction = data?.extraction_result || null;
+                
+                // Enrich participants with contact linking info
+                if (extraction && data?.project_id) {
+                    const participants = extraction.participants || [];
+                    
+                    // Also get Person entities
+                    const entities = extraction.entities || [];
+                    const personEntities = entities.filter(e => e.type?.toLowerCase() === 'person');
+                    
+                    // Merge participants and person entities
+                    const allPeopleNames = new Set();
+                    const allPeople = [];
+                    
+                    for (const p of participants) {
+                        if (p.name && !allPeopleNames.has(p.name.toLowerCase())) {
+                            allPeopleNames.add(p.name.toLowerCase());
+                            allPeople.push(p);
+                        }
+                    }
+                    
+                    for (const pe of personEntities) {
+                        if (pe.name && !allPeopleNames.has(pe.name.toLowerCase())) {
+                            allPeopleNames.add(pe.name.toLowerCase());
+                            allPeople.push({ name: pe.name });
+                        }
+                    }
+                    
+                    if (allPeople.length > 0) {
+                        // Get contacts for matching (include avatar fields)
+                        const { data: contacts } = await storage._supabase.supabase
+                            .from('contacts')
+                            .select('id, name, aliases, email, organization, role, avatar_url, photo_url')
+                            .eq('project_id', data.project_id)
+                            .is('deleted_at', null);
+                        
+                        console.log(`[Extraction] Enriching ${allPeople.length} participants, found ${contacts?.length || 0} contacts`);
+                        
+                        // Enrich each participant with contact info
+                        const enrichedParticipants = allPeople.map(p => {
+                            const personNameLower = (p.name || '').toLowerCase().trim();
+                            
+                            // Find matching contact by name or alias
+                            const matchedContact = (contacts || []).find(c => {
+                                // Match by name
+                                if (c.name?.toLowerCase().trim() === personNameLower) return true;
+                                // Match by alias
+                                if (c.aliases?.some(a => a?.toLowerCase().trim() === personNameLower)) return true;
+                                return false;
+                            });
+                            
+                            if (matchedContact) {
+                                console.log(`[Extraction] ✓ Matched "${p.name}" -> contact "${matchedContact.name}" (${matchedContact.id})`);
+                            }
+                            
+                            return {
+                                ...p,
+                                contact_id: matchedContact?.id || null,
+                                contact_name: matchedContact?.name || null,
+                                contact_email: matchedContact?.email || null,
+                                contact_avatar: matchedContact?.avatar_url || matchedContact?.photo_url || null,
+                                contact_role: matchedContact?.role || null,
+                                contact_organization: matchedContact?.organization || null
+                            };
+                        });
+                        
+                        extraction = {
+                            ...extraction,
+                            participants: enrichedParticipants
+                        };
+                    }
+                }
+                
+                jsonResponse(res, { extraction });
             } catch (err) {
+                console.error('[Extraction] Error:', err.message);
                 jsonResponse(res, { extraction: null });
             }
             return;

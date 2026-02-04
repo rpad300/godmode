@@ -112,6 +112,26 @@ class InterventionExtractor {
      * Supports various transcript formats
      */
     detectSpeaker(line) {
+        // Format: "**Speaker Name | HH:MM**" or "**Speaker Name | HH:MM:SS**" (Krisp format)
+        const krispMatch = line.match(/^\*\*(.+?)\s*\|\s*(\d{1,2}:\d{2}(?::\d{2})?)\*\*\s*$/);
+        if (krispMatch) {
+            return {
+                speaker: krispMatch[1].trim(),
+                text: null, // Text is on the next line
+                timestamp: krispMatch[2]
+            };
+        }
+        
+        // Format: "Speaker Name | HH:MM" without asterisks
+        const pipeMatch = line.match(/^([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s\.]+?)\s*\|\s*(\d{1,2}:\d{2}(?::\d{2})?)\s*$/);
+        if (pipeMatch) {
+            return {
+                speaker: pipeMatch[1].trim(),
+                text: null,
+                timestamp: pipeMatch[2]
+            };
+        }
+        
         // Format: "Speaker Name: text" or "Speaker Name - text"
         const colonMatch = line.match(/^([A-Z][a-zA-Z\s\.]+?):\s*(.*)$/);
         if (colonMatch) {
@@ -159,17 +179,6 @@ class InterventionExtractor {
                 speaker: mdMatch[1].trim(),
                 text: mdMatch[2].trim() || null,
                 timestamp: null
-            };
-        }
-        
-        // Format: "Speaker Name (Org)? | timestamp" (meeting transcripts)
-        // Examples: "Luuc CGI | 00:00", "Rui Dias | 04:18"
-        const pipeMatch = line.match(/^([A-Z][a-zA-Z\s\.]+?)(?:\s+[A-Z]{2,})?\s*\|\s*(\d{1,2}:\d{2}(?::\d{2})?)\s*$/);
-        if (pipeMatch) {
-            return {
-                speaker: pipeMatch[1].trim(),
-                text: null, // Text is on the next line
-                timestamp: pipeMatch[2]
             };
         }
         

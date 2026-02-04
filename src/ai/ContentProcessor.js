@@ -861,7 +861,8 @@ EXTRACTION RULES:
             // Try to extract JSON from response
             const jsonMatch = response.match(/\{[\s\S]*\}/);
             if (jsonMatch) {
-                const parsed = this.enrichExtractionMetadata(JSON.parse(jsonMatch[0]));
+                const cleanedJson = this.cleanJsonString(jsonMatch[0]);
+                const parsed = this.enrichExtractionMetadata(JSON.parse(cleanedJson));
                 return {
                     entities: parsed.entities || [],
                     relationships: parsed.relationships || [],
@@ -876,13 +877,37 @@ EXTRACTION RULES:
     }
 
     /**
+     * Clean JSON string by removing/escaping control characters
+     * LLMs sometimes return control characters inside JSON strings that break parsing
+     */
+    cleanJsonString(jsonStr) {
+        // Replace unescaped control characters inside strings
+        // This regex finds strings and cleans control chars within them
+        return jsonStr.replace(/"(?:[^"\\]|\\.)*"/g, (match) => {
+            // Inside a string, replace control characters with escaped versions or remove them
+            return match.replace(/[\x00-\x1F\x7F]/g, (char) => {
+                switch (char) {
+                    case '\n': return '\\n';
+                    case '\r': return '\\r';
+                    case '\t': return '\\t';
+                    case '\b': return '\\b';
+                    case '\f': return '\\f';
+                    default: return ''; // Remove other control chars
+                }
+            });
+        });
+    }
+
+    /**
      * Parse transcript response from LLM (v1.5 with Meeting Notes Pack)
      */
     parseTranscriptResponse(response) {
         try {
             const jsonMatch = response.match(/\{[\s\S]*\}/);
             if (jsonMatch) {
-                const parsed = this.enrichExtractionMetadata(JSON.parse(jsonMatch[0]));
+                // Clean control characters before parsing
+                const cleanedJson = this.cleanJsonString(jsonMatch[0]);
+                const parsed = this.enrichExtractionMetadata(JSON.parse(cleanedJson));
                 
                 const result = {
                     // Standard extraction fields
@@ -954,7 +979,8 @@ EXTRACTION RULES:
         try {
             const jsonMatch = response.match(/\{[\s\S]*\}/);
             if (jsonMatch) {
-                const parsed = this.enrichExtractionMetadata(JSON.parse(jsonMatch[0]));
+                const cleanedJson = this.cleanJsonString(jsonMatch[0]);
+                const parsed = this.enrichExtractionMetadata(JSON.parse(cleanedJson));
                 return {
                     participants: parsed.participants || [],
                     topics: parsed.topics || [],

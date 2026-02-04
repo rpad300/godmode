@@ -276,10 +276,27 @@ export function showInviteModal(props: InviteModalProps): void {
         </select>
       </div>
       
-      <div class="form-group">
-        <label for="invite-message-contact">Personal Message (optional)</label>
-        <textarea id="invite-message-contact" rows="2" 
-                  placeholder="Add a personal note to the invitation..."></textarea>
+      <div class="add-options" style="display: flex; gap: 12px; margin-top: 16px;">
+        <button type="button" id="btn-add-direct" class="btn btn-primary" style="flex: 1;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px;">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+            <circle cx="8.5" cy="7" r="4"/>
+            <line x1="20" y1="8" x2="20" y2="14"/>
+            <line x1="23" y1="11" x2="17" y2="11"/>
+          </svg>
+          Add to Team
+        </button>
+        <button type="button" id="btn-send-invite" class="btn btn-secondary" style="flex: 1;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px;">
+            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+            <polyline points="22,6 12,13 2,6"/>
+          </svg>
+          Send Invitation
+        </button>
+      </div>
+      <div class="form-hint" style="margin-top: 8px; font-size: 12px; color: var(--text-secondary);">
+        <strong>Add to Team:</strong> Adds contact as team member directly (no email sent)<br>
+        <strong>Send Invitation:</strong> Sends an email invitation to join
       </div>
       
       <div class="email-status" id="email-status-contact"></div>
@@ -314,34 +331,23 @@ export function showInviteModal(props: InviteModalProps): void {
 
   on(cancelBtn, 'click', () => closeModal(MODAL_ID));
 
+  // Handler for sending email invitation (New Email tab)
   on(sendBtn, 'click', async () => {
-    let email: string;
-    let role: string;
-    let message: string;
-
-    if (activeTab === 'new') {
-      const form = content.querySelector('#invite-form') as HTMLFormElement;
-      if (!form.checkValidity()) {
-        form.reportValidity();
-        return;
-      }
-      email = (content.querySelector('#invite-email') as HTMLInputElement).value.trim();
-      role = (content.querySelector('#invite-role') as HTMLSelectElement).value;
-      message = (content.querySelector('#invite-message') as HTMLTextAreaElement).value.trim();
-    } else {
-      if (!selectedContact || !selectedContact.email) {
-        toast.error('Please select a contact with an email address');
-        return;
-      }
-      email = selectedContact.email;
-      role = (content.querySelector('#invite-role-contact') as HTMLSelectElement).value;
-      message = (content.querySelector('#invite-message-contact') as HTMLTextAreaElement).value.trim();
+    if (activeTab !== 'new') return; // Only for new email tab
+    
+    const form = content.querySelector('#invite-form') as HTMLFormElement;
+    if (!form.checkValidity()) {
+      form.reportValidity();
+      return;
     }
+    const email = (content.querySelector('#invite-email') as HTMLInputElement).value.trim();
+    const role = (content.querySelector('#invite-role') as HTMLSelectElement).value;
+    const message = (content.querySelector('#invite-message') as HTMLTextAreaElement).value.trim();
 
     sendBtn.disabled = true;
     sendBtn.textContent = 'Sending...';
 
-    const statusEl = content.querySelector(activeTab === 'new' ? '#email-status' : '#email-status-contact') as HTMLElement;
+    const statusEl = content.querySelector('#email-status') as HTMLElement;
 
     try {
       const response = await http.post<{ success: boolean; email_sent: boolean }>(`/api/projects/${projectId}/invites`, {
@@ -350,7 +356,6 @@ export function showInviteModal(props: InviteModalProps): void {
         message: message || undefined,
       });
 
-      // Show email status
       if (response.data.email_sent) {
         statusEl.textContent = `✓ Invitation email sent to ${email}`;
         statusEl.classList.remove('error');
@@ -362,8 +367,6 @@ export function showInviteModal(props: InviteModalProps): void {
 
       toast.success(`Invitation sent to ${email}`);
       onInviteSent?.(email);
-      
-      // Close after a short delay to show status
       setTimeout(() => closeModal(MODAL_ID), 1500);
     } catch {
       statusEl.textContent = 'Failed to create invitation';
@@ -376,6 +379,107 @@ export function showInviteModal(props: InviteModalProps): void {
 
   footer.appendChild(cancelBtn);
   footer.appendChild(sendBtn);
+
+  // Bind contacts tab buttons after modal is created
+  setTimeout(() => {
+    const btnAddDirect = content.querySelector('#btn-add-direct') as HTMLButtonElement;
+    const btnSendInvite = content.querySelector('#btn-send-invite') as HTMLButtonElement;
+    const statusEl = content.querySelector('#email-status-contact') as HTMLElement;
+
+    // Add directly without email
+    if (btnAddDirect) {
+      on(btnAddDirect, 'click', async () => {
+        if (!selectedContact) {
+          toast.error('Please select a contact');
+          return;
+        }
+        
+        const role = (content.querySelector('#invite-role-contact') as HTMLSelectElement).value;
+        
+        btnAddDirect.disabled = true;
+        btnAddDirect.innerHTML = '<span class="spinner"></span> Adding...';
+
+        try {
+          // Add contact as team member directly (without email)
+          await http.post(`/api/projects/${projectId}/members/add-contact`, {
+            contact_id: selectedContact.id,
+            role,
+          });
+
+          statusEl.textContent = `✓ ${selectedContact.name} added to team`;
+          statusEl.classList.remove('error');
+          statusEl.classList.add('show');
+
+          toast.success(`${selectedContact.name} added to team`);
+          onInviteSent?.(selectedContact.email || selectedContact.name);
+          setTimeout(() => closeModal(MODAL_ID), 1000);
+        } catch (error: any) {
+          const msg = error?.response?.data?.error || 'Failed to add member';
+          statusEl.textContent = msg;
+          statusEl.classList.add('error', 'show');
+          toast.error(msg);
+        } finally {
+          btnAddDirect.disabled = false;
+          btnAddDirect.innerHTML = `
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px;">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+              <circle cx="8.5" cy="7" r="4"/>
+              <line x1="20" y1="8" x2="20" y2="14"/>
+              <line x1="23" y1="11" x2="17" y2="11"/>
+            </svg>
+            Add to Team
+          `;
+        }
+      });
+    }
+
+    // Send invitation email
+    if (btnSendInvite) {
+      on(btnSendInvite, 'click', async () => {
+        if (!selectedContact || !selectedContact.email) {
+          toast.error('Please select a contact with an email address');
+          return;
+        }
+
+        const role = (content.querySelector('#invite-role-contact') as HTMLSelectElement).value;
+
+        btnSendInvite.disabled = true;
+        btnSendInvite.innerHTML = '<span class="spinner"></span> Sending...';
+
+        try {
+          const response = await http.post<{ success: boolean; email_sent: boolean }>(`/api/projects/${projectId}/invites`, {
+            email: selectedContact.email,
+            role,
+          });
+
+          if (response.data.email_sent) {
+            statusEl.textContent = `✓ Invitation email sent to ${selectedContact.email}`;
+            statusEl.classList.remove('error');
+            statusEl.classList.add('show');
+          } else {
+            statusEl.textContent = `Invitation created, but email could not be sent.`;
+            statusEl.classList.add('error', 'show');
+          }
+
+          toast.success(`Invitation sent to ${selectedContact.name}`);
+          onInviteSent?.(selectedContact.email);
+          setTimeout(() => closeModal(MODAL_ID), 1500);
+        } catch {
+          statusEl.textContent = 'Failed to send invitation';
+          statusEl.classList.add('error', 'show');
+        } finally {
+          btnSendInvite.disabled = false;
+          btnSendInvite.innerHTML = `
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px;">
+              <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+              <polyline points="22,6 12,13 2,6"/>
+            </svg>
+            Send Invitation
+          `;
+        }
+      });
+    }
+  }, 0);
 
   // Create modal
   const modal = createModal({
@@ -494,20 +598,18 @@ async function loadContacts(container: HTMLElement, projectId: string, onSelect:
         .map(m => m.linked_contact_id)
     );
     
-    // Filter to only contacts with email AND not already linked to a member
-    const availableContacts = contacts.filter(c => 
-      c.email && !linkedContactIds.has(c.id)
-    );
+    // Filter to contacts not already linked to a member
+    // Note: For "Add to Team" we don't require email, only for "Send Invitation"
+    const availableContacts = contacts.filter(c => !linkedContactIds.has(c.id));
 
     if (availableContacts.length === 0) {
-      const allHaveEmail = contacts.filter(c => c.email).length;
       listEl.innerHTML = `
         <div class="no-contacts-msg">
-          ${allHaveEmail > 0 && linkedContactIds.size > 0 
-            ? 'All contacts with email are already team members.' 
-            : 'No contacts with email addresses found.'}
+          ${linkedContactIds.size > 0 
+            ? 'All contacts are already team members.' 
+            : 'No contacts found.'}
           <br>
-          <small style="opacity: 0.7;">Add contacts in the Contacts panel or use the email tab.</small>
+          <small style="opacity: 0.7;">Add contacts in the Contacts panel.</small>
         </div>
       `;
       return;
@@ -516,9 +618,11 @@ async function loadContacts(container: HTMLElement, projectId: string, onSelect:
     listEl.innerHTML = availableContacts.map(contact => {
       const initials = contact.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
       const avatarUrl = contact.avatar_url || contact.photo_url;
+      const hasEmail = !!contact.email;
+      const subtitle = [contact.email, contact.organization].filter(Boolean).join(' • ') || contact.role || 'No email';
       
       return `
-        <label class="contact-option" data-id="${contact.id}">
+        <label class="contact-option" data-id="${contact.id}" data-has-email="${hasEmail}">
           <input type="radio" name="contact-select" value="${contact.id}">
           <span class="radio-circle"></span>
           <div class="contact-avatar">
@@ -526,7 +630,7 @@ async function loadContacts(container: HTMLElement, projectId: string, onSelect:
           </div>
           <div class="contact-info">
             <div class="contact-name">${escapeHtml(contact.name)}</div>
-            <div class="contact-email">${escapeHtml(contact.email || '')}${contact.organization ? ` • ${escapeHtml(contact.organization)}` : ''}</div>
+            <div class="contact-email">${escapeHtml(subtitle)}${!hasEmail ? ' <span style="color: #f59e0b; font-size: 10px;">(no email)</span>' : ''}</div>
           </div>
         </label>
       `;

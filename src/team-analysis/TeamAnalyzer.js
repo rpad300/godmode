@@ -58,6 +58,9 @@ class TeamAnalyzer {
             useIncrementalAnalysis = true
         } = options;
 
+        // Store projectId for billing in LLM calls
+        this.currentProjectId = projectId;
+
         // Get person details - try people table first, then contacts
         let person = null;
         let aliases = [];
@@ -251,7 +254,7 @@ class TeamAnalyzer {
             existingProfile
         );
 
-        // Call LLM
+        // Call LLM (include projectId for billing)
         const { provider, model, providerConfig } = this.getLLMConfig();
         const response = await generateText({
             provider,
@@ -260,7 +263,8 @@ class TeamAnalyzer {
             prompt: prompt,
             temperature: 0.3,
             maxTokens: 8000,
-            context: 'team-analysis'
+            context: 'team-analysis',
+            projectId: this.currentProjectId // Pass projectId for billing
         });
 
         if (!response.success) {
@@ -305,7 +309,7 @@ class TeamAnalyzer {
             .replace('{{NEW_INTERVENTIONS}}', formatted.formattedText)
             .replace('{{OBJECTIVE}}', objective);
 
-        // Call LLM
+        // Call LLM (include projectId for billing)
         const { provider, model, providerConfig } = this.getLLMConfig();
         const response = await generateText({
             provider,
@@ -314,7 +318,8 @@ class TeamAnalyzer {
             prompt: prompt,
             temperature: 0.3,
             maxTokens: 6000,
-            context: 'team-analysis-incremental'
+            context: 'team-analysis-incremental',
+            projectId: this.currentProjectId
         });
 
         if (!response.success) {
@@ -515,6 +520,9 @@ Provide your analysis as JSON with:
     async analyzeTeamDynamics(projectId, options = {}) {
         const { forceReanalysis = false } = options;
 
+        // Store projectId for billing in LLM calls
+        this.currentProjectId = projectId;
+
         // Get all profiles for the project
         const { data: profiles, error: profilesError } = await this.supabase
             .from('team_profiles')
@@ -561,7 +569,7 @@ Provide your analysis as JSON with:
         // Build team analysis prompt
         const prompt = await this.buildTeamDynamicsPrompt(profiles);
 
-        // Call LLM
+        // Call LLM (include projectId for billing)
         console.log('[TeamAnalyzer] Analyzing team dynamics...');
         const { provider, model, providerConfig } = this.getLLMConfig();
         const response = await generateText({
@@ -571,7 +579,8 @@ Provide your analysis as JSON with:
             prompt: prompt,
             temperature: 0.3,
             maxTokens: 8000,
-            context: 'team-dynamics'
+            context: 'team-dynamics',
+            projectId: this.currentProjectId
         });
 
         // Parse response
@@ -1158,7 +1167,7 @@ Provide your analysis as JSON with:
             .from('team_profiles')
             .select(`
                 *,
-                contact:contacts(id, name, role, organization, email, avatar_url, aliases)
+                contact:contacts(id, name, role, organization, email, avatar_url, photo_url, aliases)
             `)
             .eq('project_id', projectId)
             .order('influence_score', { ascending: false });
@@ -1178,7 +1187,7 @@ Provide your analysis as JSON with:
             .from('team_profiles')
             .select(`
                 *,
-                contact:contacts(id, name, role, organization, email, avatar_url, aliases)
+                contact:contacts(id, name, role, organization, email, avatar_url, photo_url, aliases)
             `)
             .eq('project_id', projectId)
             .eq('contact_id', personId)

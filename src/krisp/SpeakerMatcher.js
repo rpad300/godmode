@@ -283,8 +283,7 @@ class SpeakerMatcher {
                 role,
                 projects (
                     id,
-                    name,
-                    project_number
+                    name
                 )
             `)
             .eq('user_id', userId);
@@ -297,7 +296,6 @@ class SpeakerMatcher {
         return data.map(pm => ({
             id: pm.projects.id,
             name: pm.projects.name,
-            projectNumber: pm.projects.project_number,
             role: pm.role
         }));
     }
@@ -309,7 +307,7 @@ class SpeakerMatcher {
         // Contacts belong to a single project in the current schema
         const { data: contact, error } = await this.supabase
             .from('contacts')
-            .select('project_id, projects (id, name, project_number)')
+            .select('project_id, projects (id, name)')
             .eq('id', contactId)
             .single();
 
@@ -319,8 +317,7 @@ class SpeakerMatcher {
 
         return [{
             id: contact.projects.id,
-            name: contact.projects.name,
-            projectNumber: contact.projects.project_number
+            name: contact.projects.name
         }];
     }
 

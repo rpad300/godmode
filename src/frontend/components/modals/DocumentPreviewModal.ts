@@ -290,6 +290,7 @@ export function showDocumentPreviewModal(props: DocumentPreviewProps): void {
       .entity-icon.risks { background: rgba(239, 68, 68, 0.1); }
       .entity-icon.actions { background: rgba(245, 158, 11, 0.1); }
       .entity-icon.questions { background: rgba(139, 92, 246, 0.1); }
+      .entity-icon.people { background: rgba(6, 182, 212, 0.1); }
       .entity-info h5 {
         margin: 0 0 2px 0;
         font-size: 20px;
@@ -680,6 +681,13 @@ export function showDocumentPreviewModal(props: DocumentPreviewProps): void {
               <span>Questions</span>
             </div>
           </div>
+          <div class="entity-card" data-entity="people">
+            <div class="entity-icon people">👥</div>
+            <div class="entity-info">
+              <h5 class="entity-count" id="people-count">${(doc as any).people_count || 0}</h5>
+              <span>People</span>
+            </div>
+          </div>
         </div>
         
         ${(doc as any).tags?.length ? `
@@ -941,6 +949,7 @@ async function loadEntities(container: HTMLElement, docId: string): Promise<void
   const listEl = container.querySelector('#entities-full-list') as HTMLElement;
   const entitiesTab = container.querySelector('#entities-tab') as HTMLElement;
   const entitiesCount = container.querySelector('#entities-count') as HTMLElement;
+  const peopleCountEl = container.querySelector('#people-count') as HTMLElement;
   
   try {
     const response = await http.get<{ extraction?: { 
@@ -950,6 +959,7 @@ async function loadEntities(container: HTMLElement, docId: string): Promise<void
       action_items?: Array<{ id: string; task: string; owner?: string; status?: string }>;
       questions?: Array<{ id: string; content: string }>;
       risks?: Array<{ id: string; content: string; severity?: string }>;
+      participants?: Array<{ name: string; role?: string; organization?: string; contact_id?: string; contact_name?: string }>;
     } }>(`/api/documents/${docId}/extraction`);
     
     const extraction = response.data.extraction;
@@ -964,8 +974,25 @@ async function loadEntities(container: HTMLElement, docId: string): Promise<void
     const actions = extraction.action_items || [];
     const questions = extraction.questions || [];
     const risks = extraction.risks || [];
+    const participants = extraction.participants || [];
     
-    const totalItems = entities.length + facts.length + decisions.length + actions.length + questions.length + risks.length;
+    // Also get Person entities from graph entities
+    const personEntities = entities.filter(e => e.type?.toLowerCase() === 'person');
+    
+    // Merge participants and person entities (deduplicated by name)
+    const allPeople = [...participants];
+    for (const pe of personEntities) {
+      if (!allPeople.some(p => p.name?.toLowerCase() === pe.name?.toLowerCase())) {
+        allPeople.push({ name: pe.name, role: undefined, organization: undefined });
+      }
+    }
+    
+    // Update people count in the grid
+    if (peopleCountEl) {
+      peopleCountEl.textContent = String(allPeople.length);
+    }
+    
+    const totalItems = entities.length + facts.length + decisions.length + actions.length + questions.length + risks.length + allPeople.length;
     
     if (totalItems === 0) {
       listEl.innerHTML = '<div class="empty-section">No entities extracted</div>';
@@ -1115,9 +1142,432 @@ async function loadEntities(container: HTMLElement, docId: string): Promise<void
       </div>`;
     }
     
+    // People/Participants
+    if (allPeople.length > 0) {
+      html += `<div class="entity-section" id="people-section">
+        <div class="entity-section-title">
+          👥 People
+          <span class="entity-section-count">${allPeople.length}</span>
+        </div>
+        <style>
+          .person-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            margin-bottom: 8px;
+            gap: 12px;
+          }
+          .person-info {
+            flex: 1;
+            min-width: 0;
+          }
+          .person-name {
+            font-weight: 500;
+            color: var(--text-primary);
+          }
+          .person-role {
+            font-size: 12px;
+            color: var(--text-tertiary);
+            margin-top: 2px;
+          }
+          .person-linked {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: var(--success);
+          }
+          .person-linked svg {
+            width: 14px;
+            height: 14px;
+          }
+          .person-unlinked {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+          }
+          .person-link-btn {
+            font-size: 12px;
+            padding: 4px 10px;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-primary);
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.15s ease;
+          }
+          .person-link-btn:hover {
+            border-color: var(--primary);
+            color: var(--primary);
+            background: rgba(var(--primary-rgb), 0.05);
+          }
+          .person-create-btn {
+            font-size: 12px;
+            padding: 4px 10px;
+            border-radius: 4px;
+            border: none;
+            background: var(--primary);
+            color: white;
+            cursor: pointer;
+            transition: all 0.15s ease;
+          }
+          .person-create-btn:hover {
+            opacity: 0.9;
+          }
+        </style>
+        ${allPeople.map((p, idx) => `
+          <div class="person-item" data-person-index="${idx}" data-person-name="${escapeHtml(p.name || '')}">
+            <div class="person-info">
+              <div class="person-name">${escapeHtml(p.name || 'Unknown')}</div>
+              ${p.role || p.organization ? `
+                <div class="person-role">
+                  ${p.role ? escapeHtml(p.role) : ''}${p.role && p.organization ? ' at ' : ''}${p.organization ? escapeHtml(p.organization) : ''}
+                </div>
+              ` : ''}
+            </div>
+            ${p.contact_id ? `
+              <div class="person-linked">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                  <polyline points="22 4 12 14.01 9 11.01"/>
+                </svg>
+                Linked to ${escapeHtml(p.contact_name || 'contact')}
+              </div>
+            ` : `
+              <div class="person-unlinked">
+                <button class="person-link-btn" data-action="link" data-name="${escapeHtml(p.name || '')}">
+                  Link to Contact
+                </button>
+                <button class="person-create-btn" data-action="create" data-name="${escapeHtml(p.name || '')}" data-role="${escapeHtml(p.role || '')}" data-org="${escapeHtml(p.organization || '')}">
+                  + Create Contact
+                </button>
+              </div>
+            `}
+          </div>
+        `).join('')}
+      </div>`;
+    }
+    
     listEl.innerHTML = html;
+    
+    // Setup people link handlers
+    setupPeopleLinkHandlers(container, docId);
   } catch (err) {
     listEl.innerHTML = '<div class="empty-section">Failed to load entities</div>';
+  }
+}
+
+/**
+ * Setup event handlers for linking people to contacts
+ */
+function setupPeopleLinkHandlers(container: HTMLElement, docId: string): void {
+  const peopleSection = container.querySelector('#people-section');
+  if (!peopleSection) return;
+  
+  // Get project ID from URL or data attribute
+  const projectId = (window as any).currentProjectId || 
+    document.body.dataset.projectId || 
+    container.closest('[data-project-id]')?.getAttribute('data-project-id') ||
+    '';
+  
+  // Handle Link to Contact buttons
+  peopleSection.querySelectorAll('.person-link-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const personName = (btn as HTMLElement).dataset.name || '';
+      await showContactLinkDropdown(btn as HTMLElement, personName, projectId, container, docId);
+    });
+  });
+  
+  // Handle Create Contact buttons
+  peopleSection.querySelectorAll('.person-create-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const personName = (btn as HTMLElement).dataset.name || '';
+      const personRole = (btn as HTMLElement).dataset.role || '';
+      const personOrg = (btn as HTMLElement).dataset.org || '';
+      
+      await createContactFromPerson(personName, personRole, personOrg, projectId, btn as HTMLElement, container, docId);
+    });
+  });
+}
+
+/**
+ * Show dropdown to select existing contact for linking
+ */
+async function showContactLinkDropdown(
+  btnEl: HTMLElement, 
+  personName: string, 
+  projectId: string, 
+  container: HTMLElement, 
+  docId: string
+): Promise<void> {
+  // Remove any existing dropdown
+  document.querySelectorAll('.contact-link-dropdown').forEach(d => d.remove());
+  
+  // Create dropdown
+  const dropdown = document.createElement('div');
+  dropdown.className = 'contact-link-dropdown';
+  dropdown.innerHTML = `
+    <style>
+      .contact-link-dropdown {
+        position: absolute;
+        z-index: 10000;
+        background: var(--bg-primary);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        min-width: 280px;
+        max-height: 300px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      .contact-link-search {
+        padding: 12px;
+        border-bottom: 1px solid var(--border-color);
+      }
+      .contact-link-search input {
+        width: 100%;
+        padding: 8px 12px;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        background: var(--bg-secondary);
+        color: var(--text-primary);
+        font-size: 13px;
+      }
+      .contact-link-search input:focus {
+        outline: none;
+        border-color: var(--primary);
+      }
+      .contact-link-list {
+        overflow-y: auto;
+        max-height: 220px;
+        padding: 8px;
+      }
+      .contact-link-item {
+        padding: 10px 12px;
+        border-radius: 6px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .contact-link-item:hover {
+        background: var(--bg-secondary);
+      }
+      .contact-link-avatar {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, var(--primary), var(--primary-dark, var(--primary)));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 13px;
+        font-weight: 500;
+      }
+      .contact-link-info {
+        flex: 1;
+        min-width: 0;
+      }
+      .contact-link-name {
+        font-weight: 500;
+        color: var(--text-primary);
+        font-size: 13px;
+      }
+      .contact-link-email {
+        font-size: 11px;
+        color: var(--text-tertiary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .contact-link-empty {
+        padding: 20px;
+        text-align: center;
+        color: var(--text-tertiary);
+        font-size: 13px;
+      }
+      .contact-link-loading {
+        padding: 20px;
+        text-align: center;
+        color: var(--text-tertiary);
+      }
+    </style>
+    <div class="contact-link-search">
+      <input type="text" placeholder="Search contacts..." autofocus>
+    </div>
+    <div class="contact-link-list">
+      <div class="contact-link-loading">Loading contacts...</div>
+    </div>
+  `;
+  
+  // Position dropdown near button
+  const rect = btnEl.getBoundingClientRect();
+  dropdown.style.position = 'fixed';
+  dropdown.style.top = `${rect.bottom + 4}px`;
+  dropdown.style.left = `${Math.max(10, rect.left - 100)}px`;
+  
+  document.body.appendChild(dropdown);
+  
+  // Focus search input
+  const searchInput = dropdown.querySelector('input') as HTMLInputElement;
+  searchInput?.focus();
+  
+  // Load contacts
+  try {
+    const response = await http.get<{ contacts: Array<{ id: string; name: string; email?: string }> }>(
+      `/api/contacts?project_id=${projectId}&limit=100`
+    );
+    const contacts = response.data.contacts || [];
+    
+    const listEl = dropdown.querySelector('.contact-link-list') as HTMLElement;
+    
+    if (contacts.length === 0) {
+      listEl.innerHTML = '<div class="contact-link-empty">No contacts found</div>';
+    } else {
+      renderContactList(listEl, contacts, personName, projectId, container, docId, dropdown);
+    }
+    
+    // Setup search filter
+    searchInput?.addEventListener('input', () => {
+      const query = searchInput.value.toLowerCase();
+      const filtered = contacts.filter(c => 
+        c.name?.toLowerCase().includes(query) || 
+        c.email?.toLowerCase().includes(query)
+      );
+      renderContactList(listEl, filtered, personName, projectId, container, docId, dropdown);
+    });
+    
+  } catch (err) {
+    console.error('[People] Failed to load contacts:', err);
+    const listEl = dropdown.querySelector('.contact-link-list') as HTMLElement;
+    listEl.innerHTML = '<div class="contact-link-empty">Failed to load contacts</div>';
+  }
+  
+  // Close on click outside
+  const closeHandler = (e: MouseEvent) => {
+    if (!dropdown.contains(e.target as Node) && e.target !== btnEl) {
+      dropdown.remove();
+      document.removeEventListener('click', closeHandler);
+    }
+  };
+  setTimeout(() => document.addEventListener('click', closeHandler), 100);
+  
+  // Close on Escape
+  const escHandler = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      dropdown.remove();
+      document.removeEventListener('keydown', escHandler);
+    }
+  };
+  document.addEventListener('keydown', escHandler);
+}
+
+/**
+ * Render list of contacts in dropdown
+ */
+function renderContactList(
+  listEl: HTMLElement,
+  contacts: Array<{ id: string; name: string; email?: string }>,
+  personName: string,
+  projectId: string,
+  container: HTMLElement,
+  docId: string,
+  dropdown: HTMLElement
+): void {
+  if (contacts.length === 0) {
+    listEl.innerHTML = '<div class="contact-link-empty">No matching contacts</div>';
+    return;
+  }
+  
+  listEl.innerHTML = contacts.map(c => {
+    const initials = (c.name || '?').split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase();
+    return `
+      <div class="contact-link-item" data-contact-id="${c.id}" data-contact-name="${escapeHtml(c.name || '')}">
+        <div class="contact-link-avatar">${initials}</div>
+        <div class="contact-link-info">
+          <div class="contact-link-name">${escapeHtml(c.name || 'Unknown')}</div>
+          ${c.email ? `<div class="contact-link-email">${escapeHtml(c.email)}</div>` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+  
+  // Add click handlers
+  listEl.querySelectorAll('.contact-link-item').forEach(item => {
+    item.addEventListener('click', async () => {
+      const contactId = (item as HTMLElement).dataset.contactId || '';
+      const contactName = (item as HTMLElement).dataset.contactName || '';
+      
+      try {
+        await http.post('/api/contacts/link-participant', {
+          projectId,
+          participantName: personName,
+          contactId
+        });
+        
+        toast.success(`Linked "${personName}" to ${contactName}`);
+        dropdown.remove();
+        
+        // Reload entities to show updated status
+        loadEntities(container, docId);
+      } catch (err) {
+        console.error('[People] Failed to link:', err);
+        toast.error('Failed to link contact');
+      }
+    });
+  });
+}
+
+/**
+ * Create a new contact from a person detected in document
+ */
+async function createContactFromPerson(
+  name: string,
+  role: string,
+  organization: string,
+  projectId: string,
+  btnEl: HTMLElement,
+  container: HTMLElement,
+  docId: string
+): Promise<void> {
+  const originalText = btnEl.textContent;
+  btnEl.textContent = 'Creating...';
+  (btnEl as HTMLButtonElement).disabled = true;
+  
+  try {
+    const response = await http.post<{ ok: boolean; contact?: { id: string; name: string }; error?: string }>(
+      '/api/contacts',
+      {
+        project_id: projectId,
+        name,
+        role: role || undefined,
+        organization: organization || undefined,
+        source: 'document_extraction'
+      }
+    );
+    
+    if (response.data.ok && response.data.contact) {
+      toast.success(`Created contact: ${response.data.contact.name}`);
+      
+      // Reload entities to show updated status
+      loadEntities(container, docId);
+    } else {
+      toast.error(response.data.error || 'Failed to create contact');
+      btnEl.textContent = originalText;
+      (btnEl as HTMLButtonElement).disabled = false;
+    }
+  } catch (err) {
+    console.error('[People] Failed to create contact:', err);
+    toast.error('Failed to create contact');
+    btnEl.textContent = originalText;
+    (btnEl as HTMLButtonElement).disabled = false;
   }
 }
 
@@ -1222,19 +1672,30 @@ async function loadAnalysisHistory(container: HTMLElement, docId: string): Promi
 /**
  * Show analysis detail in a modal overlay
  * Fetches extraction_result from the document if not available in analysis
+ * Uses /extraction endpoint to get enriched participant data with contact linking
  */
 async function showAnalysisDetail(container: HTMLElement, analysis: AIAnalysis): Promise<void> {
-  // Try to get the full result from the document if not in analysis
+  // Try to get the full result with enriched participants
   let fullResult = analysis.result;
-  if (!fullResult && analysis.document_id) {
+  if (analysis.document_id) {
     try {
-      // Get document from API - returns { document: {...} } or just the document
-      const docResponse = await http.get<{ document?: { extraction_result?: Record<string, unknown> }, extraction_result?: Record<string, unknown> }>(`/api/documents/${analysis.document_id}`);
-      // Handle both response formats
-      fullResult = docResponse.data.document?.extraction_result || docResponse.data.extraction_result;
-      console.log('[Analysis] Loaded extraction_result from document:', !!fullResult);
+      // Use /extraction endpoint which enriches participants with contact info
+      const extractionResponse = await http.get<{ extraction?: Record<string, unknown> }>(`/api/documents/${analysis.document_id}/extraction`);
+      if (extractionResponse.data.extraction) {
+        fullResult = extractionResponse.data.extraction;
+        console.log('[Analysis] Loaded enriched extraction from /extraction endpoint');
+      }
     } catch (err) {
-      console.warn('[Analysis] Could not load extraction_result:', err);
+      console.warn('[Analysis] Could not load extraction:', err);
+      // Fallback to document API
+      if (!fullResult) {
+        try {
+          const docResponse = await http.get<{ document?: { extraction_result?: Record<string, unknown> }, extraction_result?: Record<string, unknown> }>(`/api/documents/${analysis.document_id}`);
+          fullResult = docResponse.data.document?.extraction_result || docResponse.data.extraction_result;
+        } catch {
+          // ignore
+        }
+      }
     }
   }
   // Create overlay
@@ -1261,11 +1722,166 @@ async function showAnalysisDetail(container: HTMLElement, analysis: AIAnalysis):
   
   // Build summary from result if available
   let summary = '';
+  let peopleDetected: Array<{
+    name: string; 
+    role?: string; 
+    organization?: string;
+    contact_id?: string;
+    contact_name?: string;
+    contact_email?: string;
+    contact_avatar?: string;
+    contact_role?: string;
+  }> = [];
   if (fullResult) {
     const r = fullResult as any;
     if (r.summary) summary = r.summary;
     else if (r.meeting?.title) summary = `Meeting: ${r.meeting.title}`;
+    
+    // Extract people from participants and entities
+    const participants = r.participants || [];
+    const entities = r.entities || [];
+    const personEntities = entities.filter((e: any) => e.type?.toLowerCase() === 'person');
+    
+    // Merge and deduplicate
+    const peopleNames = new Set<string>();
+    for (const p of participants) {
+      if (p.name && !peopleNames.has(p.name.toLowerCase())) {
+        peopleNames.add(p.name.toLowerCase());
+        peopleDetected.push({ 
+          name: p.name, 
+          role: p.role, 
+          organization: p.organization,
+          contact_id: p.contact_id,
+          contact_name: p.contact_name,
+          contact_email: p.contact_email,
+          contact_avatar: p.contact_avatar,
+          contact_role: p.contact_role
+        });
+      }
+    }
+    for (const pe of personEntities) {
+      if (pe.name && !peopleNames.has(pe.name.toLowerCase())) {
+        peopleNames.add(pe.name.toLowerCase());
+        peopleDetected.push({ 
+          name: pe.name,
+          contact_id: pe.contact_id,
+          contact_name: pe.contact_name,
+          contact_email: pe.contact_email,
+          contact_avatar: pe.contact_avatar,
+          contact_role: pe.contact_role
+        });
+      }
+    }
   }
+  
+  // Separate linked and unlinked people
+  const linkedPeople = peopleDetected.filter(p => p.contact_id);
+  const unlinkedPeople = peopleDetected.filter(p => !p.contact_id);
+  
+  // Build people section HTML with separate linked and unlinked sections
+  const peopleSectionHtml = peopleDetected.length > 0 ? `
+    <div style="margin-bottom: 20px;">
+      <h4 style="color: var(--text-primary, #fff); margin: 0 0 12px 0; font-size: 14px; display: flex; align-items: center; gap: 8px;">
+        <span style="font-size: 16px;">👥</span> People Detected
+        <span style="font-size: 11px; background: rgba(99, 102, 241, 0.2); color: var(--accent-color, #6366f1); padding: 2px 8px; border-radius: 10px;">${peopleDetected.length}</span>
+        ${linkedPeople.length > 0 ? `<span style="font-size: 11px; background: rgba(16, 185, 129, 0.2); color: #10b981; padding: 2px 8px; border-radius: 10px;">✓ ${linkedPeople.length} linked</span>` : ''}
+      </h4>
+      
+      ${linkedPeople.length > 0 ? `
+        <div style="margin-bottom: 16px;">
+          <div style="font-size: 11px; color: var(--text-tertiary, #666); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Linked to Contacts</div>
+          <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+            ${linkedPeople.map(p => `
+              <div class="person-chip linked" data-name="${escapeHtml(p.name)}" data-contact-id="${escapeHtml(p.contact_id || '')}" data-contact-name="${escapeHtml(p.contact_name || '')}" style="
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 8px 14px;
+                background: rgba(16, 185, 129, 0.1);
+                border: 1px solid rgba(16, 185, 129, 0.3);
+                border-radius: 20px;
+                cursor: pointer;
+                transition: all 0.15s ease;
+              ">
+                ${p.contact_avatar ? `
+                  <img src="${escapeHtml(p.contact_avatar)}" alt="" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover;">
+                ` : `
+                  <div style="
+                    width: 32px;
+                    height: 32px;
+                    border-radius: 50%;
+                    background: linear-gradient(135deg, #10b981, #059669);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    color: white;
+                    font-size: 12px;
+                    font-weight: 600;
+                  ">${(p.contact_name || p.name || '?').split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()}</div>
+                `}
+                <div style="flex: 1; min-width: 0;">
+                  <div style="color: var(--text-primary, #fff); font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 6px;">
+                    ${escapeHtml(p.name)}
+                    <svg style="width: 14px; height: 14px; color: #10b981; flex-shrink: 0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                      <polyline points="22 4 12 14.01 9 11.01"/>
+                    </svg>
+                  </div>
+                  <div style="color: var(--text-tertiary, #666); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                    → ${escapeHtml(p.contact_name || 'Contact')}${p.contact_role ? ` • ${escapeHtml(p.contact_role)}` : ''}
+                  </div>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      ` : ''}
+      
+      ${unlinkedPeople.length > 0 ? `
+        <div>
+          <div style="font-size: 11px; color: var(--text-tertiary, #666); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">
+            ${linkedPeople.length > 0 ? 'Not Yet Linked' : 'Click to Link or Create Contact'}
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+            ${unlinkedPeople.map(p => `
+              <div class="person-chip unlinked" data-name="${escapeHtml(p.name)}" data-role="${escapeHtml(p.role || '')}" data-org="${escapeHtml(p.organization || '')}" style="
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                padding: 8px 12px;
+                background: var(--bg-secondary, #252542);
+                border: 1px dashed var(--border-color, #444);
+                border-radius: 20px;
+                cursor: pointer;
+                transition: all 0.15s ease;
+              ">
+                <div style="
+                  width: 28px;
+                  height: 28px;
+                  border-radius: 50%;
+                  background: linear-gradient(135deg, var(--accent-color, #6366f1), #8b5cf6);
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  color: white;
+                  font-size: 11px;
+                  font-weight: 600;
+                ">${(p.name || '?').split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()}</div>
+                <div>
+                  <div style="color: var(--text-primary, #fff); font-size: 13px; font-weight: 500;">${escapeHtml(p.name)}</div>
+                  ${p.role || p.organization ? `<div style="color: var(--text-tertiary, #666); font-size: 11px;">${p.role || ''}${p.role && p.organization ? ' • ' : ''}${p.organization || ''}</div>` : ''}
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      ` : ''}
+      
+      <p style="color: var(--text-tertiary, #666); font-size: 12px; margin: 12px 0 0 0;">
+        💡 Click on any person to ${linkedPeople.length > 0 ? 'view/change the link' : 'link them to a contact or create a new one'}
+      </p>
+    </div>
+  ` : '';
   
   const content = document.createElement('div');
   content.className = 'analysis-detail-content';
@@ -1315,6 +1931,7 @@ async function showAnalysisDetail(container: HTMLElement, analysis: AIAnalysis):
           <div style="font-size: 12px; color: var(--text-secondary, #888);">Latency</div>
         </div>
       </div>
+      ${peopleSectionHtml}
       <details style="margin-top: 16px;">
         <summary style="cursor: pointer; color: var(--text-primary, #fff); font-weight: 500; padding: 8px 0;">Raw Result JSON</summary>
         <pre style="background: var(--bg-tertiary, #1e1e3f); padding: 16px; border-radius: 8px; overflow-x: auto; font-size: 12px; color: var(--text-secondary, #ccc); max-height: 400px; overflow-y: auto;">${escapeHtml(resultJson)}</pre>
@@ -1331,6 +1948,599 @@ async function showAnalysisDetail(container: HTMLElement, analysis: AIAnalysis):
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) overlay.remove();
   });
+  
+  // Person chip click handlers
+  const projectId = (window as any).currentProjectId || 
+    document.body.dataset.projectId || 
+    container.closest('[data-project-id]')?.getAttribute('data-project-id') ||
+    '';
+  
+  content.querySelectorAll('.person-chip').forEach(chip => {
+    const el = chip as HTMLElement;
+    const isLinked = el.classList.contains('linked');
+    
+    chip.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const personName = el.dataset.name || '';
+      const personRole = el.dataset.role || '';
+      const personOrg = el.dataset.org || '';
+      const currentContactId = el.dataset.contactId || '';
+      const currentContactName = el.dataset.contactName || '';
+      
+      await showPersonLinkMenu(el, personName, personRole, personOrg, projectId, currentContactId, currentContactName);
+    });
+    
+    // Hover effect - different for linked/unlinked
+    el.addEventListener('mouseenter', () => {
+      if (isLinked) {
+        el.style.background = 'rgba(16, 185, 129, 0.2)';
+        el.style.borderColor = 'rgba(16, 185, 129, 0.5)';
+      } else {
+        el.style.background = 'var(--bg-tertiary, #1e1e3f)';
+        el.style.borderColor = 'var(--accent-color, #6366f1)';
+      }
+      el.style.transform = 'translateY(-1px)';
+    });
+    el.addEventListener('mouseleave', () => {
+      if (isLinked) {
+        el.style.background = 'rgba(16, 185, 129, 0.1)';
+        el.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+      } else {
+        el.style.background = 'var(--bg-secondary, #252542)';
+        el.style.borderColor = 'var(--border-color, #444)';
+      }
+      el.style.transform = 'translateY(0)';
+    });
+  });
+}
+
+/**
+ * Show menu to link a person to contact or create new
+ */
+async function showPersonLinkMenu(
+  chipEl: HTMLElement,
+  personName: string,
+  personRole: string,
+  personOrg: string,
+  projectId: string,
+  currentContactId: string = '',
+  currentContactName: string = ''
+): Promise<void> {
+  // Remove any existing menu
+  document.querySelectorAll('.person-link-menu').forEach(m => m.remove());
+  
+  const isLinked = !!currentContactId;
+  
+  const menu = document.createElement('div');
+  menu.className = 'person-link-menu';
+  menu.innerHTML = `
+    <style>
+      .person-link-menu {
+        position: fixed;
+        z-index: 10002;
+        background: var(--bg-primary, #1a1a2e);
+        border: 1px solid var(--border-color, #333);
+        border-radius: 12px;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+        min-width: 320px;
+        max-height: 450px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      .person-link-menu-header {
+        padding: 16px;
+        border-bottom: 1px solid var(--border-color, #333);
+      }
+      .person-link-menu-header h4 {
+        margin: 0 0 4px 0;
+        color: var(--text-primary, #fff);
+        font-size: 14px;
+      }
+      .person-link-menu-header p {
+        margin: 0;
+        color: var(--text-tertiary, #666);
+        font-size: 12px;
+      }
+      .person-link-menu-current {
+        padding: 12px 16px;
+        background: rgba(16, 185, 129, 0.1);
+        border-bottom: 1px solid var(--border-color, #333);
+      }
+      .person-link-menu-current-label {
+        font-size: 11px;
+        color: #10b981;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 8px;
+      }
+      .person-link-menu-current-contact {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 12px;
+        background: var(--bg-secondary, #252542);
+        border-radius: 8px;
+      }
+      .person-link-menu-current-avatar {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #10b981, #059669);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .person-link-menu-current-info {
+        flex: 1;
+      }
+      .person-link-menu-current-name {
+        font-weight: 500;
+        font-size: 14px;
+        color: var(--text-primary, #fff);
+      }
+      .person-link-menu-current-badge {
+        font-size: 11px;
+        color: #10b981;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .person-link-menu-unlink-btn {
+        padding: 6px 12px;
+        font-size: 12px;
+        background: rgba(239, 68, 68, 0.1);
+        color: #ef4444;
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.15s ease;
+      }
+      .person-link-menu-unlink-btn:hover {
+        background: rgba(239, 68, 68, 0.2);
+        border-color: rgba(239, 68, 68, 0.5);
+      }
+      .person-link-menu-divider {
+        padding: 8px 16px;
+        font-size: 11px;
+        color: var(--text-tertiary, #666);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border-bottom: 1px solid var(--border-color, #333);
+      }
+      .person-link-menu-search {
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border-color, #333);
+      }
+      .person-link-menu-search input {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid var(--border-color, #333);
+        border-radius: 8px;
+        background: var(--bg-secondary, #252542);
+        color: var(--text-primary, #fff);
+        font-size: 13px;
+      }
+      .person-link-menu-search input:focus {
+        outline: none;
+        border-color: var(--accent-color, #6366f1);
+      }
+      .person-link-menu-list {
+        overflow-y: auto;
+        max-height: 180px;
+        padding: 8px;
+      }
+      .person-link-menu-item {
+        padding: 10px 12px;
+        border-radius: 8px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--text-primary, #fff);
+      }
+      .person-link-menu-item:hover {
+        background: var(--bg-secondary, #252542);
+      }
+      .person-link-menu-item.selected {
+        background: rgba(16, 185, 129, 0.1);
+        border: 1px solid rgba(16, 185, 129, 0.3);
+      }
+      .person-link-menu-avatar {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, var(--accent-color, #6366f1), #8b5cf6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .person-link-menu-info {
+        flex: 1;
+        min-width: 0;
+      }
+      .person-link-menu-name {
+        font-weight: 500;
+        font-size: 13px;
+      }
+      .person-link-menu-email {
+        font-size: 11px;
+        color: var(--text-tertiary, #666);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .person-link-menu-actions {
+        padding: 12px 16px;
+        border-top: 1px solid var(--border-color, #333);
+        display: flex;
+        gap: 8px;
+      }
+      .person-link-menu-btn {
+        flex: 1;
+        padding: 10px;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.15s ease;
+      }
+      .person-link-menu-btn.primary {
+        background: var(--accent-color, #6366f1);
+        color: white;
+        border: none;
+      }
+      .person-link-menu-btn.primary:hover {
+        opacity: 0.9;
+      }
+      .person-link-menu-btn.secondary {
+        background: transparent;
+        color: var(--text-secondary, #888);
+        border: 1px solid var(--border-color, #333);
+      }
+      .person-link-menu-btn.secondary:hover {
+        border-color: var(--text-secondary, #888);
+      }
+      .person-link-menu-empty {
+        padding: 20px;
+        text-align: center;
+        color: var(--text-tertiary, #666);
+        font-size: 13px;
+      }
+      .person-link-menu-loading {
+        padding: 20px;
+        text-align: center;
+        color: var(--text-tertiary, #666);
+      }
+    </style>
+    <div class="person-link-menu-header">
+      <h4>${isLinked ? 'Change Link' : 'Link'} "${escapeHtml(personName)}"</h4>
+      <p>${isLinked ? 'Change the linked contact or unlink' : 'Select an existing contact or create a new one'}</p>
+    </div>
+    ${isLinked ? `
+      <div class="person-link-menu-current">
+        <div class="person-link-menu-current-label">Currently Linked To</div>
+        <div class="person-link-menu-current-contact">
+          <div class="person-link-menu-current-avatar">${(currentContactName || '?').split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()}</div>
+          <div class="person-link-menu-current-info">
+            <div class="person-link-menu-current-name">${escapeHtml(currentContactName)}</div>
+            <div class="person-link-menu-current-badge">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                <polyline points="22 4 12 14.01 9 11.01"/>
+              </svg>
+              Linked
+            </div>
+          </div>
+          <button class="person-link-menu-unlink-btn unlink-btn">Unlink</button>
+        </div>
+      </div>
+      <div class="person-link-menu-divider">Or change to another contact</div>
+    ` : ''}
+    <div class="person-link-menu-search">
+      <input type="text" placeholder="Search contacts..." autofocus>
+    </div>
+    <div class="person-link-menu-list">
+      <div class="person-link-menu-loading">Loading contacts...</div>
+    </div>
+    <div class="person-link-menu-actions">
+      <button class="person-link-menu-btn secondary cancel-btn">Cancel</button>
+      <button class="person-link-menu-btn primary create-btn">+ Create New Contact</button>
+    </div>
+  `;
+  
+  // Position menu near chip
+  const rect = chipEl.getBoundingClientRect();
+  menu.style.position = 'fixed';
+  menu.style.top = `${Math.min(rect.bottom + 8, window.innerHeight - 420)}px`;
+  menu.style.left = `${Math.min(rect.left, window.innerWidth - 320)}px`;
+  
+  document.body.appendChild(menu);
+  
+  // Focus search input
+  const searchInput = menu.querySelector('input') as HTMLInputElement;
+  searchInput?.focus();
+  
+  // Load contacts
+  try {
+    const response = await http.get<{ contacts: Array<{ id: string; name: string; email?: string }> }>(
+      `/api/contacts?project_id=${projectId}&limit=100`
+    );
+    const contacts = response.data.contacts || [];
+    
+    const listEl = menu.querySelector('.person-link-menu-list') as HTMLElement;
+    
+    const renderContacts = (filtered: typeof contacts) => {
+      if (filtered.length === 0) {
+        listEl.innerHTML = '<div class="person-link-menu-empty">No matching contacts</div>';
+        return;
+      }
+      
+      listEl.innerHTML = filtered.map(c => {
+        const initials = (c.name || '?').split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase();
+        const avatar = (c as any).avatar_url || (c as any).photo_url || '';
+        const role = (c as any).role || '';
+        return `
+          <div class="person-link-menu-item" 
+               data-contact-id="${c.id}" 
+               data-contact-name="${escapeHtml(c.name || '')}"
+               data-contact-email="${escapeHtml(c.email || '')}"
+               data-contact-avatar="${escapeHtml(avatar)}"
+               data-contact-role="${escapeHtml(role)}">
+            ${avatar ? `
+              <img src="${escapeHtml(avatar)}" alt="" class="person-link-menu-avatar" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover;">
+            ` : `
+              <div class="person-link-menu-avatar">${initials}</div>
+            `}
+            <div class="person-link-menu-info">
+              <div class="person-link-menu-name">${escapeHtml(c.name || 'Unknown')}</div>
+              ${role ? `<div class="person-link-menu-email">${escapeHtml(role)}</div>` : ''}
+              ${c.email ? `<div class="person-link-menu-email">${escapeHtml(c.email)}</div>` : ''}
+            </div>
+          </div>
+        `;
+      }).join('');
+      
+      // Add click handlers
+      listEl.querySelectorAll('.person-link-menu-item').forEach(item => {
+        item.addEventListener('click', async () => {
+          const contactId = (item as HTMLElement).dataset.contactId || '';
+          const contactName = (item as HTMLElement).dataset.contactName || '';
+          const contactEmail = (item as HTMLElement).dataset.contactEmail || '';
+          const contactAvatar = (item as HTMLElement).dataset.contactAvatar || '';
+          const contactRole = (item as HTMLElement).dataset.contactRole || '';
+          
+          try {
+            await http.post('/api/contacts/link-participant', {
+              projectId,
+              participantName: personName,
+              contactId
+            });
+            
+            toast.success(`Linked "${personName}" to ${contactName}`);
+            menu.remove();
+            
+            // Transform chip to show linked status with contact info
+            updateChipToLinked(chipEl, personName, contactId, contactName, contactEmail, contactAvatar, contactRole);
+          } catch (err) {
+            console.error('[People] Failed to link:', err);
+            toast.error('Failed to link contact');
+          }
+        });
+      });
+    };
+    
+    renderContacts(contacts);
+    
+    // Search filter
+    searchInput?.addEventListener('input', () => {
+      const query = searchInput.value.toLowerCase();
+      const filtered = contacts.filter(c => 
+        c.name?.toLowerCase().includes(query) || 
+        c.email?.toLowerCase().includes(query)
+      );
+      renderContacts(filtered);
+    });
+    
+  } catch (err) {
+    console.error('[People] Failed to load contacts:', err);
+    const listEl = menu.querySelector('.person-link-menu-list') as HTMLElement;
+    listEl.innerHTML = '<div class="person-link-menu-empty">Failed to load contacts</div>';
+  }
+  
+  // Cancel button
+  menu.querySelector('.cancel-btn')?.addEventListener('click', () => menu.remove());
+  
+  // Unlink button (only if currently linked)
+  menu.querySelector('.unlink-btn')?.addEventListener('click', async () => {
+    try {
+      await http.post('/api/contacts/unlink-participant', {
+        projectId,
+        participantName: personName
+      });
+      
+      toast.success(`Unlinked "${personName}"`);
+      menu.remove();
+      
+      // Transform chip back to unlinked state
+      updateChipToUnlinked(chipEl, personName, personRole, personOrg);
+    } catch (err) {
+      console.error('[People] Failed to unlink:', err);
+      toast.error('Failed to unlink contact');
+    }
+  });
+  
+  // Create new contact button
+  menu.querySelector('.create-btn')?.addEventListener('click', async () => {
+    try {
+      const response = await http.post<{ ok: boolean; contact?: { id: string; name: string; role?: string; avatar_url?: string }; error?: string }>(
+        '/api/contacts',
+        {
+          project_id: projectId,
+          name: personName,
+          role: personRole || undefined,
+          organization: personOrg || undefined,
+          source: 'document_extraction'
+        }
+      );
+      
+      if (response.data.ok && response.data.contact) {
+        toast.success(`Created contact: ${response.data.contact.name}`);
+        menu.remove();
+        
+        // Transform chip to show linked status
+        updateChipToLinked(
+          chipEl, 
+          personName, 
+          response.data.contact.id, 
+          response.data.contact.name,
+          '',
+          response.data.contact.avatar_url || '',
+          response.data.contact.role || personRole
+        );
+      } else {
+        toast.error(response.data.error || 'Failed to create contact');
+      }
+    } catch (err) {
+      console.error('[People] Failed to create contact:', err);
+      toast.error('Failed to create contact');
+    }
+  });
+  
+  // Close on click outside
+  const closeHandler = (e: MouseEvent) => {
+    if (!menu.contains(e.target as Node) && e.target !== chipEl) {
+      menu.remove();
+      document.removeEventListener('click', closeHandler);
+    }
+  };
+  setTimeout(() => document.addEventListener('click', closeHandler), 100);
+  
+  // Close on Escape
+  const escHandler = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      menu.remove();
+      document.removeEventListener('keydown', escHandler);
+    }
+  };
+  document.addEventListener('keydown', escHandler);
+}
+
+/**
+ * Update a person chip to show unlinked status
+ */
+function updateChipToUnlinked(
+  chipEl: HTMLElement,
+  personName: string,
+  personRole: string,
+  personOrg: string
+): void {
+  const initials = (personName || '?').split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase();
+  
+  chipEl.classList.remove('linked');
+  chipEl.classList.add('unlinked');
+  delete chipEl.dataset.contactId;
+  delete chipEl.dataset.contactName;
+  
+  chipEl.style.cssText = `
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--bg-secondary, #252542);
+    border: 1px dashed var(--border-color, #444);
+    border-radius: 20px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  `;
+  
+  chipEl.innerHTML = `
+    <div style="
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent-color, #6366f1), #8b5cf6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 11px;
+      font-weight: 600;
+    ">${initials}</div>
+    <div>
+      <div style="color: var(--text-primary, #fff); font-size: 13px; font-weight: 500;">${escapeHtml(personName)}</div>
+      ${personRole || personOrg ? `<div style="color: var(--text-tertiary, #666); font-size: 11px;">${personRole || ''}${personRole && personOrg ? ' • ' : ''}${personOrg || ''}</div>` : ''}
+    </div>
+  `;
+}
+
+/**
+ * Update a person chip to show linked status with contact info
+ */
+function updateChipToLinked(
+  chipEl: HTMLElement,
+  personName: string,
+  contactId: string,
+  contactName: string,
+  contactEmail: string,
+  contactAvatar: string,
+  contactRole: string
+): void {
+  const initials = (contactName || personName || '?').split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase();
+  
+  chipEl.classList.remove('unlinked');
+  chipEl.classList.add('linked');
+  chipEl.dataset.contactId = contactId;
+  chipEl.dataset.contactName = contactName;
+  
+  chipEl.style.cssText = `
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px;
+    background: rgba(16, 185, 129, 0.1);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    border-radius: 20px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  `;
+  
+  chipEl.innerHTML = `
+    ${contactAvatar ? `
+      <img src="${escapeHtml(contactAvatar)}" alt="" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover;">
+    ` : `
+      <div style="
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #10b981, #059669);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 12px;
+        font-weight: 600;
+      ">${initials}</div>
+    `}
+    <div style="flex: 1; min-width: 0;">
+      <div style="color: var(--text-primary, #fff); font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 6px;">
+        ${escapeHtml(personName)}
+        <svg style="width: 14px; height: 14px; color: #10b981; flex-shrink: 0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+          <polyline points="22 4 12 14.01 9 11.01"/>
+        </svg>
+      </div>
+      <div style="color: var(--text-tertiary, #666); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+        → ${escapeHtml(contactName)}${contactRole ? ` • ${escapeHtml(contactRole)}` : ''}
+      </div>
+    </div>
+  `;
 }
 
 async function loadVersions(container: HTMLElement, docId: string): Promise<void> {
