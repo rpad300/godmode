@@ -15,128 +15,20 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-// WHATWG URL parser (replaces deprecated url.parse)
-function parseUrl(reqUrl) {
-    try {
-        const parsed = new URL(reqUrl, 'http://localhost');
-        return {
-            pathname: parsed.pathname,
-            query: Object.fromEntries(parsed.searchParams),
-            search: parsed.search,
-            href: parsed.href
-        };
-    } catch (e) {
-        // Fallback for malformed URLs
-        const qIdx = reqUrl.indexOf('?');
-        return {
-            pathname: qIdx >= 0 ? reqUrl.substring(0, qIdx) : reqUrl,
-            query: {},
-            search: qIdx >= 0 ? reqUrl.substring(qIdx) : '',
-            href: reqUrl
-        };
-    }
-}
+// ==================== EXTRACTED MODULES ====================
+// These utilities have been modularized for maintainability
+const { parseUrl, parseBody, parseMultipart } = require('./server/request');
+const { jsonResponse, getMimeType } = require('./server/response');
+const { UUID_REGEX, isValidUUID, sanitizeFilename, isPathWithinDirectory } = require('./server/security');
+const { MIME_TYPES, serveStatic, generateFileIconSVG } = require('./server/static');
+const staticUtilsModule = require('./server/static'); // For getDocumentSOTAPath and ensureDocumentSOTADir which need DATA_DIR binding
+const { rateLimitStore, checkRateLimit, getRateLimitKey, rateLimitResponse, startRateLimitCleanup, getCookieSecurityFlags, getClientIp } = require('./server/middleware');
 
-// ============================================
-// SECURITY HELPERS
-// ============================================
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Security helpers moved to ./server/security.js
 
-/**
- * Validate UUID format
- */
-function isValidUUID(id) {
-    return typeof id === 'string' && UUID_REGEX.test(id);
-}
-
-/**
- * Sanitize filename to prevent path traversal
- */
-function sanitizeFilename(name) {
-    if (!name || typeof name !== 'string') return 'file';
-    // Remove path traversal attempts and invalid characters
-    return name
-        .replace(/\.\./g, '')
-        .replace(/[\/\\]/g, '_')
-        .replace(/[^a-zA-Z0-9._\-\s]/g, '_')
-        .substring(0, 255);
-}
-
-/**
- * Validate file path is within allowed directory (prevent path traversal)
- */
-function isPathWithinDirectory(filePath, allowedDir) {
-    if (!filePath || !allowedDir) return false;
-    try {
-        const realPath = fs.realpathSync(filePath);
-        const realAllowedDir = fs.realpathSync(allowedDir);
-        return realPath.startsWith(realAllowedDir);
-    } catch {
-        return false;
-    }
-}
-
-// ============================================
-// RATE LIMITING
-// ============================================
-const rateLimitStore = new Map();
-
-/**
- * Simple in-memory rate limiter
- * @param {string} key - Unique identifier (e.g., IP + endpoint)
- * @param {number} maxRequests - Maximum requests allowed in window
- * @param {number} windowMs - Time window in milliseconds
- * @returns {boolean} - true if request should be allowed
- */
-function checkRateLimit(key, maxRequests = 10, windowMs = 60000) {
-    const now = Date.now();
-    const record = rateLimitStore.get(key);
-    
-    if (!record) {
-        rateLimitStore.set(key, { count: 1, resetAt: now + windowMs });
-        return true;
-    }
-    
-    if (now > record.resetAt) {
-        // Window expired, reset
-        rateLimitStore.set(key, { count: 1, resetAt: now + windowMs });
-        return true;
-    }
-    
-    if (record.count >= maxRequests) {
-        return false; // Rate limited
-    }
-    
-    record.count++;
-    return true;
-}
-
-/**
- * Get rate limit key from request
- */
-function getRateLimitKey(req, endpoint) {
-    // Use IP + endpoint as key
-    const ip = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown';
-    return `${ip}:${endpoint}`;
-}
-
-/**
- * Rate limit response helper
- */
-function rateLimitResponse(res) {
-    res.writeHead(429, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Too many requests. Please try again later.' }));
-}
-
-// Clean up old rate limit entries every 5 minutes
-setInterval(() => {
-    const now = Date.now();
-    for (const [key, record] of rateLimitStore.entries()) {
-        if (now > record.resetAt + 60000) {
-            rateLimitStore.delete(key);
-        }
-    }
-}, 300000);
+// Rate limiting moved to ./server/middleware.js
+// Start rate limit cleanup interval
+startRateLimitCleanup();
 
 // Modules
 const OllamaClient = require('./ollama');
@@ -562,22 +454,7 @@ if (cleanupResult.decisions > 0 || cleanupResult.people > 0) {
 storage.recordDailyStats();
 processor = new DocumentProcessor(storage, ollama, config);
 
-// ==================== COOKIE SECURITY HELPER ====================
-/**
- * Get cookie security flags based on environment/protocol
- * - Production or HTTPS: include Secure flag
- * - Development HTTP: omit Secure flag (allows cookies on localhost)
- */
-function getCookieSecurityFlags(req) {
-    const isSecure = 
-        process.env.NODE_ENV === 'production' ||
-        req.headers['x-forwarded-proto'] === 'https' ||
-        (req.connection && req.connection.encrypted);
-    
-    return isSecure 
-        ? 'HttpOnly; Secure; SameSite=Lax' 
-        : 'HttpOnly; SameSite=Lax';
-}
+// Cookie security helper moved to ./server/middleware.js
 
 // ==================== LOAD GRAPH CONFIG FROM SUPABASE ====================
 // Try to load graph configuration from Supabase system_config table
@@ -912,205 +789,19 @@ function invalidateBriefingCache() {
     console.log('Briefing cache invalidated');
 }
 
-// Ensure data directories exist (SOTA structure)
-function ensureDirectories() {
-    const dirs = [
-        DATA_DIR,
-        // Legacy folders (for backward compatibility)
-        path.join(DATA_DIR, 'newinfo'),
-        path.join(DATA_DIR, 'newtranscripts'),
-        path.join(DATA_DIR, 'archived', 'documents'),
-        path.join(DATA_DIR, 'archived', 'meetings'),
-        path.join(DATA_DIR, 'content'),
-        // SOTA structure
-        path.join(DATA_DIR, 'documents', 'inbox', 'documents'),
-        path.join(DATA_DIR, 'documents', 'inbox', 'transcripts'),
-        path.join(DATA_DIR, 'documents', 'library'),
-        path.join(DATA_DIR, 'documents', 'cache', 'thumbnails'),
-        path.join(DATA_DIR, 'documents', 'trash'),
-        path.join(DATA_DIR, 'exports'),
-        path.join(DATA_DIR, 'temp', 'processing')
-    ];
-    dirs.forEach(dir => {
-        if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
-        }
-    });
-}
-ensureDirectories();
+// Static file utilities moved to ./server/static.js
+// Ensure directories on startup
+staticUtilsModule.ensureDirectories(DATA_DIR);
 
-/**
- * Generate SVG icon for file type (used as thumbnail placeholder)
- */
-function generateFileIconSVG(fileType) {
-    const colors = {
-        pdf: '#e74c3c',
-        doc: '#3498db',
-        docx: '#3498db',
-        xls: '#27ae60',
-        xlsx: '#27ae60',
-        ppt: '#e67e22',
-        pptx: '#e67e22',
-        txt: '#95a5a6',
-        md: '#9b59b6',
-        jpg: '#1abc9c',
-        jpeg: '#1abc9c',
-        png: '#1abc9c',
-        gif: '#1abc9c',
-        default: '#7f8c8d'
-    };
-    
-    const color = colors[fileType] || colors.default;
-    const ext = (fileType || '?').toUpperCase().slice(0, 4);
-    
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
-        <rect width="200" height="200" fill="#f5f5f5" rx="8"/>
-        <rect x="50" y="30" width="100" height="130" fill="white" stroke="#ddd" stroke-width="2" rx="4"/>
-        <polygon points="120,30 150,60 120,60" fill="#ddd"/>
-        <rect x="60" y="80" width="80" height="8" fill="#eee" rx="2"/>
-        <rect x="60" y="95" width="60" height="8" fill="#eee" rx="2"/>
-        <rect x="60" y="110" width="70" height="8" fill="#eee" rx="2"/>
-        <rect x="50" y="135" width="100" height="25" fill="${color}" rx="4"/>
-        <text x="100" y="153" font-family="Arial,sans-serif" font-size="14" font-weight="bold" fill="white" text-anchor="middle">${ext}</text>
-    </svg>`;
-}
-
-/**
- * Get SOTA document path based on date
- * Returns: documents/library/{year}/{month}/{doc_id}/
- */
+// Wrappers that bind DATA_DIR to keep the API surface identical
 function getDocumentSOTAPath(docId, createdAt = new Date()) {
-    const date = new Date(createdAt);
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    return path.join(DATA_DIR, 'documents', 'library', String(year), month, docId);
+    return staticUtilsModule.getDocumentSOTAPath(docId, DATA_DIR, createdAt);
 }
-
-/**
- * Ensure document SOTA directory exists with subdirs
- */
 function ensureDocumentSOTADir(docId, createdAt = new Date()) {
-    const docPath = getDocumentSOTAPath(docId, createdAt);
-    const subdirs = ['original', 'versions', 'content', 'media'];
-    
-    subdirs.forEach(subdir => {
-        const fullPath = path.join(docPath, subdir);
-        if (!fs.existsSync(fullPath)) {
-            fs.mkdirSync(fullPath, { recursive: true });
-        }
-    });
-    
-    return docPath;
+    return staticUtilsModule.ensureDocumentSOTADir(docId, DATA_DIR, createdAt);
 }
 
-// MIME types
-const MIME_TYPES = {
-    '.html': 'text/html',
-    '.css': 'text/css',
-    '.js': 'application/javascript',
-    '.json': 'application/json',
-    '.png': 'image/png',
-    '.jpg': 'image/jpeg',
-    '.svg': 'image/svg+xml',
-    '.ico': 'image/x-icon'
-};
-
-// Serve static file
-function serveStatic(res, filePath) {
-    const ext = path.extname(filePath);
-    const mimeType = MIME_TYPES[ext] || 'application/octet-stream';
-
-    fs.readFile(filePath, (err, data) => {
-        if (err) {
-            res.writeHead(404);
-            res.end('Not found');
-            return;
-        }
-        res.writeHead(200, { 'Content-Type': mimeType });
-        res.end(data);
-    });
-}
-
-// Parse JSON body
-function parseBody(req) {
-    return new Promise((resolve, reject) => {
-        let body = '';
-        req.on('data', chunk => body += chunk);
-        req.on('end', () => {
-            try {
-                resolve(body ? JSON.parse(body) : {});
-            } catch (e) {
-                reject(e);
-            }
-        });
-        req.on('error', reject);
-    });
-}
-
-// Parse multipart form data
-function parseMultipart(buffer, boundary) {
-    const result = { files: [], folder: 'newinfo', documentDate: null, documentTime: null, emailId: null };
-    const boundaryBuffer = Buffer.from('--' + boundary);
-    const parts = [];
-
-    let start = 0;
-    let pos = buffer.indexOf(boundaryBuffer, start);
-
-    while (pos !== -1) {
-        if (start > 0) {
-            // Remove trailing CRLF from previous part
-            let end = pos - 2;
-            if (end > start) {
-                parts.push(buffer.slice(start, end));
-            }
-        }
-        start = pos + boundaryBuffer.length + 2; // Skip boundary and CRLF
-        pos = buffer.indexOf(boundaryBuffer, start);
-    }
-
-    // Parse each part
-    for (const part of parts) {
-        const headerEnd = part.indexOf('\r\n\r\n');
-        if (headerEnd === -1) continue;
-
-        const headerStr = part.slice(0, headerEnd).toString('utf8');
-        const data = part.slice(headerEnd + 4);
-
-        // Check if it's a file
-        const filenameMatch = headerStr.match(/filename="([^"]+)"/);
-        const nameMatch = headerStr.match(/name="([^"]+)"/);
-
-        if (filenameMatch && data.length > 0) {
-            result.files.push({
-                filename: filenameMatch[1],
-                data: data
-            });
-        } else if (nameMatch) {
-            const fieldName = nameMatch[1];
-            const fieldValue = data.toString('utf8').trim();
-            if (fieldName === 'folder') {
-                result.folder = fieldValue;
-            } else if (fieldName === 'documentDate') {
-                result.documentDate = fieldValue;
-            } else if (fieldName === 'documentTime') {
-                result.documentTime = fieldValue;
-            } else if (fieldName === 'emailId') {
-                result.emailId = fieldValue;
-            }
-        }
-    }
-
-    return result;
-}
-
-// JSON response helper
-function jsonResponse(res, data, status = 200) {
-    res.writeHead(status, {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*'
-    });
-    res.end(JSON.stringify(data));
-}
+// Request/response helpers moved to ./server/request.js and ./server/response.js
 
 /**
  * Get current user ID from request (cookie-based auth)
@@ -1150,32 +841,7 @@ async function getCurrentUserId(req, storage) {
     }
 }
 
-// Get MIME type from filename
-function getMimeType(filename) {
-    const ext = path.extname(filename).toLowerCase();
-    const mimeTypes = {
-        '.pdf': 'application/pdf',
-        '.doc': 'application/msword',
-        '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        '.xls': 'application/vnd.ms-excel',
-        '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        '.xlsm': 'application/vnd.ms-excel.sheet.macroEnabled.12',
-        '.ppt': 'application/vnd.ms-powerpoint',
-        '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-        '.txt': 'text/plain',
-        '.csv': 'text/csv',
-        '.json': 'application/json',
-        '.xml': 'application/xml',
-        '.zip': 'application/zip',
-        '.png': 'image/png',
-        '.jpg': 'image/jpeg',
-        '.jpeg': 'image/jpeg',
-        '.gif': 'image/gif',
-        '.html': 'text/html',
-        '.md': 'text/markdown'
-    };
-    return mimeTypes[ext] || 'application/octet-stream';
-}
+// getMimeType moved to ./server/response.js
 
 // API Routes
 async function handleAPI(req, res, pathname) {
