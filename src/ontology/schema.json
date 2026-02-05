@@ -1,5 +1,5 @@
 {
-  "version": "2.2",
+  "version": "2.1",
   "entityTypes": {
     "Answer": {
       "icon": "message-circle",
@@ -1176,6 +1176,15 @@
       "description": "A technology, tool, or framework",
       "sharedEntity": true,
       "embeddingTemplate": "[Technology] {name} ({category}) - {description}. Version: {version}. Tags: {tags}"
+    },
+    "Contact": {
+      "description": "Entity type \"Contact\" exists in graph (37 nodes) but not in ontology",
+      "properties": {
+        "name": {
+          "type": "string",
+          "required": true
+        }
+      }
     }
   },
   "relationTypes": {
@@ -1796,6 +1805,12 @@
       "description": "Risk is owned by a person",
       "embeddingTemplate": "{from.title} is owned by {to.name}"
     },
+    "OWNS": {
+      "to": "*",
+      "from": "*",
+      "properties": {},
+      "description": "Relation type \"OWNS\" exists in graph (7 edges) but not in ontology"
+    },
     "PART_OF": {
       "label": "Part Of",
       "toTypes": [
@@ -2203,16 +2218,10 @@
       "embeddingTemplate": "{from.name} works on {to.name} as {role}"
     },
     "WORKS_WITH": {
-      "from": "*",
       "to": "*",
-      "description": "Relation type \"WORKS_WITH\" exists in graph (63 edges) but not in ontology",
-      "properties": {}
-    },
-    "OWNS": {
       "from": "*",
-      "to": "*",
-      "description": "Relation type \"OWNS\" exists in graph (7 edges) but not in ontology",
-      "properties": {}
+      "properties": {},
+      "description": "Relation type \"WORKS_WITH\" exists in graph (63 edges) but not in ontology"
     }
   },
   "queryPatterns": {
@@ -2480,6 +2489,390 @@
       "description": "Meeting is about a project if participants work on it"
     },
     {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "meeting_about_project_from_participants",
+      "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
+      "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
+      "name": "person_in_meeting_knows_others",
+      "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
+      "description": "People who attend the same meeting know each other"
+    },
+    {
       "name": "person_in_meeting_knows_others",
       "condition": "MATCH (p1:Person)-[:ATTENDS]->(m:Meeting)<-[:ATTENDS]-(p2:Person) WHERE p1 <> p2",
       "inference": "MERGE (p1)-[:KNOWS {context: 'meeting', strength: 'weak'}]->(p2)",
@@ -2670,6 +3063,390 @@
       "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
       "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
       "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "person_on_project_knows_team",
+      "condition": "MATCH (p1:Person)-[:WORKS_ON]->(proj:Project)<-[:WORKS_ON]-(p2:Person) WHERE p1 <> p2",
+      "inference": "MERGE (p1)-[:KNOWS {context: 'project', strength: 'moderate'}]->(p2)",
+      "description": "People working on the same project know each other"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
+    },
+    {
+      "name": "tech_skill_from_project",
+      "condition": "MATCH (p:Person)-[:WORKS_ON]->(proj:Project)-[:USES_TECH]->(t:Technology)",
+      "inference": "MERGE (p)-[:HAS_SKILL {level: 'intermediate', inferred: true}]->(t)",
+      "description": "People working on a project likely know its technologies"
     },
     {
       "name": "tech_skill_from_project",
@@ -2768,5 +3545,5 @@
       "description": "People working on a project likely know its technologies"
     }
   ],
-  "lastUpdated": "2026-02-02T19:11:46.876Z"
+  "lastUpdated": "2026-02-05T00:15:14.390Z"
 }
