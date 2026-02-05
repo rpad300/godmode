@@ -1,0 +1,1376 @@
+/**
+ * Documents Routes
+ * Extracted from src/server.js for modularization
+ * 
+ * Handles:
+ * - Document listing, get, delete, restore
+ * - Document analysis, extraction, versions, compare
+ * - Document activity, favorites, sharing
+ * - Document reprocess, bulk operations
+ * - Document download, thumbnail
+ * - SSE streaming for processing status
+ */
+const fs = require('fs');
+const path = require('path');
+const { parseUrl, parseBody } = require('../../server/request');
+const { jsonResponse } = require('../../server/response');
+
+// Rate limit tracking (module-level for persistence)
+const rateLimitMap = new Map();
+
+function getRateLimitKey(req, action) {
+    const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.socket?.remoteAddress || 'unknown';
+    return `${ip}:${action}`;
+}
+
+function checkRateLimit(key, limit, windowMs) {
+    const now = Date.now();
+    const entry = rateLimitMap.get(key) || { count: 0, resetTime: now + windowMs };
+    
+    if (now > entry.resetTime) {
+        entry.count = 0;
+        entry.resetTime = now + windowMs;
+    }
+    
+    entry.count++;
+    rateLimitMap.set(key, entry);
+    
+    return entry.count <= limit;
+}
+
+function rateLimitResponse(res) {
+    jsonResponse(res, { error: 'Rate limit exceeded. Please try again later.' }, 429);
+}
+
+function isValidUUID(str) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+}
+
+function generateFileIconSVG(fileType) {
+    const colors = {
+        pdf: '#e53935',
+        doc: '#1976d2',
+        docx: '#1976d2',
+        xls: '#388e3c',
+        xlsx: '#388e3c',
+        ppt: '#f57c00',
+        pptx: '#f57c00',
+        txt: '#546e7a',
+        md: '#546e7a',
+        default: '#78909c'
+    };
+    const color = colors[fileType] || colors.default;
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+        <rect x="8" y="4" width="32" height="40" rx="2" fill="${color}" opacity="0.1"/>
+        <rect x="8" y="4" width="32" height="40" rx="2" stroke="${color}" stroke-width="2" fill="none"/>
+        <text x="24" y="30" text-anchor="middle" fill="${color}" font-size="10" font-family="sans-serif">${(fileType || '?').toUpperCase()}</text>
+    </svg>`;
+}
+
+async function handleDocuments(ctx) {
+    const { req, res, pathname, storage, processor, invalidateBriefingCache, getCurrentUserId, PORT } = ctx;
+    
+    // Check if this is a documents route
+    if (!pathname.startsWith('/api/documents')) {
+        return false;
+    }
+    
+    // GET /api/documents/:id/processing/stream - SSE stream for single document reprocess
+    const docProcessStreamMatch = pathname.match(/^\/api\/documents\/([a-f0-9\-]+)\/processing\/stream$/i);
+    if (docProcessStreamMatch && req.method === 'GET') {
+        const docId = docProcessStreamMatch[1];
+        
+        res.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'Access-Control-Allow-Origin': '*'
+        });
+
+        // Send document status updates
+        const sendDocStatus = async () => {
+            try {
+                const { data: doc } = await storage._supabase.supabase
+                    .from('documents')
+                    .select('id, status, summary, facts_count, decisions_count, risks_count, actions_count, questions_count, processed_at, error_message')
+                    .eq('id', docId)
+                    .single();
+                
+                if (doc) {
+                    res.write(`data: ${JSON.stringify(doc)}\n\n`);
+                    
+                    // Stop streaming if processed or failed
+                    if (doc.status === 'processed' || doc.status === 'completed' || doc.status === 'failed') {
+                        res.write(`event: complete\ndata: ${JSON.stringify(doc)}\n\n`);
+                        res.end();
+                        return true; // Signal to stop
+                    }
+                }
+                return false;
+            } catch (err) {
+                console.error('[SSE] Error fetching doc status:', err);
+                return false;
+            }
+        };
+
+        // Send immediately
+        sendDocStatus();
+
+        // Set up interval
+        const intervalId = setInterval(async () => {
+            try {
+                const shouldStop = await sendDocStatus();
+                if (shouldStop) {
+                    clearInterval(intervalId);
+                }
+            } catch (err) {
+                clearInterval(intervalId);
+            }
+        }, 2000); // Update every 2 seconds
+
+        // Clean up on connection close
+        req.on('close', () => {
+            clearInterval(intervalId);
+        });
+
+        return true;
+    }
+
+    // GET /api/documents - List documents with pagination and filtering
+    if (pathname === '/api/documents' && req.method === 'GET') {
+        const parsedUrl = parseUrl(req.url);
+        const status = parsedUrl.query.status || null;
+        const limit = Math.min(parseInt(parsedUrl.query.limit) || 50, 200); // Max 200
+        const offset = parseInt(parsedUrl.query.offset) || 0;
+        const sortBy = ['created_at', 'updated_at', 'filename'].includes(parsedUrl.query.sort) 
+            ? parsedUrl.query.sort : 'created_at';
+        const order = parsedUrl.query.order === 'asc' ? true : false;
+        const docType = parsedUrl.query.type || null;
+        const search = parsedUrl.query.search || null;
+        
+        try {
+            const projectId = storage._supabase.getProjectId();
+            
+            // Build query with server-side filtering
+            let query = storage._supabase.supabase
+                .from('documents')
+                .select('id, filename, filepath, file_type, doc_type, status, created_at, updated_at, processed_at, summary, facts_count, decisions_count, risks_count, actions_count, questions_count, file_size, deleted_at', { count: 'exact' })
+                .eq('project_id', projectId);
+            
+            // Apply status filter
+            if (status === 'deleted') {
+                query = query.not('deleted_at', 'is', null);
+            } else {
+                query = query.is('deleted_at', null);
+                
+                if (status && status !== 'all') {
+                    if (status === 'processed') {
+                        query = query.in('status', ['processed', 'completed']);
+                    } else if (status === 'pending') {
+                        query = query.in('status', ['pending', 'processing']);
+                    } else {
+                        query = query.eq('status', status);
+                    }
+                }
+            }
+            
+            // Apply doc_type filter
+            if (docType && docType !== 'all') {
+                if (docType === 'transcripts') {
+                    query = query.eq('doc_type', 'transcript');
+                } else if (docType === 'emails') {
+                    query = query.eq('doc_type', 'email');
+                } else if (docType === 'images') {
+                    query = query.in('file_type', ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg']);
+                } else if (docType === 'documents') {
+                    query = query.not('doc_type', 'in', '(transcript,email)')
+                        .not('file_type', 'in', '(png,jpg,jpeg,gif,webp,svg)');
+                }
+            }
+            
+            // Apply search filter
+            if (search && search.length >= 2) {
+                query = query.ilike('filename', `%${search}%`);
+            }
+            
+            // Apply sorting and pagination
+            query = query
+                .order(sortBy, { ascending: order })
+                .range(offset, offset + limit - 1);
+            
+            const { data: documents, error, count } = await query;
+            
+            console.log('[Documents] Query result:', { 
+                count, 
+                docsLength: documents?.length || 0,
+                status,
+                projectId,
+                error: error?.message,
+                docStatuses: documents?.map(d => ({ id: d.id?.slice(0,8), status: d.status, deleted: !!d.deleted_at }))
+            });
+            
+            if (error) throw error;
+            
+            // Get status counts for the filter bar
+            const { data: statusCounts } = await storage._supabase.supabase
+                .from('documents')
+                .select('status, deleted_at')
+                .eq('project_id', projectId);
+            
+            const activeItems = (statusCounts || []).filter(d => !d.deleted_at);
+            const deletedItems = (statusCounts || []).filter(d => d.deleted_at);
+            
+            const statuses = {
+                processed: activeItems.filter(d => d.status === 'processed' || d.status === 'completed').length,
+                pending: activeItems.filter(d => d.status === 'pending').length,
+                processing: activeItems.filter(d => d.status === 'processing').length,
+                failed: activeItems.filter(d => d.status === 'failed').length,
+                deleted: deletedItems.length
+            };
+            
+            jsonResponse(res, { 
+                documents: documents || [],
+                total: count || 0,
+                limit,
+                offset,
+                hasMore: offset + limit < (count || 0),
+                statuses
+            });
+        } catch (err) {
+            console.error('[Documents] List error:', err.message);
+            // Fallback to cache
+            const documents = storage.getDocuments(status);
+            jsonResponse(res, { 
+                documents,
+                total: documents.length,
+                limit,
+                offset: 0,
+                hasMore: false,
+                statuses: {
+                    processed: documents.filter(d => d.status === 'processed').length,
+                    pending: documents.filter(d => d.status === 'pending').length,
+                    failed: documents.filter(d => d.status === 'failed').length
+                }
+            });
+        }
+        return true;
+    }
+
+    // GET /api/documents/:id - Get a specific document with full content
+    const docGetMatch = pathname.match(/^\/api\/documents\/([a-f0-9\-]+|\d+)$/i);
+    if (docGetMatch && req.method === 'GET') {
+        const docId = docGetMatch[1];
+        try {
+            const { data: doc, error } = await storage._supabase.supabase
+                .from('documents')
+                .select('*')
+                .eq('id', docId)
+                .single();
+            
+            if (error || !doc) {
+                const cachedDoc = storage.getDocumentById(docId);
+                if (cachedDoc) {
+                    jsonResponse(res, { document: cachedDoc });
+                } else {
+                    jsonResponse(res, { error: 'Document not found' }, 404);
+                }
+            } else {
+                jsonResponse(res, { document: doc });
+            }
+        } catch (err) {
+            const cachedDoc = storage.getDocumentById(docId);
+            if (cachedDoc) {
+                jsonResponse(res, { document: cachedDoc });
+            } else {
+                jsonResponse(res, { error: 'Document not found' }, 404);
+            }
+        }
+        return true;
+    }
+
+    // DELETE /api/documents/:id - Delete a document with cascade
+    const docDeleteMatch = pathname.match(/^\/api\/documents\/([a-f0-9\-]+|\d+)$/i);
+    if (docDeleteMatch && req.method === 'DELETE') {
+        const docId = docDeleteMatch[1];
+        const body = await parseBody(req);
+        const options = {
+            softDelete: body.softDelete !== false,
+            deletePhysicalFile: body.deletePhysicalFile || false,
+            backupData: body.backupData !== false
+        };
+        
+        try {
+            const result = await storage.deleteDocument(docId, options);
+            
+            // Invalidate caches
+            if (invalidateBriefingCache) invalidateBriefingCache();
+            
+            // Delete from graph if connected
+            const graphProvider = storage.getGraphProvider();
+            if (graphProvider && graphProvider.connected) {
+                try {
+                    await graphProvider.query(
+                        `MATCH (d:Document {id: $id}) DETACH DELETE d`,
+                        { id: docId }
+                    );
+                    console.log(`[Graph] Document ${docId} deleted from FalkorDB`);
+                } catch (graphErr) {
+                    console.log('[Graph] Document delete error:', graphErr.message);
+                }
+            }
+            
+            jsonResponse(res, {
+                success: true,
+                ok: true,
+                message: `Document and related data deleted`,
+                deleted: result.deleted
+            });
+        } catch (error) {
+            console.error('[API] deleteDocument error:', error);
+            jsonResponse(res, { success: false, ok: false, error: error.message }, 500);
+        }
+        return true;
+    }
+
+    // POST /api/documents/:id/restore - Restore a soft-deleted document
+    if (pathname.match(/^\/api\/documents\/\d+\/restore$/) && req.method === 'POST') {
+        const docId = parseInt(pathname.split('/')[3]);
+        const doc = storage.getDocumentById(docId);
+        
+        if (!doc) {
+            jsonResponse(res, { error: 'Document not found' }, 404);
+            return true;
+        }
+        
+        if (doc.status !== 'deleted') {
+            jsonResponse(res, { error: 'Document is not deleted' }, 400);
+            return true;
+        }
+        
+        doc.status = 'processed';
+        delete doc.deleted_at;
+        storage.saveDocuments();
+        
+        jsonResponse(res, {
+            success: true,
+            message: `Document "${doc.name}" restored`,
+            document: doc
+        });
+        return true;
+    }
+
+    // GET /api/documents/:id/analysis - Get AI analysis history
+    const analysisMatch = pathname.match(/^\/api\/documents\/([a-f0-9\-]+)\/analysis$/i);
+    if (analysisMatch && req.method === 'GET') {
+        const docId = analysisMatch[1];
+        try {
+            const { data, error } = await storage._supabase.supabase
+                .from('ai_analysis_log')
+                .select('*')
+                .eq('document_id', docId)
+                .order('created_at', { ascending: false });
+            
+            if (error) {
+                console.error('[Analysis] Query error:', error.message);
+                throw error;
+            }
+            jsonResponse(res, { analyses: data || [] });
+        } catch (err) {
+            console.error('[Analysis] Failed to load analysis history:', err.message);
+            jsonResponse(res, { analyses: [] });
+        }
+        return true;
+    }
+
+    // GET /api/documents/:id/extraction - Get extraction data with notes
+    const extractionMatch = pathname.match(/^\/api\/documents\/([a-f0-9\-]+)\/extraction$/i);
+    if (extractionMatch && req.method === 'GET') {
+        const docId = extractionMatch[1];
+        try {
+            const { data, error } = await storage._supabase.supabase
+                .from('documents')
+                .select('extraction_result, project_id')
+                .eq('id', docId)
+                .single();
+            
+            if (error) throw error;
+            
+            let extraction = data?.extraction_result || null;
+            
+            // Enrich participants with contact linking info
+            if (extraction && data?.project_id) {
+                const participants = extraction.participants || [];
+                const entities = extraction.entities || [];
+                const personEntities = entities.filter(e => e.type?.toLowerCase() === 'person');
+                
+                const allPeopleNames = new Set();
+                const allPeople = [];
+                
+                for (const p of participants) {
+                    if (p.name && !allPeopleNames.has(p.name.toLowerCase())) {
+                        allPeopleNames.add(p.name.toLowerCase());
+                        allPeople.push(p);
+                    }
+                }
+                
+                for (const pe of personEntities) {
+                    if (pe.name && !allPeopleNames.has(pe.name.toLowerCase())) {
+                        allPeopleNames.add(pe.name.toLowerCase());
+                        allPeople.push({ name: pe.name });
+                    }
+                }
+                
+                if (allPeople.length > 0) {
+                    const { data: contacts } = await storage._supabase.supabase
+                        .from('contacts')
+                        .select('id, name, aliases, email, organization, role, avatar_url, photo_url')
+                        .eq('project_id', data.project_id)
+                        .is('deleted_at', null);
+                    
+                    console.log(`[Extraction] Enriching ${allPeople.length} participants, found ${contacts?.length || 0} contacts`);
+                    
+                    const enrichedParticipants = allPeople.map(p => {
+                        const personNameLower = (p.name || '').toLowerCase().trim();
+                        
+                        const matchedContact = (contacts || []).find(c => {
+                            if (c.name?.toLowerCase().trim() === personNameLower) return true;
+                            if (c.aliases?.some(a => a?.toLowerCase().trim() === personNameLower)) return true;
+                            return false;
+                        });
+                        
+                        if (matchedContact) {
+                            console.log(`[Extraction] Matched "${p.name}" -> contact "${matchedContact.name}" (${matchedContact.id})`);
+                        }
+                        
+                        return {
+                            ...p,
+                            contact_id: matchedContact?.id || null,
+                            contact_name: matchedContact?.name || null,
+                            contact_email: matchedContact?.email || null,
+                            contact_avatar: matchedContact?.avatar_url || matchedContact?.photo_url || null,
+                            contact_role: matchedContact?.role || null,
+                            contact_organization: matchedContact?.organization || null
+                        };
+                    });
+                    
+                    extraction = {
+                        ...extraction,
+                        participants: enrichedParticipants
+                    };
+                }
+            }
+            
+            jsonResponse(res, { extraction });
+        } catch (err) {
+            console.error('[Extraction] Error:', err.message);
+            jsonResponse(res, { extraction: null });
+        }
+        return true;
+    }
+
+    // GET /api/documents/:id/versions - Get version history
+    const versionsGetMatch = pathname.match(/^\/api\/documents\/([a-f0-9\-]+)\/versions$/i);
+    if (versionsGetMatch && req.method === 'GET') {
+        const docId = versionsGetMatch[1];
+        try {
+            const { data, error } = await storage._supabase.supabase
+                .from('document_versions')
+                .select('*')
+                .eq('document_id', docId)
+                .order('version_number', { ascending: false });
+            
+            if (error) throw error;
+            jsonResponse(res, { versions: data || [] });
+        } catch (err) {
+            jsonResponse(res, { versions: [] });
+        }
+        return true;
+    }
+
+    // GET /api/documents/:id/compare/:versionId - Compare document versions
+    const compareMatch = pathname.match(/^\/api\/documents\/([a-f0-9\-]+)\/compare\/([a-f0-9\-]+)$/i);
+    if (compareMatch && req.method === 'GET') {
+        const docId = compareMatch[1];
+        const compareVersionId = compareMatch[2];
+        
+        try {
+            const { data: doc } = await storage._supabase.supabase
+                .from('documents')
+                .select('content, summary, filename')
+                .eq('id', docId)
+                .single();
+
+            const { data: version } = await storage._supabase.supabase
+                .from('document_versions')
+                .select('content, summary, version_number, filename')
+                .eq('id', compareVersionId)
+                .single();
+
+            if (!doc || !version) {
+                jsonResponse(res, { error: 'Document or version not found' }, 404);
+                return true;
+            }
+
+            const currentContent = doc.content || '';
+            const versionContent = version.content || '';
+            
+            const currentLines = currentContent.split('\n');
+            const versionLines = versionContent.split('\n');
+            
+            const diff = {
+                additions: 0,
+                deletions: 0,
+                changes: []
+            };
+            
+            const maxLines = Math.max(currentLines.length, versionLines.length);
+            for (let i = 0; i < maxLines; i++) {
+                const currentLine = currentLines[i] || '';
+                const versionLine = versionLines[i] || '';
+                
+                if (currentLine !== versionLine) {
+                    if (currentLine && !versionLine) {
+                        diff.additions++;
+                        diff.changes.push({ type: 'add', line: i + 1, content: currentLine });
+                    } else if (!currentLine && versionLine) {
+                        diff.deletions++;
+                        diff.changes.push({ type: 'delete', line: i + 1, content: versionLine });
+                    } else {
+                        diff.deletions++;
+                        diff.additions++;
+                        diff.changes.push({ type: 'change', line: i + 1, old: versionLine, new: currentLine });
+                    }
+                }
+            }
+
+            const entityTypes = ['facts', 'decisions', 'risks', 'action_items', 'knowledge_questions'];
+            const entityDiff = {};
+            
+            for (const table of entityTypes) {
+                const { count: currentCount } = await storage._supabase.supabase
+                    .from(table)
+                    .select('id', { count: 'exact', head: true })
+                    .eq('source_document_id', docId);
+                
+                entityDiff[table.replace('action_items', 'actions').replace('knowledge_questions', 'questions')] = {
+                    current: currentCount || 0
+                };
+            }
+
+            jsonResponse(res, {
+                current: {
+                    filename: doc.filename,
+                    summary: doc.summary,
+                    content_preview: currentContent.substring(0, 500)
+                },
+                version: {
+                    version_number: version.version_number,
+                    filename: version.filename,
+                    summary: version.summary,
+                    content_preview: versionContent.substring(0, 500)
+                },
+                diff: {
+                    stats: {
+                        additions: diff.additions,
+                        deletions: diff.deletions,
+                        total_changes: diff.changes.length
+                    },
+                    changes: diff.changes.slice(0, 100),
+                    entities: entityDiff
+                }
+            });
+        } catch (err) {
+            console.error('[Compare] Error:', err);
+            jsonResponse(res, { error: 'Failed to compare versions' }, 500);
+        }
+        return true;
+    }
+
+    // POST /api/documents/:id/versions - Upload new version
+    const versionsPostMatch = pathname.match(/^\/api\/documents\/([a-f0-9\-]+)\/versions$/i);
+    if (versionsPostMatch && req.method === 'POST') {
+        const docId = versionsPostMatch[1];
+        jsonResponse(res, { 
+            success: true, 
+            message: 'Version upload endpoint - implement with file handling',
+            document_id: docId 
+        });
+        return true;
+    }
+
+    // GET /api/documents/:id/activity - Get activity log
+    const activityMatch = pathname.match(/^\/api\/documents\/([a-f0-9\-]+)\/activity$/i);
+    if (activityMatch && req.method === 'GET') {
+        const docId = activityMatch[1];
+        try {
+            const { data: activities, error } = await storage._supabase.supabase
+                .from('document_activity')
+                .select('*')
+                .eq('document_id', docId)
+                .order('created_at', { ascending: false })
+                .limit(50);
+            
+            if (error) {
+                console.error('[Activity] Query error:', error.message);
+                throw error;
+            }
+            
+            const userIds = [...new Set((activities || []).map(a => a.user_id).filter(Boolean))];
+            let userMap = {};
+            
+            if (userIds.length > 0) {
+                const { data: profiles } = await storage._supabase.supabase
+                    .from('user_profiles')
+                    .select('id, display_name, avatar_url')
+                    .in('id', userIds);
+                
+                if (profiles) {
+                    userMap = Object.fromEntries(profiles.map(p => [p.id, p]));
+                }
+            }
+            
+            const result = (activities || []).map(a => ({
+                ...a,
+                user_name: userMap[a.user_id]?.display_name || a.user_name || 'System',
+                user_avatar: userMap[a.user_id]?.avatar_url || a.user_avatar
+            }));
+            
+            jsonResponse(res, { activities: result });
+        } catch (err) {
+            console.error('[Activity] Failed to load activity:', err.message);
+            jsonResponse(res, { activities: [] });
+        }
+        return true;
+    }
+
+    // GET /api/documents/:id/favorite - Check if document is favorite
+    const favoriteGetMatch = pathname.match(/^\/api\/documents\/([a-f0-9\-]+)\/favorite$/i);
+    if (favoriteGetMatch && req.method === 'GET') {
+        const docId = favoriteGetMatch[1];
+        const userId = await getCurrentUserId(req, storage);
+        
+        if (!userId) {
+            jsonResponse(res, { is_favorite: false });
+            return true;
+        }
+        
+        try {
+            const { data, error } = await storage._supabase.supabase
+                .from('document_favorites')
+                .select('id')
+                .eq('document_id', docId)
+                .eq('user_id', userId)
+                .single();
+            
+            jsonResponse(res, { is_favorite: !!data && !error });
+        } catch (err) {
+            jsonResponse(res, { is_favorite: false });
+        }
+        return true;
+    }
+
+    // POST /api/documents/:id/favorite - Toggle favorite
+    const favoritePostMatch = pathname.match(/^\/api\/documents\/([a-f0-9\-]+)\/favorite$/i);
+    if (favoritePostMatch && req.method === 'POST') {
+        const docId = favoritePostMatch[1];
+        const userId = await getCurrentUserId(req, storage);
+        
+        if (!userId) {
+            jsonResponse(res, { error: 'Not authenticated' }, 401);
+            return true;
+        }
+        
+        try {
+            const { data: existing } = await storage._supabase.supabase
+                .from('document_favorites')
+                .select('id')
+                .eq('document_id', docId)
+                .eq('user_id', userId)
+                .single();
+            
+            if (existing) {
+                await storage._supabase.supabase
+                    .from('document_favorites')
+                    .delete()
+                    .eq('document_id', docId)
+                    .eq('user_id', userId);
+                
+                jsonResponse(res, { is_favorite: false, message: 'Removed from favorites' });
+            } else {
+                await storage._supabase.supabase
+                    .from('document_favorites')
+                    .insert({ document_id: docId, user_id: userId });
+                
+                jsonResponse(res, { is_favorite: true, message: 'Added to favorites' });
+            }
+        } catch (err) {
+            jsonResponse(res, { error: 'Failed to update favorite' }, 500);
+        }
+        return true;
+    }
+
+    // GET /api/documents/:id/reprocess/check - Check if reprocess will have same content
+    const reprocessCheckMatch = pathname.match(/^\/api\/documents\/([a-f0-9\-]+)\/reprocess\/check$/i);
+    if (reprocessCheckMatch && req.method === 'GET') {
+        const docId = reprocessCheckMatch[1];
+        
+        try {
+            const { data: doc, error: docError } = await storage._supabase.supabase
+                .from('documents')
+                .select('*')
+                .eq('id', docId)
+                .single();
+            
+            if (docError || !doc) {
+                jsonResponse(res, { error: 'Document not found' }, 404);
+                return true;
+            }
+            
+            let filePath = doc.filepath || doc.path;
+            const projectDataDir = storage.getProjectDataDir();
+            const contentDir = path.join(projectDataDir, 'content');
+            const baseName = path.basename(doc.filename || '', path.extname(doc.filename || ''));
+            const contentFilePath = path.join(contentDir, `${baseName}.md`);
+            
+            if ((!filePath || !fs.existsSync(filePath)) && fs.existsSync(contentFilePath)) {
+                filePath = contentFilePath;
+            }
+            
+            let currentHash = null;
+            let hasContent = false;
+            
+            if (filePath && fs.existsSync(filePath)) {
+                const content = fs.readFileSync(filePath, 'utf-8');
+                currentHash = require('crypto').createHash('md5').update(content).digest('hex');
+                hasContent = true;
+            } else if (doc.content) {
+                currentHash = require('crypto').createHash('md5').update(doc.content).digest('hex');
+                hasContent = true;
+            }
+            
+            const previousHash = doc.content_hash || doc.file_hash;
+            const hashMatch = previousHash && currentHash && previousHash === currentHash;
+            
+            const entityCounts = {};
+            for (const type of ['facts', 'decisions', 'risks', 'actions', 'questions']) {
+                try {
+                    const { count } = await storage._supabase.supabase
+                        .from(type)
+                        .select('id', { count: 'exact', head: true })
+                        .eq('source_document_id', docId);
+                    entityCounts[type] = count || 0;
+                } catch {
+                    entityCounts[type] = 0;
+                }
+            }
+            
+            jsonResponse(res, {
+                document_id: docId,
+                has_content: hasContent,
+                current_hash: currentHash,
+                previous_hash: previousHash,
+                hash_match: hashMatch,
+                existing_entities: entityCounts,
+                total_entities: Object.values(entityCounts).reduce((a, b) => a + b, 0),
+                status: doc.status
+            });
+        } catch (err) {
+            console.error('[Reprocess Check] Error:', err);
+            jsonResponse(res, { error: 'Failed to check document' }, 500);
+        }
+        return true;
+    }
+
+    // POST /api/documents/:id/reset-status - Reset a stuck document's status
+    const resetStatusMatch = pathname.match(/^\/api\/documents\/([a-f0-9\-]+)\/reset-status$/i);
+    if (resetStatusMatch && req.method === 'POST') {
+        const docId = resetStatusMatch[1];
+        
+        try {
+            const { data: doc, error: fetchError } = await storage._supabase.supabase
+                .from('documents')
+                .select('id, status, filename')
+                .eq('id', docId)
+                .single();
+            
+            if (fetchError || !doc) {
+                jsonResponse(res, { error: 'Document not found' }, 404);
+                return true;
+            }
+            
+            if (doc.status !== 'processing') {
+                jsonResponse(res, { error: `Document is not stuck (status: ${doc.status})` }, 400);
+                return true;
+            }
+            
+            const { error: updateError } = await storage._supabase.supabase
+                .from('documents')
+                .update({ 
+                    status: 'completed',
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', docId);
+            
+            if (updateError) throw updateError;
+            
+            console.log(`[Documents] Reset status for ${doc.filename} (${docId}) from 'processing' to 'completed'`);
+            
+            jsonResponse(res, { 
+                success: true, 
+                message: `Document status reset to 'completed'`,
+                document: { id: docId, filename: doc.filename, status: 'completed' }
+            });
+        } catch (err) {
+            console.error('[Documents] Reset status error:', err.message);
+            jsonResponse(res, { error: 'Failed to reset document status' }, 500);
+        }
+        return true;
+    }
+
+    // POST /api/documents/:id/reprocess - Reprocess a document
+    const reprocessMatch = pathname.match(/^\/api\/documents\/([a-f0-9\-]+)\/reprocess$/i);
+    if (reprocessMatch && req.method === 'POST') {
+        const docId = reprocessMatch[1];
+        
+        const rateLimitKey = getRateLimitKey(req, 'reprocess');
+        if (!checkRateLimit(rateLimitKey, 5, 60000)) {
+            rateLimitResponse(res);
+            return true;
+        }
+        
+        if (!isValidUUID(docId)) {
+            jsonResponse(res, { error: 'Invalid document ID' }, 400);
+            return true;
+        }
+        
+        try {
+            const { data: doc, error: docError } = await storage._supabase.supabase
+                .from('documents')
+                .select('id, filename, status, project_id')
+                .eq('id', docId)
+                .single();
+            
+            if (docError || !doc) {
+                jsonResponse(res, { error: 'Document not found' }, 404);
+                return true;
+            }
+            
+            if (doc.status === 'processing') {
+                jsonResponse(res, { 
+                    error: 'Document is already being reprocessed',
+                    status: 'processing'
+                }, 409);
+                return true;
+            }
+            
+            const userId = await getCurrentUserId(req, storage);
+            if (userId) {
+                try {
+                    await storage._supabase.supabase
+                        .from('document_activity')
+                        .insert({
+                            document_id: docId,
+                            project_id: doc.project_id,
+                            user_id: userId,
+                            action: 'reprocess_started',
+                            metadata: { triggered_by: 'user' }
+                        });
+                } catch (activityErr) {
+                    console.warn('[Reprocess] Failed to log activity:', activityErr.message);
+                }
+            }
+            
+            jsonResponse(res, { 
+                success: true, 
+                message: 'Document reprocessing started',
+                document_id: docId
+            });
+            
+            processor.reprocessDocument(docId).then(result => {
+                if (result.success) {
+                    console.log(`[Reprocess] Complete: ${doc.filename} - ${result.entities} entities extracted`);
+                } else {
+                    console.error(`[Reprocess] Failed: ${doc.filename} - ${result.error}`);
+                }
+            }).catch(err => {
+                console.error(`[Reprocess] Unexpected error: ${err.message}`);
+            });
+            
+        } catch (err) {
+            console.error('[Reprocess] Error:', err);
+            jsonResponse(res, { error: 'Failed to reprocess document' }, 500);
+        }
+        return true;
+    }
+
+    // POST /api/documents/bulk/delete - Bulk delete documents with cascade
+    if (pathname === '/api/documents/bulk/delete' && req.method === 'POST') {
+        const rateLimitKey = getRateLimitKey(req, 'bulk-delete');
+        if (!checkRateLimit(rateLimitKey, 10, 60000)) {
+            rateLimitResponse(res);
+            return true;
+        }
+        
+        const body = await parseBody(req);
+        const ids = body.ids;
+        
+        if (!Array.isArray(ids) || ids.length === 0) {
+            jsonResponse(res, { error: 'ids array is required' }, 400);
+            return true;
+        }
+        
+        const invalidIds = ids.filter(id => !isValidUUID(id));
+        if (invalidIds.length > 0) {
+            jsonResponse(res, { 
+                error: 'Invalid document IDs', 
+                invalid: invalidIds 
+            }, 400);
+            return true;
+        }
+
+        try {
+            const results = { 
+                success: [], 
+                failed: [], 
+                deleted: 0, 
+                entitiesDeactivated: 0 
+            };
+            const timestamp = new Date().toISOString();
+            const entityTables = ['facts', 'decisions', 'risks', 'action_items', 'knowledge_questions'];
+            
+            for (const id of ids) {
+                try {
+                    const { error: deleteError } = await storage._supabase.supabase
+                        .from('documents')
+                        .update({ deleted_at: timestamp })
+                        .eq('id', id);
+                    
+                    if (deleteError) throw deleteError;
+                    
+                    let entitiesCount = 0;
+                    for (const table of entityTables) {
+                        try {
+                            const { count } = await storage._supabase.supabase
+                                .from(table)
+                                .update({ is_active: false })
+                                .eq('source_document_id', id)
+                                .select('id', { count: 'exact', head: true });
+                            entitiesCount += count || 0;
+                        } catch (entityErr) {
+                            // Some tables may not have is_active column
+                        }
+                    }
+                    
+                    results.success.push({ id, entitiesDeactivated: entitiesCount });
+                    results.deleted++;
+                    results.entitiesDeactivated += entitiesCount;
+                } catch (err) {
+                    results.failed.push({ id, error: err.message });
+                }
+            }
+            
+            if (invalidateBriefingCache) invalidateBriefingCache();
+
+            jsonResponse(res, { 
+                success: results.failed.length === 0, 
+                deleted: results.deleted,
+                entitiesDeactivated: results.entitiesDeactivated,
+                results: results.success,
+                errors: results.failed
+            });
+        } catch (err) {
+            console.error('[BulkDelete] Error:', err);
+            jsonResponse(res, { error: 'Failed to delete documents' }, 500);
+        }
+        return true;
+    }
+
+    // POST /api/documents/bulk/reprocess - Bulk reprocess documents
+    if (pathname === '/api/documents/bulk/reprocess' && req.method === 'POST') {
+        const rateLimitKey = getRateLimitKey(req, 'bulk-reprocess');
+        if (!checkRateLimit(rateLimitKey, 3, 60000)) {
+            rateLimitResponse(res);
+            return true;
+        }
+        
+        const body = await parseBody(req);
+        const ids = body.ids;
+        
+        if (!Array.isArray(ids) || ids.length === 0) {
+            jsonResponse(res, { error: 'ids array is required' }, 400);
+            return true;
+        }
+        
+        const invalidIds = ids.filter(id => !isValidUUID(id));
+        if (invalidIds.length > 0) {
+            jsonResponse(res, { 
+                error: 'Invalid document IDs', 
+                invalid: invalidIds 
+            }, 400);
+            return true;
+        }
+
+        jsonResponse(res, { 
+            success: true, 
+            message: `${ids.length} documents queued for reprocessing`,
+            queued: ids,
+            failed: []
+        });
+
+        (async () => {
+            console.log(`[BulkReprocess] Starting reprocess for ${ids.length} documents`);
+            let completed = 0;
+            let failed = 0;
+            
+            for (const docId of ids) {
+                try {
+                    const result = await processor.reprocessDocument(docId);
+                    if (result.success) {
+                        completed++;
+                        console.log(`[BulkReprocess] ${completed}/${ids.length} - ${docId}: ${result.entities} entities`);
+                    } else {
+                        failed++;
+                        console.error(`[BulkReprocess] ${completed}/${ids.length} - ${docId}: FAILED - ${result.error}`);
+                    }
+                } catch (err) {
+                    failed++;
+                    console.error(`[BulkReprocess] Error processing ${docId}:`, err.message);
+                }
+            }
+            
+            console.log(`[BulkReprocess] Completed: ${completed} successful, ${failed} failed out of ${ids.length} total`);
+        })();
+
+        return true;
+    }
+
+    // POST /api/documents/bulk/export - Bulk export as ZIP
+    if (pathname === '/api/documents/bulk/export' && req.method === 'POST') {
+        const body = await parseBody(req);
+        const ids = body.ids;
+        const format = body.format || 'original';
+        
+        if (!Array.isArray(ids) || ids.length === 0) {
+            jsonResponse(res, { error: 'ids array is required' }, 400);
+            return true;
+        }
+
+        try {
+            const archiver = require('archiver');
+            const archive = archiver('zip', { zlib: { level: 9 } });
+
+            res.setHeader('Content-Type', 'application/zip');
+            res.setHeader('Content-Disposition', `attachment; filename="documents_export_${Date.now()}.zip"`);
+
+            archive.pipe(res);
+
+            for (const id of ids) {
+                try {
+                    const { data: doc } = await storage._supabase.supabase
+                        .from('documents')
+                        .select('*')
+                        .eq('id', id)
+                        .single();
+
+                    if (!doc) continue;
+
+                    if (format === 'markdown' && doc.content) {
+                        const mdContent = `# ${doc.title || doc.filename}\n\n${doc.summary ? `## Summary\n${doc.summary}\n\n` : ''}## Content\n\n${doc.content}`;
+                        archive.append(mdContent, { name: `${doc.filename.replace(/\.[^.]+$/, '')}.md` });
+                    } else {
+                        let filePath = doc.filepath;
+                        if (!filePath || !fs.existsSync(filePath)) {
+                            const contentDir = path.join(storage.getProjectDataDir(), 'content');
+                            const baseName = doc.filename.replace(/\.[^.]+$/, '.md');
+                            filePath = path.join(contentDir, baseName);
+                        }
+
+                        if (filePath && fs.existsSync(filePath)) {
+                            archive.file(filePath, { name: doc.filename });
+                        } else if (doc.content) {
+                            archive.append(doc.content, { name: doc.filename });
+                        }
+                    }
+                } catch (err) {
+                    console.error(`[BulkExport] Error adding ${id}:`, err);
+                }
+            }
+
+            await archive.finalize();
+        } catch (err) {
+            console.error('[BulkExport] Error:', err);
+            jsonResponse(res, { error: 'Failed to export documents' }, 500);
+        }
+        return true;
+    }
+
+    // POST /api/documents/:id/share - Create share link
+    const sharePostMatch = pathname.match(/^\/api\/documents\/([a-f0-9\-]+)\/share$/i);
+    if (sharePostMatch && req.method === 'POST') {
+        const docId = sharePostMatch[1];
+        const body = await parseBody(req);
+        const userId = await getCurrentUserId(req, storage);
+        
+        try {
+            const crypto = require('crypto');
+            const token = crypto.randomBytes(24).toString('base64url');
+            
+            let expiresAt = null;
+            if (body.expires && body.expires !== 'never') {
+                const days = parseInt(body.expires) || 7;
+                expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+            }
+            
+            const { data: doc } = await storage._supabase.supabase
+                .from('documents')
+                .select('project_id')
+                .eq('id', docId)
+                .single();
+            
+            const { data, error } = await storage._supabase.supabase
+                .from('document_shares')
+                .insert({
+                    document_id: docId,
+                    project_id: doc?.project_id || storage.currentProjectId,
+                    token,
+                    expires_at: expiresAt,
+                    max_views: body.max_views || null,
+                    permissions: body.permissions || ['view'],
+                    created_by: userId
+                })
+                .select()
+                .single();
+            
+            if (error) throw error;
+            
+            const baseUrl = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
+            jsonResponse(res, {
+                success: true,
+                url: `${baseUrl}/share/${token}`,
+                token,
+                share: data
+            });
+        } catch (err) {
+            console.error('[Share] Error:', err);
+            jsonResponse(res, { error: 'Failed to create share link' }, 500);
+        }
+        return true;
+    }
+
+    // GET /api/documents/favorites/count - Count user's favorites
+    if (pathname === '/api/documents/favorites/count' && req.method === 'GET') {
+        const userId = await getCurrentUserId(req, storage);
+        
+        if (!userId) {
+            jsonResponse(res, { count: 0 });
+            return true;
+        }
+        
+        try {
+            const { count, error } = await storage._supabase.supabase
+                .from('document_favorites')
+                .select('*', { count: 'exact', head: true })
+                .eq('user_id', userId);
+            
+            jsonResponse(res, { count: count || 0 });
+        } catch (err) {
+            jsonResponse(res, { count: 0 });
+        }
+        return true;
+    }
+
+    // GET /api/documents/recent/count - Count user's recent views
+    if (pathname === '/api/documents/recent/count' && req.method === 'GET') {
+        const userId = await getCurrentUserId(req, storage);
+        
+        if (!userId) {
+            jsonResponse(res, { count: 0 });
+            return true;
+        }
+        
+        try {
+            const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+            const { count, error } = await storage._supabase.supabase
+                .from('document_views')
+                .select('*', { count: 'exact', head: true })
+                .eq('user_id', userId)
+                .gte('last_viewed_at', sevenDaysAgo);
+            
+            jsonResponse(res, { count: count || 0 });
+        } catch (err) {
+            jsonResponse(res, { count: 0 });
+        }
+        return true;
+    }
+
+    // GET /api/documents/:id/download - Download document
+    const downloadMatch = pathname.match(/^\/api\/documents\/([a-f0-9\-]+)\/download$/i);
+    if (downloadMatch && req.method === 'GET') {
+        const docId = downloadMatch[1];
+        
+        try {
+            const { data: doc } = await storage._supabase.supabase
+                .from('documents')
+                .select('filepath, filename, file_type, content')
+                .eq('id', docId)
+                .single();
+
+            if (!doc) {
+                jsonResponse(res, { error: 'Document not found' }, 404);
+                return true;
+            }
+
+            let filePath = doc.filepath;
+            if (!filePath || !fs.existsSync(filePath)) {
+                const contentDir = path.join(storage.getProjectDataDir(), 'content');
+                const baseName = path.basename(doc.filename || '', path.extname(doc.filename || ''));
+                filePath = path.join(contentDir, `${baseName}.md`);
+            }
+
+            if (!filePath || !fs.existsSync(filePath)) {
+                if (doc.content) {
+                    const contentType = doc.file_type === 'md' ? 'text/markdown' : 'text/plain';
+                    res.setHeader('Content-Type', contentType);
+                    res.setHeader('Content-Disposition', `attachment; filename="${doc.filename || 'document.txt'}"`);
+                    res.end(doc.content);
+                    return true;
+                }
+                jsonResponse(res, { error: 'File not found' }, 404);
+                return true;
+            }
+
+            const mimeTypes = {
+                pdf: 'application/pdf',
+                doc: 'application/msword',
+                docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                xls: 'application/vnd.ms-excel',
+                xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                ppt: 'application/vnd.ms-powerpoint',
+                pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                txt: 'text/plain',
+                md: 'text/markdown',
+                json: 'application/json',
+                png: 'image/png',
+                jpg: 'image/jpeg',
+                jpeg: 'image/jpeg',
+                gif: 'image/gif',
+                webp: 'image/webp'
+            };
+            const ext = (doc.file_type || path.extname(doc.filename || '').slice(1)).toLowerCase();
+            const contentType = mimeTypes[ext] || 'application/octet-stream';
+            
+            const safeFilename = (doc.filename || 'document').replace(/[^\w\-. ]/g, '_');
+            
+            res.setHeader('Content-Type', contentType);
+            res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}"`);
+            res.setHeader('X-Content-Type-Options', 'nosniff');
+            res.setHeader('Content-Security-Policy', "default-src 'none'");
+            
+            const stream = fs.createReadStream(filePath);
+            stream.pipe(res);
+        } catch (err) {
+            console.error('[Download] Error:', err.message);
+            jsonResponse(res, { error: 'Download failed' }, 500);
+        }
+        return true;
+    }
+
+    // GET /api/documents/:id/thumbnail - Get document thumbnail
+    const thumbnailMatch = pathname.match(/^\/api\/documents\/([a-f0-9\-]+)\/thumbnail$/i);
+    if (thumbnailMatch && req.method === 'GET') {
+        const docId = thumbnailMatch[1];
+        
+        try {
+            const { data: doc } = await storage._supabase.supabase
+                .from('documents')
+                .select('filepath, filename, file_type, created_at')
+                .eq('id', docId)
+                .single();
+
+            if (!doc) {
+                jsonResponse(res, { error: 'Document not found' }, 404);
+                return true;
+            }
+
+            const cacheDir = path.join(storage.getProjectDataDir(), 'documents', 'cache', 'thumbnails');
+            const cachePath = path.join(cacheDir, `${docId}.png`);
+            
+            if (fs.existsSync(cachePath)) {
+                res.setHeader('Content-Type', 'image/png');
+                res.setHeader('Cache-Control', 'public, max-age=86400');
+                fs.createReadStream(cachePath).pipe(res);
+                return true;
+            }
+
+            const fileType = doc.file_type?.toLowerCase() || path.extname(doc.filename || '').slice(1).toLowerCase();
+            let thumbnailGenerated = false;
+
+            if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(fileType) && doc.filepath && fs.existsSync(doc.filepath)) {
+                try {
+                    const sharp = require('sharp');
+                    
+                    // Ensure cache directory exists
+                    if (!fs.existsSync(cacheDir)) {
+                        fs.mkdirSync(cacheDir, { recursive: true });
+                    }
+                    
+                    await sharp(doc.filepath)
+                        .resize(200, 200, { fit: 'cover' })
+                        .png()
+                        .toFile(cachePath);
+                    thumbnailGenerated = true;
+                } catch (sharpErr) {
+                    console.warn('[Thumbnail] Sharp not available or failed:', sharpErr.message);
+                }
+            }
+
+            if (fileType === 'pdf' && doc.filepath && fs.existsSync(doc.filepath)) {
+                try {
+                    const { fromPath } = require('pdf2pic');
+                    
+                    // Ensure cache directory exists
+                    if (!fs.existsSync(cacheDir)) {
+                        fs.mkdirSync(cacheDir, { recursive: true });
+                    }
+                    
+                    const convert = fromPath(doc.filepath, {
+                        density: 100,
+                        saveFilename: docId,
+                        savePath: cacheDir,
+                        format: 'png',
+                        width: 200,
+                        height: 280
+                    });
+                    await convert(1);
+                    const generatedPath = path.join(cacheDir, `${docId}.1.png`);
+                    if (fs.existsSync(generatedPath)) {
+                        fs.renameSync(generatedPath, cachePath);
+                        thumbnailGenerated = true;
+                    }
+                } catch (pdfErr) {
+                    console.warn('[Thumbnail] pdf2pic not available or failed:', pdfErr.message);
+                }
+            }
+
+            if (thumbnailGenerated && fs.existsSync(cachePath)) {
+                res.setHeader('Content-Type', 'image/png');
+                res.setHeader('Cache-Control', 'public, max-age=86400');
+                fs.createReadStream(cachePath).pipe(res);
+            } else {
+                const iconSvg = generateFileIconSVG(fileType);
+                res.setHeader('Content-Type', 'image/svg+xml');
+                res.setHeader('Cache-Control', 'public, max-age=3600');
+                res.end(iconSvg);
+            }
+        } catch (err) {
+            console.error('[Thumbnail] Error:', err);
+            jsonResponse(res, { error: 'Failed to generate thumbnail' }, 500);
+        }
+        return true;
+    }
+
+    // Not handled by this module
+    return false;
+}
+
+module.exports = { handleDocuments };
