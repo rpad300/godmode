@@ -1,0 +1,97 @@
+/* ==========================================================================
+   Primitive: Table
+   ========================================================================== */
+
+.table-container {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-small);
+  text-align: left;
+}
+
+.table th,
+.table td {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border-muted);
+}
+
+.table th {
+  background-color: var(--color-surface-2);
+  color: var(--color-text-muted);
+  font-weight: 600;
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: var(--z-base); /* Ensure headers stay above content if scrolled */
+}
+
+.table tr:last-child td {
+  border-bottom: none;
+}
+
+.table tr:hover td {
+  background-color: var(--color-surface-2);
+}
+
+/* Cell alignment */
+.table-cell-right { text-align: right; }
+.table-cell-center { text-align: center; }
+.table-cell-fit { width: 1%; white-space: nowrap; }
+
+/* Responsive: Stacked cards on Phone */
+@media (max-width: 480px) {
+  .table, .table tbody, .table tr, .table td {
+    display: block;
+    width: 100%;
+  }
+  
+  .table thead {
+    display: none; /* Hide headers */
+  }
+  
+  .table tr {
+    margin-bottom: var(--space-4);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background-color: var(--color-surface);
+    overflow: hidden;
+  }
+  
+  .table td {
+    padding: var(--space-3);
+    border-bottom: 1px solid var(--color-border-muted);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    text-align: right;
+  }
+  
+  /* Add label via data attribute if available */
+  .table td::before {
+    content: attr(data-label);
+    font-weight: 600;
+    color: var(--color-text-muted);
+    text-align: left;
+    margin-right: var(--space-3);
+  }
+}
+
+/* TV adjustments: Density */
+@media (min-width: 1441px) {
+  .table {
+    font-size: var(--font-size-body);
+  }
+  
+  .table th,
+  .table td {
+    padding: var(--space-5) var(--space-6);
+  }
+}

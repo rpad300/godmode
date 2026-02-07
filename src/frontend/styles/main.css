@@ -1,0 +1,79 @@
+/**
+ * Main CSS Entry Point
+ * GodMode Design System
+ * 
+ * This file imports all CSS modules in the correct order.
+ */
+
+/* ==================== Foundation ==================== */
+@import './variables.css';
+
+/* New centralized system layer (migrating to this incrementally) */
+@import './system/tokens.css';
+@import './system/base.css';
+@import './system/layout.css';
+@import './system/primitives/button.css';
+@import './system/primitives/input.css';
+@import './system/primitives/checkbox.css';
+@import './system/primitives/card.css';
+@import './system/primitives/empty-state.css';
+@import './system/primitives/admin-layout.css';
+@import './system/primitives/modal.css';
+@import './system/primitives/table.css';
+@import './system/primitives/badge.css';
+@import './system/primitives/toast.css';
+@import './system/primitives/alert.css';
+@import './system/primitives/tabs.css';
+
+/* Legacy foundation (will shrink over time) */
+@import './base.css';
+@import './layout.css';
+
+/* ==================== Components ==================== */
+@import './components/animations.css';
+@import './components/buttons.css';
+@import './components/forms.css';
+@import './components/cards.css';
+@import './components/modals.css';
+@import './components/modal-sota.css';
+@import './components/tabs.css';
+@import './components/tables.css';
+@import './components/header.css';
+@import './components/sidebar.css';
+@import './components/dropdowns.css';
+@import './components/status.css';
+@import './components/chat.css';
+@import './components/tooltips.css';
+@import './components/sot.css';
+@import './components/auth.css';
+@import './components/project-selector.css';
+/* @import './components/dashboard.css'; Deprecated */
+@import './components/dashboard-golden-hours.css';
+@import './components/roles-panel.css';
+@import './components/questions-sota.css';
+@import './components/sot-panels.css';
+@import './components/question-detail.css';
+@import './components/fact-detail.css';
+@import './components/decision-detail.css';
+@import './components/risk-detail.css';
+@import './components/action-detail.css';
+@import './components/widgets.css';
+@import './components/file-uploader.css';
+@import './components/visualizations.css';
+@import './components/global-search.css';
+@import './components/bulk-sync.css';
+@import './components/profile.css';
+@import './components/briefing-reports.css';
+@import './components/contacts-teams.css';
+@import './components/documents.css';
+/* @import './components/documents-panel-minimal.css'; Deprecated */
+@import './components/emails.css';
+@import './components/notifications-comments.css';
+@import './components/settings-admin.css';
+/* @import './components/admin-panel.css'; Deprecated */
+@import './components/history.css';
+@import './components/timeline-sota.css';
+@import './components/team-analysis.css';
+
+/* ==================== Themes ==================== */
+/* Theme variables are already in variables.css via [data-theme] selectors */

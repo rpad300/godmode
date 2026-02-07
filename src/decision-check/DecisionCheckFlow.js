@@ -1,0 +1,162 @@
+/**
+ * Decision Check Flow
+ * Runs analysis on project decisions using the app's configured AI (LLM): detects
+ * conflicts/contradictions via LLM, records conflict_detected in decision_events.
+ * Prompt is loaded from Supabase (system_prompts key: decision_check_conflicts) and editable in Admin.
+ */
+
+const llm = require('../llm');
+const llmConfig = require('../llm/config');
+const promptsService = require('../supabase/prompts');
+
+function getDecisionCheckLLMConfig(config) {
+    const overrides = { model: config?.ollama?.reasoningModel || config?.llm?.models?.reasoning };
+    let textCfg = llmConfig.getTextConfig(config, overrides);
+    if (textCfg.provider && textCfg.model) {
+        textCfg.providerConfig = textCfg.providerConfig || config?.llm?.providers?.[textCfg.provider] || {};
+        return textCfg;
+    }
+    if (config?.ollama?.model || config?.ollama?.reasoningModel) {
+        return {
+            provider: 'ollama',
+            model: config.ollama.reasoningModel || config.ollama.model,
+            providerConfig: {
+                host: config.ollama.host || '127.0.0.1',
+                port: config.ollama.port || 11434,
+                ...(config.llm?.providers?.ollama || {})
+            }
+        };
+    }
+    return null;
+}
+
+/**
+ * Run decision-check analysis: get decisions, call LLM for conflict detection,
+ * record conflict_detected in decision_events when recordEvents is true.
+ *
+ * @param {object} storage - Project-scoped storage (getDecisions, _addDecisionEvent)
+ * @param {object} config - App config
+ * @param {object} options - { recordEvents: boolean } (default true)
+ * @returns {Promise<{ conflicts: array, analyzed_decisions: number, events_recorded: number, error?: string }>}
+ */
+async function runDecisionCheck(storage, config, options = {}) {
+    const recordEvents = options.recordEvents !== false;
+    if (!storage) {
+        return { conflicts: [], analyzed_decisions: 0, events_recorded: 0, error: 'No storage' };
+    }
+
+    let allDecisions = [];
+    try {
+        const decisionsResult = storage.getDecisions ? await storage.getDecisions() : [];
+        allDecisions = Array.isArray(decisionsResult) ? decisionsResult : (decisionsResult?.decisions || []);
+    } catch (e) {
+        console.warn('[DecisionCheckFlow] getDecisions failed:', e.message);
+        return { conflicts: [], analyzed_decisions: 0, events_recorded: 0, error: e.message };
+    }
+
+    if (allDecisions.length < 2) {
+        return { conflicts: [], analyzed_decisions: allDecisions.length, events_recorded: 0 };
+    }
+
+    const llmCfg = getDecisionCheckLLMConfig(config);
+    if (!llmCfg?.provider || !llmCfg?.model) {
+        console.log('[DecisionCheckFlow] No AI/LLM configured, skipping analysis');
+        return { conflicts: [], analyzed_decisions: allDecisions.length, events_recorded: 0 };
+    }
+
+    const decisionsText = allDecisions.map((d, i) =>
+        `[${i + 1}] ${d.content}${d.status ? ` (Status: ${d.status})` : ''}${d.owner ? ` (Owner: ${d.owner})` : ''}`
+    ).join('\n');
+
+    const promptRecord = await promptsService.getPrompt('decision_check_conflicts');
+    const template = promptRecord?.prompt_template || null;
+    const prompt = template
+        ? promptsService.renderPrompt(template, { DECISIONS_TEXT: decisionsText })
+        : `You are a decision-review assistant. Analyze these decisions and identify any potential conflicts or contradictions (same topic, incompatible outcomes). Only report genuine conflicts.
+
+DECISIONS:
+${decisionsText}
+
+If you find conflicts, respond with a JSON array in this exact format:
+[{"decision1_index": N, "decision2_index": M, "conflict_reason": "brief explanation"}]
+
+If no conflicts are found, respond with an empty array: []
+
+IMPORTANT: Only output the JSON array, nothing else.`;
+
+    let rawConflicts = [];
+    try {
+        const result = await llm.generateText({
+            provider: llmCfg.provider,
+            providerConfig: llmCfg.providerConfig,
+            model: llmCfg.model,
+            prompt,
+            temperature: 0.1,
+            maxTokens: 2048,
+            context: 'decision-check'
+        });
+        const raw = (result.text || result.response || '').trim();
+        if (!result.success) {
+            console.warn('[DecisionCheckFlow] AI request failed:', result.error);
+            return { conflicts: [], analyzed_decisions: allDecisions.length, events_recorded: 0, error: result.error || 'AI request failed' };
+        }
+        const jsonMatch = raw.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]);
+            rawConflicts = Array.isArray(parsed) ? parsed : [];
+        }
+    } catch (e) {
+        console.warn('[DecisionCheckFlow] AI request failed:', e.message);
+        return { conflicts: [], analyzed_decisions: allDecisions.length, events_recorded: 0, error: e.message };
+    }
+
+    const conflicts = [];
+    let eventsRecorded = 0;
+    const addEvent = recordEvents && typeof storage._addDecisionEvent === 'function' ? storage._addDecisionEvent.bind(storage) : null;
+
+    for (const c of rawConflicts) {
+        const idx1 = (c.decision1_index != null ? c.decision1_index : 1) - 1;
+        const idx2 = (c.decision2_index != null ? c.decision2_index : 1) - 1;
+        const decision1 = allDecisions[idx1];
+        const decision2 = allDecisions[idx2];
+        const reason = c.conflict_reason || c.reason || 'Conflict detected';
+        if (!decision1 || !decision2) continue;
+
+        conflicts.push({
+            decisionId1: decision1.id,
+            decisionId2: decision2.id,
+            decision1,
+            decision2,
+            conflictType: 'contradiction',
+            description: reason,
+            confidence: 0.8,
+            reason
+        });
+
+        if (addEvent) {
+            try {
+                const eventData1 = { decision2_id: decision2.id, reason, trigger: 'decision_check_flow' };
+                const eventData2 = { decision1_id: decision1.id, reason, trigger: 'decision_check_flow' };
+                await addEvent(decision1.id, 'conflict_detected', eventData1);
+                await addEvent(decision2.id, 'conflict_detected', eventData2);
+                eventsRecorded += 2;
+            } catch (e) {
+                console.warn('[DecisionCheckFlow] _addDecisionEvent failed:', e.message);
+            }
+        }
+    }
+
+    if (conflicts.length > 0) {
+        console.log(`[DecisionCheckFlow] Found ${conflicts.length} conflict(s), recorded ${eventsRecorded} events`);
+    }
+
+    return {
+        conflicts,
+        analyzed_decisions: allDecisions.length,
+        events_recorded: eventsRecorded
+    };
+}
+
+module.exports = {
+    runDecisionCheck
+};

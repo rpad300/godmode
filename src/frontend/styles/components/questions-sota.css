@@ -1,0 +1,48 @@
+/* SOT Questions: incremental inline-style removal helpers */
+
+.modal-container.modal-sota {
+  position: relative;
+}
+
+.sota-btn-generate {
+  margin-top: 20px;
+}
+
+.sota-empty--full {
+  grid-column: 1 / -1;
+}
+
+.sota-btn--center {
+  max-width: 200px;
+  margin: 16px auto 0;
+  display: block;
+}
+
+/* retry-gen wants a bit more top margin; keep it close enough for now */
+#retry-gen.sota-btn--center {
+  margin-top: 20px;
+}
+
+.mini-avatar-initials {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sota-results-more {
+  text-align: center;
+  color: var(--text-muted);
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.sota-results-footer {
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 12px;
+  margin-top: 12px;
+}
+
+.sota-results-footer-note {
+  color: var(--text-muted);
+}

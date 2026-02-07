@@ -1,0 +1,67 @@
+/**
+ * System Base
+ * - consistent defaults
+ * - accessibility focus rings
+ * - reduced motion
+ */
+
+html {
+  color-scheme: light dark;
+  text-size-adjust: 100%;
+}
+
+html, body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+/* Readable defaults */
+h1, h2, h3, h4, h5, h6 {
+  line-height: var(--line-height-heading);
+  margin: 0;
+}
+
+h1 { font-size: var(--font-size-h1); }
+h2 { font-size: var(--font-size-h2); }
+h3 { font-size: var(--font-size-h3); }
+
+p { margin: 0; }
+
+a {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--color-primary-hover);
+  text-decoration: underline;
+}
+
+/* Accessible focus ring: consistent for all interactive elements */
+:where(a, button, input, select, textarea, [role="button"], [tabindex]):focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--color-focus-ring) 70%, transparent);
+  outline-offset: 2px;
+  border-radius: max(2px, var(--radius-sm));
+}
+
+/* Minimum hit targets for touch/TV */
+:where(button, [role="button"], a.buttonish) {
+  min-height: var(--hit-target-min);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

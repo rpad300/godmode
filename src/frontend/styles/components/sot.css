@@ -1,0 +1,197 @@
+/**
+ * Source of Truth Styles
+ * GodMode Design System (Refactored)
+ */
+
+/* ==================== SOT Tabs ==================== */
+.sot-tabs {
+  display: flex;
+  gap: var(--space-2);
+  padding-bottom: var(--space-4);
+  /* Use system tabs look */
+  border-bottom: 1px solid var(--color-border);
+}
+
+.sot-tab {
+  padding: var(--space-2) var(--space-4);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-size: var(--font-size-small);
+  font-weight: 500;
+  transition: all var(--motion-fast);
+  margin-bottom: -1px; /* Overlap border */
+}
+
+.sot-tab:hover {
+  color: var(--color-text);
+}
+
+.sot-tab.active {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+}
+
+/* ==================== SOT Content ==================== */
+.sot-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4) 0;
+}
+
+/* ==================== SOT Item ==================== */
+.sot-item {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  cursor: pointer;
+  transition: all var(--motion-fast);
+  position: relative;
+}
+
+.sot-item:hover {
+  border-color: color-mix(in srgb, var(--color-primary) 40%, transparent);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.sot-item-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.sot-item-content {
+  color: var(--color-text);
+  line-height: 1.6;
+  font-size: var(--font-size-body);
+}
+
+.sot-item-meta {
+  margin-top: var(--space-3);
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+  display: flex;
+  gap: var(--space-3);
+}
+
+/* ==================== Badges (Map to system) ==================== */
+.status-badge,
+.priority-badge,
+.impact-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  line-height: 1.4;
+}
+
+/* Status Colors */
+.status-badge.open,
+.status-badge.pending,
+.status-badge.in_progress,
+.status-badge.proposed {
+  background: color-mix(in srgb, var(--color-warning) 15%, transparent);
+  color: var(--color-warning);
+}
+
+.status-badge.answered,
+.status-badge.completed,
+.status-badge.approved,
+.status-badge.mitigated {
+  background: color-mix(in srgb, var(--color-success) 15%, transparent);
+  color: var(--color-success);
+}
+
+.status-badge.dismissed,
+.status-badge.cancelled,
+.status-badge.rejected {
+  background: var(--color-surface-2);
+  color: var(--color-text-muted);
+}
+
+/* Priority/Impact Colors */
+.priority-badge.critical,
+.impact-badge.high {
+  background: color-mix(in srgb, var(--color-danger) 15%, transparent);
+  color: var(--color-danger);
+}
+
+.priority-badge.high {
+  background: color-mix(in srgb, var(--color-warning) 15%, transparent);
+  color: var(--color-warning);
+}
+
+.priority-badge.medium,
+.impact-badge.medium {
+  background: color-mix(in srgb, var(--color-info) 15%, transparent);
+  color: var(--color-info);
+}
+
+.priority-badge.low,
+.impact-badge.low {
+  background: color-mix(in srgb, var(--color-success) 15%, transparent);
+  color: var(--color-success);
+}
+
+/* ==================== Empty State ==================== */
+.empty-state {
+  text-align: center;
+  padding: var(--space-16);
+  color: var(--color-text-muted);
+  background: var(--color-surface-2); /* Slight distinct bg */
+  border-radius: var(--radius-lg);
+  border: 1px dashed var(--color-border);
+}
+
+.empty-state .empty-icon {
+  font-size: 48px;
+  margin-bottom: var(--space-4);
+  opacity: 0.5;
+}
+
+/* ==================== Stat Card (Legacy - likely unused if migrated) ==================== */
+.stat-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  text-align: center;
+}
+
+.stat-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.stat-label {
+  font-size: var(--font-size-small);
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* ==================== Mobile ==================== */
+@media (max-width: 767px) {
+  .sot-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .sot-tab {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+}

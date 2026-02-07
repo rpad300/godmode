@@ -1,0 +1,123 @@
+/* ==========================================================================
+   Primitive: Toast / Notification
+   ========================================================================== */
+
+/* Container - usually fixed to viewport edge */
+.toast-container {
+  position: fixed;
+  bottom: var(--space-6);
+  right: var(--space-6);
+  z-index: var(--z-toast);
+  
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  
+  max-width: 400px;
+  width: 90vw;
+  pointer-events: none; /* Allow clicks through empty space */
+}
+
+/* Individual Toast */
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  
+  /* Motion */
+  animation: toast-slide-in var(--motion-normal) var(--motion-ease-emphasized);
+  transition: opacity var(--motion-normal), transform var(--motion-normal);
+}
+
+.toast.is-hiding {
+  opacity: 0;
+  transform: translateX(20px);
+}
+
+/* Content */
+.toast-icon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  margin-top: 2px; /* optical alignment */
+}
+
+.toast-content {
+  flex: 1;
+  font-size: var(--font-size-small);
+  line-height: 1.4;
+}
+
+.toast-title {
+  font-weight: 600;
+  margin-bottom: 2px;
+  display: block;
+}
+
+.toast-message {
+  color: var(--color-text-secondary);
+}
+
+.toast-close {
+  flex-shrink: 0;
+  padding: var(--space-1);
+  margin: -4px -4px 0 0;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.toast-close:hover {
+  background-color: var(--color-surface-2);
+  color: var(--color-text);
+}
+
+/* Variants */
+.toast--success .toast-icon { color: var(--color-success); }
+.toast--warning .toast-icon { color: var(--color-warning); }
+.toast--danger .toast-icon { color: var(--color-danger); }
+.toast--info .toast-icon { color: var(--color-info); }
+
+/* Keyframes */
+@keyframes toast-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Mobile */
+@media (max-width: 480px) {
+  .toast-container {
+    bottom: var(--space-4);
+    left: var(--space-4);
+    right: var(--space-4);
+    width: auto;
+    max-width: none;
+  }
+}
+
+/* TV adjustments */
+@media (min-width: 1441px) {
+  .toast {
+    padding: var(--space-5);
+    border-width: 2px;
+  }
+  
+  .toast-container {
+    bottom: var(--space-8);
+    right: var(--space-8);
+  }
+}

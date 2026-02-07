@@ -1,0 +1,55 @@
+# Dependencies
+node_modules/
+
+# Data directory (user data)
+data/
+*.db
+
+# Build output
+dist/
+*.exe
+
+# Secrets files that may be generated
+*.pem
+*.key
+secrets/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment files (contain secrets!)
+.env
+.env.local
+.env.*.local
+src/.env
+**/.env
+!.env.example
+
+# Config files with potential secrets
+config.json
+src/config.json
+
+# Temporary files
+temp/
+tmp/
+*.tmp
+
+# Test coverage
+coverage/
+
+# Docker volumes data
+ollama-models/
+supabase-db-data/
+falkordb-data/
+redis-data/

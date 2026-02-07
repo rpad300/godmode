@@ -1,0 +1,311 @@
+/**
+ * Export Graph Module
+ * Export knowledge graph to various formats (JSON, Neo4j, RDF, etc.)
+ */
+
+const fs = require('fs');
+const path = require('path');
+
+class ExportGraph {
+    constructor(options = {}) {
+        this.graphProvider = options.graphProvider;
+        this.storage = options.storage;
+        this.exportDir = options.exportDir || './exports';
+    }
+
+    setGraphProvider(provider) {
+        this.graphProvider = provider;
+    }
+
+    setStorage(storage) {
+        this.storage = storage;
+    }
+
+    /**
+     * Export full graph to JSON
+     */
+    async exportToJSON() {
+        if (!this.graphProvider || !this.graphProvider.connected) {
+            return { error: 'Graph not connected' };
+        }
+
+        try {
+            // Get all nodes
+            const nodesResult = await this.graphProvider.query(`
+                MATCH (n)
+                RETURN id(n) as id, labels(n) as labels, properties(n) as properties
+            `);
+
+            // Get all relationships
+            const relsResult = await this.graphProvider.query(`
+                MATCH (a)-[r]->(b)
+                RETURN id(a) as source, id(b) as target, type(r) as type, properties(r) as properties
+            `);
+
+            const exportData = {
+                exportedAt: new Date().toISOString(),
+                format: 'json',
+                nodes: nodesResult.results || [],
+                relationships: relsResult.results || [],
+                stats: {
+                    nodeCount: nodesResult.results?.length || 0,
+                    relationshipCount: relsResult.results?.length || 0
+                }
+            };
+
+            return exportData;
+        } catch (e) {
+            return { error: e.message };
+        }
+    }
+
+    /**
+     * Export to Neo4j Cypher format
+     */
+    async exportToCypher() {
+        const json = await this.exportToJSON();
+        if (json.error) return json;
+
+        const statements = [];
+        
+        // Create nodes
+        for (const node of json.nodes) {
+            const label = node.labels?.[0] || 'Node';
+            const props = node.properties || {};
+            const propsStr = Object.entries(props)
+                .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
+                .join(', ');
+            
+            statements.push(`CREATE (:${label} {${propsStr}});`);
+        }
+
+        // Create relationships
+        for (const rel of json.relationships) {
+            const props = rel.properties || {};
+            const propsStr = Object.entries(props)
+                .filter(([k, v]) => v !== null && v !== undefined)
+                .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
+                .join(', ');
+            
+            statements.push(`MATCH (a), (b) WHERE id(a) = ${rel.source} AND id(b) = ${rel.target} CREATE (a)-[:${rel.type} {${propsStr}}]->(b);`);
+        }
+
+        return {
+            format: 'cypher',
+            statements,
+            content: statements.join('\n')
+        };
+    }
+
+    /**
+     * Export to GraphML (XML format)
+     */
+    async exportToGraphML() {
+        const json = await this.exportToJSON();
+        if (json.error) return json;
+
+        let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
+        xml += '<graphml xmlns="http://graphml.graphdrawing.org/xmlns">\n';
+        xml += '  <graph id="G" edgedefault="directed">\n';
+
+        // Nodes
+        for (const node of json.nodes) {
+            const label = node.labels?.[0] || 'Node';
+            const name = node.properties?.name || node.id;
+            xml += `    <node id="n${node.id}">\n`;
+            xml += `      <data key="label">${label}</data>\n`;
+            xml += `      <data key="name">${this.escapeXml(name)}</data>\n`;
+            for (const [k, v] of Object.entries(node.properties || {})) {
+                if (k !== 'name') {
+                    xml += `      <data key="${k}">${this.escapeXml(String(v))}</data>\n`;
+                }
+            }
+            xml += '    </node>\n';
+        }
+
+        // Edges
+        let edgeId = 0;
+        for (const rel of json.relationships) {
+            xml += `    <edge id="e${edgeId++}" source="n${rel.source}" target="n${rel.target}">\n`;
+            xml += `      <data key="type">${rel.type}</data>\n`;
+            xml += '    </edge>\n';
+        }
+
+        xml += '  </graph>\n';
+        xml += '</graphml>';
+
+        return {
+            format: 'graphml',
+            content: xml
+        };
+    }
+
+    /**
+     * Export to CSV (nodes and edges files)
+     */
+    async exportToCSV() {
+        const json = await this.exportToJSON();
+        if (json.error) return json;
+
+        // Nodes CSV
+        const nodeHeaders = ['id', 'label', 'name', 'role', 'organization', 'email'];
+        let nodesCSV = nodeHeaders.join(',') + '\n';
+        
+        for (const node of json.nodes) {
+            const props = node.properties || {};
+            const row = [
+                node.id,
+                node.labels?.[0] || '',
+                this.escapeCSV(props.name || ''),
+                this.escapeCSV(props.role || ''),
+                this.escapeCSV(props.organization || ''),
+                this.escapeCSV(props.email || '')
+            ];
+            nodesCSV += row.join(',') + '\n';
+        }
+
+        // Edges CSV
+        const edgeHeaders = ['source', 'target', 'type'];
+        let edgesCSV = edgeHeaders.join(',') + '\n';
+        
+        for (const rel of json.relationships) {
+            const row = [rel.source, rel.target, rel.type];
+            edgesCSV += row.join(',') + '\n';
+        }
+
+        return {
+            format: 'csv',
+            nodes: nodesCSV,
+            edges: edgesCSV
+        };
+    }
+
+    /**
+     * Export knowledge base to JSON
+     */
+    exportKnowledgeBase() {
+        if (!this.storage) return { error: 'Storage not set' };
+
+        return {
+            exportedAt: new Date().toISOString(),
+            format: 'knowledge_base',
+            data: {
+                facts: this.storage.getFacts(),
+                decisions: this.storage.getDecisions(),
+                risks: this.storage.getRisks(),
+                questions: this.storage.getQuestions(),
+                people: this.storage.getPeople(),
+                actionItems: this.storage.getActionItems()
+            }
+        };
+    }
+
+    /**
+     * Save export to file
+     */
+    async saveExport(format = 'json', filename = null) {
+        let exportData;
+        let extension;
+
+        switch (format) {
+            case 'cypher':
+                exportData = await this.exportToCypher();
+                extension = 'cypher';
+                break;
+            case 'graphml':
+                exportData = await this.exportToGraphML();
+                extension = 'graphml';
+                break;
+            case 'csv':
+                exportData = await this.exportToCSV();
+                extension = 'csv';
+                break;
+            case 'knowledge':
+                exportData = this.exportKnowledgeBase();
+                extension = 'json';
+                break;
+            default:
+                exportData = await this.exportToJSON();
+                extension = 'json';
+        }
+
+        if (exportData.error) return exportData;
+
+        // Ensure export directory exists
+        if (!fs.existsSync(this.exportDir)) {
+            fs.mkdirSync(this.exportDir, { recursive: true });
+        }
+
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const baseFilename = filename || `graph-export-${timestamp}`;
+
+        if (format === 'csv') {
+            // Save nodes and edges separately
+            fs.writeFileSync(
+                path.join(this.exportDir, `${baseFilename}-nodes.csv`),
+                exportData.nodes
+            );
+            fs.writeFileSync(
+                path.join(this.exportDir, `${baseFilename}-edges.csv`),
+                exportData.edges
+            );
+            return {
+                success: true,
+                files: [
+                    `${baseFilename}-nodes.csv`,
+                    `${baseFilename}-edges.csv`
+                ]
+            };
+        } else {
+            const content = typeof exportData.content === 'string' 
+                ? exportData.content 
+                : JSON.stringify(exportData, null, 2);
+            
+            const filepath = path.join(this.exportDir, `${baseFilename}.${extension}`);
+            fs.writeFileSync(filepath, content);
+            
+            return {
+                success: true,
+                file: `${baseFilename}.${extension}`,
+                path: filepath
+            };
+        }
+    }
+
+    /**
+     * Escape XML special characters
+     */
+    escapeXml(str) {
+        if (!str) return '';
+        return str
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&apos;');
+    }
+
+    /**
+     * Escape CSV field
+     */
+    escapeCSV(str) {
+        if (!str) return '';
+        if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+            return '"' + str.replace(/"/g, '""') + '"';
+        }
+        return str;
+    }
+}
+
+// Singleton
+let exportGraphInstance = null;
+function getExportGraph(options = {}) {
+    if (!exportGraphInstance) {
+        exportGraphInstance = new ExportGraph(options);
+    }
+    if (options.graphProvider) exportGraphInstance.setGraphProvider(options.graphProvider);
+    if (options.storage) exportGraphInstance.setStorage(options.storage);
+    return exportGraphInstance;
+}
+
+module.exports = { ExportGraph, getExportGraph };

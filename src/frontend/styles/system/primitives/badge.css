@@ -1,0 +1,78 @@
+/* ==========================================================================
+   Primitive: Badge / Tag
+   ========================================================================== */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px var(--space-2);
+  
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface-2);
+  color: var(--color-text);
+  border: 1px solid transparent;
+}
+
+/* Pill shape variant */
+.badge--pill {
+  border-radius: 9999px;
+  padding-left: var(--space-3);
+  padding-right: var(--space-3);
+}
+
+/* Outline variant */
+.badge--outline {
+  background-color: transparent;
+  border-color: var(--color-border);
+}
+
+/* Semantic Variants */
+
+/* Primary */
+.badge--primary {
+  background-color: color-mix(in srgb, var(--color-primary) 15%, transparent);
+  color: var(--color-primary);
+  border-color: color-mix(in srgb, var(--color-primary) 20%, transparent);
+}
+
+/* Success */
+.badge--success {
+  background-color: color-mix(in srgb, var(--color-success) 15%, transparent);
+  color: var(--color-success);
+  border-color: color-mix(in srgb, var(--color-success) 20%, transparent);
+}
+
+/* Warning */
+.badge--warning {
+  background-color: color-mix(in srgb, var(--color-warning) 15%, transparent);
+  color: var(--color-warning);
+  border-color: color-mix(in srgb, var(--color-warning) 20%, transparent);
+}
+
+/* Danger */
+.badge--danger {
+  background-color: color-mix(in srgb, var(--color-danger) 15%, transparent);
+  color: var(--color-danger);
+  border-color: color-mix(in srgb, var(--color-danger) 20%, transparent);
+}
+
+/* Info */
+.badge--info {
+  background-color: color-mix(in srgb, var(--color-info) 15%, transparent);
+  color: var(--color-info);
+  border-color: color-mix(in srgb, var(--color-info) 20%, transparent);
+}
+
+/* TV adjustments */
+@media (min-width: 1441px) {
+  .badge {
+    padding: var(--space-1) var(--space-3);
+    font-size: var(--font-size-small);
+  }
+}

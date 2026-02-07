@@ -1,0 +1,77 @@
+/**
+ * System Layout
+ * - container rules (readability, ultra-wide safety)
+ * - grid helpers
+ */
+
+:root {
+  /* container max width is set per breakpoint */
+  --container-max: 100%;
+  --prose-max: 72ch;
+}
+
+/* phone */
+@media (max-width: 480px) {
+  :root { --container-max: 100%; }
+}
+
+/* tablet */
+@media (min-width: 481px) and (max-width: 1024px) {
+  :root { --container-max: 980px; }
+}
+
+/* desktop */
+@media (min-width: 1025px) and (max-width: 1440px) {
+  :root { --container-max: 1240px; }
+}
+
+/* tv / large */
+@media (min-width: 1441px) {
+  :root { --container-max: 1560px; }
+}
+
+.gm-container {
+  width: 100%;
+  max-width: var(--container-max);
+  margin-inline: auto;
+  padding-inline: var(--layout-gutter);
+}
+
+/* Use for text-heavy sections; avoids ultra-wide unreadable line length */
+.gm-prose {
+  max-width: var(--prose-max);
+}
+
+.gm-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--layout-gap);
+}
+
+.gm-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--layout-gap);
+  align-items: center;
+}
+
+/* Responsive grid: use for dashboards/collections */
+.gm-grid {
+  display: grid;
+  gap: var(--layout-gap);
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 481px) {
+  .gm-grid.gm-grid--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (min-width: 1025px) {
+  .gm-grid.gm-grid--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .gm-grid.gm-grid--4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+@media (min-width: 1441px) {
+  .gm-grid.gm-grid--5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .gm-grid.gm-grid--6 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+}

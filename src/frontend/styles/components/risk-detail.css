@@ -1,0 +1,409 @@
+/**
+ * Risk Detail View Styles
+ * Extends question-detail-view (shared layout); risk-specific overrides
+ */
+
+.risk-detail-view.question-detail-view .risk-main .risk-content-text,
+.risk-detail-view.question-detail-view .question-text.risk-content-text {
+  font-size: var(--font-size-base);
+  line-height: 1.6;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.risk-detail-view .risk-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+
+.risk-detail-view .detail-actions {
+  display: flex;
+  gap: var(--space-md);
+  margin-top: var(--space-xl);
+  padding-top: var(--space-lg);
+  border-top: 1px solid var(--border);
+}
+
+/* All detail action buttons (view + edit form): clear button styling */
+.risk-detail-view .detail-actions .btn {
+  min-height: 40px;
+  padding: 10px 20px;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  border-width: 1px;
+  border-style: solid;
+  appearance: none;
+}
+
+.risk-detail-view .detail-actions .btn-secondary {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border-color: var(--border);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.risk-detail-view .detail-actions .btn-secondary:hover:not(:disabled) {
+  background: var(--bg-secondary);
+  border-color: var(--text-muted);
+}
+
+.risk-detail-view .detail-actions .btn-danger {
+  background: var(--error);
+  color: white;
+  border-color: var(--error);
+}
+
+.risk-detail-view .detail-actions .btn-danger:hover:not(:disabled) {
+  opacity: 0.9;
+  filter: brightness(1.05);
+}
+
+/* Mitigation block below assignment (SOTA) */
+.risk-detail-view .risk-mitigation-block {
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border);
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+}
+
+.risk-detail-view .risk-mitigation-block .risk-mitigation {
+  margin: var(--space-xs) 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.risk-detail-view .risk-suggestions-panel.suggestions-panel-sota {
+  margin-top: var(--space-md);
+}
+
+.risk-detail-view .risk-suggestion-card {
+  padding: var(--space-md);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  margin: var(--space-sm) 0;
+}
+
+.risk-detail-view .risk-suggestion-row {
+  margin-bottom: var(--space-sm);
+  font-size: var(--font-size-sm);
+}
+
+.risk-detail-view .risk-suggestion-row:last-child {
+  margin-bottom: 0;
+}
+
+.risk-detail-view .risk-suggestion-mitigation {
+  margin: var(--space-xs) 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-primary);
+}
+
+.risk-detail-view .risk-mitigation-suggestion {
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border);
+}
+
+.risk-detail-view .risk-owner-card.suggestion-card-sota {
+  align-items: center;
+}
+
+/* Inline edit form (no modal) */
+.risk-detail-view .risk-detail-edit-form {
+  margin-top: var(--space-md);
+  padding: var(--space-lg);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+}
+
+/* AI suggest button in edit form – consistent with form actions */
+.risk-detail-view .risk-detail-edit-form .btn-ai-suggest {
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.risk-detail-view .risk-detail-edit-form .btn-ai-suggest:hover:not(:disabled) {
+  background: var(--bg-secondary);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.risk-detail-view .risk-detail-edit-form .risk-form label {
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+  display: block;
+}
+
+.risk-detail-view .risk-detail-edit-form .risk-form textarea,
+.risk-detail-view .risk-detail-edit-form .risk-form select,
+.risk-detail-view .risk-detail-edit-form .risk-form input[type="text"] {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  background: var(--input-bg, var(--bg-primary));
+  color: var(--text-primary);
+}
+
+.risk-detail-view .risk-detail-edit-form .risk-form .form-group {
+  margin-bottom: var(--space-md);
+}
+
+.risk-detail-view .risk-detail-edit-form .form-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+}
+
+.risk-detail-view .risk-detail-edit-form .form-row .form-group {
+  flex: 1;
+  min-width: 120px;
+}
+
+/* Edit form: action buttons – consistent size, hierarchy, spacing */
+.risk-detail-view .risk-detail-edit-form .detail-actions {
+  margin-top: var(--space-lg);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.risk-detail-view .risk-detail-edit-form .detail-actions .btn {
+  min-height: 40px;
+  padding: 10px 20px;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  /* Force button appearance so they never look like plain text */
+  border-width: 1px;
+  border-style: solid;
+  appearance: none;
+}
+
+.risk-detail-view .risk-detail-edit-form .detail-actions .btn-primary {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+.risk-detail-view .risk-detail-edit-form .detail-actions .btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+/* Secondary = visible outline and fill so Cancel never looks unstyled */
+.risk-detail-view .risk-detail-edit-form .detail-actions .btn-secondary {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border-color: var(--border);
+  /* Ensure contrast on light backgrounds */
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.risk-detail-view .risk-detail-edit-form .detail-actions .btn-secondary:hover:not(:disabled) {
+  background: var(--bg-secondary);
+  border-color: var(--text-muted);
+}
+
+.risk-detail-view .risk-detail-edit-form .detail-actions .btn-danger {
+  background: var(--error);
+  color: white;
+  border-color: var(--error);
+}
+
+.risk-detail-view .risk-detail-edit-form .detail-actions .btn-danger:hover:not(:disabled) {
+  opacity: 0.9;
+  filter: brightness(1.05);
+}
+
+
+/* Owner contact picker in edit form */
+.risk-detail-view .risk-owner-picker-wrap {
+  position: relative;
+}
+
+.risk-detail-view .risk-owner-picker-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--input-bg, var(--bg-primary));
+  cursor: pointer;
+  min-height: 40px;
+}
+
+.risk-detail-view .risk-owner-picker-trigger:hover {
+  border-color: var(--accent, #667eea);
+}
+
+.risk-detail-view .risk-owner-picker-value {
+  flex: 1;
+  text-align: left;
+  font-size: var(--font-size-sm);
+}
+
+.risk-detail-view .risk-owner-picker-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  padding: var(--space-sm);
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md, 0 4px 12px rgba(0,0,0,0.15));
+  z-index: 100;
+  max-height: 280px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.risk-detail-view .risk-owner-picker-search {
+  margin-bottom: var(--space-sm);
+}
+
+.risk-detail-view .risk-owner-picker-search input {
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+}
+
+.risk-detail-view .risk-owner-picker-list {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.risk-detail-view .risk-owner-card-picker {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.risk-detail-view .risk-owner-card-picker:hover,
+.risk-detail-view .risk-owner-card-picker.selected {
+  background: var(--bg-secondary);
+  border-color: var(--border);
+}
+
+.risk-detail-view .risk-owner-card-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: white;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.risk-detail-view .risk-owner-card-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.risk-detail-view .risk-owner-card-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.risk-detail-view .risk-owner-card-name {
+  font-weight: 600;
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+}
+
+.risk-detail-view .risk-owner-card-role {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+/* Timeline uses #timeline-content + .timeline-content; styles from question-detail.css apply */
+
+/* Risk card SOTA (panel list) */
+.risk-card-sota.question-card-sota .risk-impact-bar {
+  width: 4px;
+  min-height: 100%;
+  position: absolute;
+  left: 0;
+  top: 0;
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+
+.risks-panel .panel-actions .btn,
+.risks-panel .view-tab,
+.risks-panel .search-input {
+  flex-shrink: 0;
+}
+
+.removed-risks-section .removed-risks-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.removed-risks-hint {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  margin: 0 0 var(--spacing-sm);
+}
+
+.removed-risks-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.removed-risk-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+}
+
+.removed-risk-content {
+  flex: 1;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}

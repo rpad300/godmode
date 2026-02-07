@@ -1,0 +1,147 @@
+/**
+ * Project Selector Styles
+ */
+
+.project-selector-wrapper {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.project-selector {
+  min-width: 180px;
+  max-width: 280px;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-size-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.project-selector:hover {
+  border-color: var(--color-border-hover);
+}
+
+.project-selector:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.1);
+}
+
+.project-selector option {
+  padding: var(--spacing-xs);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+/* Project action buttons */
+.project-selector-wrapper .btn-icon {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: var(--font-size-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, transform 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.project-selector-wrapper .btn-icon:hover {
+  background: var(--color-surface-hover);
+  border-color: var(--color-border-hover);
+  transform: scale(1.05);
+}
+
+.project-selector-wrapper .btn-icon:active {
+  transform: scale(0.95);
+}
+
+.project-selector-wrapper .btn-icon.hidden {
+  display: none;
+}
+
+/* Project modal styles */
+.project-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+}
+
+.project-form .form-group label {
+  display: block;
+  margin-bottom: var(--spacing-xs);
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.project-form .form-group input,
+.project-form .form-group textarea {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: var(--font-size-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  color: var(--color-text);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.project-form .form-group input:focus,
+.project-form .form-group textarea:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+.project-form .form-group textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+/* Danger zone */
+.danger-zone {
+  margin-top: var(--spacing-lg);
+  padding-top: var(--spacing-lg);
+  border-top: 1px solid var(--color-border);
+}
+
+.danger-zone h4 {
+  color: var(--color-error);
+  margin: 0 0 var(--spacing-xs);
+  font-size: var(--font-size-md);
+}
+
+.danger-zone p {
+  margin: 0 0 var(--spacing-md);
+  font-size: var(--font-size-sm);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .project-selector {
+    min-width: 140px;
+    max-width: 200px;
+  }
+}
+
+@media (max-width: 480px) {
+  .project-selector {
+    min-width: 100px;
+    max-width: 150px;
+    font-size: var(--font-size-xs);
+  }
+  
+  .project-selector-wrapper .btn-icon {
+    width: 24px;
+    height: 24px;
+    font-size: var(--font-size-xs);
+  }
+}

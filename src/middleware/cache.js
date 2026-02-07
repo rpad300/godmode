@@ -1,0 +1,249 @@
+/**
+ * In-Memory Cache Middleware
+ * Simple LRU cache for API responses
+ */
+
+class MemoryCache {
+    constructor(options = {}) {
+        this.cache = new Map();
+        this.maxSize = options.maxSize || 1000;
+        this.defaultTTL = options.defaultTTL || 60000; // 1 minute default
+        this.hits = 0;
+        this.misses = 0;
+        
+        // Cleanup expired entries periodically
+        this.cleanupInterval = setInterval(() => this.cleanup(), 30000);
+    }
+
+    /**
+     * Generate cache key from request
+     */
+    generateKey(req) {
+        const url = req.url || '';
+        const userId = req.user?.id || 'anonymous';
+        return `${req.method}:${url}:${userId}`;
+    }
+
+    /**
+     * Get cached value
+     */
+    get(key) {
+        const entry = this.cache.get(key);
+        
+        if (!entry) {
+            this.misses++;
+            return null;
+        }
+
+        // Check if expired
+        if (Date.now() > entry.expiresAt) {
+            this.cache.delete(key);
+            this.misses++;
+            return null;
+        }
+
+        this.hits++;
+        
+        // Move to end for LRU
+        this.cache.delete(key);
+        this.cache.set(key, entry);
+        
+        return entry.value;
+    }
+
+    /**
+     * Set cached value
+     */
+    set(key, value, ttl = null) {
+        // Evict oldest if at max size
+        if (this.cache.size >= this.maxSize) {
+            const firstKey = this.cache.keys().next().value;
+            this.cache.delete(firstKey);
+        }
+
+        this.cache.set(key, {
+            value,
+            expiresAt: Date.now() + (ttl || this.defaultTTL),
+            createdAt: Date.now()
+        });
+    }
+
+    /**
+     * Invalidate cache entry
+     */
+    invalidate(key) {
+        this.cache.delete(key);
+    }
+
+    /**
+     * Invalidate by pattern (prefix match)
+     */
+    invalidatePattern(pattern) {
+        for (const key of this.cache.keys()) {
+            if (key.includes(pattern)) {
+                this.cache.delete(key);
+            }
+        }
+    }
+
+    /**
+     * Clear all cache
+     */
+    clear() {
+        this.cache.clear();
+        this.hits = 0;
+        this.misses = 0;
+    }
+
+    /**
+     * Cleanup expired entries
+     */
+    cleanup() {
+        const now = Date.now();
+        for (const [key, entry] of this.cache) {
+            if (now > entry.expiresAt) {
+                this.cache.delete(key);
+            }
+        }
+    }
+
+    /**
+     * Get cache statistics
+     */
+    getStats() {
+        const total = this.hits + this.misses;
+        return {
+            size: this.cache.size,
+            maxSize: this.maxSize,
+            hits: this.hits,
+            misses: this.misses,
+            hitRate: total > 0 ? (this.hits / total * 100).toFixed(2) + '%' : '0%'
+        };
+    }
+
+    /**
+     * Destroy cache instance
+     */
+    destroy() {
+        clearInterval(this.cleanupInterval);
+        this.cache.clear();
+    }
+}
+
+// Singleton instance
+const cache = new MemoryCache({
+    maxSize: 500,
+    defaultTTL: 60000 // 1 minute
+});
+
+// Cache configuration per route pattern
+const cacheConfig = {
+    // Static config - cache longer
+    '/api/config': { ttl: 300000 }, // 5 minutes
+    '/api/auth/status': { ttl: 300000 },
+    
+    // Project data - moderate cache
+    '/api/projects': { ttl: 30000 }, // 30 seconds
+    
+    // User-specific - short cache
+    '/api/user/profile': { ttl: 10000 }, // 10 seconds
+    '/api/notifications': { ttl: 5000 }, // 5 seconds
+    
+    // Never cache (mutations)
+    'POST': { skip: true },
+    'PUT': { skip: true },
+    'DELETE': { skip: true },
+    'PATCH': { skip: true }
+};
+
+/**
+ * Get config for route
+ */
+function getRouteConfig(method, path) {
+    // Skip mutations
+    if (cacheConfig[method]?.skip) {
+        return { skip: true };
+    }
+
+    // Find matching route config
+    for (const pattern in cacheConfig) {
+        if (path.startsWith(pattern)) {
+            return cacheConfig[pattern];
+        }
+    }
+
+    return { ttl: cache.defaultTTL };
+}
+
+/**
+ * Cache middleware function
+ */
+function cacheMiddleware(req, res, next) {
+    const config = getRouteConfig(req.method, req.url);
+    
+    // Skip if configured to skip
+    if (config.skip) {
+        return next();
+    }
+
+    const key = cache.generateKey(req);
+    const cached = cache.get(key);
+
+    if (cached) {
+        // Return cached response
+        res.writeHead(200, { 
+            'Content-Type': 'application/json',
+            'X-Cache': 'HIT'
+        });
+        res.end(JSON.stringify(cached));
+        return;
+    }
+
+    // Store original end to intercept response
+    const originalEnd = res.end.bind(res);
+    let responseBody = '';
+
+    res.end = function(chunk) {
+        if (chunk) {
+            responseBody += chunk;
+        }
+
+        // Only cache successful JSON responses
+        if (res.statusCode === 200) {
+            try {
+                const data = JSON.parse(responseBody);
+                cache.set(key, data, config.ttl);
+                res.setHeader('X-Cache', 'MISS');
+            } catch (e) {
+                // Not JSON, don't cache
+            }
+        }
+
+        return originalEnd(chunk);
+    };
+
+    next();
+}
+
+/**
+ * Invalidate cache for project mutations
+ */
+function invalidateProjectCache(projectId) {
+    cache.invalidatePattern(`/api/projects/${projectId}`);
+    cache.invalidatePattern('/api/projects');
+}
+
+/**
+ * Invalidate cache for user mutations
+ */
+function invalidateUserCache(userId) {
+    cache.invalidatePattern(`:${userId}`);
+}
+
+module.exports = {
+    cache,
+    cacheMiddleware,
+    invalidateProjectCache,
+    invalidateUserCache,
+    getStats: () => cache.getStats()
+};

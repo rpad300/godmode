@@ -1,0 +1,144 @@
+/**
+ * System Tokens (semantic)
+ *
+ * This file is the single source of truth for design tokens.
+ * During migration it maps to legacy variables in variables.css.
+ *
+ * IMPORTANT: Component CSS should use ONLY these semantic tokens.
+ */
+
+:root {
+  /* ========= Breakpoints (documentation)
+   * phone:  320–480
+   * tablet: 481–1024
+   * desktop: 1025–1440
+   * tv:     1441–3840
+   */
+
+  /* ========= Semantic colors (map to legacy vars) */
+  --color-bg: var(--bg-primary);
+  --color-surface: var(--bg-secondary);
+  --color-surface-2: var(--bg-card);
+  --color-surface-3: var(--bg-tertiary);
+
+  --color-text: var(--text-primary);
+  --color-text-muted: var(--text-muted);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-inverse: #ffffff;
+
+  --color-border: var(--border);
+  --color-border-muted: color-mix(in srgb, var(--border) 60%, transparent);
+
+  --color-primary: var(--accent);
+  --color-primary-hover: var(--accent-hover);
+  --color-primary-active: color-mix(in srgb, var(--accent) 80%, black);
+  --color-primary-contrast: #ffffff;
+
+  --color-secondary: var(--bg-card);
+  --color-secondary-hover: color-mix(in srgb, var(--bg-card) 75%, white);
+  --color-secondary-active: color-mix(in srgb, var(--bg-card) 75%, black);
+
+  --color-danger: var(--danger);
+  --color-danger-hover: color-mix(in srgb, var(--danger) 80%, white);
+  --color-danger-active: color-mix(in srgb, var(--danger) 85%, black);
+  --color-danger-contrast: #ffffff;
+
+  --color-warning: var(--warning);
+  --color-success: var(--success);
+  --color-info: color-mix(in srgb, var(--accent) 35%, var(--success));
+
+  --color-backdrop: rgba(0, 0, 0, 0.72);
+  --color-focus-ring: color-mix(in srgb, var(--accent) 60%, white);
+  --color-skeleton: color-mix(in srgb, var(--bg-secondary) 70%, var(--border));
+
+  /* ========= Typography */
+  --font-family-sans: var(--font-family);
+  --font-family-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
+  /* Fluid sizes (mobile-first). TV overrides further down. */
+  --font-size-body: var(--font-size-base);
+  --font-size-small: var(--font-size-sm);
+  --font-size-caption: var(--font-size-xs);
+  --font-size-h1: clamp(26px, 2.2vw + 1rem, 44px);
+  --font-size-h2: clamp(22px, 1.7vw + 0.9rem, 34px);
+  --font-size-h3: clamp(18px, 1.2vw + 0.8rem, 26px);
+
+  --line-height-body: 1.55;
+  --line-height-heading: 1.18;
+
+  /* ========= Spacing (use scale, not ad-hoc px) */
+  --space-0: 0px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Layout spacing (fluid) */
+  --layout-gutter: clamp(12px, 2vw, 40px);
+  --layout-gap: clamp(12px, 1.6vw, 28px);
+
+  /* ========= Radius & shadow */
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+
+  /* ========= Motion */
+  --motion-fast: var(--transition-fast);
+  --motion-normal: var(--transition-normal);
+  --motion-slow: var(--transition-slow);
+  --motion-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --motion-ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
+
+  /* ========= Z-index */
+  --z-base: 0;
+  --z-sticky: var(--z-sticky);
+  --z-dropdown: var(--z-dropdown);
+  --z-popover: 400;
+  --z-toast: var(--z-toast);
+  --z-modal-backdrop: var(--z-modal-backdrop);
+  --z-modal: var(--z-modal);
+  --z-tooltip: var(--z-tooltip);
+
+  /* ========= Ergonomics */
+  --hit-target-min: 44px; /* touch */
+  --control-height: 44px; /* touch */
+}
+
+/* Tablet */
+@media (min-width: 481px) {
+  :root {
+    --layout-gutter: clamp(16px, 2vw, 48px);
+  }
+}
+
+/* Desktop */
+@media (min-width: 1025px) {
+  :root {
+    --layout-gutter: clamp(20px, 2vw, 56px);
+  }
+}
+
+/* TV / 10-foot */
+@media (min-width: 1441px) {
+  :root {
+    --hit-target-min: 56px;
+    --control-height: 56px;
+
+    --font-size-body: clamp(18px, 0.8vw + 0.7rem, 22px);
+    --font-size-small: clamp(16px, 0.6vw + 0.7rem, 18px);
+    --font-size-caption: clamp(14px, 0.5vw + 0.6rem, 16px);
+
+    --layout-gap: clamp(16px, 1.6vw, 36px);
+  }
+}

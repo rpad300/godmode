@@ -1,0 +1,312 @@
+/**
+ * Sidebar Styles
+ * GodMode Design System (Refactored)
+ */
+
+/* ==================== Base Sidebar ==================== */
+.sidebar {
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-border);
+  width: 240px;
+  min-width: 240px;
+  max-width: 240px;
+  display: flex;
+  flex-direction: column;
+  transition: transform var(--motion-normal) var(--motion-ease-standard);
+  z-index: 50; /* Above main content for mobile */
+}
+
+/* ==================== Navigation ==================== */
+.sidebar-nav {
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.nav-section-header {
+  font-size: var(--font-size-caption);
+  font-weight: 700;
+  color: var(--color-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: var(--space-4) 0 var(--space-2) var(--space-2);
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--motion-fast);
+  text-decoration: none;
+  width: 100%;
+  text-align: left;
+}
+
+.nav-icon {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+  transition: all var(--motion-fast);
+}
+
+.nav-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.nav-label {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nav-item:hover {
+  background: var(--color-surface-2);
+  color: var(--color-text);
+}
+
+.nav-item:hover .nav-icon {
+  color: var(--color-primary);
+}
+
+.nav-item.active {
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.nav-item.active .nav-icon {
+  color: var(--color-primary);
+}
+
+/* ==================== Sections ==================== */
+.sidebar-section {
+  padding: var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+
+.sidebar-section-header {
+  font-size: var(--font-size-caption);
+  font-weight: 700;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: var(--space-3);
+}
+
+/* ==================== Actions (Bottom) ==================== */
+.sidebar-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: auto;
+  background: var(--color-surface-2); /* Slightly darker footer area */
+}
+
+/* Fix width for full-width buttons inside sidebar */
+.sidebar-actions .gm-btn {
+  justify-content: center;
+  width: 100%;
+}
+
+.action-buttons-row {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.sidebar-actions .btn-icon-only {
+  width: 36px;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+/* ==================== Dropzones ==================== */
+.sidebar-dropzones {
+  padding: var(--space-4);
+}
+
+.dropzone-section-header {
+  font-size: var(--font-size-caption);
+  font-weight: 700;
+  color: var(--color-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: var(--space-2);
+  padding-left: var(--space-1);
+}
+
+.dropzone-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-2);
+  background: transparent;
+  border: 1px dashed color-mix(in srgb, var(--color-primary) 30%, transparent);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--motion-fast);
+}
+
+.dropzone-card:hover {
+  background: color-mix(in srgb, var(--color-primary) 5%, transparent);
+  border-color: var(--color-primary);
+  border-style: solid;
+}
+
+.dropzone-card:last-child {
+  margin-bottom: 0;
+}
+
+.dropzone-icon {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  border-radius: var(--radius-sm);
+}
+
+.dropzone-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.dropzone-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.dropzone-label {
+  font-size: var(--font-size-small);
+  font-weight: 600;
+  color: var(--color-primary);
+  line-height: 1.2;
+}
+
+.dropzone-hint {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  line-height: 1.2;
+}
+
+/* ==================== Pending Files ==================== */
+.sidebar-pending {
+  padding: var(--space-2) var(--space-4);
+}
+
+.pending-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-2);
+}
+
+.pending-label {
+  font-size: var(--font-size-caption);
+  font-weight: 700;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.pending-count {
+  font-size: 10px;
+  color: var(--color-text-secondary);
+}
+
+.pending-files-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.pending-file-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-surface-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-caption);
+  color: var(--color-text-secondary);
+}
+
+.pending-empty {
+  padding: var(--space-2);
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+  font-style: italic;
+  text-align: center;
+}
+
+/* ==================== Footer ==================== */
+.sidebar-footer {
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+
+/* ==================== Mobile ==================== */
+.sidebar-close-btn {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    transform: translateX(-100%);
+    box-shadow: var(--shadow-xl);
+  }
+  
+  .sidebar.mobile-open {
+    transform: translateX(0);
+  }
+  
+  .sidebar-close-btn {
+    display: block;
+    position: absolute;
+    top: var(--space-2);
+    right: var(--space-2);
+    background: none;
+    border: none;
+    font-size: 20px;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    padding: var(--space-2);
+  }
+  
+  .sidebar-dropzones {
+    display: none; /* Hide on mobile to save space, or show if needed */
+  }
+  
+  .sidebar.mobile-open .sidebar-dropzones {
+    display: block;
+  }
+}

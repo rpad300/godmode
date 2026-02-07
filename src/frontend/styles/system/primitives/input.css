@@ -1,0 +1,78 @@
+/**
+ * Primitive: Inputs
+ */
+
+.gm-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.gm-label {
+  font-size: var(--font-size-small);
+  color: var(--color-text-secondary);
+}
+
+.gm-help {
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+}
+
+.gm-input,
+.gm-select,
+.gm-textarea {
+  width: 100%;
+  min-height: var(--control-height);
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: inherit;
+  outline: none;
+  transition: border-color var(--motion-fast), box-shadow var(--motion-fast), background-color var(--motion-fast);
+}
+
+.gm-textarea {
+  padding: var(--space-3) var(--space-4);
+  min-height: calc(var(--control-height) * 2);
+  resize: vertical;
+}
+
+.gm-input::placeholder,
+.gm-textarea::placeholder {
+  color: color-mix(in srgb, var(--color-text-muted) 70%, transparent);
+}
+
+.gm-input:focus,
+.gm-select:focus,
+.gm-textarea:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-focus-ring) 35%, transparent);
+}
+
+.gm-input:disabled,
+.gm-select:disabled,
+.gm-textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Validation states */
+.gm-field.is-error .gm-input,
+.gm-field.is-error .gm-select,
+.gm-field.is-error .gm-textarea {
+  border-color: var(--color-danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 20%, transparent);
+}
+
+.gm-field.is-success .gm-input,
+.gm-field.is-success .gm-select,
+.gm-field.is-success .gm-textarea {
+  border-color: var(--color-success);
+}
+
+.gm-error {
+  font-size: var(--font-size-caption);
+  color: var(--color-danger);
+}

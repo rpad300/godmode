@@ -1,0 +1,226 @@
+/**
+ * File Uploader Styles
+ */
+
+.file-uploader {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+/* Dropzone */
+.dropzone {
+  border: 2px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-xl);
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: var(--color-surface);
+}
+
+.dropzone:hover {
+  border-color: var(--color-primary);
+  background: rgba(99, 102, 241, 0.05);
+}
+
+.dropzone.dragover {
+  border-color: var(--color-primary);
+  background: rgba(99, 102, 241, 0.1);
+  transform: scale(1.01);
+}
+
+.dropzone-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.dropzone-icon {
+  font-size: 3rem;
+}
+
+.dropzone-text p {
+  margin: 0;
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+.dropzone-subtext {
+  color: var(--color-text-muted) !important;
+  font-size: var(--font-size-sm) !important;
+  font-weight: 400 !important;
+}
+
+/* File Queue */
+.file-queue {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.queued-file {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.queued-file.uploading {
+  border-color: var(--color-primary);
+}
+
+.queued-file.complete {
+  border-color: var(--color-success);
+  background: rgba(34, 197, 94, 0.05);
+}
+
+.queued-file.error {
+  border-color: var(--color-error);
+  background: rgba(239, 68, 68, 0.05);
+}
+
+.file-info {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex: 1;
+  min-width: 0;
+}
+
+.file-icon {
+  font-size: var(--font-size-lg);
+}
+
+.file-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-sm);
+}
+
+.file-size {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.file-status {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  flex-shrink: 0;
+}
+
+.progress-bar {
+  width: 100px;
+  height: 6px;
+  background: var(--color-surface-hover);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--color-primary);
+  border-radius: 3px;
+  transition: width 0.3s;
+}
+
+.progress-text {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  min-width: 40px;
+  text-align: right;
+}
+
+.status-icon {
+  font-size: var(--font-size-lg);
+}
+
+.status-icon.success {
+  color: var(--color-success);
+}
+
+.status-icon.error {
+  color: var(--color-error);
+}
+
+.error-text {
+  font-size: var(--font-size-xs);
+  color: var(--color-error);
+}
+
+.remove-file {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: var(--font-size-lg);
+  transition: color 0.2s;
+}
+
+.remove-file:hover {
+  color: var(--color-error);
+}
+
+/* Upload Actions */
+.upload-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+}
+
+/* Processing Status */
+.processing-status {
+  padding: var(--spacing-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.processing-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-sm);
+}
+
+.processing-icon {
+  font-size: var(--font-size-lg);
+}
+
+.processing-title {
+  font-weight: 500;
+}
+
+.processing-stats {
+  display: flex;
+  gap: var(--spacing-md);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin-bottom: var(--spacing-sm);
+}
+
+.processing-stats .error {
+  color: var(--color-error);
+}
+
+.current-file {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--spacing-sm);
+}
+
+.processing-progress .progress-bar {
+  width: 100%;
+}

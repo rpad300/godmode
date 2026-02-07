@@ -1,0 +1,79 @@
+/* ==========================================================================
+   Primitive: Alert / Banner
+   ========================================================================== */
+
+.alert {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  
+  font-size: var(--font-size-small);
+  line-height: 1.5;
+}
+
+.alert-icon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px; /* optical alignment */
+}
+
+.alert-content {
+  flex: 1;
+  color: var(--color-text);
+}
+
+.alert-title {
+  font-weight: 600;
+  display: block;
+  margin-bottom: 2px;
+}
+
+/* Variants */
+
+/* Info (Default) */
+.alert--info {
+  background-color: color-mix(in srgb, var(--color-info) 10%, var(--color-surface));
+  border-color: color-mix(in srgb, var(--color-info) 20%, transparent);
+}
+.alert--info .alert-icon { color: var(--color-info); }
+
+/* Success */
+.alert--success {
+  background-color: color-mix(in srgb, var(--color-success) 10%, var(--color-surface));
+  border-color: color-mix(in srgb, var(--color-success) 20%, transparent);
+}
+.alert--success .alert-icon { color: var(--color-success); }
+
+/* Warning */
+.alert--warning {
+  background-color: color-mix(in srgb, var(--color-warning) 10%, var(--color-surface));
+  border-color: color-mix(in srgb, var(--color-warning) 20%, transparent);
+}
+.alert--warning .alert-icon { color: var(--color-warning); }
+
+/* Danger */
+.alert--danger {
+  background-color: color-mix(in srgb, var(--color-danger) 10%, var(--color-surface));
+  border-color: color-mix(in srgb, var(--color-danger) 20%, transparent);
+}
+.alert--danger .alert-icon { color: var(--color-danger); }
+
+/* Banner variant (full width, sharp corners optional) */
+.alert--banner {
+  border-radius: 0;
+  border-left: 0;
+  border-right: 0;
+}
+
+/* TV adjustments */
+@media (min-width: 1441px) {
+  .alert {
+    padding: var(--space-5);
+    font-size: var(--font-size-body);
+  }
+}

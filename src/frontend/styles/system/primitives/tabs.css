@@ -1,0 +1,109 @@
+/* ==========================================================================
+   Primitive: Tabs
+   ========================================================================== */
+
+.tabs {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+/* Tab List (Container for buttons) */
+.tab-list {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto; /* horizontal scroll on mobile */
+  border-bottom: 1px solid var(--color-border);
+  gap: var(--space-4);
+  
+  /* Hide scrollbar */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.tab-list::-webkit-scrollbar { display: none; }
+
+/* Tab Button */
+.tab-button {
+  background: none;
+  border: none;
+  padding: var(--space-3) 0;
+  margin-bottom: -1px; /* overlap border */
+  
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-small);
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  cursor: pointer;
+  
+  border-bottom: 2px solid transparent;
+  transition: color var(--motion-fast), border-color var(--motion-fast);
+}
+
+.tab-button:hover {
+  color: var(--color-text);
+}
+
+.tab-button:focus-visible {
+  outline: none;
+  color: var(--color-primary);
+  /* Optional: explicit focus ring if needed, but border-bottom usually enough */
+}
+
+/* Active State */
+.tab-button[aria-selected="true"],
+.tab-button.is-active {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+}
+
+/* Tab Panel */
+.tab-panel {
+  padding-top: var(--space-4);
+  display: none;
+}
+
+.tab-panel[aria-hidden="false"],
+.tab-panel.is-active {
+  display: block;
+  animation: fade-in var(--motion-fast) ease-out;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Variants */
+
+/* Segmented Control / Pill style */
+.tabs--pills .tab-list {
+  border-bottom: none;
+  background-color: var(--color-surface-2);
+  padding: var(--space-1);
+  border-radius: var(--radius-md);
+  gap: var(--space-1);
+}
+
+.tabs--pills .tab-button {
+  flex: 1;
+  text-align: center;
+  border-bottom: none;
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: 0;
+}
+
+.tabs--pills .tab-button.is-active {
+  background-color: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+  color: var(--color-text);
+}
+
+/* TV adjustments */
+@media (min-width: 1441px) {
+  .tab-button {
+    padding: var(--space-4) var(--space-2);
+    font-size: var(--font-size-body);
+  }
+}

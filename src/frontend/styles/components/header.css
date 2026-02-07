@@ -1,0 +1,275 @@
+/**
+ * Header Styles
+ * GodMode Design System (Refactored)
+ */
+
+/* ==================== Header Layout ==================== */
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 64px;
+  padding: 0 var(--space-6);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  transition: background-color var(--motion-normal);
+}
+
+.header-logo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-weight: 700;
+  font-size: var(--font-size-h3);
+  color: var(--color-text);
+}
+
+.logo-icon {
+  font-size: 24px;
+}
+
+.header-logo h1 {
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+  background: linear-gradient(135deg, var(--color-primary), color-mix(in srgb, var(--color-primary) 80%, black));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* ==================== Header Actions ==================== */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* ==================== Project Selector ==================== */
+.project-selector {
+  position: relative;
+}
+
+/* Button handled by .gm-btn, just layout tweaks here */
+.project-btn {
+  min-width: 160px;
+  justify-content: space-between;
+}
+
+.project-name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
+.project-dropdown {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  left: 0;
+  width: 280px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  z-index: var(--z-dropdown);
+  
+  opacity: 0;
+  transform: translateY(-10px);
+  pointer-events: none;
+  transition: all var(--motion-fast) var(--motion-ease-standard);
+  
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.project-dropdown.show {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.project-dropdown-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  color: var(--color-text);
+  font-size: var(--font-size-small);
+  transition: background-color var(--motion-fast);
+}
+
+.project-dropdown-item:hover {
+  background-color: var(--color-surface-2);
+}
+
+.project-dropdown-item.active {
+  background-color: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  color: var(--color-primary);
+  font-weight: 500;
+}
+
+/* ==================== User Menu ==================== */
+.user-menu {
+  position: relative;
+}
+
+.user-menu-btn {
+  padding: var(--space-1) var(--space-3) var(--space-1) var(--space-1);
+  gap: var(--space-3);
+  border-radius: 999px; /* Pill shape */
+}
+
+.user-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.user-name {
+  font-size: var(--font-size-small);
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.user-dropdown {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  width: 240px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  z-index: var(--z-dropdown);
+  
+  opacity: 0;
+  transform: translateY(-10px);
+  pointer-events: none;
+  transition: all var(--motion-fast) var(--motion-ease-standard);
+  
+  display: flex;
+  flex-direction: column;
+}
+
+.user-dropdown.show {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.user-dropdown-header {
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--color-border-muted);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.user-dropdown-header strong {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.user-dropdown-header .text-muted {
+  font-size: var(--font-size-caption);
+  color: var(--color-text-secondary);
+}
+
+.user-dropdown-items {
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.user-dropdown-items button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-3);
+  background: none;
+  border: none;
+  color: var(--color-text);
+  cursor: pointer;
+  font-size: var(--font-size-small);
+  border-radius: var(--radius-md);
+  transition: background-color var(--motion-fast);
+  text-align: left;
+}
+
+.user-dropdown-items button:hover {
+  background-color: var(--color-surface-2);
+}
+
+.user-dropdown-items button.text-error {
+  color: var(--color-danger);
+}
+
+.user-dropdown-items button.text-error:hover {
+  background-color: color-mix(in srgb, var(--color-danger) 10%, transparent);
+}
+
+/* ==================== Mobile Menu Btn ==================== */
+.mobile-menu-btn {
+  display: none;
+  background: none;
+  border: none;
+  font-size: 24px;
+  color: var(--color-text);
+  cursor: pointer;
+  padding: var(--space-2);
+}
+
+/* ==================== Responsive ==================== */
+@media (max-width: 768px) {
+  .app-header {
+    padding: 0 var(--space-4);
+    height: 56px;
+  }
+
+  .mobile-menu-btn {
+    display: block;
+    margin-right: var(--space-2);
+  }
+
+  /* Hide project name on small screens, show only icon/arrow? 
+     Or just simplify layout */
+  .project-btn {
+    min-width: auto;
+    padding: var(--space-2);
+  }
+  
+  .project-name {
+    display: none;
+  }
+  
+  .user-name {
+    display: none;
+  }
+  
+  .user-menu-btn {
+    padding: 0;
+    background: none;
+    border: none;
+  }
+  
+  .header-actions {
+    gap: var(--space-2);
+  }
+}
