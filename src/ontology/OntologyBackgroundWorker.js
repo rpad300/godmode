@@ -12,11 +12,16 @@
  * - Auto-approve high-confidence suggestions
  */
 
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'ontology-background-worker' });
+
 class OntologyBackgroundWorker {
     constructor(options = {}) {
         this.graphProvider = options.graphProvider || null;
         this.storage = options.storage || null;
         this.llmConfig = options.llmConfig || null;
+        this.appConfig = options.appConfig || null;
         this.dataDir = options.dataDir || './data';
         
         // Worker state
@@ -66,6 +71,7 @@ class OntologyBackgroundWorker {
                 graphProvider: this.graphProvider,
                 storage: this.storage,
                 llmConfig: this.llmConfig,
+                appConfig: this.appConfig,
                 dataDir: this.dataDir
             });
         }
@@ -95,10 +101,12 @@ class OntologyBackgroundWorker {
                 const { EntityResolver } = require('../optimizations/EntityResolver');
                 this._entityResolver = new EntityResolver({
                     graphProvider: this.graphProvider,
-                    storage: this.storage
+                    storage: this.storage,
+                    llmConfig: this.llmConfig,
+                    appConfig: this.appConfig
                 });
             } catch (e) {
-                console.log('[OntologyBackgroundWorker] EntityResolver not available:', e.message);
+                log.debug({ event: 'ontology_worker_entity_resolver_unavailable', reason: e.message }, 'EntityResolver not available');
             }
         }
         return this._entityResolver;
@@ -114,10 +122,11 @@ class OntologyBackgroundWorker {
                 this._orgResolver = new OrganizationResolver({
                     graphProvider: this.graphProvider,
                     storage: this.storage,
-                    llmConfig: this.llmConfig
+                    llmConfig: this.llmConfig,
+                    appConfig: this.appConfig
                 });
             } catch (e) {
-                console.log('[OntologyBackgroundWorker] OrganizationResolver not available:', e.message);
+                log.debug({ event: 'ontology_worker_org_resolver_unavailable', reason: e.message }, 'OrganizationResolver not available');
             }
         }
         return this._orgResolver;
@@ -150,7 +159,7 @@ class OntologyBackgroundWorker {
         };
 
         try {
-            console.log('[OntologyBackgroundWorker] Starting full analysis...');
+            log.info({ event: 'ontology_worker_full_analysis_start' }, 'Starting full analysis');
             this.isRunning = true;
 
             // 1. Check if graph is available and has enough data
@@ -162,7 +171,7 @@ class OntologyBackgroundWorker {
             if (nodeCount < this.minNodesForAnalysis) {
                 execution.results.skipped = true;
                 execution.results.reason = `Not enough nodes (${nodeCount} < ${this.minNodesForAnalysis})`;
-                console.log(`[OntologyBackgroundWorker] Skipping analysis: ${execution.results.reason}`);
+                log.debug({ event: 'ontology_worker_skip_analysis', reason: execution.results.reason }, 'Skipping analysis');
             } else {
                 // 2. Analyze graph for gaps
                 execution.results.gaps = await this.checkForGaps();
@@ -180,7 +189,7 @@ class OntologyBackgroundWorker {
             this.lastRun.fullAnalysis = new Date().toISOString();
 
         } catch (error) {
-            console.error('[OntologyBackgroundWorker] Full analysis error:', error.message);
+            log.error({ event: 'ontology_worker_full_analysis_error', reason: error.message }, 'Full analysis error');
             execution.status = 'failed';
             execution.error = error.message;
         } finally {
@@ -210,7 +219,7 @@ class OntologyBackgroundWorker {
                 labelsNotInOntology: result.analysis?.labelsNotInOntology || []
             };
         } catch (error) {
-            console.error('[OntologyBackgroundWorker] checkForGaps error:', error.message);
+            log.error({ event: 'ontology_worker_check_gaps_error', reason: error.message }, 'checkForGaps error');
             return { error: error.message };
         }
     }
@@ -228,7 +237,7 @@ class OntologyBackgroundWorker {
         };
 
         try {
-            console.log('[OntologyBackgroundWorker] Running inference rules...');
+            log.info({ event: 'ontology_worker_inference_rules_start' }, 'Running inference rules');
             const engine = this.getInferenceEngine();
             
             if (!engine) {
@@ -256,7 +265,7 @@ class OntologyBackgroundWorker {
             this.lastRun.inferenceRules = new Date().toISOString();
 
         } catch (error) {
-            console.error('[OntologyBackgroundWorker] Inference rules error:', error.message);
+            log.error({ event: 'ontology_worker_inference_rules_error', reason: error.message }, 'Inference rules error');
             execution.status = 'failed';
             execution.error = error.message;
         } finally {
@@ -281,7 +290,7 @@ class OntologyBackgroundWorker {
         };
 
         try {
-            console.log('[OntologyBackgroundWorker] Checking for duplicates...');
+            log.info({ event: 'ontology_worker_dedup_start' }, 'Checking for duplicates');
 
             // Person duplicates
             const entityResolver = this.getEntityResolver();
@@ -309,7 +318,7 @@ class OntologyBackgroundWorker {
             this.lastRun.deduplication = new Date().toISOString();
 
         } catch (error) {
-            console.error('[OntologyBackgroundWorker] Deduplication error:', error.message);
+            log.error({ event: 'ontology_worker_dedup_error', reason: error.message }, 'Deduplication error');
             execution.status = 'failed';
             execution.error = error.message;
         } finally {
@@ -335,7 +344,7 @@ class OntologyBackgroundWorker {
         };
 
         try {
-            console.log(`[OntologyBackgroundWorker] Auto-approving suggestions (threshold: ${threshold})...`);
+            log.info({ event: 'ontology_worker_auto_approve_start', threshold }, 'Auto-approving suggestions');
             const agent = this.getOntologyAgent();
             
             if (!agent) {
@@ -349,7 +358,7 @@ class OntologyBackgroundWorker {
             this.lastRun.autoApprove = new Date().toISOString();
 
         } catch (error) {
-            console.error('[OntologyBackgroundWorker] Auto-approve error:', error.message);
+            log.error({ event: 'ontology_worker_auto_approve_error', reason: error.message }, 'Auto-approve error');
             execution.status = 'failed';
             execution.error = error.message;
         } finally {
@@ -370,7 +379,7 @@ class OntologyBackgroundWorker {
             clearTimeout(this.pendingAnalysis);
         }
 
-        console.log(`[OntologyBackgroundWorker] Scheduling ${type} analysis in ${this.analysisDebounceMs / 1000}s...`);
+        log.debug({ event: 'ontology_worker_schedule_analysis', type, delaySeconds: this.analysisDebounceMs / 1000 }, 'Scheduling analysis');
 
         this.pendingAnalysis = setTimeout(async () => {
             this.pendingAnalysis = null;
@@ -392,7 +401,7 @@ class OntologyBackgroundWorker {
         if (this.pendingAnalysis) {
             clearTimeout(this.pendingAnalysis);
             this.pendingAnalysis = null;
-            console.log('[OntologyBackgroundWorker] Cancelled pending analysis');
+            log.debug({ event: 'ontology_worker_cancelled' }, 'Cancelled pending analysis');
         }
     }
 
@@ -484,7 +493,7 @@ class OntologyBackgroundWorker {
             const result = await this.graphProvider.query('MATCH (n) RETURN count(n) as count');
             return result?.[0]?.count || 0;
         } catch (e) {
-            console.log('[OntologyBackgroundWorker] _getNodeCount error:', e.message);
+            log.warn({ event: 'ontology_worker_get_node_count_error', reason: e.message }, '_getNodeCount error');
             return 0;
         }
     }
@@ -643,7 +652,7 @@ class OntologyBackgroundWorker {
         if (this.executionLog.length > this.maxLogEntries) {
             this.executionLog = this.executionLog.slice(0, this.maxLogEntries);
         }
-        console.log(`[OntologyBackgroundWorker] ${execution.type}: ${execution.status} (${execution.duration}ms)`);
+        log.debug({ event: 'ontology_worker_execution', type: execution.type, status: execution.status, duration: execution.duration }, 'Execution');
     }
 }
 
@@ -654,10 +663,10 @@ function getOntologyBackgroundWorker(options = {}) {
     if (!instance) {
         instance = new OntologyBackgroundWorker(options);
     }
-    // Update dependencies if provided
     if (options.graphProvider) instance.setGraphProvider(options.graphProvider);
     if (options.storage) instance.setStorage(options.storage);
     if (options.llmConfig) instance.setLLMConfig(options.llmConfig);
+    if (options.appConfig) instance.appConfig = options.appConfig;
     if (options.dataDir) instance.dataDir = options.dataDir;
     return instance;
 }

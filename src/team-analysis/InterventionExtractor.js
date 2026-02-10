@@ -302,7 +302,7 @@ class InterventionExtractor {
                     onConflict: 'project_id,document_id,contact_id'
                 });
         } catch (error) {
-            console.warn('[InterventionExtractor] Failed to cache interventions:', error.message);
+            log.warn({ event: 'intervention_extractor_cache_failed', reason: error.message }, 'Failed to cache interventions');
         }
     }
 

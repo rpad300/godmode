@@ -7,6 +7,9 @@
 
 const https = require('https');
 const http = require('http');
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'exchange-rate' });
 
 // In-memory cache
 let cachedRate = null;
@@ -73,20 +76,20 @@ function fetchJson(url) {
 async function fetchRateFromAPI() {
     for (const api of APIS) {
         try {
-            console.log(`[ExchangeRate] Fetching from ${api.name}...`);
+            log.debug({ event: 'exchange_rate_fetch', api: api.name }, 'Fetching from API');
             const data = await fetchJson(api.url);
             const rate = api.parseResponse(data);
 
             if (rate && typeof rate === 'number' && rate > 0) {
-                console.log(`[ExchangeRate] Got rate from ${api.name}: ${rate}`);
+                log.debug({ event: 'exchange_rate_got', api: api.name, rate }, 'Got rate from API');
                 return rate;
             }
         } catch (error) {
-            console.warn(`[ExchangeRate] Failed to fetch from ${api.name}:`, error.message);
+            log.warn({ event: 'exchange_rate_fetch_failed', api: api.name, reason: error.message }, 'Failed to fetch');
         }
     }
 
-    console.warn('[ExchangeRate] All APIs failed');
+    log.warn({ event: 'exchange_rate_all_apis_failed' }, 'All APIs failed');
     return null;
 }
 
@@ -117,9 +120,9 @@ async function storeRateInDatabase(rate) {
             { key: 'exchange_rate_last_updated', value: new Date().toISOString() }
         ], { onConflict: 'key' });
 
-        console.log('[ExchangeRate] Stored rate in database:', rate);
+        log.debug({ event: 'exchange_rate_stored', rate }, 'Stored rate in database');
     } catch (error) {
-        console.warn('[ExchangeRate] Failed to store rate in database:', error.message);
+        log.warn({ event: 'exchange_rate_store_failed', reason: error.message }, 'Failed to store rate in database');
     }
 }
 
@@ -150,7 +153,7 @@ async function getRateFromDatabase() {
             auto: config.exchange_rate_auto !== false && config.exchange_rate_auto !== 'false'
         };
     } catch (error) {
-        console.warn('[ExchangeRate] Failed to get rate from database:', error.message);
+        log.warn({ event: 'exchange_rate_db_get_failed', reason: error.message }, 'Failed to get rate from database');
         return { rate: null, auto: true };
     }
 }
@@ -169,7 +172,7 @@ async function getUsdToEurRate(forceRefresh = false) {
     // If auto mode is disabled, use manual rate
     if (!dbConfig.auto) {
         const manualRate = dbConfig.manual || DEFAULT_RATE;
-        console.log('[ExchangeRate] Using manual rate:', manualRate);
+        log.debug({ event: 'exchange_rate_manual', manualRate }, 'Using manual rate');
         return {
             rate: manualRate,
             source: 'manual',
@@ -182,7 +185,7 @@ async function getUsdToEurRate(forceRefresh = false) {
     if (!forceRefresh && cachedRate && cacheTimestamp) {
         const cacheAge = Date.now() - cacheTimestamp;
         if (cacheAge < CACHE_TTL_MS) {
-            console.log('[ExchangeRate] Using cached rate:', cachedRate);
+            log.debug({ event: 'exchange_rate_cached', rate: cachedRate }, 'Using cached rate');
             return {
                 rate: cachedRate,
                 source: 'cache',
@@ -213,7 +216,7 @@ async function getUsdToEurRate(forceRefresh = false) {
 
     // Fallback to database stored rate
     if (dbConfig.rate) {
-        console.log('[ExchangeRate] Using database fallback rate:', dbConfig.rate);
+        log.debug({ event: 'exchange_rate_db_fallback', rate: dbConfig.rate }, 'Using database fallback rate');
         return {
             rate: dbConfig.rate,
             source: 'database',
@@ -223,7 +226,7 @@ async function getUsdToEurRate(forceRefresh = false) {
     }
 
     // Ultimate fallback
-    console.log('[ExchangeRate] Using default rate:', DEFAULT_RATE);
+    log.debug({ event: 'exchange_rate_default', rate: DEFAULT_RATE }, 'Using default rate');
     return {
         rate: DEFAULT_RATE,
         source: 'default',
@@ -257,7 +260,7 @@ async function setExchangeRateMode(auto, manualRate = null) {
 
     if (error) throw error;
 
-    console.log('[ExchangeRate] Mode set to:', auto ? 'auto' : `manual (${manualRate})`);
+    log.debug({ event: 'exchange_rate_mode', auto, manualRate }, 'Mode set');
     return { success: true };
 }
 

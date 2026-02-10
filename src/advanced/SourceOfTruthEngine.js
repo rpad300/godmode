@@ -5,6 +5,10 @@
  * Refactored to use SupabaseStorage instead of local JSON files
  */
 
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'sot-engine' });
+
 // Try to load Supabase - may fail due to project folder name conflict
 let getStorage = null;
 try {
@@ -395,7 +399,7 @@ class SourceOfTruthEngine {
             
             return { timestamp: new Date().toISOString(), counts: stats };
         } catch (e) {
-            console.warn('[SOT] Could not mark as viewed:', e.message);
+            log.warn({ event: 'sot_mark_viewed_failed', reason: e.message }, 'Could not mark as viewed');
             return null;
         }
     }
@@ -765,7 +769,7 @@ Generated: ${new Date().toISOString()}
                 const aiSummary = await llmProvider.generateText(prompt);
                 enhanced.aiSummary = aiSummary;
             } catch (e) {
-                console.warn('[SourceOfTruthEngine] AI summary failed:', e.message);
+                log.warn({ event: 'sot_ai_summary_failed', reason: e.message }, 'AI summary failed');
                 enhanced.aiSummary = null;
             }
         }

@@ -154,6 +154,7 @@
 
 .password-strength .strength-fill {
   height: 100%;
+  width: var(--strength-width, 0);
   transition: width 0.3s, background-color 0.3s;
 }
 

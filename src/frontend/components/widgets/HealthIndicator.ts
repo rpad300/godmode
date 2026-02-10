@@ -35,7 +35,7 @@ export function createHealthIndicator(props: HealthIndicatorProps): HTMLElement 
         <span class="score-label">Health</span>
       </div>
     </div>
-    <div class="health-status" style="color: ${health.color}">${health.status}</div>
+    <div class="health-status" style="--health-status-color: ${health.color}">${health.status}</div>
     ${showFactors && health.factors.length > 0 ? `
       <div class="health-factors">
         ${health.factors.slice(0, 4).map(f => `
@@ -58,7 +58,7 @@ export function createHealthBadge(score: number, status: string, color: string):
   const badge = createElement('div', { className: 'health-badge' });
   
   badge.innerHTML = `
-    <span class="badge-score" style="background: ${color}">${score}</span>
+    <span class="badge-score" style="--badge-bg: ${color}">${score}</span>
     <span class="badge-status">${status}</span>
   `;
 

@@ -5,30 +5,12 @@
  * Prompt is loaded from Supabase (system_prompts key: decision_check_conflicts) and editable in Admin.
  */
 
+const { logger } = require('../logger');
 const llm = require('../llm');
+
+const log = logger.child({ module: 'decision-check' });
 const llmConfig = require('../llm/config');
 const promptsService = require('../supabase/prompts');
-
-function getDecisionCheckLLMConfig(config) {
-    const overrides = { model: config?.ollama?.reasoningModel || config?.llm?.models?.reasoning };
-    let textCfg = llmConfig.getTextConfig(config, overrides);
-    if (textCfg.provider && textCfg.model) {
-        textCfg.providerConfig = textCfg.providerConfig || config?.llm?.providers?.[textCfg.provider] || {};
-        return textCfg;
-    }
-    if (config?.ollama?.model || config?.ollama?.reasoningModel) {
-        return {
-            provider: 'ollama',
-            model: config.ollama.reasoningModel || config.ollama.model,
-            providerConfig: {
-                host: config.ollama.host || '127.0.0.1',
-                port: config.ollama.port || 11434,
-                ...(config.llm?.providers?.ollama || {})
-            }
-        };
-    }
-    return null;
-}
 
 /**
  * Run decision-check analysis: get decisions, call LLM for conflict detection,
@@ -50,7 +32,7 @@ async function runDecisionCheck(storage, config, options = {}) {
         const decisionsResult = storage.getDecisions ? await storage.getDecisions() : [];
         allDecisions = Array.isArray(decisionsResult) ? decisionsResult : (decisionsResult?.decisions || []);
     } catch (e) {
-        console.warn('[DecisionCheckFlow] getDecisions failed:', e.message);
+        log.warn({ event: 'decision_check_get_decisions_failed', reason: e.message }, 'getDecisions failed');
         return { conflicts: [], analyzed_decisions: 0, events_recorded: 0, error: e.message };
     }
 
@@ -58,9 +40,9 @@ async function runDecisionCheck(storage, config, options = {}) {
         return { conflicts: [], analyzed_decisions: allDecisions.length, events_recorded: 0 };
     }
 
-    const llmCfg = getDecisionCheckLLMConfig(config);
+    const llmCfg = llmConfig.getTextConfigForReasoning(config);
     if (!llmCfg?.provider || !llmCfg?.model) {
-        console.log('[DecisionCheckFlow] No AI/LLM configured, skipping analysis');
+        log.debug({ event: 'decision_check_no_llm' }, 'No AI/LLM configured, skipping analysis');
         return { conflicts: [], analyzed_decisions: allDecisions.length, events_recorded: 0 };
     }
 
@@ -97,7 +79,7 @@ IMPORTANT: Only output the JSON array, nothing else.`;
         });
         const raw = (result.text || result.response || '').trim();
         if (!result.success) {
-            console.warn('[DecisionCheckFlow] AI request failed:', result.error);
+            log.warn({ event: 'decision_check_ai_failed', reason: result.error }, 'AI request failed');
             return { conflicts: [], analyzed_decisions: allDecisions.length, events_recorded: 0, error: result.error || 'AI request failed' };
         }
         const jsonMatch = raw.match(/\[[\s\S]*\]/);
@@ -106,7 +88,7 @@ IMPORTANT: Only output the JSON array, nothing else.`;
             rawConflicts = Array.isArray(parsed) ? parsed : [];
         }
     } catch (e) {
-        console.warn('[DecisionCheckFlow] AI request failed:', e.message);
+        log.warn({ event: 'decision_check_ai_failed', reason: e.message }, 'AI request failed');
         return { conflicts: [], analyzed_decisions: allDecisions.length, events_recorded: 0, error: e.message };
     }
 
@@ -141,13 +123,13 @@ IMPORTANT: Only output the JSON array, nothing else.`;
                 await addEvent(decision2.id, 'conflict_detected', eventData2);
                 eventsRecorded += 2;
             } catch (e) {
-                console.warn('[DecisionCheckFlow] _addDecisionEvent failed:', e.message);
+                log.warn({ event: 'decision_check_add_event_failed', reason: e.message }, '_addDecisionEvent failed');
             }
         }
     }
 
     if (conflicts.length > 0) {
-        console.log(`[DecisionCheckFlow] Found ${conflicts.length} conflict(s), recorded ${eventsRecorded} events`);
+        log.info({ event: 'decision_check_conflicts_found', conflicts: conflicts.length, eventsRecorded }, 'Conflicts found');
     }
 
     return {

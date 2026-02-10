@@ -27,26 +27,7 @@ export function getToastContainer(props: ToastContainerProps = {}): HTMLElement 
     className: `toast-container toast-${position}`,
   });
 
-  // Position styles
-  const positionStyles: Record<string, string> = {
-    'top-right': 'top: 20px; right: 20px;',
-    'top-left': 'top: 20px; left: 20px;',
-    'bottom-right': 'bottom: 20px; right: 20px;',
-    'bottom-left': 'bottom: 20px; left: 20px;',
-    'top-center': 'top: 20px; left: 50%; transform: translateX(-50%);',
-    'bottom-center': 'bottom: 20px; left: 50%; transform: translateX(-50%);',
-  };
-
-  container.style.cssText = `
-    position: fixed;
-    ${positionStyles[position]}
-    z-index: 10000;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    max-width: 400px;
-    pointer-events: none;
-  `;
+  // Container uses CSS classes for position (toast-container.toast-{position} in layout.css)
 
   document.body.appendChild(container);
   containerInstance = container;
@@ -73,28 +54,6 @@ export function createToastElement(
     info: 'ℹ',
   };
 
-  const colors: Record<string, string> = {
-    success: 'var(--success)',
-    error: 'var(--error)',
-    warning: 'var(--warning)',
-    info: 'var(--accent)',
-  };
-
-  toast.style.cssText = `
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 12px 16px;
-    background: ${colors[type]};
-    color: white;
-    border-radius: 8px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    font-size: 14px;
-    pointer-events: auto;
-    cursor: pointer;
-    animation: slideInRight 0.3s ease;
-  `;
-
   toast.innerHTML = `
     <span class="toast-icon">${icons[type]}</span>
     <span class="toast-message">${message}</span>
@@ -119,10 +78,7 @@ export function createToastElement(
  * Dismiss a toast with animation
  */
 function dismissToast(toast: HTMLElement): void {
-  toast.style.opacity = '0';
-  toast.style.transform = 'translateX(100%)';
-  toast.style.transition = 'all 0.3s ease';
-
+  toast.classList.add('toast-dismiss');
   setTimeout(() => {
     toast.remove();
   }, 300);

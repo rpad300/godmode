@@ -13,7 +13,7 @@ import './styles/graph.css';
 // Import services
 import {
   theme, toast, shortcuts, undoManager, storage, http, api, configureApi, auth, projects,
-  addRequestInterceptor,
+  addRequestInterceptor, setProjectIdGetter,
   dashboardService, questionsService, risksService, actionsService, decisionsService,
   chatService, contactsService, teamsService, documentsService, knowledgeService,
   emailsService, graphService, timelineService, costsService, notificationsService,
@@ -22,13 +22,13 @@ import {
 } from './services';
 
 // Import components
-import { initGlobalSearch, initNotificationsDropdown, showProfileModal } from './components';
+import { initGlobalSearch, initNotificationsDropdown } from './components';
 import * as components from './components';
 import { createQuestionDetailView } from './components/questions/QuestionDetailView';
 import { createQuestionsPanel, createFactsPanel, createDecisionsPanel, createRisksPanel, createActionsPanel } from './components/sot';
 
 // Import stores
-import { appStore, uiStore, dataStore, chartsStore } from './stores';
+import { appStore, uiStore, dataStore, chartsStore, teamAnalysisStore } from './stores';
 import type { Question } from './stores/data';
 
 // Import legacy bridge for backwards compatibility
@@ -131,7 +131,8 @@ window.godmode = {
   version: '2.0.0',
 };
 
-// Ensure API requests include current project ID for project-scoped endpoints (e.g. costs)
+// Ensure API requests include current project ID for project-scoped endpoints
+setProjectIdGetter(() => appStore.getState().currentProjectId);
 addRequestInterceptor((opts) => {
   const projectId = appStore.getState().currentProjectId;
   if (projectId && opts.headers) {
@@ -257,13 +258,9 @@ function initializeUI(): void {
   if (logoutBtn) {
     logoutBtn.addEventListener('click', async () => {
       await auth.logout();
-      
-      // Clear all data
-      dataStore.setQuestions([]);
-      dataStore.setRisks([]);
-      dataStore.setActions([]);
-      dataStore.setDecisions([]);
-      dataStore.setContacts([]);
+
+      // Clear all project-scoped data and project list
+      clearProjectScopedState();
       dataStore.setProjects([]);
       appStore.setCurrentProject(null);
       appStore.setCurrentProjectId(null);
@@ -282,11 +279,11 @@ function initializeUI(): void {
     });
   }
 
-  // Settings button
+  // Settings button — open Settings tab (content area), never modal
   const settingsBtn = document.getElementById('settings-btn');
   if (settingsBtn) {
     settingsBtn.addEventListener('click', () => {
-      components.showSettingsModal();
+      switchTab('settings');
     });
   }
 
@@ -306,11 +303,12 @@ function initializeUI(): void {
     });
   }
 
-  // Profile button
+  // Profile button — open Profile tab (direct view, no modal)
   const profileBtn = document.getElementById('profile-btn');
   if (profileBtn) {
     profileBtn.addEventListener('click', () => {
-      showProfileModal();
+      userDropdown?.classList.add('hidden');
+      switchTab('profile');
     });
   }
 
@@ -400,21 +398,17 @@ function initializeUI(): void {
         if (editProjectBtn) editProjectBtn.classList.remove('hidden');
       } else {
         console.log('📭 Clearing project - starting...');
-        
+
         // No project selected - clear everything IMMEDIATELY
         if (editProjectBtn) editProjectBtn.classList.add('hidden');
-        
+
         // Clear current project in store
         appStore.setCurrentProject(null);
         appStore.setCurrentProjectId(null);
         console.log('📭 Store cleared');
-        
-        // Clear all data
-        dataStore.setQuestions([]);
-        dataStore.setRisks([]);
-        dataStore.setActions([]);
-        dataStore.setDecisions([]);
-        dataStore.setContacts([]);
+
+        // Clear all project-scoped data (no reference to previous project)
+        clearProjectScopedState();
         console.log('📭 Data store cleared');
         
         // IMMEDIATELY show empty state (no async import needed)
@@ -436,44 +430,21 @@ function initializeUI(): void {
     loadProjects();
   }
 
-  // New project button
+  // New project button — open Projects tab and show create form inline
   if (newProjectBtn) {
     newProjectBtn.addEventListener('click', () => {
-      components.showProjectModal({
-        mode: 'create',
-        onSave: async (project) => {
-          await loadProjects();
-          if (project.id && projectSelector) {
-            projectSelector.value = project.id;
-            if (editProjectBtn) editProjectBtn.classList.remove('hidden');
-          }
-          await refreshData();
-        },
-      });
+      (window as unknown as { __godmodeProjectsOpen?: string })['__godmodeProjectsOpen'] = 'create';
+      switchTab('projects');
     });
   }
 
-  // Edit project button
+  // Edit project button — open Projects tab and show edit form inline
   if (editProjectBtn) {
     editProjectBtn.addEventListener('click', () => {
       const currentProject = appStore.getState().currentProject;
       if (currentProject) {
-        components.showProjectModal({
-          mode: 'edit',
-          project: currentProject,
-          onSave: async () => {
-            await loadProjects();
-          },
-          onDelete: async () => {
-            await loadProjects();
-            if (editProjectBtn) editProjectBtn.classList.add('hidden');
-            dataStore.setQuestions([]);
-            dataStore.setRisks([]);
-            dataStore.setActions([]);
-            dataStore.setDecisions([]);
-            updateDashboard();
-          },
-        });
+        (window as unknown as { __godmodeProjectsOpen?: string })['__godmodeProjectsOpen'] = 'edit:' + currentProject.id;
+        switchTab('projects');
       }
     });
   }
@@ -519,36 +490,17 @@ function showNoProjectState(): void {
   console.log('📭 Setting innerHTML NOW...');
   
   dashboardContainer.innerHTML = `
-    <div class="dashboard" style="padding: 20px;">
-      <div class="no-project-state" style="
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        padding: 80px 24px;
-        text-align: center;
-        background: linear-gradient(135deg, rgba(225,29,72,0.05) 0%, rgba(225,29,72,0.02) 100%);
-        border-radius: 20px;
-        border: 2px dashed rgba(225,29,72,0.2);
-        min-height: 400px;
-      ">
-        <svg width="96" height="96" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="color: #e11d48; margin-bottom: 24px; opacity: 0.5;">
+    <div class="dashboard gm-p-5">
+      <div class="no-project-state gm-empty-state">
+        <svg class="gm-empty-state-icon" width="96" height="96" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
         </svg>
-        <h2 style="margin: 0 0 12px 0; font-size: 28px; font-weight: 700; color: var(--text-primary);">No Project Selected</h2>
-        <p style="margin: 0 0 28px 0; font-size: 16px; color: var(--text-secondary); max-width: 480px; line-height: 1.6;">
+        <h2 class="gm-empty-state-title">No Project Selected</h2>
+        <p class="gm-empty-state-desc">
           Select a project from the dropdown above, or create a new one to get started with your data management.
         </p>
-        <button id="create-project-empty-cta" class="btn btn-primary" style="
-          padding: 14px 32px;
-          font-size: 15px;
-          font-weight: 600;
-          display: inline-flex;
-          align-items: center;
-          gap: 10px;
-          border-radius: 12px;
-        ">
-          <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <button id="create-project-empty-cta" class="btn btn-primary gm-empty-state-cta">
+          <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
           </svg>
           Create New Project
@@ -560,21 +512,12 @@ function showNoProjectState(): void {
   console.log('📭 innerHTML SET! Container visible:', dashboardContainer.offsetParent !== null);
   console.log('📭 Container display:', window.getComputedStyle(dashboardContainer).display);
   
-  // Bind create project button
+  // Bind create project button — open Projects tab with create form inline
   const createBtn = document.getElementById('create-project-empty-cta');
   if (createBtn) {
     createBtn.addEventListener('click', () => {
-      components.showProjectModal({
-        mode: 'create',
-        onSave: async (project) => {
-          await loadProjects();
-          const projectSelector = document.getElementById('project-selector') as HTMLSelectElement;
-          if (project.id && projectSelector) {
-            projectSelector.value = project.id;
-          }
-          await refreshData();
-        }
-      });
+      (window as unknown as { __godmodeProjectsOpen?: string })['__godmodeProjectsOpen'] = 'create';
+      switchTab('projects');
     });
   }
 }
@@ -596,7 +539,7 @@ async function refreshDashboardPanel(): Promise<void> {
   }
   
   // Clear and recreate with loading state
-  dashboardContainer.innerHTML = '<div class="loading-placeholder" style="padding: 40px; text-align: center;">Loading dashboard...</div>';
+  dashboardContainer.innerHTML = '<div class="gm-loading-placeholder">Loading dashboard...</div>';
   
   try {
     const { createDashboard } = await import('./components/Dashboard');
@@ -623,7 +566,7 @@ async function refreshDashboardPanel(): Promise<void> {
     dashboardContainer.appendChild(dashboard);
   } catch (err) {
     console.error('Failed to load Dashboard:', err);
-    dashboardContainer.innerHTML = '<div class="error">Failed to load dashboard</div>';
+    dashboardContainer.innerHTML = '<div class="gm-error-placeholder">Failed to load dashboard</div>';
   }
 }
 
@@ -642,7 +585,7 @@ function initializePanels(): void {
       chatContainer.appendChild(panel);
     }).catch((err) => {
       console.error('[Chat] Failed to load Chat:', err);
-      chatContainer.innerHTML = '<div style="padding: 24px; color: var(--text-secondary);">Failed to load chat</div>';
+      chatContainer.innerHTML = '<div class="gm-loading-placeholder gm-text-secondary">Failed to load chat</div>';
     });
   }
 
@@ -697,7 +640,7 @@ function initializePanels(): void {
       filesContainer.appendChild(panel);
     }).catch(err => {
       console.error('[FilesPanel] Failed to load DocumentsPanel:', err);
-      filesContainer.innerHTML = '<div style="padding: 24px; color: var(--text-secondary);">Failed to load files panel</div>';
+      filesContainer.innerHTML = '<div class="gm-loading-placeholder gm-text-secondary">Failed to load files panel</div>';
     });
   }
 
@@ -863,7 +806,7 @@ function updateThemeButton(): void {
 // ==================== CLIENT-SIDE ROUTING ====================
 
 /** Valid tab names for routing */
-const VALID_TABS = ['dashboard', 'chat', 'sot', 'timeline', 'contacts', 'team-analysis', 'files', 'graph', 'emails', 'costs', 'history', 'roles', 'admin', 'org'];
+const VALID_TABS = ['dashboard', 'chat', 'sot', 'timeline', 'contacts', 'team-analysis', 'files', 'graph', 'emails', 'costs', 'history', 'roles', 'profile', 'settings', 'admin', 'org', 'projects'];
 
 /**
  * Get current tab from URL pathname
@@ -943,8 +886,44 @@ function switchTab(tabName: string, updateUrl = true): void {
   }
 
   // Update store
-  uiStore.setTab(tabName as 'dashboard' | 'chat' | 'sot' | 'timeline' | 'contacts' | 'team-analysis' | 'files' | 'graph' | 'emails' | 'costs' | 'history' | 'roles' | 'admin' | 'org');
+  uiStore.setTab(tabName as 'dashboard' | 'chat' | 'sot' | 'timeline' | 'contacts' | 'team-analysis' | 'files' | 'graph' | 'emails' | 'costs' | 'history' | 'roles' | 'profile' | 'settings' | 'admin' | 'org' | 'projects');
   
+  // Load profile page when switching to profile tab (direct view, no modal)
+  if (tabName === 'profile') {
+    const profileContainer = document.getElementById('profile-page-container');
+    if (profileContainer) {
+      import('./components/modals/ProfileModal').then(({ initProfilePage }) => {
+        initProfilePage(profileContainer, {
+          onBack: () => switchTab('dashboard'),
+        });
+      });
+    }
+  }
+
+  // Load projects page when switching to projects tab (list + inline form, no modal)
+  if (tabName === 'projects') {
+    const projectsContainer = document.getElementById('projects-page-container');
+    if (projectsContainer) {
+      import('./components/ProjectsPage').then(({ initProjectsPage }) => {
+        initProjectsPage(projectsContainer, {
+          onBack: () => switchTab('dashboard'),
+        });
+      });
+    }
+  }
+
+  // Load settings page when switching to settings tab
+  if (tabName === 'settings') {
+    const settingsContainer = document.getElementById('settings-page-container');
+    if (settingsContainer) {
+      import('./components/SettingsPage').then(({ initSettingsPage }) => {
+        initSettingsPage(settingsContainer, {
+          onBack: () => switchTab('dashboard'),
+        });
+      });
+    }
+  }
+
   // Load admin panel when switching to admin tab
   if (tabName === 'admin') {
     const adminContainer = document.getElementById('tab-admin');
@@ -976,7 +955,7 @@ function switchTab(tabName: string, updateUrl = true): void {
         console.log('[Graph] GraphExplorer loaded successfully');
       }).catch(err => {
         console.error('[Graph] Failed to load GraphExplorer:', err);
-        graphContainer.innerHTML = '<div style="padding: 24px; text-align: center; color: var(--text-secondary);">Failed to load Graph Explorer</div>';
+        graphContainer.innerHTML = '<div class="gm-loading-placeholder gm-text-center">Failed to load Graph Explorer</div>';
       });
     }
   }
@@ -1065,7 +1044,7 @@ function switchTab(tabName: string, updateUrl = true): void {
         console.log('[Timeline] TimelinePanel loaded successfully');
       }).catch(err => {
         console.error('[Timeline] Failed to load TimelinePanel:', err);
-        timelineContainer.innerHTML = '<div style="padding: 24px; text-align: center; color: var(--text-secondary);">Failed to load Timeline</div>';
+        timelineContainer.innerHTML = '<div class="gm-loading-placeholder gm-text-center">Failed to load Timeline</div>';
       });
     }
   }
@@ -1086,7 +1065,7 @@ function switchTab(tabName: string, updateUrl = true): void {
         setupTeamAnalysisSubtabs();
       }).catch(err => {
         console.error('[TeamAnalysis] Failed to load TeamAnalysis:', err);
-        teamAnalysisContainer.innerHTML = '<div style="padding: 24px; text-align: center; color: var(--text-secondary);">Failed to load Team Analysis</div>';
+        teamAnalysisContainer.innerHTML = '<div class="gm-loading-placeholder gm-text-center">Failed to load Team Analysis</div>';
       });
     } else {
       // Component already loaded, just setup subtabs
@@ -1163,12 +1142,38 @@ async function loadProjects(): Promise<void> {
 }
 
 /**
+ * Clear all project-scoped state so no data from another project can leak into the UI.
+ */
+function clearProjectScopedState(): void {
+  dataStore.setQuestions([]);
+  dataStore.setRisks([]);
+  dataStore.setActions([]);
+  dataStore.setDecisions([]);
+  dataStore.setFacts([]);
+  dataStore.setContacts([]);
+  dataStore.clearChatHistory();
+  teamAnalysisStore.reset();
+  chartsStore.destroyAll();
+  try {
+    localStorage.removeItem('copilot_session');
+  } catch {
+    // ignore if localStorage unavailable
+  }
+  // Clear URL hash and project-scoped query params so no ID from previous project remains
+  if (typeof window !== 'undefined' && (window.location.hash || window.location.search)) {
+    const base = window.location.pathname || '/app';
+    window.history.replaceState(null, '', base);
+  }
+}
+
+/**
  * Select a project
  */
 async function selectProject(projectId: string): Promise<void> {
   try {
+    clearProjectScopedState();
     const project = await projects.activate(projectId);
-    
+
     if (project) {
       toast.success(`Switched to: ${project.name}`);
       await refreshData();
@@ -1211,11 +1216,7 @@ async function refreshData(): Promise<void> {
       // No project selected - show empty state and ensure dashboard tab is visible
       console.log('📭 No project selected - showing empty state');
       switchTab('dashboard');
-      dataStore.setQuestions([]);
-      dataStore.setRisks([]);
-      dataStore.setActions([]);
-      dataStore.setDecisions([]);
-      dataStore.setContacts([]);
+      clearProjectScopedState();
       await refreshDashboardPanel();
       loadSotContent(uiStore.getState().sotCurrentView);
       return;
@@ -1259,66 +1260,41 @@ function updateDashboard(): void {
   if (!currentProject && !currentProjectId) {
     // No project selected - show empty state
     statsGrid.innerHTML = `
-      <div class="no-project-message" style="
-        grid-column: 1 / -1;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        padding: 48px 24px;
-        text-align: center;
-        background: linear-gradient(135deg, rgba(225,29,72,0.05) 0%, rgba(225,29,72,0.02) 100%);
-        border-radius: 16px;
-        border: 2px dashed rgba(225,29,72,0.2);
-      ">
-        <svg width="64" height="64" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="color: #e11d48; margin-bottom: 16px; opacity: 0.7;">
+      <div class="no-project-message gm-grid-col-all gm-empty-state gm-p-6">
+        <svg class="gm-empty-state-icon" width="64" height="64" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
         </svg>
-        <h3 style="margin: 0 0 8px 0; font-size: 20px; font-weight: 600; color: var(--text-primary);">No Project Selected</h3>
-        <p style="margin: 0 0 20px 0; font-size: 14px; color: var(--text-secondary); max-width: 400px;">
+        <h3 class="gm-empty-state-title gm-text-lg">No Project Selected</h3>
+        <p class="gm-empty-state-desc">
           Select an existing project from the dropdown above or create a new one to start managing your data.
         </p>
-        <button id="create-project-cta" class="btn btn-primary" style="
-          padding: 12px 24px;
-          font-size: 14px;
-          font-weight: 600;
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-        ">
-          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <button id="create-project-cta" class="btn btn-primary gm-empty-state-cta">
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
           </svg>
           Create New Project
         </button>
       </div>
     `;
-    
-    // Hide dashboard content sections
+
     if (dashboardContent) {
-      dashboardContent.style.display = 'none';
+      dashboardContent.classList.add('gm-none');
     }
     
-    // Bind create project button
+    // Bind create project button — open Projects tab with create form inline
     const createBtn = document.getElementById('create-project-cta');
     if (createBtn) {
       createBtn.addEventListener('click', () => {
-        components.showProjectModal({
-          mode: 'create',
-          onSave: async (project) => {
-            await loadProjects();
-            await refreshData();
-          }
-        });
+        (window as unknown as { __godmodeProjectsOpen?: string })['__godmodeProjectsOpen'] = 'create';
+        switchTab('projects');
       });
     }
-    
+
     return;
   }
 
-  // Show dashboard content if hidden
   if (dashboardContent) {
-    dashboardContent.style.display = '';
+    dashboardContent.classList.remove('gm-none');
   }
 
   const state = dataStore.getState();
@@ -1784,6 +1760,11 @@ async function init(): Promise<void> {
   });
   console.log('🔍 Global search initialized');
 
+  // Listen for projects list changed (e.g. from Projects tab create/edit/delete)
+  window.addEventListener('godmode:projects-changed', () => {
+    loadProjects();
+  });
+
   // Listen for godmode:navigate (e.g. "View source document" from Fact/Decision/Risk detail)
   window.addEventListener('godmode:navigate', async (e: Event) => {
     const d = (e as CustomEvent).detail;
@@ -1820,13 +1801,10 @@ async function init(): Promise<void> {
     refreshData();
   }
   
-  // Hide loading state with animation
   const loading = document.getElementById('app-loading');
   if (loading) {
     loading.classList.add('fade-out');
-    setTimeout(() => {
-      loading.style.display = 'none';
-    }, 300);
+    setTimeout(() => loading.classList.add('hidden'), 300);
   }
   
   // Log successful initialization
@@ -1877,198 +1855,6 @@ function showAuthRequiredMessage(): void {
   const authBlocker = document.createElement('div');
   authBlocker.id = 'auth-blocker-overlay';
   authBlocker.innerHTML = `
-    <style>
-      #auth-blocker-overlay {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        width: 100vw;
-        height: 100vh;
-        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 999999;
-        overflow: auto;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      }
-      .auth-card {
-        width: 100%;
-        max-width: 420px;
-        background: rgba(255, 255, 255, 0.03);
-        border-radius: 20px;
-        backdrop-filter: blur(20px);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-        padding: 2.5rem;
-        margin: 1rem;
-      }
-      .auth-logo {
-        width: 64px;
-        height: 64px;
-        margin: 0 auto 1.25rem;
-        background: linear-gradient(135deg, #e94560, #ff6b6b);
-        border-radius: 16px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        box-shadow: 0 10px 30px rgba(233, 69, 96, 0.3);
-      }
-      .auth-title {
-        color: white;
-        font-size: 1.5rem;
-        font-weight: 700;
-        text-align: center;
-        margin-bottom: 0.5rem;
-        letter-spacing: -0.02em;
-      }
-      .auth-subtitle {
-        color: rgba(255, 255, 255, 0.6);
-        font-size: 0.9rem;
-        text-align: center;
-        margin-bottom: 2rem;
-      }
-      .auth-tabs {
-        display: flex;
-        gap: 0.5rem;
-        margin-bottom: 1.5rem;
-        background: rgba(255, 255, 255, 0.05);
-        border-radius: 10px;
-        padding: 4px;
-      }
-      .auth-tab {
-        flex: 1;
-        padding: 0.625rem 1rem;
-        border: none;
-        background: transparent;
-        color: rgba(255, 255, 255, 0.6);
-        font-size: 0.875rem;
-        font-weight: 500;
-        cursor: pointer;
-        border-radius: 8px;
-        transition: all 0.2s;
-      }
-      .auth-tab:hover {
-        color: rgba(255, 255, 255, 0.9);
-      }
-      .auth-tab.active {
-        background: rgba(233, 69, 96, 0.2);
-        color: #ff6b6b;
-      }
-      .auth-form {
-        display: flex;
-        flex-direction: column;
-        gap: 1rem;
-      }
-      .auth-form.hidden {
-        display: none;
-      }
-      .form-group {
-        display: flex;
-        flex-direction: column;
-        gap: 0.375rem;
-      }
-      .form-label {
-        color: rgba(255, 255, 255, 0.8);
-        font-size: 0.8125rem;
-        font-weight: 500;
-      }
-      .form-input {
-        width: 100%;
-        padding: 0.75rem 1rem;
-        background: rgba(255, 255, 255, 0.06);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 10px;
-        color: white;
-        font-size: 0.9375rem;
-        transition: all 0.2s;
-        box-sizing: border-box;
-      }
-      .form-input::placeholder {
-        color: rgba(255, 255, 255, 0.35);
-      }
-      .form-input:focus {
-        outline: none;
-        border-color: #e94560;
-        background: rgba(255, 255, 255, 0.08);
-        box-shadow: 0 0 0 3px rgba(233, 69, 96, 0.15);
-      }
-      .form-hint {
-        color: rgba(255, 255, 255, 0.4);
-        font-size: 0.75rem;
-      }
-      .form-error {
-        color: #ff6b6b;
-        font-size: 0.8125rem;
-        padding: 0.75rem;
-        background: rgba(255, 107, 107, 0.1);
-        border-radius: 8px;
-        display: none;
-      }
-      .form-error.visible {
-        display: block;
-      }
-      .auth-submit {
-        width: 100%;
-        padding: 0.875rem;
-        background: linear-gradient(135deg, #e94560, #ff6b6b);
-        border: none;
-        border-radius: 10px;
-        color: white;
-        font-size: 0.9375rem;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.2s;
-        margin-top: 0.5rem;
-      }
-      .auth-submit:hover:not(:disabled) {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 25px rgba(233, 69, 96, 0.4);
-      }
-      .auth-submit:disabled {
-        opacity: 0.6;
-        cursor: not-allowed;
-      }
-      .auth-link {
-        color: #ff6b6b;
-        background: none;
-        border: none;
-        font-size: 0.8125rem;
-        cursor: pointer;
-        padding: 0;
-        text-decoration: underline;
-        text-underline-offset: 2px;
-      }
-      .auth-link:hover {
-        color: #e94560;
-      }
-      .auth-footer {
-        text-align: center;
-        margin-top: 1.5rem;
-        color: rgba(255, 255, 255, 0.5);
-        font-size: 0.8125rem;
-      }
-      .password-toggle {
-        position: absolute;
-        right: 12px;
-        top: 50%;
-        transform: translateY(-50%);
-        background: none;
-        border: none;
-        color: rgba(255, 255, 255, 0.4);
-        cursor: pointer;
-        padding: 4px;
-      }
-      .password-toggle:hover {
-        color: rgba(255, 255, 255, 0.7);
-      }
-      .input-wrapper {
-        position: relative;
-      }
-    </style>
-    
     <div class="auth-card">
       <div class="auth-logo">
         <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -2129,7 +1915,7 @@ function showAuthRequiredMessage(): void {
       
       <!-- Forgot Password Form -->
       <form id="forgot-form" class="auth-form hidden">
-        <p style="color: rgba(255,255,255,0.7); font-size: 0.875rem; margin-bottom: 1rem;">
+        <p class="auth-forgot-intro">
           Enter your email and we'll send you a link to reset your password.
         </p>
         <div class="form-group">
@@ -2320,7 +2106,7 @@ function updateAuthUI(): void {
       const avatarUrl = user.avatar || fallbackAvatar;
       
       // Use image for avatar
-      userAvatar.innerHTML = `<img src="${avatarUrl}" alt="${initials}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;" onerror="this.style.display='none';this.parentElement.textContent='${initials}';">`;
+      userAvatar.innerHTML = `<img src="${avatarUrl}" alt="${escapeHtml(initials)}" class="gm-avatar-img" onerror="this.classList.add('gm-none');this.parentElement.textContent=this.alt">`;
       userAvatar.title = user.name || user.email;
       userAvatar.classList.remove('hidden');
     }

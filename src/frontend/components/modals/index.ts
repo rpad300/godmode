@@ -22,6 +22,8 @@ export type { AuthMode, AuthModalProps } from './AuthModal';
 export { showProjectModal } from './ProjectModal';
 export type { ProjectData, ProjectModalProps } from './ProjectModal';
 
+export { showCompaniesModal } from './CompaniesModal';
+
 // Data Modals
 export { showContactModal } from './ContactModal';
 export type { ContactModalProps } from './ContactModal';

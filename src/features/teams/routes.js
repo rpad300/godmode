@@ -4,6 +4,7 @@
  */
 
 const { parseUrl, parseBody } = require('../../server/request');
+const { getLogger } = require('../../server/requestContext');
 const { jsonResponse } = require('../../server/response');
 
 /**
@@ -13,7 +14,7 @@ const { jsonResponse } = require('../../server/response');
  */
 async function handleTeams(ctx) {
     const { req, res, pathname, storage } = ctx;
-    
+    const log = getLogger().child({ module: 'teams' });
     // Quick check - if not a teams route, return false immediately
     if (!pathname.startsWith('/api/teams')) {
         return false;
@@ -53,10 +54,10 @@ async function handleTeams(ctx) {
                         }
                     );
                     graphSynced = true;
-                    console.log(`[Teams] Synced team "${body.name}" to FalkorDB`);
+                    log.debug({ event: 'teams_graph_synced', teamName: body.name }, 'Synced team to FalkorDB');
                 }
             } catch (syncErr) {
-                console.log(`[Teams] Graph sync warning: ${syncErr.message}`);
+                log.warn({ event: 'teams_graph_sync_warning', reason: syncErr.message }, 'Graph sync warning');
             }
             
             jsonResponse(res, { ok: true, id, graphSynced });
@@ -143,7 +144,7 @@ async function handleTeams(ctx) {
                     }
                 }
             } catch (syncErr) {
-                console.log(`[Teams] Graph sync warning: ${syncErr.message}`);
+                log.warn({ event: 'teams_graph_sync_warning', reason: syncErr.message }, 'Graph sync warning');
             }
             
             jsonResponse(res, { ok: true, graphSynced });
@@ -178,7 +179,7 @@ async function handleTeams(ctx) {
                     );
                 }
             } catch (syncErr) {
-                console.log(`[Teams] Graph sync warning: ${syncErr.message}`);
+                log.warn({ event: 'teams_graph_sync_warning', reason: syncErr.message }, 'Graph sync warning');
             }
             
             jsonResponse(res, { ok: true, graphSynced: true });
@@ -228,10 +229,10 @@ async function handleTeams(ctx) {
                         }
                     );
                     graphSynced = true;
-                    console.log(`[Teams] Member "${contact?.name}" added to team "${team?.name}" in FalkorDB`);
+                    log.debug({ event: 'teams_member_added', contactName: contact?.name, teamName: team?.name }, 'Member added to team in FalkorDB');
                 }
             } catch (syncErr) {
-                console.log(`[Teams] Graph sync warning: ${syncErr.message}`);
+                log.warn({ event: 'teams_graph_sync_warning', reason: syncErr.message }, 'Graph sync warning');
             }
             
             jsonResponse(res, { ok: true, member: result, graphSynced });
@@ -261,10 +262,10 @@ async function handleTeams(ctx) {
                         { contactId, teamId }
                     );
                     graphSynced = true;
-                    console.log(`[Teams] Member removed from team in FalkorDB`);
+                    log.debug({ event: 'teams_member_removed' }, 'Member removed from team in FalkorDB');
                 }
             } catch (syncErr) {
-                console.log(`[Teams] Graph sync warning: ${syncErr.message}`);
+                log.warn({ event: 'teams_graph_sync_warning', reason: syncErr.message }, 'Graph sync warning');
             }
             
             jsonResponse(res, { ok: true, graphSynced });

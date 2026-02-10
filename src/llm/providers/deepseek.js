@@ -4,6 +4,8 @@
  */
 
 const BaseLLMProvider = require('./base');
+const { logger: rootLogger } = require('../../logger');
+const log = rootLogger.child({ module: 'llm-provider', provider: 'deepseek' });
 
 class DeepSeekProvider extends BaseLLMProvider {
     constructor(config = {}) {
@@ -114,7 +116,7 @@ class DeepSeekProvider extends BaseLLMProvider {
                 embeddingModels: []
             };
         } catch (error) {
-            console.warn('[DeepSeek] Failed to list models:', error.message);
+            log.warn({ event: 'deepseek_list_models_failed', reason: error.message }, 'Failed to list models');
             return this.getDefaultModels();
         }
     }

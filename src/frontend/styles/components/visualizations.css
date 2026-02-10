@@ -44,6 +44,7 @@
 .graph-container {
   position: relative;
   width: 100%;
+  height: var(--graph-height, auto);
 }
 
 .graph-loading,
@@ -106,6 +107,7 @@
   font-size: var(--font-size-xs);
   color: white;
   border-radius: 4px;
+  background: var(--type-color, var(--color-primary));
 }
 
 .node-label {

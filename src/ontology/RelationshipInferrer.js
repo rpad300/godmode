@@ -14,7 +14,10 @@
  * - Conversations (participants)
  */
 
+const { logger } = require('../logger');
 const { getLLM } = require('../llm');
+
+const log = logger.child({ module: 'relationship-inferrer' });
 
 class RelationshipInferrer {
     constructor(options = {}) {
@@ -27,14 +30,14 @@ class RelationshipInferrer {
     setStorage(storage) {
         this.storage = storage;
         this.graphProvider = storage?.getGraphProvider?.();
-        console.log(`[RelationshipInferrer] Graph provider: ${this.graphProvider ? 'found' : 'not found'}, connected: ${this.graphProvider?.connected}`);
+        log.debug({ event: 'relationship_inferrer_graph_provider', hasProvider: !!this.graphProvider, connected: !!this.graphProvider?.connected }, 'Graph provider status');
     }
 
     /**
      * Run full relationship inference on ALL platform data
      */
     async inferAllRelationships() {
-        console.log('[RelationshipInferrer] Starting FULL platform analysis...');
+        log.info({ event: 'relationship_inferrer_full_analysis_start' }, 'Starting FULL platform analysis');
         
         const results = {
             analyzed: { 
@@ -51,7 +54,7 @@ class RelationshipInferrer {
         this.supabase = this.storage?._supabase?.supabase;
         this.projectId = this.storage?.currentProjectId;
         
-        console.log(`[RelationshipInferrer] Project: ${this.projectId}, Supabase: ${!!this.supabase}`);
+        log.debug({ event: 'relationship_inferrer_project', projectId: this.projectId, hasSupabase: !!this.supabase }, 'Project and Supabase');
 
         try {
             // Load all contacts first (needed for name matching)
@@ -63,7 +66,7 @@ class RelationshipInferrer {
                 if (c.id) this.contactById[c.id] = c;
             }
             
-            console.log(`[RelationshipInferrer] Loaded ${this.contacts.length} contacts for matching`);
+            log.debug({ event: 'relationship_inferrer_contacts_loaded', count: this.contacts.length }, 'Contacts loaded for matching');
 
             // 1. Contact relationships (org, dept, roles)
             const contactRels = await this.inferContactRelationships();
@@ -124,7 +127,7 @@ class RelationshipInferrer {
             results.relationships.push(...convRels.relationships);
 
             // Save all nodes first
-            console.log(`[RelationshipInferrer] Creating ${results.nodes.length} nodes...`);
+            log.debug({ event: 'relationship_inferrer_creating_nodes', count: results.nodes.length }, 'Creating nodes');
             let nodesCreated = 0;
             for (const node of results.nodes) {
                 try {
@@ -134,10 +137,10 @@ class RelationshipInferrer {
                     // Node might already exist
                 }
             }
-            console.log(`[RelationshipInferrer] Created ${nodesCreated}/${results.nodes.length} nodes`);
+            log.debug({ event: 'relationship_inferrer_nodes_created', created: nodesCreated, total: results.nodes.length }, 'Nodes created');
 
             // Save all relationships
-            console.log(`[RelationshipInferrer] Saving ${results.relationships.length} relationships...`);
+            log.debug({ event: 'relationship_inferrer_saving_rels', count: results.relationships.length }, 'Saving relationships');
             let relsSaved = 0;
             for (const rel of results.relationships) {
                 try {
@@ -152,17 +155,16 @@ class RelationshipInferrer {
                     results.inferred.total++;
                 } catch (e) {
                     // Relationship might already exist
-                    console.warn(`[RelationshipInferrer] Save error: ${e.message}`);
+                    log.warn({ event: 'relationship_inferrer_save_error', reason: e.message }, 'Save error');
                 }
             }
-            console.log(`[RelationshipInferrer] Saved ${relsSaved} to graph, ${results.inferred.pending} to suggestions`);
+            log.debug({ event: 'relationship_inferrer_saved', relsSaved, pending: results.inferred.pending }, 'Saved to graph and suggestions');
 
-            console.log(`[RelationshipInferrer] Complete: analyzed ${JSON.stringify(results.analyzed)}`);
-            console.log(`[RelationshipInferrer] Inferred: ${results.inferred.total} relationships (${results.inferred.autoApproved} auto, ${results.inferred.pending} pending)`);
+            log.debug({ event: 'relationship_inferrer_complete', analyzed: results.analyzed, inferred: results.inferred }, 'Analysis complete');
             return { ok: true, results };
 
         } catch (error) {
-            console.error('[RelationshipInferrer] Error:', error.message);
+            log.error({ event: 'relationship_inferrer_error', reason: error.message }, 'Error');
             return { ok: false, error: error.message, results };
         }
     }
@@ -268,10 +270,10 @@ class RelationshipInferrer {
                 }
             }
 
-            console.log(`[RelationshipInferrer] Contact analysis: ${analyzed} contacts, ${relationships.length} relationships`);
+            log.debug({ event: 'relationship_inferrer_contact_analysis', analyzed, relationships: relationships.length }, 'Contact analysis');
 
         } catch (e) {
-            console.error('[RelationshipInferrer] Contact analysis error:', e.message);
+            log.error({ event: 'relationship_inferrer_contact_error', reason: e.message }, 'Contact analysis error');
         }
 
         return { analyzed, relationships };
@@ -329,10 +331,10 @@ class RelationshipInferrer {
                 }
             }
 
-            console.log(`[RelationshipInferrer] Team analysis: ${analyzed} teams, ${relationships.length} relationships`);
+            log.debug({ event: 'relationship_inferrer_team_analysis', analyzed, relationships: relationships.length }, 'Team analysis');
 
         } catch (e) {
-            console.error('[RelationshipInferrer] Team analysis error:', e.message);
+            log.error({ event: 'relationship_inferrer_team_error', reason: e.message }, 'Team analysis error');
         }
 
         return { analyzed, relationships };
@@ -360,7 +362,7 @@ class RelationshipInferrer {
                 questions = this.storage?.questions?.items || [];
             }
             analyzed = questions.length;
-            console.log(`[RelationshipInferrer] Found ${analyzed} questions`);
+            log.debug({ event: 'relationship_inferrer_found_questions', analyzed }, 'Found questions');
 
             for (const q of questions) {
                 const questionId = `question_${q.id}`;
@@ -429,9 +431,9 @@ class RelationshipInferrer {
                 }
             }
 
-            console.log(`[RelationshipInferrer] Questions: ${analyzed} analyzed, ${relationships.length} relationships`);
+            log.debug({ event: 'relationship_inferrer_questions_done', analyzed, relationships: relationships.length }, 'Questions analysis');
         } catch (e) {
-            console.error('[RelationshipInferrer] Question analysis error:', e.message);
+            log.error({ event: 'relationship_inferrer_question_error', reason: e.message }, 'Question analysis error');
         }
 
         return { analyzed, relationships, nodes };
@@ -453,13 +455,13 @@ class RelationshipInferrer {
                     .select('*')
                     .eq('project_id', this.projectId)
                     .is('deleted_at', null);
-                if (error) console.warn('[RelationshipInferrer] Risks query error:', error.message);
+                if (error) log.warn({ event: 'relationship_inferrer_risks_query_error', reason: error.message }, 'Risks query error');
                 risks = data || [];
             } else {
                 risks = this.storage?.knowledge?.risks || [];
             }
             analyzed = risks.length;
-            console.log(`[RelationshipInferrer] Found ${analyzed} risks`);
+            log.debug({ event: 'relationship_inferrer_found_risks', analyzed }, 'Found risks');
 
             for (const risk of risks) {
                 const riskId = `risk_${risk.id}`;
@@ -529,9 +531,9 @@ class RelationshipInferrer {
                 }
             }
 
-            console.log(`[RelationshipInferrer] Risks: ${analyzed} analyzed, ${relationships.length} relationships`);
+            log.debug({ event: 'relationship_inferrer_risks_done', analyzed, relationships: relationships.length }, 'Risks analysis');
         } catch (e) {
-            console.error('[RelationshipInferrer] Risk analysis error:', e.message);
+            log.error({ event: 'relationship_inferrer_risk_error', reason: e.message }, 'Risk analysis error');
         }
 
         return { analyzed, relationships, nodes };
@@ -553,13 +555,13 @@ class RelationshipInferrer {
                     .select('*')
                     .eq('project_id', this.projectId)
                     .is('deleted_at', null);
-                if (error) console.warn('[RelationshipInferrer] Decisions query error:', error.message);
+                if (error) log.warn({ event: 'relationship_inferrer_decisions_query_error', reason: error.message }, 'Decisions query error');
                 decisions = data || [];
             } else {
                 decisions = this.storage?.knowledge?.decisions || [];
             }
             analyzed = decisions.length;
-            console.log(`[RelationshipInferrer] Found ${analyzed} decisions`);
+            log.debug({ event: 'relationship_inferrer_found_decisions', analyzed }, 'Found decisions');
 
             for (const dec of decisions) {
                 const decisionId = `decision_${dec.id}`;
@@ -629,9 +631,9 @@ class RelationshipInferrer {
                 }
             }
 
-            console.log(`[RelationshipInferrer] Decisions: ${analyzed} analyzed, ${relationships.length} relationships`);
+            log.debug({ event: 'relationship_inferrer_decisions_done', analyzed, relationships: relationships.length }, 'Decisions analysis');
         } catch (e) {
-            console.error('[RelationshipInferrer] Decision analysis error:', e.message);
+            log.error({ event: 'relationship_inferrer_decision_error', reason: e.message }, 'Decision analysis error');
         }
 
         return { analyzed, relationships, nodes };
@@ -653,13 +655,13 @@ class RelationshipInferrer {
                     .select('*')
                     .eq('project_id', this.projectId)
                     .is('deleted_at', null);
-                if (error) console.warn('[RelationshipInferrer] Actions query error:', error.message);
+                if (error) log.warn({ event: 'relationship_inferrer_actions_query_error', reason: error.message }, 'Actions query error');
                 actions = data || [];
             } else {
                 actions = this.storage?.knowledge?.actions || [];
             }
             analyzed = actions.length;
-            console.log(`[RelationshipInferrer] Found ${analyzed} actions`);
+            log.debug({ event: 'relationship_inferrer_found_actions', analyzed }, 'Found actions');
 
             for (const action of actions) {
                 const actionId = `action_${action.id}`;
@@ -711,9 +713,9 @@ class RelationshipInferrer {
                 }
             }
 
-            console.log(`[RelationshipInferrer] Actions: ${analyzed} analyzed, ${relationships.length} relationships`);
+            log.debug({ event: 'relationship_inferrer_actions_done', analyzed, relationships: relationships.length }, 'Actions analysis');
         } catch (e) {
-            console.error('[RelationshipInferrer] Action analysis error:', e.message);
+            log.error({ event: 'relationship_inferrer_action_error', reason: e.message }, 'Action analysis error');
         }
 
         return { analyzed, relationships, nodes };
@@ -740,7 +742,7 @@ class RelationshipInferrer {
                 facts = this.storage?.knowledge?.facts || [];
             }
             analyzed = facts.length;
-            console.log(`[RelationshipInferrer] Found ${analyzed} facts`);
+            log.debug({ event: 'relationship_inferrer_found_facts', analyzed }, 'Found facts');
 
             for (const fact of facts) {
                 const factId = `fact_${fact.id}`;
@@ -791,9 +793,9 @@ class RelationshipInferrer {
                 }
             }
 
-            console.log(`[RelationshipInferrer] Facts: ${analyzed} analyzed, ${relationships.length} relationships`);
+            log.debug({ event: 'relationship_inferrer_facts_done', analyzed, relationships: relationships.length }, 'Facts analysis');
         } catch (e) {
-            console.error('[RelationshipInferrer] Fact analysis error:', e.message);
+            log.error({ event: 'relationship_inferrer_fact_error', reason: e.message }, 'Fact analysis error');
         }
 
         return { analyzed, relationships, nodes };
@@ -820,7 +822,7 @@ class RelationshipInferrer {
                 documents = this.storage?.documents?.items || [];
             }
             analyzed = documents.length;
-            console.log(`[RelationshipInferrer] Found ${analyzed} documents`);
+            log.debug({ event: 'relationship_inferrer_found_documents', analyzed }, 'Found documents');
 
             for (const doc of documents) {
                 const docId = `document_${doc.id}`;
@@ -871,9 +873,9 @@ class RelationshipInferrer {
                 }
             }
 
-            console.log(`[RelationshipInferrer] Documents: ${analyzed} analyzed, ${relationships.length} relationships`);
+            log.debug({ event: 'relationship_inferrer_documents_done', analyzed, relationships: relationships.length }, 'Documents analysis');
         } catch (e) {
-            console.error('[RelationshipInferrer] Document analysis error:', e.message);
+            log.error({ event: 'relationship_inferrer_document_error', reason: e.message }, 'Document analysis error');
         }
 
         return { analyzed, relationships, nodes };
@@ -901,7 +903,7 @@ class RelationshipInferrer {
                 meetings = this.storage?.meetings || this.storage?.transcripts || [];
             }
             analyzed = meetings.length;
-            console.log(`[RelationshipInferrer] Found ${analyzed} meetings/transcripts`);
+            log.debug({ event: 'relationship_inferrer_found_meetings', analyzed }, 'Found meetings/transcripts');
 
             // Also get all facts to build a reverse mapping of source_file -> transcript
             let allFacts = [];
@@ -924,7 +926,7 @@ class RelationshipInferrer {
                 allDecisions = decisionsRes.data || [];
                 allActions = actionsRes.data || [];
                 
-                console.log(`[RelationshipInferrer] Loaded items: ${allFacts.length} facts, ${allQuestions.length} questions, ${allRisks.length} risks, ${allDecisions.length} decisions, ${allActions.length} actions`);
+                log.debug({ event: 'relationship_inferrer_loaded_items', facts: allFacts.length, questions: allQuestions.length, risks: allRisks.length, decisions: allDecisions.length, actions: allActions.length }, 'Loaded items');
             }
 
             for (const meeting of meetings) {
@@ -1101,14 +1103,14 @@ class RelationshipInferrer {
                 }
             }
 
-            console.log(`[RelationshipInferrer] Meetings: ${analyzed} analyzed, ${relationships.length} relationships`);
+            log.debug({ event: 'relationship_inferrer_meetings_done', analyzed, relationships: relationships.length }, 'Meetings analysis');
             
             // BONUS: Even without transcripts in DB, link items that share source_file
             // This creates relationships between facts/questions/risks/decisions/actions from same meeting
             await this.linkItemsFromSameSource(allFacts, allQuestions, allRisks, allDecisions, allActions, relationships, nodes);
             
         } catch (e) {
-            console.error('[RelationshipInferrer] Meeting analysis error:', e.message);
+            log.error({ event: 'relationship_inferrer_meeting_error', reason: e.message }, 'Meeting analysis error');
         }
 
         return { analyzed, relationships, nodes };
@@ -1118,7 +1120,7 @@ class RelationshipInferrer {
      * Link items that came from the same source (same meeting/transcript)
      */
     async linkItemsFromSameSource(facts, questions, risks, decisions, actions, relationships, nodes) {
-        console.log('[RelationshipInferrer] Linking items from same sources...');
+        log.debug({ event: 'relationship_inferrer_link_sources' }, 'Linking items from same sources');
         
         // Group items by source_file patterns
         const sourceGroups = new Map();
@@ -1143,7 +1145,7 @@ class RelationshipInferrer {
         addToGroup(decisions, 'Decision');
         addToGroup(actions, 'Action');
         
-        console.log(`[RelationshipInferrer] Found ${sourceGroups.size} unique sources`);
+        log.debug({ event: 'relationship_inferrer_unique_sources', count: sourceGroups.size }, 'Unique sources');
         
         // For each source, create RELATED_TO relationships between items
         for (const [source, items] of sourceGroups) {
@@ -1199,7 +1201,7 @@ class RelationshipInferrer {
             }
         }
         
-        console.log(`[RelationshipInferrer] Source analysis complete: ${relationships.length} relationships`);
+        log.debug({ event: 'relationship_inferrer_source_analysis_done', relationships: relationships.length }, 'Source analysis complete');
     }
 
     /**
@@ -1259,9 +1261,9 @@ class RelationshipInferrer {
                 }
             }
 
-            console.log(`[RelationshipInferrer] Conversations: ${analyzed} analyzed, ${relationships.length} relationships`);
+            log.debug({ event: 'relationship_inferrer_conversations_done', analyzed, relationships: relationships.length }, 'Conversations analysis');
         } catch (e) {
-            console.error('[RelationshipInferrer] Conversation analysis error:', e.message);
+            log.error({ event: 'relationship_inferrer_conversation_error', reason: e.message }, 'Conversation analysis error');
         }
 
         return { analyzed, relationships };
@@ -1348,10 +1350,10 @@ class RelationshipInferrer {
                     }
                 );
             } catch (e) {
-                console.warn(`[RelationshipInferrer] Graph save error: ${e.message}`);
+                log.warn({ event: 'relationship_inferrer_graph_save_error', reason: e.message }, 'Graph save error');
             }
         } else {
-            console.warn(`[RelationshipInferrer] No graph provider or not connected (connected=${this.graphProvider?.connected})`);
+            log.warn({ event: 'relationship_inferrer_no_graph', connected: !!this.graphProvider?.connected }, 'No graph provider or not connected');
         }
 
         // Save to contact_relationships table ONLY if it's a contact-to-contact relationship
@@ -1403,7 +1405,7 @@ class RelationshipInferrer {
                     });
             } catch (e) {
                 // Ignore duplicates or errors
-                console.warn(`[RelationshipInferrer] Suggestion save error: ${e.message}`);
+                log.warn({ event: 'relationship_inferrer_suggestion_save_error', reason: e.message }, 'Suggestion save error');
             }
         }
     }

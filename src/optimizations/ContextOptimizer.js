@@ -4,12 +4,17 @@
  * Uses compression, summarization, and smart selection
  */
 
+const { logger } = require('../logger');
 const llm = require('../llm');
+const llmConfig = require('../llm/config');
+
+const log = logger.child({ module: 'context-optimizer' });
 
 class ContextOptimizer {
     constructor(options = {}) {
         this.maxTokens = options.maxTokens || 4000;
         this.llmConfig = options.llmConfig || {};
+        this.appConfig = options.appConfig || null;
         
         // Approximate tokens per character (for estimation)
         this.tokensPerChar = 0.25;
@@ -116,14 +121,16 @@ class ContextOptimizer {
         const extractive = this.extractiveSummarize(text, maxChars);
         if (extractive.length <= maxChars) return extractive;
 
-        // Use LLM for abstractive summarization
         try {
-            const provider = this.llmConfig?.perTask?.text?.provider || this.llmConfig?.provider;
-            const model = this.llmConfig?.perTask?.text?.model || this.llmConfig?.models?.text;
+            const textCfg = this.appConfig ? llmConfig.getTextConfig(this.appConfig) : null;
+            const provider = textCfg?.provider ?? this.llmConfig?.perTask?.text?.provider ?? this.llmConfig?.provider;
+            const model = textCfg?.model ?? this.llmConfig?.perTask?.text?.model ?? this.llmConfig?.models?.text;
+            const providerConfig = textCfg?.providerConfig ?? this.llmConfig?.providers?.[provider] ?? {};
+            if (!provider || !model) return text.substring(0, maxChars - 3) + '...';
             const result = await llm.generateText({
-                provider: provider,
-                providerConfig: this.llmConfig?.providers?.[provider] || {},
-                model: model,
+                provider,
+                providerConfig,
+                model,
                 prompt: `Summarize the following text in under ${Math.floor(maxChars * 0.8)} characters, preserving key facts:\n\n${text.substring(0, 3000)}`,
                 temperature: 0.3,
                 maxTokens: Math.ceil(maxChars * this.tokensPerChar)
@@ -133,7 +140,7 @@ class ContextOptimizer {
                 return result.text;
             }
         } catch (e) {
-            console.log('[ContextOptimizer] LLM compression failed:', e.message);
+            log.warn({ event: 'context_optimizer_compression_failed', reason: e.message }, 'LLM compression failed');
         }
 
         // Fallback to truncation

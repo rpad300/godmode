@@ -6,6 +6,9 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'data-versioning' });
 
 class DataVersioning {
     constructor(options = {}) {
@@ -48,7 +51,7 @@ class DataVersioning {
             const data = Object.fromEntries(this.versionIndex);
             fs.writeFileSync(this.indexFile, JSON.stringify(data, null, 2));
         } catch (e) {
-            console.log(`[Versioning] Save index warning: ${e.message}`);
+            log.warn({ event: 'versioning_save_index_warning', reason: e.message }, 'Save index warning');
         }
     }
 
@@ -118,7 +121,7 @@ class DataVersioning {
         this.versionIndex.set(itemId, versions);
         this.saveIndex();
 
-        console.log(`[Versioning] Created version ${versionId} for ${itemType} ${itemId}`);
+        log.debug({ event: 'versioning_created', versionId, itemType, itemId }, 'Created version');
         return { success: true, version };
     }
 

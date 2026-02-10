@@ -74,11 +74,11 @@ export function createFactsPanel(props: FactsPanelProps = {}): HTMLElement {
         <button class="btn btn-primary btn-sm" id="add-fact-btn">+ Add</button>
       </div>
     </div>
-    <div id="conflicts-container" class="conflicts-container" style="display: none;"></div>
+    <div id="conflicts-container" class="conflicts-container hidden"></div>
     <div class="panel-content" id="facts-content">
       <div class="loading">Loading facts...</div>
     </div>
-    <div id="removed-facts-container" class="removed-facts-container" style="display: none;"></div>
+    <div id="removed-facts-container" class="removed-facts-container hidden"></div>
   `;
 
   // Filter
@@ -178,11 +178,11 @@ async function refreshRemovedFactsSection(panel: HTMLElement, props: FactsPanelP
   try {
     const deleted = await factsService.getDeletedFacts();
     if (deleted.length === 0) {
-      container.style.display = 'none';
+      container.classList.add('hidden');
       container.innerHTML = '';
       return;
     }
-    container.style.display = 'block';
+    container.classList.remove('hidden');
     container.innerHTML = `
       <div class="removed-facts-section">
         <div class="removed-facts-header section-header-sota">
@@ -211,7 +211,7 @@ async function refreshRemovedFactsSection(panel: HTMLElement, props: FactsPanelP
             await loadFacts(panel, props);
             refreshRemovedFactsSection(panel, props);
             const conflictsContainer = panel.querySelector('#conflicts-container') as HTMLElement;
-            if (conflictsContainer?.style.display !== 'none') {
+            if (conflictsContainer && !conflictsContainer.classList.contains('hidden')) {
               await checkConflicts(conflictsContainer, panel, props);
             }
           } catch {
@@ -221,7 +221,7 @@ async function refreshRemovedFactsSection(panel: HTMLElement, props: FactsPanelP
       }
     });
   } catch {
-    container.style.display = 'none';
+    container.classList.add('hidden');
     container.innerHTML = '';
   }
 }
@@ -419,7 +419,7 @@ function createFactCard(fact: Fact): string {
 
   return `
     <div class="fact-card-sota question-card-sota ${fact.verified ? 'has-answer' : ''}" data-id="${fact.id}" style="--fact-category-bar: ${barColor}">
-      <div class="card-priority-bar fact-category-bar" style="background: ${barColor}"></div>
+      <div class="card-priority-bar fact-category-bar"></div>
       <div class="card-body">
         <div class="card-top-row">
           <div class="card-badges">
@@ -447,7 +447,7 @@ function createFactCard(fact: Fact): string {
  * Check for conflicts
  */
 async function checkConflicts(container: HTMLElement, panel: HTMLElement, props: FactsPanelProps): Promise<void> {
-  container.style.display = 'block';
+  container.classList.remove('hidden');
   container.innerHTML = '<div class="loading">Checking for conflicts...</div>';
 
   try {
@@ -461,7 +461,7 @@ async function checkConflicts(container: HTMLElement, panel: HTMLElement, props:
         </div>
       `;
       setTimeout(() => {
-        container.style.display = 'none';
+        container.classList.add('hidden');
       }, 3000);
     } else {
       renderConflicts(container, conflicts, panel, props);
@@ -491,7 +491,7 @@ function renderConflicts(container: HTMLElement, conflicts: FactConflict[], pane
   const closeBtn = container.querySelector('.close-conflicts');
   if (closeBtn) {
     on(closeBtn as HTMLElement, 'click', () => {
-      container.style.display = 'none';
+      container.classList.add('hidden');
     });
   }
 
@@ -548,7 +548,7 @@ async function resolveConflict(
     await checkConflicts(conflictsContainer, panel, props);
     const updated = await factsService.detectConflicts();
     if (updated.length === 0) {
-      conflictsContainer.style.display = 'none';
+      conflictsContainer.classList.add('hidden');
       conflictsContainer.innerHTML = '';
     } else {
       renderConflicts(conflictsContainer, updated, panel, props);

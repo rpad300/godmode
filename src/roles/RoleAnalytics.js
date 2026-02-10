@@ -5,6 +5,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'role-analytics' });
 
 class RoleAnalytics {
     constructor(options = {}) {
@@ -25,7 +28,7 @@ class RoleAnalytics {
                 return JSON.parse(fs.readFileSync(this.analyticsFile, 'utf8'));
             }
         } catch (e) {
-            console.error('[RoleAnalytics] Load error:', e.message);
+            log.error({ event: 'role_analytics_load_failed', message: e.message }, 'Load error');
         }
         return {
             interactions: [],
@@ -39,7 +42,7 @@ class RoleAnalytics {
             fs.mkdirSync(this.dataDir, { recursive: true });
             fs.writeFileSync(this.analyticsFile, JSON.stringify(this.analytics, null, 2));
         } catch (e) {
-            console.error('[RoleAnalytics] Save error:', e.message);
+            log.error({ event: 'role_analytics_save_failed', message: e.message }, 'Save error');
         }
     }
 

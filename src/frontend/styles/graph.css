@@ -75,6 +75,11 @@
   gap: 1rem;
 }
 
+.graph-renderer-label {
+  font-size: 10px;
+  margin-left: 4px;
+}
+
 .graph-title {
   display: flex;
   align-items: center;
@@ -277,12 +282,20 @@
   cursor: pointer;
 }
 
-.entity-filter-color,
+.entity-filter-color {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--entity-color, var(--graph-accent));
+}
+
 .community-filter-color {
   width: 10px;
   height: 10px;
   border-radius: 50%;
   flex-shrink: 0;
+  background: var(--community-color, var(--graph-accent));
 }
 
 .entity-filter-label,
@@ -531,6 +544,7 @@
   font-size: 1.25rem;
   font-weight: 600;
   color: white;
+  background: var(--type-color, var(--graph-accent));
 }
 
 .node-header-info {
@@ -552,6 +566,7 @@
   font-weight: 500;
   color: white;
   border-radius: 9999px;
+  background: var(--type-color, var(--graph-accent));
 }
 
 .node-bookmark-btn {
@@ -729,7 +744,7 @@
 
 .viz-canvas {
   width: 100%;
-  height: 100%;
+  height: var(--graph-height, 100%);
   background: var(--graph-bg);
 }
 
@@ -790,6 +805,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
+  background: var(--legend-color, currentColor);
 }
 
 .legend-label {
@@ -799,6 +815,156 @@
 
 .legend-count {
   color: var(--graph-text-muted);
+}
+
+/* GraphCanvas / FalkorDB wrapper, loading, controls, legend */
+.graph-canvas-wrapper,
+.falkordb-canvas-wrapper {
+  position: relative;
+  width: 100%;
+  height: var(--graph-height, 500px);
+}
+
+.graph-canvas-loading,
+.falkordb-canvas-loading {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.graph-canvas-loading.gm-none,
+.falkordb-canvas-loading.gm-none {
+  display: none !important;
+}
+
+.graph-canvas-loading .loading-text,
+.falkordb-canvas-loading .loading-text {
+  color: var(--text-muted, var(--graph-text-muted));
+  font-size: 14px;
+}
+
+.graph-canvas-no-data,
+.graph-canvas-error {
+  text-align: center;
+}
+
+.graph-canvas-error {
+  color: var(--error, var(--graph-danger));
+}
+
+.graph-canvas-controls,
+.falkordb-canvas-controls {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  justify-content: center;
+}
+
+.graph-canvas-legend,
+.falkordb-canvas-legend {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  background: var(--bg-secondary, var(--graph-bg));
+  border-radius: var(--radius-md, 8px);
+}
+
+.graph-canvas-legend h5,
+.falkordb-canvas-legend h5 {
+  margin: 0 0 var(--space-2) 0;
+  font-size: 12px;
+  color: var(--text-muted, var(--graph-text-muted));
+}
+
+#gc-legend,
+#fdb-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-size: 11px;
+}
+
+.graph-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.graph-legend-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--legend-color, var(--graph-text-muted));
+}
+
+.graph-canvas-container falkordb-canvas,
+.falkordb-canvas-container falkordb-canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.graph-avatar-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.graph-node-tooltip .info {
+  width: 100%;
+}
+
+/* Ontology viewer graph & legend */
+.ontology-graph-container {
+  height: 400px;
+  border: 1px solid var(--border-color, var(--graph-border));
+  border-radius: var(--radius-md, 8px);
+  background: var(--bg-secondary, var(--graph-bg));
+}
+
+.ontology-graph-canvas-inner {
+  width: 100%;
+  height: 100%;
+}
+
+.ontology-graph-legend {
+  margin-top: var(--space-4);
+  padding: var(--space-3);
+  background: var(--bg-secondary, var(--graph-bg));
+  border-radius: var(--radius-md, 8px);
+}
+
+.ontology-graph-legend h5 {
+  margin: 0 0 var(--space-2) 0;
+  font-size: 12px;
+  color: var(--text-muted, var(--graph-text-muted));
+}
+
+.ontology-legend-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.ontology-graph-fallback {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-muted, var(--graph-text-muted));
+}
+
+.history-icon {
+  color: var(--history-color, var(--graph-text-muted));
+}
+
+.history-type {
+  color: var(--history-color, var(--graph-text-muted));
 }
 
 /* Hover Card */
@@ -834,6 +1000,7 @@
   font-size: 0.875rem;
   font-weight: 600;
   color: white;
+  background: var(--type-color, var(--graph-accent));
 }
 
 .hover-info {
@@ -851,6 +1018,7 @@
 .hover-type {
   font-size: 0.75rem;
   font-weight: 500;
+  color: var(--type-color, var(--graph-text-muted));
 }
 
 .hover-role,
@@ -1767,6 +1935,7 @@
   justify-content: center;
   border-radius: 0.625rem;
   overflow: hidden;
+  background: var(--entity-color, var(--graph-accent));
 }
 
 .entity-icon-letter {
@@ -1866,6 +2035,7 @@
 .detail-header {
   padding-left: 1rem;
   margin-bottom: 1rem;
+  border-left: 4px solid var(--entity-color, var(--graph-accent));
 }
 
 .detail-header h3 {
@@ -3675,6 +3845,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
+  background: var(--type-color, var(--graph-text-muted));
 }
 
 .type-name {
@@ -3691,6 +3862,8 @@
 
 .distribution-bar {
   height: 100%;
+  width: var(--bar-width, 0%);
+  background: var(--bar-color, var(--graph-accent));
   border-radius: 4px;
   transition: width var(--transition-normal);
 }
@@ -3732,6 +3905,7 @@
   width: 10px;
   height: 10px;
   border-radius: 50%;
+  background: var(--community-color, var(--graph-accent));
 }
 
 .community-name {
@@ -3755,6 +3929,7 @@
 
 .member-type {
   font-weight: 500;
+  color: var(--member-type-color, var(--graph-text));
 }
 
 .member-name {
@@ -3867,7 +4042,8 @@
 
 .connections-bar {
   height: 100%;
-  background: var(--graph-accent);
+  width: var(--bar-width, 0%);
+  background: var(--bar-color, var(--graph-accent));
   border-radius: 3px;
 }
 

@@ -49,6 +49,11 @@
   text-decoration: underline;
 }
 
+.fact-detail-view .verified-badge.detail.sla-badge {
+  background: var(--success);
+  color: white;
+}
+
 /* Timeline (fact events) */
 .fact-timeline-section .fact-timeline-list {
   display: flex;

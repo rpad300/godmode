@@ -14,3 +14,6 @@ export type { TrendChartProps } from './TrendChart';
 
 export { createRiskMatrix, createRiskSummary } from './RiskMatrix';
 export type { RiskMatrixProps } from './RiskMatrix';
+
+export { createBreakdownChart } from './BreakdownChart';
+export type { BreakdownChartProps } from './BreakdownChart';

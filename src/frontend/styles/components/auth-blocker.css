@@ -1,0 +1,228 @@
+/**
+ * Auth Blocker Overlay
+ * Full-screen login/register/forgot form when auth is required.
+ * Scoped to #auth-blocker-overlay to avoid conflicts.
+ */
+
+#auth-blocker-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100vw;
+  height: 100vh;
+  background: linear-gradient(135deg, var(--color-neutral-950) 0%, #16213e 50%, #0f3460 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999999;
+  overflow: auto;
+  font-family: var(--font-sans);
+}
+
+#auth-blocker-overlay .auth-card {
+  width: 100%;
+  max-width: 420px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: var(--radius-2xl);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: var(--shadow-xl);
+  padding: var(--space-10);
+  margin: var(--space-4);
+}
+
+#auth-blocker-overlay .auth-logo {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto var(--space-5);
+  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+  border-radius: var(--radius-xl);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 10px 30px rgba(233, 69, 96, 0.3);
+}
+
+#auth-blocker-overlay .auth-title {
+  color: var(--color-neutral-0);
+  font-size: var(--text-2xl);
+  font-weight: var(--font-bold);
+  text-align: center;
+  margin-bottom: var(--space-2);
+  letter-spacing: -0.02em;
+}
+
+#auth-blocker-overlay .auth-subtitle {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: var(--text-sm);
+  text-align: center;
+  margin-bottom: var(--space-8);
+}
+
+#auth-blocker-overlay .auth-tabs {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-6);
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
+  padding: var(--space-1);
+}
+
+#auth-blocker-overlay .auth-tab {
+  flex: 1;
+  padding: var(--space-2-5) var(--space-4);
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  transition: var(--transition-all);
+}
+
+#auth-blocker-overlay .auth-tab:hover {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+#auth-blocker-overlay .auth-tab.active {
+  background: rgba(233, 69, 96, 0.2);
+  color: var(--accent-hover);
+}
+
+#auth-blocker-overlay .auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+#auth-blocker-overlay .auth-form.hidden {
+  display: none;
+}
+
+#auth-blocker-overlay .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+}
+
+#auth-blocker-overlay .form-label {
+  color: rgba(255, 255, 255, 0.8);
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+}
+
+#auth-blocker-overlay .form-input {
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-lg);
+  color: var(--color-neutral-0);
+  font-size: var(--text-sm);
+  transition: var(--transition-all);
+  box-sizing: border-box;
+}
+
+#auth-blocker-overlay .form-input::placeholder {
+  color: rgba(255, 255, 255, 0.35);
+}
+
+#auth-blocker-overlay .form-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 0 0 3px rgba(233, 69, 96, 0.15);
+}
+
+#auth-blocker-overlay .form-hint {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: var(--text-xs);
+}
+
+#auth-blocker-overlay .form-error {
+  color: var(--accent-hover);
+  font-size: var(--text-sm);
+  padding: var(--space-3);
+  background: rgba(255, 107, 107, 0.1);
+  border-radius: var(--radius-md);
+  display: none;
+}
+
+#auth-blocker-overlay .form-error.visible {
+  display: block;
+}
+
+#auth-blocker-overlay .auth-submit {
+  width: 100%;
+  padding: var(--space-3);
+  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+  border: none;
+  border-radius: var(--radius-lg);
+  color: var(--color-neutral-0);
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  cursor: pointer;
+  transition: var(--transition-all);
+  margin-top: var(--space-2);
+}
+
+#auth-blocker-overlay .auth-submit:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(233, 69, 96, 0.4);
+}
+
+#auth-blocker-overlay .auth-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+#auth-blocker-overlay .auth-link {
+  color: var(--accent-hover);
+  background: none;
+  border: none;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+#auth-blocker-overlay .auth-link:hover {
+  color: var(--accent);
+}
+
+#auth-blocker-overlay .auth-footer {
+  text-align: center;
+  margin-top: var(--space-6);
+  color: rgba(255, 255, 255, 0.5);
+  font-size: var(--text-sm);
+}
+
+#auth-blocker-overlay .password-toggle {
+  position: absolute;
+  right: var(--space-3);
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  padding: var(--space-1);
+}
+
+#auth-blocker-overlay .password-toggle:hover {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+#auth-blocker-overlay .input-wrapper {
+  position: relative;
+}
+
+#auth-blocker-overlay .auth-forgot-intro {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-4);
+}

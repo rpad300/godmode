@@ -56,6 +56,18 @@ test('Services: http client exists and has methods', () => {
     typeof services.http.post === 'function';
 });
 
+test('Services: companies API exists', () => {
+  return typeof services.listCompanies === 'function' &&
+    typeof services.getCompany === 'function' &&
+    typeof services.createCompany === 'function' &&
+    typeof services.updateCompany === 'function' &&
+    typeof services.deleteCompany === 'function' &&
+    typeof services.analyzeCompany === 'function' &&
+    typeof services.getTemplate === 'function' &&
+    typeof services.updateTemplate === 'function' &&
+    typeof services.generateTemplate === 'function';
+});
+
 test('Services: storage exists and has methods', () => {
   return typeof services.storage === 'object' &&
     typeof services.storage.get === 'function' &&
@@ -150,6 +162,10 @@ test('Components: createChat exists', () => {
 
 test('Modals: showSettingsModal exists', () => {
   return typeof components.showSettingsModal === 'function';
+});
+
+test('Modals: showCompaniesModal exists', () => {
+  return typeof components.showCompaniesModal === 'function';
 });
 
 test('Modals: showProcessingModal exists', () => {

@@ -8,7 +8,10 @@
  * @module emailParser
  */
 
+const { logger } = require('./logger');
 const { simpleParser } = require('mailparser');
+
+const log = logger.child({ module: 'email-parser' });
 const fs = require('fs').promises;
 const path = require('path');
 
@@ -89,7 +92,7 @@ async function parseEmlFile(buffer) {
             headers: Object.fromEntries(parsed.headers),
         };
     } catch (error) {
-        console.error('[EmailParser] Failed to parse .eml:', error.message);
+        log.warn({ event: 'email_parser_eml_failed', reason: error.message }, 'Failed to parse .eml');
         throw new Error(`Failed to parse email file: ${error.message}`);
     }
 }
@@ -937,7 +940,7 @@ async function parseMsgFile(buffer) {
                         headers: {}
                     };
                 } catch (msgreaderErr) {
-                    console.warn('[EmailParser] No MSG parser available:', msgreaderErr.message);
+                    log.warn({ event: 'email_parser_msg_parser_unavailable', reason: msgreaderErr.message }, 'No MSG parser available');
                     throw new Error('MSG file parsing requires msgreader package. Install with: npm install msgreader');
                 }
             }
@@ -970,7 +973,7 @@ async function parseMsgFile(buffer) {
             };
         }
     } catch (error) {
-        console.error('[EmailParser] Failed to parse .msg:', error.message);
+        log.warn({ event: 'email_parser_msg_failed', reason: error.message }, 'Failed to parse .msg');
         throw new Error(`Failed to parse MSG file: ${error.message}`);
     }
 }

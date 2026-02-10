@@ -40,7 +40,7 @@ export function createSyncStatus(props: SyncStatusProps = {}): HTMLElement {
       <span class="sync-text">Checking...</span>
     </div>
     ${props.showDetails ? `
-      <div class="sync-details" id="sync-details" style="display: none;">
+      <div class="sync-details hidden" id="sync-details">
         <div class="sync-info"></div>
         <div class="dead-letters"></div>
       </div>
@@ -53,9 +53,9 @@ export function createSyncStatus(props: SyncStatusProps = {}): HTMLElement {
   if (props.showDetails) {
     on(indicator, 'click', () => {
       const details = container.querySelector('#sync-details') as HTMLElement;
-      const isVisible = details.style.display !== 'none';
-      details.style.display = isVisible ? 'none' : 'block';
-      if (!isVisible) {
+      const wasHidden = details.classList.contains('hidden');
+      details.classList.toggle('hidden');
+      if (wasHidden) {
         loadSyncDetails(container);
       }
     });

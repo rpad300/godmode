@@ -3,8 +3,11 @@
  * Processes transcripts: speaker matching, project identification, upload to GodMode
  */
 
+const { logger } = require('../logger');
 const { getAdminClient } = require('../supabase/client');
 const { SpeakerMatcher } = require('./SpeakerMatcher');
+
+const log = logger.child({ module: 'transcript-processor' });
 
 /**
  * Generate formatted display title
@@ -204,7 +207,7 @@ async function processTranscript(transcriptId, options = {}) {
             })
             .eq('id', transcriptId);
 
-        console.log(`[TranscriptProcessor] Processed: ${transcriptId} -> ${documentId}`);
+        log.debug({ event: 'transcript_processed', transcriptId, documentId }, 'Processed');
 
         return {
             success: true,
@@ -214,8 +217,7 @@ async function processTranscript(transcriptId, options = {}) {
         };
 
     } catch (error) {
-        console.error('[TranscriptProcessor] Error:', error);
-        
+        log.warn({ event: 'transcript_process_error', reason: error?.message }, 'Error');
         await updateTranscriptStatus(supabase, transcriptId, 'failed', {
             status_reason: error.message
         });
@@ -259,7 +261,7 @@ async function createDocument(supabase, { projectId, userId, title, content, met
     try {
         // Check if content exists
         if (!content) {
-            console.warn('[TranscriptProcessor] No content to create document');
+            log.warn({ event: 'transcript_no_content' }, 'No content to create document');
             // Still create document with metadata
             content = '';
         }
@@ -291,7 +293,7 @@ async function createDocument(supabase, { projectId, userId, title, content, met
             .single();
 
         if (error) {
-            console.error('[TranscriptProcessor] Document creation error:', error);
+            log.warn({ event: 'transcript_document_creation_error', reason: error?.message }, 'Document creation error');
             return null;
         }
 
@@ -302,13 +304,13 @@ async function createDocument(supabase, { projectId, userId, title, content, met
                 await queueDocumentProcessing(document.id, projectId, userId);
             }
         } catch (e) {
-            console.warn('[TranscriptProcessor] Could not queue for processing:', e.message);
+            log.warn({ event: 'transcript_queue_failed', reason: e.message }, 'Could not queue for processing');
         }
 
         return document.id;
 
     } catch (error) {
-        console.error('[TranscriptProcessor] Create document error:', error);
+        log.warn({ event: 'transcript_create_document_error', reason: error?.message }, 'Create document error');
         return null;
     }
 }
@@ -370,7 +372,7 @@ async function assignProject(transcriptId, projectId, userId) {
         return result;
 
     } catch (error) {
-        console.error('[TranscriptProcessor] Assign project error:', error);
+        log.warn({ event: 'transcript_assign_project_error', reason: error?.message }, 'Assign project error');
         return { success: false, error: error.message };
     }
 }
@@ -437,7 +439,9 @@ async function getUserTranscripts(userId, options = {}) {
         limit = 50,
         offset = 0,
         orderBy = 'received_at',
-        orderDir = 'desc'
+        orderDir = 'desc',
+        sinceDate = null,
+        untilDate = null
     } = options;
 
     // Check if user is superadmin
@@ -473,10 +477,37 @@ async function getUserTranscripts(userId, options = {}) {
         query = query.eq('matched_project_id', projectId);
     }
 
+    if (sinceDate) {
+        query = query.gte('received_at', sinceDate);
+    }
+    if (untilDate) {
+        query = query.lte('received_at', untilDate);
+    }
+
     query = query
         .order(orderBy, { ascending: orderDir === 'asc' })
         .range(offset, offset + limit - 1);
 
+    const { data } = await query;
+    return data || [];
+}
+
+/**
+ * Get transcripts for a project within a date range (server-side, e.g. for sprint task generation).
+ * Uses admin client; filters by matched_project_id and received_at.
+ */
+async function getTranscriptsForProject(projectId, options = {}) {
+    const supabase = getAdminClient();
+    if (!supabase) return [];
+    const { sinceDate = null, untilDate = null, limit = 100 } = options;
+    let query = supabase
+        .from('krisp_transcripts')
+        .select('id, display_title, meeting_date, transcript_text, ai_summary, key_points, status, received_at')
+        .eq('matched_project_id', projectId)
+        .order('received_at', { ascending: false })
+        .limit(limit);
+    if (sinceDate) query = query.gte('received_at', sinceDate);
+    if (untilDate) query = query.lte('received_at', untilDate);
     const { data } = await query;
     return data || [];
 }
@@ -492,7 +523,7 @@ async function getTranscriptsSummary(userId) {
         .rpc('get_krisp_transcripts_summary', { p_user_id: userId });
 
     if (error) {
-        console.error('[TranscriptProcessor] Summary error:', error);
+        log.warn({ event: 'transcript_summary_error', reason: error?.message }, 'Summary error');
         return null;
     }
 
@@ -527,7 +558,7 @@ async function generateTranscriptSummary(transcriptId, userId, options = {}) {
 
         // 2. Check if we have a cached summary
         if (!forceRegenerate && transcript.ai_summary) {
-            console.log('[TranscriptProcessor] Using cached summary for transcript:', transcriptId);
+            log.debug({ event: 'transcript_cached_summary', transcriptId }, 'Using cached summary');
             return { success: true, summary: transcript.ai_summary, cached: true };
         }
 
@@ -617,7 +648,7 @@ Respond ONLY with the JSON, no additional text.`;
                     throw new Error('No JSON found in response');
                 }
             } catch (parseError) {
-                console.warn('[TranscriptProcessor] Failed to parse LLM response:', parseError);
+                log.warn({ event: 'transcript_parse_llm_failed', reason: parseError?.message }, 'Failed to parse LLM response');
                 parsedSummary = {
                     topic: 'Meeting summary',
                     keyPoints: ['Unable to extract structured summary'],
@@ -646,7 +677,7 @@ Respond ONLY with the JSON, no additional text.`;
             return { success: true, summary, cached: false };
 
         } catch (llmError) {
-            console.error('[TranscriptProcessor] LLM error:', llmError);
+            log.warn({ event: 'transcript_llm_error', reason: llmError?.message }, 'LLM error');
             
             // Fallback: extract first few sentences as summary
             const sentences = content.split(/[.!?]+/).filter(s => s.trim().length > 10);
@@ -673,7 +704,7 @@ Respond ONLY with the JSON, no additional text.`;
         }
 
     } catch (error) {
-        console.error('[TranscriptProcessor] Summary generation error:', error);
+        log.warn({ event: 'transcript_summary_generation_error', reason: error?.message }, 'Summary generation error');
         return { success: false, error: error.message };
     }
 }
@@ -692,12 +723,12 @@ async function cacheSummary(supabase, transcriptId, summary) {
             .eq('id', transcriptId);
 
         if (error) {
-            console.error('[TranscriptProcessor] Failed to cache summary:', error);
+            log.warn({ event: 'transcript_cache_summary_failed', reason: error?.message }, 'Failed to cache summary');
         } else {
-            console.log('[TranscriptProcessor] Summary cached for transcript:', transcriptId);
+            log.debug({ event: 'transcript_summary_cached', transcriptId }, 'Summary cached');
         }
     } catch (err) {
-        console.error('[TranscriptProcessor] Cache error:', err);
+        log.warn({ event: 'transcript_cache_error', reason: err?.message }, 'Cache error');
     }
 }
 
@@ -707,6 +738,7 @@ module.exports = {
     skipTranscript,
     getTranscript,
     getUserTranscripts,
+    getTranscriptsForProject,
     getTranscriptsSummary,
     generateDisplayTitle,
     createDocument,

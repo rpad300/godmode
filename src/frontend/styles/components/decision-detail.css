@@ -96,6 +96,37 @@
   line-height: 1.4;
 }
 
+.decision-implementing-tasks-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.decision-implementing-task-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  font-size: var(--font-size-sm);
+  cursor: default;
+}
+
+.decision-implementing-task-item[role="button"] {
+  cursor: pointer;
+}
+
+.decision-implementing-task-item[role="button"]:hover {
+  background: var(--bg-tertiary);
+}
+
+.decision-implementing-task-title {
+  flex: 1;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
 /* Inline edit form – align with risk/action detail edit form */
 .decision-detail-view .decision-detail-edit-form {
   margin-top: var(--space-md);

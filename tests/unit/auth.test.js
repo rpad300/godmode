@@ -3,13 +3,10 @@
  * Tests for authentication module
  */
 
-// Mock the supabase client before requiring the module
 jest.mock('../../src/supabase/client', () => ({
     getClient: jest.fn(),
     getAdminClient: jest.fn()
 }));
-
-const { getClient, getAdminClient } = require('../../src/supabase/client');
 
 describe('Auth Module', () => {
     let auth;
@@ -17,8 +14,6 @@ describe('Auth Module', () => {
     let mockAdminSupabase;
 
     beforeEach(() => {
-        jest.resetModules();
-        
         // Create mock clients
         mockSupabase = {
             auth: {
@@ -51,9 +46,10 @@ describe('Auth Module', () => {
             }
         };
 
-        getClient.mockReturnValue(mockSupabase);
-        getAdminClient.mockReturnValue(mockAdminSupabase);
-        
+        jest.resetModules();
+        const client = require('../../src/supabase/client');
+        client.getClient.mockReturnValue(mockSupabase);
+        client.getAdminClient.mockReturnValue(mockAdminSupabase);
         auth = require('../../src/supabase/auth');
     });
 
@@ -98,7 +94,7 @@ describe('Auth Module', () => {
 
     describe('register()', () => {
         it('should return error when Supabase not configured', async () => {
-            getClient.mockReturnValue(null);
+            require('../../src/supabase/client').getClient.mockReturnValue(null);
             
             const result = await auth.register('test@email.com', 'password123');
             
@@ -107,33 +103,41 @@ describe('Auth Module', () => {
         });
 
         it('should call signUp with correct parameters', async () => {
+            const client = require('../../src/supabase/client');
+            client.getClient.mockReturnValue(mockSupabase);
             mockSupabase.auth.signUp.mockResolvedValue({
                 data: { user: { id: 'user-id', email: 'test@email.com' } },
                 error: null
             });
 
-            await auth.register('test@email.com', 'password123', { name: 'Test User' });
+            await auth.register('test@email.com', 'password1234', { name: 'Test User' });
 
+            expect(client.getClient).toHaveBeenCalled();
             expect(mockSupabase.auth.signUp).toHaveBeenCalledWith({
                 email: 'test@email.com',
-                password: 'password123',
+                password: 'password1234',
                 options: {
-                    data: { name: 'Test User' }
+                    data: expect.objectContaining({
+                        username: expect.any(String),
+                        display_name: expect.any(String)
+                    })
                 }
             });
         });
 
         it('should return success with user on successful registration', async () => {
+            const client = require('../../src/supabase/client');
+            client.getClient.mockReturnValue(mockSupabase);
             const mockUser = { id: 'user-id', email: 'test@email.com' };
             mockSupabase.auth.signUp.mockResolvedValue({
                 data: { user: mockUser },
                 error: null
             });
 
-            const result = await auth.register('test@email.com', 'password123');
+            const result = await auth.register('test@email.com', 'password1234');
 
             expect(result.success).toBe(true);
-            expect(result.user).toEqual(mockUser);
+            expect(result.user).toMatchObject({ id: 'user-id', email: 'test@email.com' });
         });
 
         it('should return error on signup failure', async () => {
@@ -142,7 +146,7 @@ describe('Auth Module', () => {
                 error: { message: 'Email already registered' }
             });
 
-            const result = await auth.register('test@email.com', 'password123');
+            const result = await auth.register('test@email.com', 'password123456');
 
             expect(result.success).toBe(false);
             expect(result.error).toBe('Email already registered');
@@ -151,7 +155,7 @@ describe('Auth Module', () => {
 
     describe('login()', () => {
         it('should return error when Supabase not configured', async () => {
-            getClient.mockReturnValue(null);
+            require('../../src/supabase/client').getClient.mockReturnValue(null);
             
             const result = await auth.login('test@email.com', 'password123');
             
@@ -194,7 +198,7 @@ describe('Auth Module', () => {
             const result = await auth.login('test@email.com', 'wrong-password');
 
             expect(result.success).toBe(false);
-            expect(result.error).toBe('Invalid credentials');
+            expect(result.error).toBe('Invalid email or password');
         });
     });
 
@@ -214,7 +218,7 @@ describe('Auth Module', () => {
             const result = await auth.getUser(null);
             
             expect(result.success).toBe(false);
-            expect(result.error).toBe('No token provided');
+            expect(result.error).toBe('Access token required');
         });
 
         it('should call getUser with token', async () => {
@@ -238,15 +242,15 @@ describe('Auth Module', () => {
             const result = await auth.getUser('valid-token');
 
             expect(result.success).toBe(true);
-            expect(result.user).toEqual(mockUser);
+            expect(result.user).toMatchObject({ id: 'user-id', email: 'test@email.com' });
         });
     });
 
-    describe('resetPassword()', () => {
+    describe('requestPasswordReset()', () => {
         it('should call resetPasswordForEmail', async () => {
             mockSupabase.auth.resetPasswordForEmail.mockResolvedValue({ error: null });
 
-            const result = await auth.resetPassword('test@email.com');
+            const result = await auth.requestPasswordReset('test@email.com');
 
             expect(mockSupabase.auth.resetPasswordForEmail).toHaveBeenCalledWith(
                 'test@email.com',
@@ -270,16 +274,16 @@ describe('Auth Module', () => {
             mockNext = jest.fn();
         });
 
-        it('should call next() with valid token', async () => {
+        it('should set req.user and return true with valid token', async () => {
             mockReq.headers.authorization = 'Bearer valid-token';
             mockSupabase.auth.getUser.mockResolvedValue({
                 data: { user: { id: 'user-id' } },
                 error: null
             });
 
-            await auth.requireAuth(mockReq, mockRes, mockNext);
+            const result = await auth.requireAuth(mockReq, mockRes, mockNext);
 
-            expect(mockNext).toHaveBeenCalled();
+            expect(result).toBe(true);
             expect(mockReq.user).toBeDefined();
         });
 

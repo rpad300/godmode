@@ -3,7 +3,10 @@
  * Handles project membership and permissions
  */
 
+const { logger } = require('../logger');
 const { getAdminClient } = require('./client');
+
+const log = logger.child({ module: 'members' });
 
 /**
  * Get all members of a project
@@ -50,7 +53,7 @@ async function getProjectMembers(projectId) {
         
         if (fullQuery.error && fullQuery.error.message.includes('linked_contact_id')) {
             // Fallback: query without linked_contact_id (migration not run yet)
-            console.log('[Members] Fallback query without linked_contact_id');
+            log.debug({ event: 'members_fallback_query' }, 'Fallback query without linked_contact_id');
             const basicQuery = await admin
                 .from('project_members')
                 .select(`
@@ -78,7 +81,7 @@ async function getProjectMembers(projectId) {
         }
         
         if (error) {
-            console.error('[Members] Query error:', error.message);
+            log.warn({ event: 'members_query_error', reason: error.message }, 'Query error');
             return { success: false, error: error.message };
         }
         
@@ -109,7 +112,7 @@ async function getProjectMembers(projectId) {
         return { success: true, members };
         
     } catch (err) {
-        console.error('[Members] Query exception:', err.message);
+        log.warn({ event: 'members_query_exception', reason: err.message }, 'Query exception');
         return { success: false, error: err.message };
     }
 }

@@ -8,7 +8,10 @@
  * - Query-dependent reranking with adaptive scoring
  */
 
+const { logger } = require('../logger');
 const llm = require('../llm');
+
+const log = logger.child({ module: 'reranker' });
 
 class Reranker {
     constructor(options = {}) {
@@ -18,7 +21,7 @@ class Reranker {
         this.llmConfig = options.llmConfig || {};
         
         if (!this.llmProvider) {
-            console.warn('[Reranker] No LLM provider specified');
+            log.warn({ event: 'reranker_no_llm' }, 'No LLM provider specified');
         }
         
         // RRF parameter (typical values: 60-100)
@@ -103,11 +106,11 @@ class Reranker {
         const cacheKey = this.getCacheKey(query, candidates);
         const cached = this.getFromCache(cacheKey);
         if (cached) {
-            console.log('[Reranker] Cache hit for cross-encoder reranking');
+            log.debug({ event: 'reranker_cache_hit' }, 'Cache hit for cross-encoder reranking');
             return cached;
         }
         
-        console.log(`[Reranker] Cross-encoder reranking ${candidates.length} candidates`);
+        log.debug({ event: 'reranker_cross_encoder', count: candidates.length }, 'Cross-encoder reranking candidates');
         
         // Score candidates in batches
         const scoredCandidates = [];
@@ -134,7 +137,7 @@ class Reranker {
         // Cache results
         this.setCache(cacheKey, results);
         
-        console.log(`[Reranker] Reranked to ${results.length} results, top score: ${results[0]?.relevanceScore?.toFixed(3)}`);
+        log.debug({ event: 'reranker_done', count: results.length, topScore: results[0]?.relevanceScore }, 'Reranked results');
         
         return results;
     }
@@ -173,7 +176,7 @@ No explanation, just the array.`;
             });
             
             if (!result.success) {
-                console.error('[Reranker] Scoring failed:', result.error);
+                log.warn({ event: 'reranker_scoring_failed', reason: result.error }, 'Scoring failed');
                 return batch.map(() => 0.5); // Default score
             }
             
@@ -189,7 +192,7 @@ No explanation, just the array.`;
             return batch.map(() => 0.5);
             
         } catch (error) {
-            console.error('[Reranker] Error scoring batch:', error);
+            log.warn({ event: 'reranker_batch_error', reason: error?.message }, 'Error scoring batch');
             return batch.map(() => 0.5);
         }
     }
@@ -210,13 +213,13 @@ No explanation, just the array.`;
             rrfK = this.rrfK 
         } = options;
         
-        console.log(`[Reranker] Hybrid reranking from ${Object.keys(sources).length} sources`);
+        log.debug({ event: 'reranker_hybrid', sourcesCount: Object.keys(sources).length }, 'Hybrid reranking');
         
         // Step 1: Apply RRF to fuse sources
         const resultLists = Object.values(sources).filter(arr => arr && arr.length > 0);
         const fusedResults = this.reciprocalRankFusion(resultLists, rrfK);
         
-        console.log(`[Reranker] RRF fused ${fusedResults.length} unique results`);
+        log.debug({ event: 'reranker_rrf', count: fusedResults.length }, 'RRF fused unique results');
         
         if (!useCrossEncoder) {
             return fusedResults.slice(0, topK);

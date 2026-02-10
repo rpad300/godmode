@@ -148,7 +148,7 @@ export function createQuestionDetailView(props: QuestionDetailViewProps): HTMLEl
             </div>
             
             <!-- Contact Picker (hidden by default) -->
-            <div id="contact-picker" class="contact-picker-sota" style="display: none;">
+            <div id="contact-picker" class="contact-picker-sota hidden">
               <div class="picker-search">
                 <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
@@ -161,12 +161,12 @@ export function createQuestionDetailView(props: QuestionDetailViewProps): HTMLEl
             </div>
             
             <!-- Hidden select for form submission -->
-            <select id="assignee-select" class="form-select" style="display: none;">
+            <select id="assignee-select" class="form-select hidden">
               <option value="">Select contact...</option>
             </select>
             
             <!-- AI Suggestions Panel -->
-            <div id="suggestions-panel" class="suggestions-panel-sota" style="display: none;"></div>
+            <div id="suggestions-panel" class="suggestions-panel-sota hidden"></div>
           </section>
 
           <!-- Potential Answers Section -->
@@ -186,7 +186,7 @@ export function createQuestionDetailView(props: QuestionDetailViewProps): HTMLEl
           <section class="detail-section" id="answer-section">
             <h3>${question.answer ? 'Current Answer' : 'Your Answer'}</h3>
             ${question.answer ? renderExistingAnswer(question) : ''}
-            <div class="answer-form" ${question.status === 'resolved' ? 'style="display:none;"' : ''}>
+            <div class="answer-form ${question.status === 'resolved' ? 'hidden' : ''}">
               <div class="form-group">
                 <textarea id="answer-input" rows="4" 
                   placeholder="Type your answer here...">${question.answer || ''}</textarea>
@@ -232,11 +232,11 @@ export function createQuestionDetailView(props: QuestionDetailViewProps): HTMLEl
                       `}
                     </div>
                     <!-- Hidden select for form -->
-                    <select id="answered-by-contact" class="form-select" style="display: none;">
+                    <select id="answered-by-contact" class="form-select hidden">
                       <option value="">Select who answered...</option>
                     </select>
                     <!-- Contact picker dropdown -->
-                    <div id="answerer-picker-dropdown" class="answerer-picker-dropdown" style="display: none;">
+                    <div id="answerer-picker-dropdown" class="answerer-picker-dropdown hidden">
                       <div class="picker-search-sm">
                         <input type="text" id="answerer-search" placeholder="Search contacts...">
                       </div>
@@ -372,8 +372,8 @@ function getInitials(name: string): string {
 function getContactAvatar(contact: { name: string; photoUrl?: string; avatarUrl?: string; photo_url?: string; avatar_url?: string }): string {
   const photoUrl = contact.photoUrl || contact.avatarUrl || contact.photo_url || contact.avatar_url;
   if (photoUrl) {
-    return `<img src="${photoUrl}" alt="${escapeHtml(contact.name)}" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-            <span class="avatar-fallback" style="display:none;">${getInitials(contact.name)}</span>`;
+    return `<img src="${photoUrl}" alt="${escapeHtml(contact.name)}" onerror="this.classList.add('gm-none'); this.nextElementSibling.classList.remove('gm-none'); this.nextElementSibling.classList.add('gm-flex');">
+            <span class="avatar-fallback gm-none">${getInitials(contact.name)}</span>`;
   }
   return getInitials(contact.name);
 }
@@ -677,7 +677,7 @@ function setupAnswererPicker(container: HTMLElement): void {
         const contactId = item.getAttribute('data-contact-id');
         const contactName = item.getAttribute('data-contact-name');
         selectAnswerer(container, contactId || '', contactName || '');
-        dropdown.style.display = 'none';
+        dropdown.classList.add('hidden');
       });
     });
   };
@@ -685,7 +685,7 @@ function setupAnswererPicker(container: HTMLElement): void {
   // Show picker
   if (showBtn) {
     on(showBtn as HTMLElement, 'click', () => {
-      dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+      dropdown.classList.toggle('hidden');
       renderAnswererList();
       if (answererSearch) answererSearch.focus();
     });
@@ -705,7 +705,7 @@ function setupAnswererPicker(container: HTMLElement): void {
         const name = answererOtherInput.value.trim();
         if (name) {
           selectAnswerer(container, '', name);
-          dropdown.style.display = 'none';
+          dropdown.classList.add('hidden');
         }
       }
     });
@@ -722,8 +722,8 @@ function setupAnswererPicker(container: HTMLElement): void {
   // Close on outside click
   document.addEventListener('click', (e) => {
     const target = e.target as HTMLElement;
-    if (!target.closest('.answered-by-picker') && dropdown.style.display === 'block') {
-      dropdown.style.display = 'none';
+    if (!target.closest('.answered-by-picker') && !dropdown.classList.contains('hidden')) {
+      dropdown.classList.add('hidden');
     }
   });
 }
@@ -857,7 +857,7 @@ function renderContactGrid(container: HTMLElement, contactsToRender: typeof cont
           
           // Hide picker
           if (picker) {
-            picker.style.display = 'none';
+            picker.classList.add('hidden');
           }
           
           toast.success(`Assigned to ${contactName}`);
@@ -930,7 +930,7 @@ function bindPickerButtons(container: HTMLElement): void {
   
   if (showPickerBtn && picker) {
     on(showPickerBtn as HTMLElement, 'click', () => {
-      picker.style.display = picker.style.display === 'none' ? 'block' : 'none';
+      picker.classList.toggle('hidden');
       const searchInput = picker.querySelector('#contact-search') as HTMLInputElement;
       if (searchInput) {
         searchInput.focus();
@@ -940,7 +940,7 @@ function bindPickerButtons(container: HTMLElement): void {
   
   if (changeBtn && picker) {
     on(changeBtn as HTMLElement, 'click', () => {
-      picker.style.display = picker.style.display === 'none' ? 'block' : 'none';
+      picker.classList.toggle('hidden');
       const searchInput = picker.querySelector('#contact-search') as HTMLInputElement;
       if (searchInput) {
         searchInput.focus();
@@ -1164,7 +1164,7 @@ async function loadAISuggestions(container: HTMLElement): Promise<void> {
     </svg>
     Analyzing...
   `;
-  panel.style.display = 'block';
+  panel.classList.remove('hidden');
   panel.innerHTML = `
     <div class="suggestions-loading">
       <div class="ai-thinking-animation">
@@ -1195,10 +1195,10 @@ async function loadAISuggestions(container: HTMLElement): Promise<void> {
       const showAllBtn = panel.querySelector('#show-all-btn');
       if (showAllBtn) {
         on(showAllBtn as HTMLElement, 'click', () => {
-          panel.style.display = 'none';
+          panel.classList.add('hidden');
           const picker = container.querySelector('#contact-picker') as HTMLElement;
           if (picker) {
-            picker.style.display = 'block';
+            picker.classList.remove('hidden');
           }
         });
       }
@@ -1288,7 +1288,7 @@ async function loadAISuggestions(container: HTMLElement): Promise<void> {
                 
                 // Update display
                 updateAssignedDisplay(container);
-                panel.style.display = 'none';
+                panel.classList.add('hidden');
                 toast.success(`Assigned to ${suggestion.person}`);
               } catch (err) {
                 console.error('[QuestionDetail] Failed to save AI suggestion assignment:', err);
@@ -1303,7 +1303,7 @@ async function loadAISuggestions(container: HTMLElement): Promise<void> {
       const hideBtn = panel.querySelector('#hide-suggestions-btn');
       if (hideBtn) {
         on(hideBtn as HTMLElement, 'click', () => {
-          panel.style.display = 'none';
+          panel.classList.add('hidden');
         });
       }
     }
@@ -1524,7 +1524,7 @@ async function showDeferDialog(
   modal.id = 'defer-modal';
   modal.innerHTML = `
     <div class="modal-backdrop"></div>
-    <div class="modal-container" style="max-width: 400px;">
+    <div class="modal-container defer-modal-container">
       <div class="modal-header">
         <h3>Defer Question</h3>
         <button class="btn btn-icon modal-close">×</button>

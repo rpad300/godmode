@@ -122,7 +122,7 @@ function renderMembers(
               <option value="owner" ${member.role === 'owner' ? 'selected' : ''}>Owner</option>
             </select>
           </div>
-          <button class="btn-icon permissions-btn" data-user-id="${member.user_id}" title="Permissions" style="font-size: 14px;">🔐</button>
+          <button class="btn-icon permissions-btn permissions-btn-icon" data-user-id="${member.user_id}" title="Permissions">🔐</button>
           ${member.user_id !== currentUser?.id ? `
             <button class="btn-icon remove-member-btn" data-user-id="${member.user_id}" title="Remove">×</button>
           ` : ''}

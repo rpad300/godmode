@@ -3,7 +3,7 @@
  * Handles contact and team CRUD operations
  */
 
-import { http } from './api';
+import { http, fetchWithProject } from './api';
 
 export interface Contact {
   id: string;
@@ -225,7 +225,7 @@ export async function enrichContact(id: string): Promise<{
  */
 export async function exportContacts(format: 'json' | 'csv' = 'json'): Promise<void> {
   try {
-    const response = await fetch(`/api/contacts/export?format=${format}`);
+    const response = await fetchWithProject(`/api/contacts/export?format=${format}`);
     if (!response.ok) throw new Error('Export failed');
     
     const blob = await response.blob();

@@ -1,0 +1,181 @@
+/**
+ * Utility Classes — GodMode Design System
+ * Replace common inline patterns: display, flex, spacing, text, empty-state.
+ * Use tokens (design-system) for all values. Namespace: gm- optional for new classes.
+ * Responsive: works across phone, tablet, PC, TV breakpoints.
+ */
+
+/* ==================== Display ==================== */
+.gm-block { display: block; }
+.gm-inline-block { display: inline-block; }
+.gm-flex { display: flex; }
+.gm-inline-flex { display: inline-flex; }
+.gm-grid { display: grid; }
+.gm-grid-col-all { grid-column: 1 / -1; }
+.gm-none { display: none; }
+
+/* ==================== Flex direction ==================== */
+.gm-flex-row { flex-direction: row; }
+.gm-flex-col { flex-direction: column; }
+.gm-flex-row-reverse { flex-direction: row-reverse; }
+.gm-flex-col-reverse { flex-direction: column-reverse; }
+
+/* ==================== Flex align / justify ==================== */
+.gm-items-start { align-items: flex-start; }
+.gm-items-center { align-items: center; }
+.gm-items-end { align-items: flex-end; }
+.gm-justify-start { justify-content: flex-start; }
+.gm-justify-center { justify-content: center; }
+.gm-justify-end { justify-content: flex-end; }
+.gm-justify-between { justify-content: space-between; }
+.gm-flex-wrap { flex-wrap: wrap; }
+.gm-flex-1 { flex: 1; }
+.gm-cursor-pointer { cursor: pointer; }
+.gm-cursor-default { cursor: default; }
+
+/* ==================== Flex center (common combo) ==================== */
+.gm-flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.gm-flex-center-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ==================== Gap (tokens) ==================== */
+.gm-gap-0 { gap: var(--space-0); }
+.gm-gap-1 { gap: var(--space-1); }
+.gm-gap-2 { gap: var(--space-2); }
+.gm-gap-3 { gap: var(--space-3); }
+.gm-gap-4 { gap: var(--space-4); }
+.gm-gap-5 { gap: var(--space-5); }
+.gm-gap-6 { gap: var(--space-6); }
+.gm-gap-8 { gap: var(--space-8); }
+.gm-gap-xs { gap: var(--space-xs); }
+.gm-gap-sm { gap: var(--space-sm); }
+.gm-gap-md { gap: var(--space-md); }
+.gm-gap-lg { gap: var(--space-lg); }
+.gm-gap-xl { gap: var(--space-xl); }
+
+/* ==================== Padding ==================== */
+.gm-p-0 { padding: 0; }
+.gm-p-2 { padding: var(--space-2); }
+.gm-p-3 { padding: var(--space-3); }
+.gm-p-4 { padding: var(--space-4); }
+.gm-p-5 { padding: var(--space-5); }
+.gm-p-6 { padding: var(--space-6); }
+.gm-p-8 { padding: var(--space-8); }
+.gm-p-md { padding: var(--space-md); }
+.gm-p-lg { padding: var(--space-lg); }
+.gm-p-xl { padding: var(--space-xl); }
+.gm-px-4 { padding-left: var(--space-4); padding-right: var(--space-4); }
+.gm-py-4 { padding-top: var(--space-4); padding-bottom: var(--space-4); }
+.gm-pt-6 { padding-top: var(--space-6); }
+.gm-pb-6 { padding-bottom: var(--space-6); }
+
+/* ==================== Margin ==================== */
+.gm-m-0 { margin: 0; }
+.gm-mt-2 { margin-top: var(--space-2); }
+.gm-mt-3 { margin-top: var(--space-3); }
+.gm-mt-4 { margin-top: var(--space-4); }
+.gm-mb-2 { margin-bottom: var(--space-2); }
+.gm-mb-3 { margin-bottom: var(--space-3); }
+.gm-mb-4 { margin-bottom: var(--space-4); }
+.gm-mb-6 { margin-bottom: var(--space-6); }
+.gm-mt-sm { margin-top: var(--space-sm); }
+.gm-mt-md { margin-top: var(--space-md); }
+.gm-mb-0 { margin-bottom: 0; }
+.gm-mb-md { margin-bottom: var(--space-md); }
+.gm-w-full { width: 100%; }
+
+/* ==================== Text ==================== */
+.gm-text-left { text-align: left; }
+.gm-text-center { text-align: center; }
+.gm-text-right { text-align: right; }
+.gm-text-primary { color: var(--text-primary); }
+.gm-text-secondary { color: var(--text-secondary); }
+.gm-text-muted { color: var(--text-muted); }
+.gm-text-sm { font-size: var(--text-sm); }
+.gm-text-base { font-size: var(--text-base); }
+.gm-text-lg { font-size: var(--text-lg); }
+.gm-text-xl { font-size: var(--text-xl); }
+.gm-font-medium { font-weight: var(--font-medium); }
+.gm-font-semibold { font-weight: var(--font-semibold); }
+.gm-font-bold { font-weight: var(--font-bold); }
+
+/* ==================== Empty state (for no-project, empty lists) ==================== */
+.gm-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-20) var(--space-6);
+  text-align: center;
+  min-height: 280px;
+  border-radius: var(--radius-xl);
+  border: 2px dashed var(--border-primary);
+  background: var(--bg-secondary);
+}
+.gm-empty-state-icon {
+  color: var(--accent);
+  opacity: 0.7;
+  margin-bottom: var(--space-6);
+}
+.gm-empty-state-title {
+  margin: 0 0 var(--space-3) 0;
+  font-size: var(--text-2xl);
+  font-weight: var(--font-bold);
+  color: var(--text-primary);
+}
+.gm-empty-state-desc {
+  margin: 0 0 var(--space-7) 0;
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  max-width: 28rem;
+  line-height: var(--leading-relaxed);
+}
+.gm-empty-state-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-8);
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  border-radius: var(--radius-lg);
+}
+
+/* ==================== Loading / error placeholders ==================== */
+.gm-loading-placeholder {
+  padding: var(--space-10);
+  text-align: center;
+  color: var(--text-secondary);
+}
+.gm-error-placeholder {
+  padding: var(--space-6);
+  text-align: center;
+  color: var(--status-danger);
+}
+
+/* ==================== Avatar ==================== */
+.gm-avatar-img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+/* Noscript fallback (index.html) */
+.gm-noscript-fallback {
+  padding: var(--space-10);
+  text-align: center;
+  font-family: var(--font-sans);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+}
+
+.position-relative { position: relative; }

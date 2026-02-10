@@ -3,6 +3,10 @@
  * Protection against API abuse with sliding window rate limiting
  */
 
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'rate-limiter' });
+
 class RateLimiter {
     constructor(options = {}) {
         // Default limits
@@ -109,7 +113,7 @@ class RateLimiter {
      */
     block(key, reason = null) {
         this.blocked.add(key);
-        console.log(`[RateLimiter] Blocked ${key}: ${reason || 'No reason'}`);
+        log.info({ event: 'rate_limiter_blocked', key, reason: reason || 'No reason' }, 'Blocked');
         return true;
     }
 

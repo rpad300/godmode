@@ -5,6 +5,10 @@
  * Refactored to use Supabase instead of local JSON files
  */
 
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'query-suggestions' });
+
 // Try to load Supabase - may fail due to project folder name conflict
 let getStorage = null;
 try {
@@ -72,7 +76,7 @@ class QuerySuggestions {
                     lastRefresh: Date.now()
                 };
             } catch (e) {
-                console.warn('[QuerySuggestions] Could not refresh cache:', e.message);
+                log.warn({ event: 'query_suggestions_refresh_cache_failed', message: e.message }, 'Could not refresh cache');
             }
         }
     }
@@ -94,7 +98,7 @@ class QuerySuggestions {
             // Invalidate cache
             this._cache.lastRefresh = 0;
         } catch (e) {
-            console.warn('[QuerySuggestions] Could not record query:', e.message);
+            log.warn({ event: 'query_suggestions_record_query_failed', message: e.message }, 'Could not record query');
         }
     }
 
@@ -280,7 +284,7 @@ class QuerySuggestions {
             patterns: null,
             lastRefresh: 0
         };
-        console.log('[QuerySuggestions] Cache cleared');
+        log.debug({ event: 'query_suggestions_cache_cleared' }, 'Cache cleared');
     }
 }
 

@@ -4,7 +4,7 @@
  */
 
 // Types
-export type MainTab = 'dashboard' | 'chat' | 'sot' | 'timeline' | 'org' | 'files' | 'emails' | 'contacts' | 'team-analysis' | 'roles' | 'graph' | 'costs' | 'history' | 'admin';
+export type MainTab = 'dashboard' | 'chat' | 'sot' | 'timeline' | 'org' | 'files' | 'emails' | 'contacts' | 'team-analysis' | 'roles' | 'graph' | 'costs' | 'history' | 'profile' | 'settings' | 'admin' | 'projects';
 export type SotView = 'questions' | 'facts' | 'risks' | 'actions' | 'decisions';
 export type DevTab = 'info' | 'logs' | 'settings';
 

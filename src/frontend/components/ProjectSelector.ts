@@ -32,7 +32,7 @@ export function initProjectSelector(options: ProjectSelectorOptions = {}): void 
         <option value="">Select Project...</option>
       </select>
       <button id="new-project-btn" class="btn-icon" title="Create new project">+</button>
-      <button id="edit-project-btn" class="btn-icon" title="Edit project" style="display: none;">✏️</button>
+      <button id="edit-project-btn" class="btn-icon hidden" title="Edit project">✏️</button>
     </div>
   `;
 
@@ -48,9 +48,9 @@ export function initProjectSelector(options: ProjectSelectorOptions = {}): void 
     const projectId = selector.value;
     if (projectId) {
       await selectProject(projectId, options.onProjectChange);
-      editBtn.style.display = '';
+      editBtn.classList.remove('hidden');
     } else {
-      editBtn.style.display = 'none';
+      editBtn.classList.add('hidden');
     }
   });
 
@@ -62,7 +62,7 @@ export function initProjectSelector(options: ProjectSelectorOptions = {}): void 
         await loadProjectsIntoSelector(selector);
         if (project.id) {
           selector.value = project.id;
-          editBtn.style.display = '';
+          editBtn.classList.remove('hidden');
           options.onProjectChange?.(project.id);
         }
       },
@@ -81,7 +81,7 @@ export function initProjectSelector(options: ProjectSelectorOptions = {}): void 
         },
         onDelete: async () => {
           await loadProjectsIntoSelector(selector);
-          editBtn.style.display = 'none';
+          editBtn.classList.add('hidden');
         },
       });
     }
@@ -95,7 +95,7 @@ export function initProjectSelector(options: ProjectSelectorOptions = {}): void 
   appStore.subscribe((state) => {
     if (state.currentProjectId && selector.value !== state.currentProjectId) {
       selector.value = state.currentProjectId;
-      editBtn.style.display = '';
+      editBtn.classList.remove('hidden');
     }
   });
 }

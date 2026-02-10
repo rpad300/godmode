@@ -174,8 +174,8 @@ async function exportToPdf(markdown: string, filename: string): Promise<void> {
 
   // Create temporary element for PDF generation
   const tempDiv = document.createElement('div');
+  tempDiv.className = 'report-pdf-container';
   tempDiv.innerHTML = renderMarkdown(markdown);
-  tempDiv.style.cssText = 'font-family: system-ui, sans-serif; padding: 40px; max-width: 800px;';
   document.body.appendChild(tempDiv);
 
   try {

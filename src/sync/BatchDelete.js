@@ -3,6 +3,10 @@
  * Efficiently delete multiple items in a single operation
  */
 
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'batch-delete' });
+
 class BatchDelete {
     constructor(options = {}) {
         this.graphProvider = options.graphProvider;
@@ -112,7 +116,7 @@ class BatchDelete {
         }
 
         results.duration = Date.now() - results.startTime;
-        console.log(`[BatchDelete] Deleted ${results.deleted}/${results.requested} ${type}s in ${results.duration}ms`);
+        log.debug({ event: 'batch_delete_done', type, deleted: results.deleted, requested: results.requested, duration: results.duration }, 'Batch delete complete');
         
         return results;
     }

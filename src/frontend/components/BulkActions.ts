@@ -26,8 +26,7 @@ let selectedIds: Set<string> = new Set();
  * Create bulk actions bar
  */
 export function createBulkActionsBar(props: BulkActionsProps): HTMLElement {
-  const bar = createElement('div', { className: 'bulk-actions-bar' });
-  bar.style.display = 'none';
+  const bar = createElement('div', { className: 'bulk-actions-bar hidden' });
 
   bar.innerHTML = `
     <div class="bulk-info">
@@ -245,7 +244,7 @@ export function isSelected(id: string): boolean {
 function updateBar(bar: HTMLElement): void {
   const count = selectedIds.size;
   
-  bar.style.display = count > 0 ? 'flex' : 'none';
+  bar.classList.toggle('hidden', count === 0);
   
   const countEl = bar.querySelector('.bulk-count');
   if (countEl) {

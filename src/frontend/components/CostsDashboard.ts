@@ -10,6 +10,7 @@ import { formatCurrency, formatNumber } from '../utils/format';
 import { toast } from '../services/toast';
 import { billingService, type ProjectBillingSummary, formatEur, formatTokens } from '../services/billing';
 import { appStore } from '../stores/app';
+import { fetchWithProject } from '../services/api';
 
 // Billing state
 let billingSummary: ProjectBillingSummary | null = null;
@@ -159,7 +160,7 @@ function renderCosts(
     data.budgetLimit != null && data.budgetUsedPercent != null
       ? `
     <div class="costs-budget-bar ${data.budgetAlertTriggered ? 'alert' : ''}">
-      <div class="costs-budget-bar-fill" style="width: ${Math.min(100, data.budgetUsedPercent)}%"></div>
+      <div class="costs-budget-bar-fill" style="--budget-width: ${Math.min(100, data.budgetUsedPercent)}%"></div>
       <span class="costs-budget-label">${formatCurrency(data.total)} / ${formatCurrency(data.budgetLimit)} (${data.budgetUsedPercent}%)</span>
       ${data.budgetAlertTriggered ? '<span class="costs-budget-alert">Alert threshold reached</span>' : ''}
     </div>`
@@ -176,36 +177,36 @@ function renderCosts(
   let billingBannerHtml = '';
   if (billingSummary) {
     const balanceDisplay = billingSummary.unlimited_balance 
-      ? '<span style="color: var(--success-color); font-weight: 600;">∞ Unlimited</span>'
+      ? '<span class="costs-unlimited">∞ Unlimited</span>'
       : formatEur(billingSummary.balance_eur);
     
     const statusBadge = billingSummary.unlimited_balance
-      ? '<span class="badge badge-success" style="font-size: 11px;">Unlimited</span>'
+      ? '<span class="badge badge-success costs-badge-sm">Unlimited</span>'
       : billingSummary.balance_eur <= 0
-        ? '<span class="badge badge-danger" style="font-size: 11px;">Blocked</span>'
+        ? '<span class="badge badge-danger costs-badge-sm">Blocked</span>'
         : billingSummary.balance_percent_used >= 80
-          ? '<span class="badge badge-warning" style="font-size: 11px;">Low Balance</span>'
-          : '<span class="badge badge-primary" style="font-size: 11px;">Active</span>';
+          ? '<span class="badge badge-warning costs-badge-sm">Low Balance</span>'
+          : '<span class="badge badge-primary costs-badge-sm">Active</span>';
     
     billingBannerHtml = `
-      <div class="billing-summary-banner" style="background: var(--bg-secondary); border-radius: 8px; padding: 16px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
-        <div style="display: flex; align-items: center; gap: 24px;">
+      <div class="billing-summary-banner">
+        <div class="billing-summary-row">
           <div>
-            <div style="font-size: 12px; color: var(--text-tertiary); margin-bottom: 4px;">Project Balance</div>
-            <div style="font-size: 18px; font-weight: 600;">${balanceDisplay}</div>
+            <div class="billing-summary-label">Project Balance</div>
+            <div class="billing-summary-value">${balanceDisplay}</div>
           </div>
           <div>
-            <div style="font-size: 12px; color: var(--text-tertiary); margin-bottom: 4px;">Status</div>
+            <div class="billing-summary-label">Status</div>
             <div>${statusBadge}</div>
           </div>
           ${billingSummary.current_tier_name ? `
           <div>
-            <div style="font-size: 12px; color: var(--text-tertiary); margin-bottom: 4px;">Current Tier</div>
-            <div style="font-size: 14px;">${billingSummary.current_tier_name} (+${billingSummary.current_markup_percent}%)</div>
+            <div class="billing-summary-label">Current Tier</div>
+            <div class="billing-summary-tier">${billingSummary.current_tier_name} (+${billingSummary.current_markup_percent}%)</div>
           </div>
           ` : ''}
         </div>
-        <div style="display: flex; align-items: center; gap: 24px; color: var(--text-secondary); font-size: 13px;">
+        <div class="billing-summary-meta">
           <div>
             <strong>${formatTokens(billingSummary.tokens_this_period)}</strong> tokens this period
           </div>
@@ -373,7 +374,7 @@ async function handleExport(period: 'day' | 'week' | 'month' | 'all'): Promise<v
   const ext = format === 'json' ? 'json' : 'csv';
   const url = `/api/costs/export?period=${period}&format=${format}`;
   try {
-    const res = await fetch(url, { credentials: 'include' });
+    const res = await fetchWithProject(url);
     if (!res.ok) throw new Error(res.statusText);
     const blob = await res.blob();
     const name = `llm-costs-${period}-${new Date().toISOString().split('T')[0]}.${ext}`;
@@ -576,7 +577,7 @@ function renderDailyChart(
           const height = maxCost > 0 ? Math.max(2, (d.cost / maxCost) * 100) : 2;
           return `
             <div class="bar-column" title="${d.date}: ${formatCurrency(d.cost)} (${d.calls} calls)">
-              <div class="bar ${isPlaceholder && d.cost === 0 ? 'bar-placeholder' : ''}" style="height: ${height}%"></div>
+              <div class="bar ${isPlaceholder && d.cost === 0 ? 'bar-placeholder' : ''}" style="--bar-height: ${height}%"></div>
               <div class="bar-label">${formatDateShort(d.date)}</div>
             </div>
           `;

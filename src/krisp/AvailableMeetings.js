@@ -4,6 +4,9 @@
  */
 
 const { createClient } = require('@supabase/supabase-js');
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'available-meetings' });
 
 /**
  * Sync meetings from MCP to the available_meetings catalog
@@ -56,23 +59,23 @@ async function syncMeetingsFromMcp(userId, meetings) {
             const { data, error } = await supabase.rpc('upsert_krisp_available_meeting', meetingData);
 
             if (error) {
-                console.error(`[AvailableMeetings] Error syncing meeting ${meeting.meeting_id}:`, error);
+                log.error({ event: 'available_meetings_sync_error', meetingId: meeting.meeting_id, reason: error?.message }, 'Error syncing meeting');
                 errors++;
             } else {
                 if (existing) {
                     updated++;
-                    console.log(`[AvailableMeetings] Updated existing meeting: ${meeting.name}`);
+                    log.debug({ event: 'available_meetings_updated', name: meeting.name }, 'Updated existing meeting');
                 } else {
                     synced++;
                 }
             }
         } catch (err) {
-            console.error(`[AvailableMeetings] Exception syncing meeting:`, err);
+            log.error({ event: 'available_meetings_sync_exception', reason: err?.message }, 'Exception syncing meeting');
             errors++;
         }
     }
 
-    console.log(`[AvailableMeetings] Sync complete: ${synced} new, ${updated} updated, ${errors} errors`);
+    log.info({ event: 'available_meetings_sync_complete', synced, updated, errors }, 'Sync complete');
 
     return { success: errors === 0, synced, updated, errors };
 }
@@ -116,7 +119,7 @@ async function getMeetingsNeedingTranscript(userId, limit = 10) {
     const { data, error } = await query;
 
     if (error) {
-        console.error('[AvailableMeetings] Error fetching meetings needing transcript:', error);
+        log.error({ event: 'available_meetings_fetch_needing_transcript_error', reason: error?.message }, 'Error fetching meetings needing transcript');
         return [];
     }
 
@@ -190,7 +193,7 @@ async function getAvailableMeetings(userId, options = {}) {
     const { data: meetings, error } = await query;
 
     if (error) {
-        console.error('[AvailableMeetings] Error fetching meetings:', error);
+        log.error({ event: 'available_meetings_fetch_error', reason: error?.message }, 'Error fetching meetings');
         throw error;
     }
 
@@ -315,7 +318,7 @@ async function importSelectedMeetings(userId, meetingIds, projectId = null) {
             if (meeting.full_transcript && meeting.full_transcript.length > 0) {
                 // Full transcript from MCP get_document call
                 transcriptText = meeting.full_transcript;
-                console.log(`[AvailableMeetings] Using full transcript (${transcriptText.length} chars) for ${krispMeetingId}`);
+                log.debug({ event: 'available_meetings_using_full_transcript', krispMeetingId, length: transcriptText.length }, 'Using full transcript');
             } else {
                 // Fallback: build from key_points and action_items
                 transcriptText = buildTranscriptText({
@@ -327,7 +330,7 @@ async function importSelectedMeetings(userId, meetingIds, projectId = null) {
                     summary: meeting.summary,
                     rawData: meeting.raw_data
                 });
-                console.log(`[AvailableMeetings] Built transcript from key_points (${transcriptText.length} chars) for ${krispMeetingId}`);
+                log.debug({ event: 'available_meetings_built_from_key_points', krispMeetingId, length: transcriptText.length }, 'Built transcript from key_points');
             }
             
             const transcriptData = {
@@ -372,15 +375,15 @@ async function importSelectedMeetings(userId, meetingIds, projectId = null) {
                 const processOptions = projectId ? { forceReprocess: true } : {};
                 await TranscriptProcessor.processTranscript(transcript.id, processOptions);
             } catch (processError) {
-                console.error(`[AvailableMeetings] Processing error for ${krispMeetingId}:`, processError);
+                log.error({ event: 'available_meetings_processing_error', krispMeetingId, reason: processError?.message }, 'Processing error');
                 // Don't fail the import, just log
             }
 
             imported++;
-            console.log(`[AvailableMeetings] Imported meeting: ${krispMeetingId}`);
+            log.info({ event: 'available_meetings_imported', krispMeetingId }, 'Imported meeting');
 
         } catch (err) {
-            console.error(`[AvailableMeetings] Exception importing meeting ${krispMeetingId}:`, err);
+            log.error({ event: 'available_meetings_import_exception', krispMeetingId, reason: err?.message }, 'Exception importing meeting');
             errors.push({ meetingId: krispMeetingId, error: err.message });
         }
     }
@@ -409,7 +412,7 @@ async function getImportedMeetingIds(userId, meetingIds) {
         .in('krisp_meeting_id', meetingIds);
 
     if (error) {
-        console.error('[AvailableMeetings] Error checking imported:', error);
+        log.error({ event: 'available_meetings_check_imported_error', reason: error?.message }, 'Error checking imported');
         return [];
     }
 
@@ -428,11 +431,28 @@ async function getSyncStats(userId) {
     const { data, error } = await supabase.rpc('get_krisp_import_stats', { p_user_id: userId });
 
     if (error) {
-        console.error('[AvailableMeetings] Error getting stats:', error);
+        log.error({ event: 'available_meetings_stats_error', reason: error?.message }, 'Error getting stats');
         return null;
     }
 
     return data;
+}
+
+/**
+ * Get available meetings summary for a user (totals, imported, pending, last sync).
+ * Used by GET /api/krisp/available/summary.
+ *
+ * @param {string} userId - The user ID
+ * @returns {Promise<object>} Summary stats (same shape as getSyncStats for compatibility)
+ */
+async function getAvailableMeetingsSummary(userId) {
+    const stats = await getSyncStats(userId);
+    return stats || {
+        total_available: 0,
+        total_imported: 0,
+        total_pending: 0,
+        last_sync: null
+    };
 }
 
 // ============================================================================
@@ -548,11 +568,13 @@ function buildTranscriptText({ title, date, speakers, keyPoints, actionItems, su
 
 /**
  * Generate AI summary for a specific available meeting
- * 
+ * Uses centralized LLM layer when appConfig is provided; otherwise returns existing data.
+ *
  * @param {string} meetingId - The krisp_meeting_id
+ * @param {object} [appConfig] - Application config (for provider/model). If omitted, no LLM call is made.
  * @returns {Promise<{success: boolean, summary: Object}>}
  */
-async function generateMeetingSummary(meetingId) {
+async function generateMeetingSummary(meetingId, appConfig = null) {
     const supabase = createClient(
         process.env.SUPABASE_URL,
         process.env.SUPABASE_SERVICE_KEY
@@ -566,7 +588,7 @@ async function generateMeetingSummary(meetingId) {
         .single();
 
     if (error || !meeting) {
-        console.error('[AvailableMeetings] Meeting not found:', meetingId);
+        log.warn({ event: 'available_meetings_not_found', meetingId }, 'Meeting not found');
         return { success: false, error: 'Meeting not found' };
     }
 
@@ -603,48 +625,35 @@ async function generateMeetingSummary(meetingId) {
         };
     }
 
-    // Try to generate AI summary using OpenAI if available
-    const openaiKey = process.env.OPENAI_API_KEY;
-    if (openaiKey) {
-        try {
-            const response = await fetch('https://api.openai.com/v1/chat/completions', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${openaiKey}`
-                },
-                body: JSON.stringify({
-                    model: 'gpt-3.5-turbo',
-                    messages: [
-                        {
-                            role: 'system',
-                            content: `You are a helpful assistant that summarizes meeting information. Provide a concise summary in JSON format with:
+    // Use centralized LLM when appConfig is provided and has a text provider/model
+    if (appConfig) {
+        const llmConfig = require('../llm/config');
+        const llm = require('../llm');
+        const { provider, providerConfig, model } = llmConfig.getTextConfig(appConfig);
+        if (provider && model) {
+            try {
+                const systemPrompt = `You are a helpful assistant that summarizes meeting information. Provide a concise summary in JSON format with:
 - key_points (array of strings): Main discussion points
 - action_items (array of strings): Tasks or follow-ups mentioned
 - excerpt (string): A 2-3 sentence summary
 - mentioned_people (array of strings): Names of people mentioned in the discussion who may be relevant stakeholders, even if not present in the meeting
 
-Respond ONLY with valid JSON.`
-                        },
-                        {
-                            role: 'user',
-                            content: `Summarize this meeting:\n\n${context.join('\n\n')}`
-                        }
-                    ],
+Respond ONLY with valid JSON.`;
+                const result = await llm.generateText({
+                    provider,
+                    model,
+                    providerConfig: providerConfig || {},
+                    system: systemPrompt,
+                    prompt: `Summarize this meeting:\n\n${context.join('\n\n')}`,
                     temperature: 0.3,
-                    max_tokens: 600
-                })
-            });
+                    maxTokens: 600,
+                    jsonMode: true,
+                    context: 'krisp_summary'
+                });
 
-            if (response.ok) {
-                const result = await response.json();
-                const content = result.choices?.[0]?.message?.content;
-                
-                if (content) {
+                if (result.success && result.text) {
                     try {
-                        const summary = JSON.parse(content);
-                        
-                        // Update the meeting with the AI summary
+                        const summary = JSON.parse(result.text);
                         await supabase
                             .from('krisp_available_meetings')
                             .update({
@@ -654,9 +663,9 @@ Respond ONLY with valid JSON.`
                                 updated_at: new Date().toISOString()
                             })
                             .eq('krisp_meeting_id', meetingId);
-                        
-                        return { 
-                            success: true, 
+
+                        return {
+                            success: true,
                             summary: {
                                 ...summary,
                                 speakers: speakers,
@@ -665,12 +674,12 @@ Respond ONLY with valid JSON.`
                             }
                         };
                     } catch (parseError) {
-                        console.error('[AvailableMeetings] AI response parse error:', parseError);
+                        log.error({ event: 'available_meetings_ai_parse_error', reason: parseError?.message }, 'AI response parse error');
                     }
                 }
+            } catch (aiError) {
+                log.error({ event: 'available_meetings_ai_summary_error', reason: aiError?.message }, 'AI summary error');
             }
-        } catch (aiError) {
-            console.error('[AvailableMeetings] AI summary error:', aiError);
         }
     }
 
@@ -724,11 +733,11 @@ async function updateMeetingTranscript(userId, krispMeetingId, fullTranscript) {
         const { data, error } = await query.select('id, meeting_name, krisp_meeting_id').single();
 
         if (error) {
-            console.error('[AvailableMeetings] Transcript update error:', error);
+            log.error({ event: 'available_meetings_transcript_update_error', reason: error?.message }, 'Transcript update error');
             return { success: false, error: error.message };
         }
 
-        console.log(`[AvailableMeetings] Updated transcript for ${krispMeetingId}: ${fullTranscript.length} chars`);
+        log.info({ event: 'available_meetings_transcript_updated', krispMeetingId, length: fullTranscript.length }, 'Updated transcript');
         
         return {
             success: true,
@@ -737,7 +746,7 @@ async function updateMeetingTranscript(userId, krispMeetingId, fullTranscript) {
         };
 
     } catch (error) {
-        console.error('[AvailableMeetings] Update transcript error:', error);
+        log.error({ event: 'available_meetings_update_transcript_error', reason: error?.message }, 'Update transcript error');
         return { success: false, error: error.message };
     }
 }
@@ -782,7 +791,7 @@ async function downloadAudioFile(audioUrl, meetingId, meetingName) {
         const audioDir = path.join(process.cwd(), 'data', 'krisp-audio');
         if (!fs.existsSync(audioDir)) {
             fs.mkdirSync(audioDir, { recursive: true });
-            console.log(`[AvailableMeetings] Created audio directory: ${audioDir}`);
+            log.debug({ event: 'available_meetings_audio_dir_created', audioDir }, 'Created audio directory');
         }
         
         // Generate safe filename
@@ -795,12 +804,12 @@ async function downloadAudioFile(audioUrl, meetingId, meetingName) {
         
         // Check if already downloaded
         if (fs.existsSync(filePath)) {
-            console.log(`[AvailableMeetings] Audio already exists: ${filePath}`);
+            log.debug({ event: 'available_meetings_audio_exists', filePath }, 'Audio already exists');
             return { success: true, filePath, alreadyExists: true };
         }
         
         // Download the file
-        console.log(`[AvailableMeetings] Downloading audio: ${filename}`);
+        log.debug({ event: 'available_meetings_downloading_audio', filename }, 'Downloading audio');
         
         return new Promise((resolve) => {
             const file = fs.createWriteStream(filePath);
@@ -810,7 +819,7 @@ async function downloadAudioFile(audioUrl, meetingId, meetingName) {
                     response.pipe(file);
                     file.on('finish', () => {
                         file.close();
-                        console.log(`[AvailableMeetings] Audio downloaded: ${filePath}`);
+                        log.debug({ event: 'available_meetings_audio_downloaded', filePath }, 'Audio downloaded');
                         resolve({ success: true, filePath });
                     });
                 } else if (response.statusCode === 403 || response.statusCode === 404) {
@@ -830,7 +839,7 @@ async function downloadAudioFile(audioUrl, meetingId, meetingName) {
         });
         
     } catch (error) {
-        console.error('[AvailableMeetings] Audio download error:', error);
+        log.error({ event: 'available_meetings_audio_download_error', reason: error?.message }, 'Audio download error');
         return { success: false, error: error.message };
     }
 }
@@ -891,7 +900,7 @@ async function updateMeetingWithContent(userId, krispMeetingId, fullTranscript, 
             if (audioResult.success) {
                 audioFilePath = audioResult.filePath;
             } else {
-                console.warn(`[AvailableMeetings] Audio download failed: ${audioResult.error}`);
+                log.warn({ event: 'available_meetings_audio_download_failed', reason: audioResult.error }, 'Audio download failed');
             }
         }
 
@@ -922,11 +931,11 @@ async function updateMeetingWithContent(userId, krispMeetingId, fullTranscript, 
         const { data, error } = await query.select('id, meeting_name, krisp_meeting_id').single();
 
         if (error) {
-            console.error('[AvailableMeetings] Content update error:', error);
+            log.error({ event: 'available_meetings_content_update_error', reason: error?.message }, 'Content update error');
             return { success: false, error: error.message };
         }
 
-        console.log(`[AvailableMeetings] Updated content for ${krispMeetingId}: transcript=${fullTranscript.length} chars, audio=${audioFilePath || 'none'}`);
+        log.info({ event: 'available_meetings_content_updated', krispMeetingId, transcriptLength: fullTranscript.length, audio: audioFilePath || 'none' }, 'Updated content');
         
         return {
             success: true,
@@ -938,7 +947,7 @@ async function updateMeetingWithContent(userId, krispMeetingId, fullTranscript, 
         };
 
     } catch (error) {
-        console.error('[AvailableMeetings] Update content error:', error);
+        log.error({ event: 'available_meetings_update_content_error', reason: error?.message }, 'Update content error');
         return { success: false, error: error.message };
     }
 }
@@ -1047,7 +1056,7 @@ async function syncImportedTranscript(krispMeetingId) {
                 .eq('id', transcript.processed_document_id);
         }
 
-        console.log(`[AvailableMeetings] Synced transcript ${krispMeetingId}: ${changes.join(', ')}`);
+        log.debug({ event: 'available_meetings_synced_transcript', krispMeetingId, changes }, 'Synced transcript');
 
         return {
             success: true,
@@ -1057,7 +1066,7 @@ async function syncImportedTranscript(krispMeetingId) {
         };
 
     } catch (error) {
-        console.error('[AvailableMeetings] Sync transcript error:', error);
+        log.error({ event: 'available_meetings_sync_transcript_error', reason: error?.message }, 'Sync transcript error');
         return { success: false, error: error.message };
     }
 }
@@ -1107,7 +1116,7 @@ async function getStaleTranscripts(userId) {
         const { data, error } = await query;
 
         if (error) {
-            console.error('[AvailableMeetings] Get stale transcripts error:', error);
+            log.error({ event: 'available_meetings_stale_transcripts_error', reason: error?.message }, 'Get stale transcripts error');
             return [];
         }
 
@@ -1127,7 +1136,7 @@ async function getStaleTranscripts(userId) {
         return stale;
 
     } catch (error) {
-        console.error('[AvailableMeetings] Get stale transcripts error:', error);
+        log.error({ event: 'available_meetings_stale_transcripts_error', reason: error?.message }, 'Get stale transcripts error');
         return [];
     }
 }
@@ -1165,6 +1174,7 @@ async function syncAllStaleTranscripts(userId) {
 module.exports = {
     syncMeetingsFromMcp,
     getAvailableMeetings,
+    getAvailableMeetingsSummary,
     importSelectedMeetings,
     getImportedMeetingIds,
     getSyncStats,

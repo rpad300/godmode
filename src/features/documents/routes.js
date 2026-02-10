@@ -11,41 +11,22 @@
  * - SSE streaming for processing status
  */
 const fs = require('fs');
+const fsp = require('fs').promises;
 const path = require('path');
+const os = require('os');
+
+async function pathExists(p) {
+    try { await fsp.access(p); return true; } catch { return false; }
+}
 const { parseUrl, parseBody } = require('../../server/request');
 const { jsonResponse } = require('../../server/response');
+const { checkRateLimit, getRateLimitKey, rateLimitResponse } = require('../../server/middleware');
+const { isValidUUID } = require('../../server/security');
+const { getLogger } = require('../../server/requestContext');
+const { logError } = require('../../logger');
+const drive = require('../../integrations/googleDrive/drive');
 
-// Rate limit tracking (module-level for persistence)
-const rateLimitMap = new Map();
-
-function getRateLimitKey(req, action) {
-    const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.socket?.remoteAddress || 'unknown';
-    return `${ip}:${action}`;
-}
-
-function checkRateLimit(key, limit, windowMs) {
-    const now = Date.now();
-    const entry = rateLimitMap.get(key) || { count: 0, resetTime: now + windowMs };
-    
-    if (now > entry.resetTime) {
-        entry.count = 0;
-        entry.resetTime = now + windowMs;
-    }
-    
-    entry.count++;
-    rateLimitMap.set(key, entry);
-    
-    return entry.count <= limit;
-}
-
-function rateLimitResponse(res) {
-    jsonResponse(res, { error: 'Rate limit exceeded. Please try again later.' }, 429);
-}
-
-function isValidUUID(str) {
-    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
-}
-
+// Documents-specific 48x48 icon (different from server/static 200x200)
 function generateFileIconSVG(fileType) {
     const colors = {
         pdf: '#e53935',
@@ -69,8 +50,8 @@ function generateFileIconSVG(fileType) {
 
 async function handleDocuments(ctx) {
     const { req, res, pathname, storage, processor, invalidateBriefingCache, getCurrentUserId, PORT } = ctx;
-    
-    // Check if this is a documents route
+    const log = getLogger().child({ module: 'documents' });
+
     if (!pathname.startsWith('/api/documents')) {
         return false;
     }
@@ -108,7 +89,7 @@ async function handleDocuments(ctx) {
                 }
                 return false;
             } catch (err) {
-                console.error('[SSE] Error fetching doc status:', err);
+                logError(err, { module: 'documents', event: 'doc_sse_status_error', docId });
                 return false;
             }
         };
@@ -200,15 +181,8 @@ async function handleDocuments(ctx) {
             
             const { data: documents, error, count } = await query;
             
-            console.log('[Documents] Query result:', { 
-                count, 
-                docsLength: documents?.length || 0,
-                status,
-                projectId,
-                error: error?.message,
-                docStatuses: documents?.map(d => ({ id: d.id?.slice(0,8), status: d.status, deleted: !!d.deleted_at }))
-            });
-            
+            log.debug({ event: 'documents_query', count, docsLength: documents?.length || 0, status, projectId, error: error?.message }, 'Documents query');
+
             if (error) throw error;
             
             // Get status counts for the filter bar
@@ -237,7 +211,7 @@ async function handleDocuments(ctx) {
                 statuses
             });
         } catch (err) {
-            console.error('[Documents] List error:', err.message);
+            log.warn({ event: 'documents_list_error', reason: err.message }, 'Documents list error');
             // Fallback to cache
             const documents = storage.getDocuments(status);
             jsonResponse(res, { 
@@ -313,9 +287,9 @@ async function handleDocuments(ctx) {
                         `MATCH (d:Document {id: $id}) DETACH DELETE d`,
                         { id: docId }
                     );
-                    console.log(`[Graph] Document ${docId} deleted from FalkorDB`);
+                    log.debug({ event: 'doc_graph_deleted', docId }, 'Document deleted from FalkorDB');
                 } catch (graphErr) {
-                    console.log('[Graph] Document delete error:', graphErr.message);
+                    log.warn({ event: 'doc_graph_delete_error', docId, reason: graphErr.message }, 'Graph document delete error');
                 }
             }
             
@@ -326,7 +300,7 @@ async function handleDocuments(ctx) {
                 deleted: result.deleted
             });
         } catch (error) {
-            console.error('[API] deleteDocument error:', error);
+            log.warn({ event: 'doc_delete_error', docId, reason: error.message }, 'deleteDocument error');
             jsonResponse(res, { success: false, ok: false, error: error.message }, 500);
         }
         return true;
@@ -371,12 +345,12 @@ async function handleDocuments(ctx) {
                 .order('created_at', { ascending: false });
             
             if (error) {
-                console.error('[Analysis] Query error:', error.message);
+                log.warn({ event: 'doc_analysis_query_error', reason: error.message }, 'Analysis query error');
                 throw error;
             }
             jsonResponse(res, { analyses: data || [] });
         } catch (err) {
-            console.error('[Analysis] Failed to load analysis history:', err.message);
+            log.warn({ event: 'doc_analysis_history_error', reason: err.message }, 'Failed to load analysis history');
             jsonResponse(res, { analyses: [] });
         }
         return true;
@@ -427,7 +401,7 @@ async function handleDocuments(ctx) {
                         .eq('project_id', data.project_id)
                         .is('deleted_at', null);
                     
-                    console.log(`[Extraction] Enriching ${allPeople.length} participants, found ${contacts?.length || 0} contacts`);
+                    log.debug({ event: 'doc_extraction_enrich', participants: allPeople.length, contacts: contacts?.length || 0 }, 'Enriching participants');
                     
                     const enrichedParticipants = allPeople.map(p => {
                         const personNameLower = (p.name || '').toLowerCase().trim();
@@ -439,7 +413,7 @@ async function handleDocuments(ctx) {
                         });
                         
                         if (matchedContact) {
-                            console.log(`[Extraction] Matched "${p.name}" -> contact "${matchedContact.name}" (${matchedContact.id})`);
+                            log.debug({ event: 'doc_extraction_matched', participantName: p.name, contactName: matchedContact.name, contactId: matchedContact.id }, 'Matched participant to contact');
                         }
                         
                         return {
@@ -462,7 +436,7 @@ async function handleDocuments(ctx) {
             
             jsonResponse(res, { extraction });
         } catch (err) {
-            console.error('[Extraction] Error:', err.message);
+            log.warn({ event: 'doc_extraction_error', reason: err.message }, 'Extraction error');
             jsonResponse(res, { extraction: null });
         }
         return true;
@@ -580,7 +554,7 @@ async function handleDocuments(ctx) {
                 }
             });
         } catch (err) {
-            console.error('[Compare] Error:', err);
+            log.warn({ event: 'doc_compare_error', err: err?.message }, 'Compare error');
             jsonResponse(res, { error: 'Failed to compare versions' }, 500);
         }
         return true;
@@ -611,7 +585,7 @@ async function handleDocuments(ctx) {
                 .limit(50);
             
             if (error) {
-                console.error('[Activity] Query error:', error.message);
+                log.warn({ event: 'doc_activity_query_error', reason: error.message }, 'Activity query error');
                 throw error;
             }
             
@@ -637,7 +611,7 @@ async function handleDocuments(ctx) {
             
             jsonResponse(res, { activities: result });
         } catch (err) {
-            console.error('[Activity] Failed to load activity:', err.message);
+            log.warn({ event: 'doc_activity_load_error', reason: err.message }, 'Failed to load activity');
             jsonResponse(res, { activities: [] });
         }
         return true;
@@ -732,15 +706,15 @@ async function handleDocuments(ctx) {
             const baseName = path.basename(doc.filename || '', path.extname(doc.filename || ''));
             const contentFilePath = path.join(contentDir, `${baseName}.md`);
             
-            if ((!filePath || !fs.existsSync(filePath)) && fs.existsSync(contentFilePath)) {
+            if ((!filePath || !(await pathExists(filePath))) && (await pathExists(contentFilePath))) {
                 filePath = contentFilePath;
             }
             
             let currentHash = null;
             let hasContent = false;
             
-            if (filePath && fs.existsSync(filePath)) {
-                const content = fs.readFileSync(filePath, 'utf-8');
+            if (filePath && (await pathExists(filePath))) {
+                const content = await fsp.readFile(filePath, 'utf-8');
                 currentHash = require('crypto').createHash('md5').update(content).digest('hex');
                 hasContent = true;
             } else if (doc.content) {
@@ -775,7 +749,7 @@ async function handleDocuments(ctx) {
                 status: doc.status
             });
         } catch (err) {
-            console.error('[Reprocess Check] Error:', err);
+            log.warn({ event: 'doc_reprocess_check_error', reason: err?.message }, 'Reprocess check error');
             jsonResponse(res, { error: 'Failed to check document' }, 500);
         }
         return true;
@@ -813,7 +787,7 @@ async function handleDocuments(ctx) {
             
             if (updateError) throw updateError;
             
-            console.log(`[Documents] Reset status for ${doc.filename} (${docId}) from 'processing' to 'completed'`);
+            log.info({ event: 'doc_reset_status', docId, filename: doc.filename }, 'Reset status to completed');
             
             jsonResponse(res, { 
                 success: true, 
@@ -821,7 +795,7 @@ async function handleDocuments(ctx) {
                 document: { id: docId, filename: doc.filename, status: 'completed' }
             });
         } catch (err) {
-            console.error('[Documents] Reset status error:', err.message);
+            log.warn({ event: 'doc_reset_status_error', docId, reason: err.message }, 'Reset status error');
             jsonResponse(res, { error: 'Failed to reset document status' }, 500);
         }
         return true;
@@ -876,7 +850,7 @@ async function handleDocuments(ctx) {
                             metadata: { triggered_by: 'user' }
                         });
                 } catch (activityErr) {
-                    console.warn('[Reprocess] Failed to log activity:', activityErr.message);
+                    log.warn({ event: 'doc_reprocess_activity_log_failed', reason: activityErr.message }, 'Reprocess: failed to log activity');
                 }
             }
             
@@ -888,16 +862,16 @@ async function handleDocuments(ctx) {
             
             processor.reprocessDocument(docId).then(result => {
                 if (result.success) {
-                    console.log(`[Reprocess] Complete: ${doc.filename} - ${result.entities} entities extracted`);
+                    log.info({ event: 'doc_reprocess_complete', filename: doc.filename, entities: result.entities }, 'Reprocess complete');
                 } else {
-                    console.error(`[Reprocess] Failed: ${doc.filename} - ${result.error}`);
+                    log.warn({ event: 'doc_reprocess_failed', filename: doc.filename, reason: result.error }, 'Reprocess failed');
                 }
             }).catch(err => {
-                console.error(`[Reprocess] Unexpected error: ${err.message}`);
+                log.warn({ event: 'doc_reprocess_unexpected_error', reason: err.message }, 'Reprocess unexpected error');
             });
             
         } catch (err) {
-            console.error('[Reprocess] Error:', err);
+            log.warn({ event: 'doc_reprocess_error', reason: err?.message }, 'Reprocess error');
             jsonResponse(res, { error: 'Failed to reprocess document' }, 500);
         }
         return true;
@@ -979,7 +953,7 @@ async function handleDocuments(ctx) {
                 errors: results.failed
             });
         } catch (err) {
-            console.error('[BulkDelete] Error:', err);
+            log.warn({ event: 'doc_bulk_delete_error', reason: err?.message }, 'BulkDelete error');
             jsonResponse(res, { error: 'Failed to delete documents' }, 500);
         }
         return true;
@@ -1018,7 +992,7 @@ async function handleDocuments(ctx) {
         });
 
         (async () => {
-            console.log(`[BulkReprocess] Starting reprocess for ${ids.length} documents`);
+            log.info({ event: 'doc_bulk_reprocess_start', count: ids.length }, 'BulkReprocess starting');
             let completed = 0;
             let failed = 0;
             
@@ -1027,18 +1001,18 @@ async function handleDocuments(ctx) {
                     const result = await processor.reprocessDocument(docId);
                     if (result.success) {
                         completed++;
-                        console.log(`[BulkReprocess] ${completed}/${ids.length} - ${docId}: ${result.entities} entities`);
+                        log.debug({ event: 'doc_bulk_reprocess_item', completed, total: ids.length, docId, entities: result.entities }, 'BulkReprocess item');
                     } else {
                         failed++;
-                        console.error(`[BulkReprocess] ${completed}/${ids.length} - ${docId}: FAILED - ${result.error}`);
+                        log.warn({ event: 'doc_bulk_reprocess_item_failed', completed, total: ids.length, docId, reason: result.error }, 'BulkReprocess item failed');
                     }
                 } catch (err) {
                     failed++;
-                    console.error(`[BulkReprocess] Error processing ${docId}:`, err.message);
+                    log.warn({ event: 'doc_bulk_reprocess_error', docId, reason: err.message }, 'BulkReprocess processing error');
                 }
             }
             
-            console.log(`[BulkReprocess] Completed: ${completed} successful, ${failed} failed out of ${ids.length} total`);
+            log.info({ event: 'doc_bulk_reprocess_done', completed, failed, total: ids.length }, 'BulkReprocess completed');
         })();
 
         return true;
@@ -1079,26 +1053,26 @@ async function handleDocuments(ctx) {
                         archive.append(mdContent, { name: `${doc.filename.replace(/\.[^.]+$/, '')}.md` });
                     } else {
                         let filePath = doc.filepath;
-                        if (!filePath || !fs.existsSync(filePath)) {
+                        if (!filePath || !(await pathExists(filePath))) {
                             const contentDir = path.join(storage.getProjectDataDir(), 'content');
                             const baseName = doc.filename.replace(/\.[^.]+$/, '.md');
                             filePath = path.join(contentDir, baseName);
                         }
 
-                        if (filePath && fs.existsSync(filePath)) {
+                        if (filePath && (await pathExists(filePath))) {
                             archive.file(filePath, { name: doc.filename });
                         } else if (doc.content) {
                             archive.append(doc.content, { name: doc.filename });
                         }
                     }
                 } catch (err) {
-                    console.error(`[BulkExport] Error adding ${id}:`, err);
+                    log.warn({ event: 'doc_bulk_export_item_error', id, reason: err?.message }, 'BulkExport error adding');
                 }
             }
 
             await archive.finalize();
         } catch (err) {
-            console.error('[BulkExport] Error:', err);
+            log.warn({ event: 'doc_bulk_export_error', reason: err?.message }, 'BulkExport error');
             jsonResponse(res, { error: 'Failed to export documents' }, 500);
         }
         return true;
@@ -1151,7 +1125,7 @@ async function handleDocuments(ctx) {
                 share: data
             });
         } catch (err) {
-            console.error('[Share] Error:', err);
+            log.warn({ event: 'doc_share_error', reason: err?.message }, 'Share error');
             jsonResponse(res, { error: 'Failed to create share link' }, 500);
         }
         return true;
@@ -1211,7 +1185,7 @@ async function handleDocuments(ctx) {
         try {
             const { data: doc } = await storage._supabase.supabase
                 .from('documents')
-                .select('filepath, filename, file_type, content')
+                .select('filepath, filename, file_type, content, project_id')
                 .eq('id', docId)
                 .single();
 
@@ -1220,14 +1194,41 @@ async function handleDocuments(ctx) {
                 return true;
             }
 
+            if (doc.filepath && doc.filepath.startsWith('gdrive:')) {
+                const fileId = doc.filepath.replace(/^gdrive:/, '').trim();
+                const projectId = doc.project_id;
+                const client = await drive.getDriveClientForRead(projectId);
+                if (!client || !client.drive) {
+                    jsonResponse(res, { error: 'Google Drive credentials not configured for this project' }, 503);
+                    return true;
+                }
+                const buffer = await drive.downloadFile(client, fileId);
+                const mimeTypes = {
+                    pdf: 'application/pdf', doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                    xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                    txt: 'text/plain', md: 'text/markdown', json: 'application/json',
+                    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp'
+                };
+                const ext = (doc.file_type || path.extname(doc.filename || '').slice(1)).toLowerCase();
+                const contentType = mimeTypes[ext] || 'application/octet-stream';
+                const safeFilename = (doc.filename || 'document').replace(/[^\w\-. ]/g, '_');
+                res.setHeader('Content-Type', contentType);
+                res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}"`);
+                res.setHeader('X-Content-Type-Options', 'nosniff');
+                res.setHeader('Content-Security-Policy', "default-src 'none'");
+                res.end(buffer);
+                return true;
+            }
+
             let filePath = doc.filepath;
-            if (!filePath || !fs.existsSync(filePath)) {
+            if (!filePath || !(await pathExists(filePath))) {
                 const contentDir = path.join(storage.getProjectDataDir(), 'content');
                 const baseName = path.basename(doc.filename || '', path.extname(doc.filename || ''));
                 filePath = path.join(contentDir, `${baseName}.md`);
             }
 
-            if (!filePath || !fs.existsSync(filePath)) {
+            if (!filePath || !(await pathExists(filePath))) {
                 if (doc.content) {
                     const contentType = doc.file_type === 'md' ? 'text/markdown' : 'text/plain';
                     res.setHeader('Content-Type', contentType);
@@ -1269,7 +1270,7 @@ async function handleDocuments(ctx) {
             const stream = fs.createReadStream(filePath);
             stream.pipe(res);
         } catch (err) {
-            console.error('[Download] Error:', err.message);
+            log.warn({ event: 'doc_download_error', reason: err.message }, 'Download error');
             jsonResponse(res, { error: 'Download failed' }, 500);
         }
         return true;
@@ -1283,7 +1284,7 @@ async function handleDocuments(ctx) {
         try {
             const { data: doc } = await storage._supabase.supabase
                 .from('documents')
-                .select('filepath, filename, file_type, created_at')
+                .select('filepath, filename, file_type, created_at, project_id')
                 .eq('id', docId)
                 .single();
 
@@ -1295,7 +1296,7 @@ async function handleDocuments(ctx) {
             const cacheDir = path.join(storage.getProjectDataDir(), 'documents', 'cache', 'thumbnails');
             const cachePath = path.join(cacheDir, `${docId}.png`);
             
-            if (fs.existsSync(cachePath)) {
+            if (await pathExists(cachePath)) {
                 res.setHeader('Content-Type', 'image/png');
                 res.setHeader('Cache-Control', 'public, max-age=86400');
                 fs.createReadStream(cachePath).pipe(res);
@@ -1304,36 +1305,62 @@ async function handleDocuments(ctx) {
 
             const fileType = doc.file_type?.toLowerCase() || path.extname(doc.filename || '').slice(1).toLowerCase();
             let thumbnailGenerated = false;
+            let localPathForThumb = doc.filepath;
 
-            if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(fileType) && doc.filepath && fs.existsSync(doc.filepath)) {
+            if (doc.filepath && doc.filepath.startsWith('gdrive:')) {
+                const fileId = doc.filepath.replace(/^gdrive:/, '').trim();
+                const client = await drive.getDriveClientForRead(doc.project_id);
+                if (client && client.drive) {
+                    try {
+                        const buffer = await drive.downloadFile(client, fileId);
+                        const tmpPath = path.join(os.tmpdir(), `gdrive-${docId}-${path.basename(doc.filename || 'file')}`);
+                        await fsp.writeFile(tmpPath, buffer);
+                        localPathForThumb = tmpPath;
+                        try {
+                            if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(fileType)) {
+                                const sharp = require('sharp');
+                                await fsp.mkdir(cacheDir, { recursive: true });
+                                await sharp(buffer).resize(200, 200, { fit: 'cover' }).png().toFile(cachePath);
+                                thumbnailGenerated = true;
+                            } else if (fileType === 'pdf') {
+                                const { fromPath } = require('pdf2pic');
+                                await fsp.mkdir(cacheDir, { recursive: true });
+                                const convert = fromPath(tmpPath, { density: 100, saveFilename: docId, savePath: cacheDir, format: 'png', width: 200, height: 280 });
+                                await convert(1);
+                                const generatedPath = path.join(cacheDir, `${docId}.1.png`);
+                                if (await pathExists(generatedPath)) {
+                                    await fsp.rename(generatedPath, cachePath);
+                                    thumbnailGenerated = true;
+                                }
+                            }
+                        } finally {
+                            try { await fsp.unlink(tmpPath); } catch (_) {}
+                        }
+                    } catch (e) {
+                        log.warn({ event: 'doc_thumbnail_gdrive_failed', reason: e.message }, 'Thumbnail: Google Drive download failed');
+                    }
+                }
+            }
+
+            if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(fileType) && localPathForThumb && (await pathExists(localPathForThumb))) {
                 try {
                     const sharp = require('sharp');
-                    
-                    // Ensure cache directory exists
-                    if (!fs.existsSync(cacheDir)) {
-                        fs.mkdirSync(cacheDir, { recursive: true });
-                    }
-                    
-                    await sharp(doc.filepath)
+                    await fsp.mkdir(cacheDir, { recursive: true });
+                    await sharp(localPathForThumb)
                         .resize(200, 200, { fit: 'cover' })
                         .png()
                         .toFile(cachePath);
                     thumbnailGenerated = true;
                 } catch (sharpErr) {
-                    console.warn('[Thumbnail] Sharp not available or failed:', sharpErr.message);
+                    log.warn({ event: 'doc_thumbnail_sharp_failed', reason: sharpErr.message }, 'Thumbnail: Sharp not available or failed');
                 }
             }
 
-            if (fileType === 'pdf' && doc.filepath && fs.existsSync(doc.filepath)) {
+            if (fileType === 'pdf' && localPathForThumb && (await pathExists(localPathForThumb))) {
                 try {
                     const { fromPath } = require('pdf2pic');
-                    
-                    // Ensure cache directory exists
-                    if (!fs.existsSync(cacheDir)) {
-                        fs.mkdirSync(cacheDir, { recursive: true });
-                    }
-                    
-                    const convert = fromPath(doc.filepath, {
+                    await fsp.mkdir(cacheDir, { recursive: true });
+                    const convert = fromPath(localPathForThumb, {
                         density: 100,
                         saveFilename: docId,
                         savePath: cacheDir,
@@ -1343,16 +1370,16 @@ async function handleDocuments(ctx) {
                     });
                     await convert(1);
                     const generatedPath = path.join(cacheDir, `${docId}.1.png`);
-                    if (fs.existsSync(generatedPath)) {
-                        fs.renameSync(generatedPath, cachePath);
+                    if (await pathExists(generatedPath)) {
+                        await fsp.rename(generatedPath, cachePath);
                         thumbnailGenerated = true;
                     }
                 } catch (pdfErr) {
-                    console.warn('[Thumbnail] pdf2pic not available or failed:', pdfErr.message);
+                    log.warn({ event: 'doc_thumbnail_pdf2pic_failed', reason: pdfErr.message }, 'Thumbnail: pdf2pic not available or failed');
                 }
             }
 
-            if (thumbnailGenerated && fs.existsSync(cachePath)) {
+            if (thumbnailGenerated && (await pathExists(cachePath))) {
                 res.setHeader('Content-Type', 'image/png');
                 res.setHeader('Cache-Control', 'public, max-age=86400');
                 fs.createReadStream(cachePath).pipe(res);
@@ -1363,7 +1390,7 @@ async function handleDocuments(ctx) {
                 res.end(iconSvg);
             }
         } catch (err) {
-            console.error('[Thumbnail] Error:', err);
+            log.warn({ event: 'doc_thumbnail_error', reason: err?.message }, 'Thumbnail error');
             jsonResponse(res, { error: 'Failed to generate thumbnail' }, 500);
         }
         return true;

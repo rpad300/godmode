@@ -12,7 +12,10 @@
  * - Multi-graph support via project_id
  */
 
+const { logger } = require('../../logger');
 const GraphProvider = require('../GraphProvider');
+
+const log = logger.child({ module: 'supabase-graph' });
 
 class SupabaseGraphProvider extends GraphProvider {
     constructor(config = {}) {
@@ -22,11 +25,7 @@ class SupabaseGraphProvider extends GraphProvider {
         this.projectId = config.projectId || null;
         this.currentGraphName = this.graphName;
         
-        console.log('[SupabaseGraph] Config:', {
-            graphName: this.graphName,
-            projectId: this.projectId,
-            hasClient: !!this.supabase
-        });
+        log.debug({ event: 'supabase_graph_config', graphName: this.graphName, projectId: this.projectId, hasClient: !!this.supabase }, 'Config');
     }
 
     static get capabilities() {
@@ -64,7 +63,7 @@ class SupabaseGraphProvider extends GraphProvider {
             
             if (error && error.code === '42P01') {
                 // Table doesn't exist - create schema
-                console.log('[SupabaseGraph] Tables not found, need to run migration');
+                log.warn({ event: 'supabase_graph_tables_not_found' }, 'Tables not found, need to run migration');
                 return { ok: false, error: 'Graph tables not found. Run migration 056_graph_tables.sql' };
             }
             
@@ -149,7 +148,7 @@ class SupabaseGraphProvider extends GraphProvider {
                 .delete()
                 .eq('graph_name', graphName);
 
-            console.log(`[SupabaseGraph] Deleted graph: ${graphName}`);
+            log.info({ event: 'supabase_graph_deleted', graphName }, 'Deleted graph');
             return { ok: true, deleted: graphName };
         } catch (error) {
             return { ok: false, error: error.message };
@@ -448,6 +447,78 @@ class SupabaseGraphProvider extends GraphProvider {
             return { ok: true, relationships };
         } catch (error) {
             return { ok: false, relationships: [], error: error.message };
+        }
+    }
+
+    /**
+     * Get sprint report context from the graph (Supabase-native).
+     * Returns sprint node properties and assignees (Person names) linked via IN_SPRINT and ASSIGNED_TO.
+     * @param {string} sprintId - Sprint node id
+     * @returns {Promise<{ok: boolean, sprint?: {name?: string, context?: string}, assignees?: string[], error?: string}>}
+     */
+    async getSprintReportContext(sprintId) {
+        if (!await this.ensureConnected()) {
+            return { ok: false, error: 'Not connected' };
+        }
+        try {
+            const g = this.currentGraphName;
+
+            const { data: sprintNode, error: e0 } = await this.supabase
+                .from('graph_nodes')
+                .select('id, label, properties')
+                .eq('graph_name', g)
+                .eq('id', sprintId)
+                .eq('label', 'Sprint')
+                .maybeSingle();
+
+            if (e0) throw e0;
+            const sprint = sprintNode?.properties || {};
+
+            const { data: inSprintRels, error: e1 } = await this.supabase
+                .from('graph_relationships')
+                .select('from_id')
+                .eq('graph_name', g)
+                .eq('to_id', sprintId)
+                .eq('type', 'IN_SPRINT');
+
+            if (e1) throw e1;
+            const actionIds = [...new Set((inSprintRels || []).map(r => r.from_id))];
+            if (actionIds.length === 0) {
+                return { ok: true, sprint: { name: sprint.name, context: sprint.context }, assignees: [] };
+            }
+
+            const { data: assignedRels, error: e2 } = await this.supabase
+                .from('graph_relationships')
+                .select('from_id')
+                .eq('graph_name', g)
+                .eq('type', 'ASSIGNED_TO')
+                .in('to_id', actionIds);
+
+            if (e2) throw e2;
+            const personIds = [...new Set((assignedRels || []).map(r => r.from_id))];
+            if (personIds.length === 0) {
+                return { ok: true, sprint: { name: sprint.name, context: sprint.context }, assignees: [] };
+            }
+
+            const { data: personNodes, error: e3 } = await this.supabase
+                .from('graph_nodes')
+                .select('id, properties')
+                .eq('graph_name', g)
+                .eq('label', 'Person')
+                .in('id', personIds);
+
+            if (e3) throw e3;
+            const assignees = (personNodes || []).map(n => (n.properties && n.properties.name) || n.id).filter(Boolean);
+            const uniqueAssignees = [...new Set(assignees)];
+
+            return {
+                ok: true,
+                sprint: { name: sprint.name, context: sprint.context },
+                assignees: uniqueAssignees
+            };
+        } catch (error) {
+            log.debug({ event: 'get_sprint_report_context_error', sprintId, reason: error.message }, 'getSprintReportContext failed');
+            return { ok: false, error: error.message };
         }
     }
 
@@ -838,7 +909,7 @@ class SupabaseGraphProvider extends GraphProvider {
 
             if (deleteError) throw deleteError;
 
-            console.log(`[SupabaseGraph] Cleaned up ${toDelete.length} duplicate Meeting nodes`);
+            log.debug({ event: 'supabase_graph_cleaned_duplicates', count: toDelete.length }, 'Cleaned up duplicate Meeting nodes');
             
             return { 
                 ok: true, 
@@ -892,7 +963,7 @@ class SupabaseGraphProvider extends GraphProvider {
 
             if (deleteError) throw deleteError;
 
-            console.log(`[SupabaseGraph] Cleaned up ${orphanedIds.length} orphaned relationships`);
+            log.debug({ event: 'supabase_graph_cleaned_orphans', count: orphanedIds.length }, 'Cleaned up orphaned relationships');
             
             return { ok: true, deleted: orphanedIds.length };
         } catch (error) {

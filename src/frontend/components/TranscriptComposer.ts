@@ -5,6 +5,9 @@
 
 import { createElement, on } from '../utils/dom';
 import { toast } from '../services/toast';
+import { fetchWithProject } from '../services/api';
+import { getSprints } from '../services/sprints';
+import { getActions } from '../services/actions';
 
 export interface TranscriptComposerProps {
   onImport?: (document: unknown) => void;
@@ -379,6 +382,12 @@ function createTranscriptComposer(props: TranscriptComposerProps): HTMLElement {
       ${renderPasteMode()}
     </div>
     
+    <div class="composer-association" style="padding: 12px 24px; border-top: 1px solid var(--border-color); display: flex; flex-wrap: wrap; gap: 12px; align-items: center;">
+      <span style="font-size: 13px; font-weight: 500; color: var(--text-secondary);">Associate with (optional)</span>
+      <select id="transcript-sprint-select" class="form-select" style="min-width: 140px;"><option value="">No sprint</option></select>
+      <select id="transcript-action-select" class="form-select" style="min-width: 180px;"><option value="">No task</option></select>
+    </div>
+    
     <div class="composer-footer">
       <button class="btn btn-secondary" id="cancel-btn">Cancel</button>
       <button class="btn btn-primary" id="import-btn" disabled>Process Transcript</button>
@@ -413,8 +422,42 @@ function createTranscriptComposer(props: TranscriptComposerProps): HTMLElement {
 
   // Initial binding
   bindPasteMode(container);
+  initTranscriptSprintTask(container);
 
   return container;
+}
+
+async function initTranscriptSprintTask(container: HTMLElement): Promise<void> {
+  const sprintSelect = container.querySelector('#transcript-sprint-select') as HTMLSelectElement;
+  const actionSelect = container.querySelector('#transcript-action-select') as HTMLSelectElement;
+  if (!sprintSelect || !actionSelect) return;
+  try {
+    const sprints = await getSprints();
+    sprints.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.id;
+      opt.textContent = s.name;
+      sprintSelect.appendChild(opt);
+    });
+    on(sprintSelect, 'change', async () => {
+      const sprintId = sprintSelect.value || '';
+      actionSelect.innerHTML = '<option value="">No task</option>';
+      if (!sprintId) return;
+      try {
+        const actions = await getActions(undefined, sprintId);
+        actions.forEach(a => {
+          const opt = document.createElement('option');
+          opt.value = String(a.id);
+          opt.textContent = (a.content || a.task || String(a.id)).slice(0, 60) + ((a.content || a.task || '').length > 60 ? '…' : '');
+          actionSelect.appendChild(opt);
+        });
+      } catch {
+        // ignore
+      }
+    });
+  } catch {
+    // ignore
+  }
 }
 
 function renderMode(container: HTMLElement): void {
@@ -568,21 +611,13 @@ async function handleImport(container: HTMLElement, props: TranscriptComposerPro
   const originalFooter = footer.innerHTML;
   
   footer.innerHTML = `
-    <div style="display: flex; align-items: center; gap: 12px; flex: 1;">
-      <div class="processing-spinner" style="
-        width: 20px;
-        height: 20px;
-        border: 2px solid var(--border-color);
-        border-top-color: var(--primary);
-        border-radius: 50%;
-        animation: spin 1s linear infinite;
-      "></div>
-      <div style="flex: 1;">
-        <div style="font-weight: 500; color: var(--text-primary);" id="processing-status">Uploading transcript...</div>
-        <div style="font-size: 12px; color: var(--text-tertiary);" id="processing-detail">Please wait</div>
+    <div class="transcript-status-row">
+      <div class="processing-spinner"></div>
+      <div class="transcript-status-fill">
+        <div class="transcript-status-title" id="processing-status">Uploading transcript...</div>
+        <div class="transcript-status-detail" id="processing-detail">Please wait</div>
       </div>
     </div>
-    <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
   `;
   
   const statusEl = footer.querySelector('#processing-status') as HTMLElement;
@@ -595,15 +630,18 @@ async function handleImport(container: HTMLElement, props: TranscriptComposerPro
     formData.append('file', new Blob([content], { type: 'text/plain' }), filename);
     formData.append('folder', 'newtranscripts');
     if (sourceSelect?.value) formData.append('source', sourceSelect.value);
+    const sprintSelect = container.querySelector('#transcript-sprint-select') as HTMLSelectElement;
+    const actionSelect = container.querySelector('#transcript-action-select') as HTMLSelectElement;
+    if (sprintSelect?.value) formData.append('sprintId', sprintSelect.value);
+    if (actionSelect?.value) formData.append('actionId', actionSelect.value);
 
     // Step 1: Upload
     statusEl.textContent = 'Uploading transcript...';
     detailEl.textContent = `${formatFileSize(content.length)} • ${filename}`;
     
-    const response = await fetch('/api/upload', {
+    const response = await fetchWithProject('/api/upload', {
       method: 'POST',
       body: formData,
-      credentials: 'include'
     });
 
     if (!response.ok) {
@@ -619,33 +657,14 @@ async function handleImport(container: HTMLElement, props: TranscriptComposerPro
     
     // Show success state briefly
     footer.innerHTML = `
-      <div style="display: flex; align-items: center; gap: 12px; flex: 1;">
-        <div style="
-          width: 24px;
-          height: 24px;
-          background: #10b981;
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: white;
-          font-size: 14px;
-        ">✓</div>
-        <div style="flex: 1;">
-          <div style="font-weight: 500; color: #10b981;">Transcript imported successfully!</div>
-          <div style="font-size: 12px; color: var(--text-tertiary);">AI extraction will process in the background</div>
+      <div class="transcript-status-row">
+        <div class="transcript-success-icon">✓</div>
+        <div class="transcript-status-fill">
+          <div class="transcript-success-title">Transcript imported successfully!</div>
+          <div class="transcript-status-detail">AI extraction will process in the background</div>
         </div>
       </div>
-      <button class="btn btn-primary" id="done-btn" style="
-        padding: 10px 20px;
-        border-radius: 10px;
-        font-size: 14px;
-        font-weight: 500;
-        cursor: pointer;
-        border: none;
-        background: var(--primary);
-        color: white;
-      ">Done</button>
+      <button class="btn btn-primary transcript-done-btn" id="done-btn">Done</button>
     `;
     
     // Bind done button
@@ -665,33 +684,14 @@ async function handleImport(container: HTMLElement, props: TranscriptComposerPro
     
     // Show error state
     footer.innerHTML = `
-      <div style="display: flex; align-items: center; gap: 12px; flex: 1;">
-        <div style="
-          width: 24px;
-          height: 24px;
-          background: #ef4444;
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: white;
-          font-size: 14px;
-        ">✕</div>
-        <div style="flex: 1;">
-          <div style="font-weight: 500; color: #ef4444;">Import failed</div>
-          <div style="font-size: 12px; color: var(--text-tertiary);">${err instanceof Error ? err.message : 'Unknown error'}</div>
+      <div class="transcript-status-row">
+        <div class="transcript-error-icon">✕</div>
+        <div class="transcript-status-fill">
+          <div class="transcript-error-title">Import failed</div>
+          <div class="transcript-status-detail">${err instanceof Error ? err.message : 'Unknown error'}</div>
         </div>
       </div>
-      <button class="btn btn-secondary" id="retry-btn" style="
-        padding: 10px 20px;
-        border-radius: 10px;
-        font-size: 14px;
-        font-weight: 500;
-        cursor: pointer;
-        border: 1px solid var(--border-color);
-        background: var(--bg-primary);
-        color: var(--text-primary);
-      ">Try Again</button>
+      <button type="button" class="btn btn-secondary transcript-retry-btn" id="retry-btn">Try Again</button>
     `;
     
     // Bind retry button

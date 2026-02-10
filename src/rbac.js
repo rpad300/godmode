@@ -3,6 +3,10 @@
  * Defines permissions matrix and authorization helpers
  */
 
+const { logger } = require('./logger');
+
+const log = logger.child({ module: 'rbac' });
+
 /**
  * Permission Matrix
  * Maps actions to allowed roles
@@ -90,7 +94,7 @@ function can(userRole, action) {
     if (!userRole || !action) return false;
     const allowedRoles = PERMISSIONS[action];
     if (!allowedRoles) {
-        console.warn(`[RBAC] Unknown action: ${action}`);
+        log.warn({ event: 'rbac_unknown_action', action }, 'Unknown action');
         return false;
     }
     return allowedRoles.includes(userRole);
@@ -211,6 +215,9 @@ function requirePermission(res, userRole, action, customMessage) {
     return false;
 }
 
+/** Ordered list of project roles (excluding 'none') */
+const ROLES = ['owner', 'admin', 'write', 'read'];
+
 module.exports = {
     // Core functions
     can,
@@ -231,5 +238,6 @@ module.exports = {
     
     // Constants (for reference)
     PERMISSIONS,
-    ROLE_HIERARCHY
+    ROLE_HIERARCHY,
+    ROLES
 };

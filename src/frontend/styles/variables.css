@@ -1,103 +1,49 @@
 /**
- * CSS Custom Properties (Variables)
- * GodMode Design System
+ * CSS Custom Properties — GodMode App
+ * Imports design-system theme (tokens + semantic theme); adds app-specific layout and z-index.
  */
 
+@import './design-system/theme.css';
+
+/* ==================== App-specific: Layout ==================== */
 :root {
-  /* ==================== Colors - Dark Theme (Default) ==================== */
-  --bg-primary: #1a1a2e;
-  --bg-secondary: #16213e;
-  --bg-card: #0f3460;
-  --bg-tertiary: #0a0a1a;
-  
-  --accent: #e94560;
-  --accent-hover: #ff6b6b;
-  
-  --text-primary: #eaeaea;
-  --text-secondary: #a0a0a0;
-  --text-muted: #6a6a8a;
-  
-  --success: #4ecdc4;
-  --warning: #ffe66d;
-  --error: #ff6b6b;
-  --danger: #ff6b6b;
-  
-  --border: #2a2a4a;
-  
-  /* Aliases for compatibility */
-  --card-bg: var(--bg-card);
-  --input-bg: var(--bg-primary);
-  
-  /* ==================== Layout ==================== */
   --sidebar-width: clamp(250px, 20vw, 360px);
   --container-padding: clamp(12px, 2vw, 48px);
   --card-gap: clamp(16px, 2vw, 32px);
-  
-  /* ==================== Typography ==================== */
-  --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* ==================== App compatibility: spacing aliases ==================== */
+:root {
+  --space-xs: var(--space-1);
+  --space-sm: var(--space-2);
+  --space-md: var(--space-4);
+  --space-lg: var(--space-6);
+  --space-xl: var(--space-8);
+  --space-2xl: var(--space-12);
+}
+
+/* ==================== App-specific: Responsive font sizes (optional) ==================== */
+:root {
   --font-size-xs: clamp(11px, 0.7vw + 0.4rem, 13px);
   --font-size-sm: clamp(12px, 0.8vw + 0.4rem, 14px);
   --font-size-base: clamp(14px, 0.9vw + 0.5rem, 16px);
   --font-size-lg: clamp(16px, 1vw + 0.6rem, 20px);
   --font-size-xl: clamp(20px, 1.5vw + 0.8rem, 28px);
-  
-  /* ==================== Spacing ==================== */
-  --space-xs: 4px;
-  --space-sm: 8px;
-  --space-md: 16px;
-  --space-lg: 24px;
-  --space-xl: 32px;
-  --space-2xl: 48px;
-  
-  /* ==================== Borders ==================== */
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-xl: 12px;
-  
-  /* ==================== Shadows ==================== */
-  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.1);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.15);
-  --shadow-lg: 0 10px 40px rgba(0, 0, 0, 0.3);
-  --shadow-xl: 0 20px 60px rgba(0, 0, 0, 0.5);
-  
-  /* ==================== Animation ==================== */
-  --transition-fast: 150ms ease;
-  --transition-normal: 250ms ease;
-  --transition-slow: 400ms ease;
-  
-  /* ==================== Z-Index Scale ==================== */
+}
+
+/* ==================== App compatibility: transition aliases ==================== */
+:root {
+  --transition-fast: var(--duration-150) var(--ease-out);
+  --transition-normal: var(--duration-200) var(--ease-in-out);
+  --transition-slow: var(--duration-300) var(--ease-in-out);
+}
+
+/* ==================== App-specific: Z-Index scale ==================== */
+:root {
   --z-dropdown: 100;
   --z-sticky: 200;
   --z-modal-backdrop: 1000;
   --z-modal: 1001;
   --z-toast: 3000;
   --z-tooltip: 5000;
-}
-
-/* ==================== Light Theme ==================== */
-[data-theme="light"] {
-  --bg-primary: #f5f5f5;
-  --bg-secondary: #ffffff;
-  --bg-card: #e8e8e8;
-  --bg-tertiary: #d0d0d0;
-  
-  --accent: #e94560;
-  --accent-hover: #d63850;
-  
-  --text-primary: #1a1a2e;
-  --text-secondary: #666666;
-  --text-muted: #888888;
-  
-  --success: #2d9a8c;
-  --warning: #d4a500;
-  --error: #d63850;
-  --danger: #d63850;
-  
-  --border: #d0d0d0;
-  
-  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 10px 40px rgba(0, 0, 0, 0.15);
-  --shadow-xl: 0 20px 60px rgba(0, 0, 0, 0.2);
 }

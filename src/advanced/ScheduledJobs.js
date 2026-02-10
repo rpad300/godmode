@@ -5,6 +5,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'scheduled-jobs' });
 
 class ScheduledJobs {
     constructor(options = {}) {
@@ -48,7 +51,7 @@ class ScheduledJobs {
                 executionLog: this.executionLog.slice(0, 100)
             }, null, 2));
         } catch (e) {
-            console.log(`[ScheduledJobs] Save warning: ${e.message}`);
+            log.warn({ event: 'scheduled_jobs_save_warning', reason: e.message }, 'Save warning');
         }
     }
 
@@ -57,7 +60,7 @@ class ScheduledJobs {
      */
     registerHandler(jobType, handler) {
         this.handlers.set(jobType, handler);
-        console.log(`[ScheduledJobs] Registered handler for: ${jobType}`);
+        log.debug({ event: 'scheduled_jobs_handler_registered', jobType }, 'Registered handler');
     }
 
     /**
@@ -93,7 +96,7 @@ class ScheduledJobs {
             this.scheduleJob(job);
         }
 
-        console.log(`[ScheduledJobs] Created job: ${job.name} (${job.schedule})`);
+        log.debug({ event: 'scheduled_jobs_created', jobName: job.name, schedule: job.schedule }, 'Created job');
         return job;
     }
 
@@ -185,7 +188,7 @@ class ScheduledJobs {
         }
 
         this.save();
-        console.log(`[ScheduledJobs] Executed ${job.name}: ${execution.status} (${execution.duration}ms)`);
+        log.debug({ event: 'scheduled_jobs_executed', jobName: job.name, status: execution.status, duration: execution.duration }, 'Executed job');
 
         return execution;
     }
@@ -203,7 +206,7 @@ class ScheduledJobs {
             }
         }
 
-        console.log(`[ScheduledJobs] Started with ${this.jobs.size} jobs`);
+        log.debug({ event: 'scheduled_jobs_started', count: this.jobs.size }, 'Started with jobs');
     }
 
     /**
@@ -215,7 +218,7 @@ class ScheduledJobs {
             clearInterval(timer);
         }
         this.timers.clear();
-        console.log('[ScheduledJobs] Stopped');
+        log.debug({ event: 'scheduled_jobs_stopped' }, 'Stopped');
     }
 
     /**

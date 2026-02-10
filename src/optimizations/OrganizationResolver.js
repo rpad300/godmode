@@ -8,13 +8,17 @@
  * SOTA v2.0 - State of the Art Entity Resolution
  */
 
+const { logger } = require('../logger');
 const llm = require('../llm');
+
+const log = logger.child({ module: 'organization-resolver' });
 
 class OrganizationResolver {
     constructor(options = {}) {
         this.storage = options.storage;
         this.graphProvider = options.graphProvider;
         this.llmConfig = options.llmConfig || {};
+        this.appConfig = options.appConfig || null;
         
         // Cache for resolved organizations
         this.cache = new Map();
@@ -266,7 +270,7 @@ class OrganizationResolver {
                     }
                 }
             } catch (e) {
-                console.error('[OrganizationResolver] Graph search failed:', e.message);
+                log.error({ event: 'organization_resolver_graph_search_failed', message: e.message }, 'Graph search failed');
             }
         }
         
@@ -308,9 +312,11 @@ class OrganizationResolver {
      * @returns {Promise<{same: boolean, confidence: number, reason: string}>}
      */
     async resolveWithLLM(org1, org2) {
-        const provider = this.llmConfig?.perTask?.text?.provider || this.llmConfig?.provider;
-        const model = this.llmConfig?.perTask?.text?.model || this.llmConfig?.models?.text;
-        
+        const llmConfig = require('../llm/config');
+        const textCfg = this.appConfig ? llmConfig.getTextConfig(this.appConfig) : null;
+        const provider = textCfg?.provider ?? this.llmConfig?.perTask?.text?.provider ?? this.llmConfig?.provider;
+        const model = textCfg?.model ?? this.llmConfig?.perTask?.text?.model ?? this.llmConfig?.models?.text;
+        const providerConfig = textCfg?.providerConfig ?? this.llmConfig?.providers?.[provider] ?? {};
         if (!provider || !model) {
             return { same: false, confidence: 0, reason: 'No LLM configured' };
         }
@@ -339,7 +345,7 @@ Respond with JSON only:
         try {
             const result = await llm.generateText({
                 provider,
-                providerConfig: this.llmConfig?.providers?.[provider] || {},
+                providerConfig,
                 model,
                 prompt,
                 temperature: 0.1,
@@ -361,7 +367,7 @@ Respond with JSON only:
                 reason: parsed.reason || 'Unknown'
             };
         } catch (e) {
-            console.error('[OrganizationResolver] LLM resolution failed:', e.message);
+            log.error({ event: 'organization_resolver_llm_failed', message: e.message }, 'LLM resolution failed');
             return { same: false, confidence: 0, reason: e.message };
         }
     }

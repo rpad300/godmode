@@ -4,15 +4,19 @@
  * Uses fuzzy matching and context-aware merging
  */
 
+const { logger } = require('../logger');
 const llm = require('../llm');
+const llmConfig = require('../llm/config');
+
+const log = logger.child({ module: 'entity-resolver' });
 
 class EntityResolver {
     constructor(options = {}) {
         this.similarityThreshold = options.similarityThreshold || 0.75;
-        // No hardcoded defaults - must come from admin config
         this.llmProvider = options.llmProvider || null;
         this.llmModel = options.llmModel || null;
         this.llmConfig = options.llmConfig || {};
+        this.appConfig = options.appConfig || null;
         
         // Cache of resolved entities
         this.resolvedCache = new Map();
@@ -31,7 +35,7 @@ class EntityResolver {
             return { merged: 0, candidates: [], error: 'Graph not connected' };
         }
 
-        console.log('[EntityResolver] Starting duplicate resolution...');
+        log.debug({ event: 'entity_resolver_start' }, 'Starting duplicate resolution');
         
         // Get all Person nodes
         const personsResult = await graphProvider.query('MATCH (p:Person) RETURN p.name as name, p.email as email, p.role as role, p.organization as org');
@@ -61,7 +65,7 @@ class EntityResolver {
             }
         }
 
-        console.log(`[EntityResolver] Found ${candidates.length} potential duplicates`);
+        log.debug({ event: 'entity_resolver_candidates', count: candidates.length }, 'Found potential duplicates');
 
         // Auto-merge high confidence matches
         for (const candidate of candidates) {
@@ -70,7 +74,7 @@ class EntityResolver {
                     await this.mergeEntities(graphProvider, candidate.entity1, candidate.entity2, candidate.suggestedMerge);
                     merged.push(candidate);
                 } catch (err) {
-                    console.log(`[EntityResolver] Merge failed: ${err.message}`);
+                    log.warn({ event: 'entity_resolver_merge_failed', reason: err.message }, 'Merge failed');
                 }
             }
         }
@@ -239,7 +243,7 @@ class EntityResolver {
         // Delete secondary
         await graphProvider.query('MATCH (p:Person {name: $name}) DELETE p', { name: secondaryName });
 
-        console.log(`[EntityResolver] Merged "${secondaryName}" into "${primaryName}"`);
+        log.debug({ event: 'entity_resolver_merged', secondaryName, primaryName }, 'Merged entities');
     }
 
     /**
@@ -263,10 +267,15 @@ Entity 2:
 Respond with JSON: {"same_person": true/false, "confidence": 0.0-1.0, "reasoning": "brief explanation"}`;
 
         try {
+            const textCfg = this.appConfig ? llmConfig.getTextConfig(this.appConfig) : null;
+            const provider = textCfg?.provider ?? this.llmProvider;
+            const model = textCfg?.model ?? this.llmModel;
+            const providerConfig = textCfg?.providerConfig ?? this.llmConfig?.providers?.[provider] ?? {};
+            if (!provider || !model) return { same_person: false, confidence: 0, reasoning: 'No LLM configured' };
             const result = await llm.generateText({
-                provider: this.llmProvider,
-                providerConfig: this.llmConfig?.providers?.[this.llmProvider] || {},
-                model: this.llmModel,
+                provider,
+                providerConfig,
+                model,
                 prompt,
                 temperature: 0.1,
                 maxTokens: 200
@@ -279,7 +288,7 @@ Respond with JSON: {"same_person": true/false, "confidence": 0.0-1.0, "reasoning
                 }
             }
         } catch (e) {
-            console.log('[EntityResolver] AI resolution failed:', e.message);
+            log.warn({ event: 'entity_resolver_ai_failed', reason: e.message }, 'AI resolution failed');
         }
 
         return { same_person: false, confidence: 0, reasoning: 'AI resolution failed' };

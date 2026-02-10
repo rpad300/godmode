@@ -4,6 +4,9 @@
  */
 
 const { getAdminClient } = require('./client');
+const { logger: rootLogger, logError } = require('../logger');
+
+const log = rootLogger.child({ module: 'outbox' });
 
 // Operation types
 const OPERATIONS = {
@@ -83,7 +86,7 @@ async function addToOutbox({
 
         return { success: true, event: outboxEvent };
     } catch (error) {
-        console.error('[Outbox] Add error:', error);
+        logError(error, { module: 'outbox', event: 'outbox_add_error', projectId, graphName });
         return { success: false, error: error.message };
     }
 }
@@ -95,6 +98,10 @@ async function addBatchToOutbox(events) {
     const supabase = getAdminClient();
     if (!supabase) {
         return { success: false, error: 'Supabase not configured' };
+    }
+
+    if (!events || events.length === 0) {
+        return { success: true, events: [], count: 0 };
     }
 
     try {
@@ -121,7 +128,7 @@ async function addBatchToOutbox(events) {
 
         return { success: true, events: data, count: data.length };
     } catch (error) {
-        console.error('[Outbox] Batch add error:', error);
+        logError(error, { module: 'outbox', event: 'outbox_batch_add_error' });
         return { success: false, error: error.message };
     }
 }
@@ -145,7 +152,7 @@ async function claimBatch(batchSize = 100) {
 
         return { success: true, events: data || [], count: data?.length || 0 };
     } catch (error) {
-        console.error('[Outbox] Claim error:', error);
+        logError(error, { module: 'outbox', event: 'outbox_claim_error' });
         return { success: false, error: error.message };
     }
 }
@@ -168,7 +175,7 @@ async function markCompleted(eventId) {
 
         return { success: true };
     } catch (error) {
-        console.error('[Outbox] Complete error:', error);
+        logError(error, { module: 'outbox', event: 'outbox_complete_error', eventId });
         return { success: false, error: error.message };
     }
 }
@@ -192,7 +199,7 @@ async function markFailed(eventId, errorMessage) {
 
         return { success: true };
     } catch (error) {
-        console.error('[Outbox] Fail error:', error);
+        logError(error, { module: 'outbox', event: 'outbox_fail_error', messageId: eventId, errorMessage });
         return { success: false, error: error.message };
     }
 }
@@ -222,7 +229,7 @@ async function getPendingCount(projectId = null) {
 
         return { success: true, count };
     } catch (error) {
-        console.error('[Outbox] Count error:', error);
+        logError(error, { module: 'outbox', event: 'outbox_count_error' });
         return { success: false, error: error.message };
     }
 }
@@ -252,7 +259,7 @@ async function getSyncStatus(projectId, graphName = null) {
 
         return { success: true, status: data };
     } catch (error) {
-        console.error('[Outbox] Status error:', error);
+        logError(error, { module: 'outbox', event: 'outbox_status_error' });
         return { success: false, error: error.message };
     }
 }
@@ -284,7 +291,7 @@ async function upsertSyncStatus(projectId, graphName, updates) {
 
         return { success: true, status: data };
     } catch (error) {
-        console.error('[Outbox] Upsert status error:', error);
+        logError(error, { module: 'outbox', event: 'outbox_upsert_status_error' });
         return { success: false, error: error.message };
     }
 }
@@ -327,7 +334,7 @@ async function updateSyncStatusCount(supabase, projectId, graphName, delta) {
             }
         }
     } catch (error) {
-        console.error('[Outbox] Update count error:', error);
+        logError(error, { module: 'outbox', event: 'outbox_update_count_error' });
     }
 }
 
@@ -360,7 +367,7 @@ async function getDeadLetters(projectId, options = {}) {
 
         return { success: true, deadLetters: data || [] };
     } catch (error) {
-        console.error('[Outbox] Dead letters error:', error);
+        logError(error, { module: 'outbox', event: 'outbox_dead_letters_error' });
         return { success: false, error: error.message };
     }
 }
@@ -389,7 +396,7 @@ async function resolveDeadLetter(deadLetterId, userId, notes = null) {
 
         return { success: true };
     } catch (error) {
-        console.error('[Outbox] Resolve error:', error);
+        logError(error, { module: 'outbox', event: 'outbox_resolve_error' });
         return { success: false, error: error.message };
     }
 }
@@ -431,7 +438,7 @@ async function retryDeadLetter(deadLetterId) {
 
         return { success: true };
     } catch (error) {
-        console.error('[Outbox] Retry error:', error);
+        logError(error, { module: 'outbox', event: 'outbox_retry_error' });
         return { success: false, error: error.message };
     }
 }
@@ -474,7 +481,7 @@ async function getStats(projectId = null) {
 
         return { success: true, stats };
     } catch (error) {
-        console.error('[Outbox] Stats error:', error);
+        logError(error, { module: 'outbox', event: 'outbox_stats_error' });
         return { success: false, error: error.message };
     }
 }
@@ -502,7 +509,7 @@ async function cleanup(daysOld = 7) {
 
         return { success: true, deleted: count };
     } catch (error) {
-        console.error('[Outbox] Cleanup error:', error);
+        logError(error, { module: 'outbox', event: 'outbox_cleanup_error' });
         return { success: false, error: error.message };
     }
 }

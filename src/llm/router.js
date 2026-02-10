@@ -5,6 +5,9 @@
 
 const llm = require('./index');
 const healthRegistry = require('./healthRegistry');
+const configModule = require('./config');
+const { logger: rootLogger } = require('../logger');
+const log = rootLogger.child({ module: 'llm-router' });
 
 // Default routing policy per task
 const DEFAULT_ROUTING_POLICY = {
@@ -264,11 +267,19 @@ async function routeAndExecute(taskType, operation, payload, config) {
     const providers = config.llm?.providers || {};
     const defaultModels = config.llm?.models || {};
     
-    // Single provider mode - use existing behavior
+    // Single provider mode - use central config
     if (routing.mode !== 'failover') {
-        const providerId = config.llm?.provider || 'ollama';
-        const providerConfig = providers[providerId] || {};
-        const model = payload.model || getModelForProvider(taskType, operation, providerId, routing, defaultModels);
+        const textCfg = configModule.getTextConfig(config);
+        const providerId = textCfg?.provider ?? config.llm?.provider ?? null;
+        if (!providerId) {
+            return {
+                success: false,
+                error: { code: 'no_provider', message: 'No LLM provider configured. Set in Settings > LLM.' },
+                routing: { mode: 'single', usedProvider: null, model: null, attempts: [] }
+            };
+        }
+        const providerConfig = textCfg?.providerConfig ?? providers[providerId] ?? {};
+        const model = payload.model || textCfg?.model || getModelForProvider(taskType, operation, providerId, routing, defaultModels);
         
         const result = await executeOnProvider(operation, payload, providerId, model, providerConfig, 120000);
         
@@ -326,9 +337,7 @@ async function routeAndExecute(taskType, operation, payload, config) {
         const candidate = eligibleCandidates[attemptNum];
         const { providerId, model } = candidate;
         const providerConfig = providers[providerId] || {};
-        
-        console.log(`[Router] Attempt ${attemptNum + 1}/${maxAttempts}: ${providerId} with model ${model}`);
-        
+        log.debug({ event: 'router_attempt', attempt: attemptNum + 1, maxAttempts, providerId, model }, 'Attempt');
         const result = await executeOnProvider(operation, payload, providerId, model, providerConfig, timeoutMs);
         
         attempts.push({
@@ -364,17 +373,14 @@ async function routeAndExecute(taskType, operation, payload, config) {
         const errorCode = result.error?.code;
         
         if (nonRetryableErrors.includes(errorCode)) {
-            console.log(`[Router] Non-retryable error (${errorCode}) from ${providerId}, trying next provider`);
+            log.debug({ event: 'router_non_retryable', providerId, errorCode }, 'Non-retryable error, trying next provider');
             continue;
         }
-        
         if (retryableErrors.includes(errorCode)) {
-            console.log(`[Router] Retryable error (${errorCode}) from ${providerId}, trying next provider`);
+            log.debug({ event: 'router_retryable', providerId, errorCode }, 'Retryable error, trying next provider');
             continue;
         }
-        
-        // Unknown error - try next provider anyway
-        console.log(`[Router] Unknown error from ${providerId}, trying next provider`);
+        log.debug({ event: 'router_unknown_error', providerId }, 'Unknown error, trying next provider');
     }
     
     // All attempts failed

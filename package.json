@@ -23,7 +23,9 @@
     "test:watch": "jest --watch",
     "llm:preflight": "node scripts/llm-preflight.js",
     "llm:preflight:live": "node scripts/llm-preflight.js --live",
-    "llm:preflight:auto": "node scripts/llm-preflight.js --live --auto"
+    "llm:preflight:auto": "node scripts/llm-preflight.js --live --auto",
+    "benchmark": "node scripts/benchmark.js health",
+    "benchmark:all": "node scripts/benchmark.js all"
   },
   "pkg": {
     "scripts": "src/**/*.js",
@@ -40,6 +42,7 @@
     "@falkordb/canvas": "^0.0.29",
     "@js-temporal/polyfill": "^0.5.1",
     "@supabase/functions-js": "^2.93.3",
+    "@supabase/mcp-server-supabase": "^0.6.3",
     "@supabase/node-fetch": "^2.6.13",
     "@supabase/postgrest-js": "^2.93.3",
     "@supabase/realtime-js": "^2.93.3",
@@ -48,6 +51,7 @@
     "better-sqlite3": "^9.4.3",
     "chart.js": "^4.5.1",
     "falkordb": "^6.6.0",
+    "googleapis": "^144.0.0",
     "html2pdf.js": "^0.14.0",
     "mailparser": "^3.9.3",
     "marked": "^17.0.1",
@@ -56,6 +60,7 @@
     "pdf-parse": "^1.1.1",
     "pdf-to-img": "^5.0.0",
     "pg": "^8.17.2",
+    "pino": "^9.14.0",
     "vis-network": "^10.0.2"
   },
   "devDependencies": {
@@ -64,6 +69,9 @@
     "pkg": "^5.8.1",
     "typescript": "^5.9.3",
     "vite": "^7.3.1"
+  },
+  "engines": {
+    "node": ">=14.0.0"
   },
   "keywords": [
     "document-processing",

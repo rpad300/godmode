@@ -109,6 +109,8 @@
   stroke-linecap: round;
   transform-origin: center;
   transition: stroke-dasharray 0.5s ease;
+  stroke-dasharray: var(--gauge-dash) 126;
+  stroke: var(--gauge-stroke);
 }
 
 .gauge-center {
@@ -135,6 +137,7 @@
 .health-status {
   font-size: var(--font-size-lg);
   font-weight: 600;
+  color: var(--health-status-color);
 }
 
 .health-factors {
@@ -184,6 +187,7 @@
   color: white;
   font-size: var(--font-size-sm);
   font-weight: 600;
+  background: var(--badge-bg);
 }
 
 .badge-status {
@@ -208,6 +212,42 @@
   align-items: center;
   justify-content: center;
   height: 100%;
+  color: var(--color-text-muted);
+}
+
+/* Breakdown chart */
+.breakdown-chart-container {
+  min-height: 120px;
+}
+.breakdown-fallback {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+.breakdown-fallback-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-size: var(--font-size-sm);
+}
+.breakdown-fallback-bar .bar-label {
+  min-width: 100px;
+}
+.breakdown-fallback-bar .bar-track {
+  flex: 1;
+  height: 16px;
+  background: var(--color-bg);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.breakdown-fallback-bar .bar-fill {
+  height: 100%;
+  border-radius: var(--radius-sm);
+  min-width: 4px;
+}
+.breakdown-fallback-bar .bar-value {
+  min-width: 24px;
+  text-align: right;
   color: var(--color-text-muted);
 }
 
@@ -237,6 +277,10 @@
   border-radius: 2px;
 }
 
+.fallback-chart .legend-color {
+  background: var(--legend-color, #6366f1);
+}
+
 .chart-bars {
   flex: 1;
   display: flex;
@@ -255,9 +299,11 @@
 .bar-group .bar {
   width: 100%;
   max-width: 20px;
+  height: var(--bar-height, 0)%;
   min-height: 2px;
   border-radius: 2px 2px 0 0;
   transition: height 0.3s ease;
+  background: var(--bar-color, #6366f1);
 }
 
 .bar-label {
@@ -341,6 +387,7 @@
   justify-content: center;
   border-radius: var(--radius-sm);
   transition: all 0.2s;
+  background-color: var(--cell-color, var(--color-surface-hover));
 }
 
 .matrix-cell.has-risks {
@@ -386,6 +433,11 @@
   height: 12px;
   border-radius: 2px;
 }
+
+.risk-legend-low { background: #22c55e; }
+.risk-legend-medium { background: #eab308; }
+.risk-legend-high { background: #f97316; }
+.risk-legend-critical { background: #ef4444; }
 
 /* Risk Matrix sizes */
 .risk-matrix.size-sm .matrix-cell { aspect-ratio: 1; min-height: 30px; }
@@ -457,6 +509,7 @@
 
 .bar-fill {
   height: 100%;
+  width: var(--bar-width, 0)%;
   border-radius: 4px;
   transition: width 0.3s ease;
 }

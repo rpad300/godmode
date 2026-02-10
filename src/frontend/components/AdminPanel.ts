@@ -110,6 +110,17 @@ let exchangeRateConfig: ExchangeRateConfig | null = null;
 let billingLoaded = false;
 let billingLoading = false;
 
+// Google Drive state
+interface GoogleDriveState {
+  enabled: boolean;
+  rootFolderId: string;
+  hasSystemCredentials: boolean;
+  bootstrappedAt: string | null;
+}
+let googleDriveState: GoogleDriveState | null = null;
+let googleDriveLoading = false;
+let googleDriveLoaded = false;
+
 /**
  * Load system configuration
  */
@@ -172,26 +183,42 @@ async function loadSecrets(): Promise<void> {
   }
 }
 
+/** Fallback provider list when API fails (no hardcoded models; models loaded via API per provider) */
+const DEFAULT_PROVIDER_IDS: Array<{ id: string; name: string }> = [
+  { id: 'openai', name: 'OpenAI' },
+  { id: 'anthropic', name: 'Anthropic (Claude)' },
+  { id: 'google', name: 'Google AI (Gemini)' },
+  { id: 'xai', name: 'xAI (Grok)' },
+  { id: 'deepseek', name: 'DeepSeek' },
+  { id: 'kimi', name: 'Kimi (Moonshot)' },
+  { id: 'minimax', name: 'MiniMax' },
+  { id: 'ollama', name: 'Ollama (Local)' },
+];
+
 /**
- * Load LLM providers status
+ * Load LLM providers from API (central source of truth). Normalizes response to LLMProvider shape.
  */
 async function loadProviders(): Promise<void> {
-  // Default providers - all supported LLM providers
-  const defaultProviders: LLMProvider[] = [
-    { id: 'openai', name: 'OpenAI', enabled: false, models: ['gpt-4o', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo'] },
-    { id: 'anthropic', name: 'Anthropic (Claude)', enabled: false, models: ['claude-3-opus', 'claude-3-sonnet', 'claude-3-haiku'] },
-    { id: 'google', name: 'Google AI (Gemini)', enabled: false, models: ['gemini-2.0-flash', 'gemini-pro', 'gemini-pro-vision'] },
-    { id: 'xai', name: 'xAI (Grok)', enabled: false, models: ['grok-2', 'grok-beta'] },
-    { id: 'deepseek', name: 'DeepSeek', enabled: false, models: ['deepseek-chat', 'deepseek-coder'] },
-    { id: 'kimi', name: 'Kimi (Moonshot)', enabled: false, models: ['moonshot-v1-8k', 'moonshot-v1-32k'] },
-    { id: 'minimax', name: 'MiniMax', enabled: false, models: ['abab5.5-chat', 'abab6-chat'] },
-    { id: 'ollama', name: 'Ollama (Local)', enabled: true, models: ['llama2', 'mistral', 'codellama', 'qwen2.5'] },
-  ];
-  
+  const defaultProviders: LLMProvider[] = DEFAULT_PROVIDER_IDS.map(p => ({
+    id: p.id,
+    name: p.name,
+    enabled: false,
+    models: [],
+  }));
+
   try {
-    const response = await http.get<{ providers: LLMProvider[] }>('/api/llm/providers');
+    const response = await http.get<{ providers: Array<{ id: string; name?: string; label?: string; enabled?: boolean; models?: string[] }> }>('/api/llm/providers');
     const apiProviders = response.data?.providers;
-    providers = Array.isArray(apiProviders) && apiProviders.length > 0 ? apiProviders : defaultProviders;
+    if (Array.isArray(apiProviders) && apiProviders.length > 0) {
+      providers = apiProviders.map(p => ({
+        id: p.id,
+        name: p.name ?? p.label ?? p.id,
+        enabled: p.enabled ?? false,
+        models: Array.isArray(p.models) ? p.models : [],
+      }));
+    } else {
+      providers = defaultProviders;
+    }
   } catch (error) {
     console.warn('Failed to load providers, using defaults:', error);
     providers = defaultProviders;
@@ -341,6 +368,7 @@ function renderNav(): string {
     { id: 'prompts', label: 'Prompts', icon: 'M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z' },
     { id: 'processing', label: 'Processing', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z' },
     { id: 'team-analysis', label: 'Team Analysis', icon: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z' },
+    { id: 'google-drive', label: 'Google Drive', icon: 'M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12' },
     { id: 'billing', label: 'Billing', icon: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
     { id: 'audit', label: 'Audit Log', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01' },
   ];
@@ -378,7 +406,7 @@ function renderLLMSection(): string {
                 <span class="provider-name">${p.name}</span>
                 <span class="provider-status ${p.status || 'unknown'}">${p.status || 'unknown'}</span>
               </div>
-              <div class="provider-models">${p.models.slice(0, 3).join(', ')}</div>
+              <div class="provider-models">${(p.models && p.models.length > 0) ? p.models.slice(0, 3).join(', ') : '—'}</div>
               <div class="provider-actions">
                 <button class="btn-sm" data-test-provider="${p.id}">Test</button>
                 <label class="toggle-switch">
@@ -415,36 +443,36 @@ function renderLLMSection(): string {
             minimax: 'MiniMax', ollama: 'Ollama (Local)'
           };
           
-          return '<div class="task-config-row" style="margin-bottom: 20px; padding: 16px; background: var(--bg-secondary); border-radius: 12px;" data-task-row="' + task + '">' +
-            '<div class="task-label" style="margin-bottom: 12px;">' +
-              '<span style="font-size: 20px; margin-right: 8px;">' + icon + '</span>' +
-              '<strong style="font-size: 16px;">' + label + '</strong>' +
-              '<span class="text-muted" style="display: block; margin-top: 4px; margin-left: 32px; font-size: 13px;">' + desc + '</span>' +
+          return '<div class="task-config-row admin-task-config-row" data-task-row="' + task + '">' +
+            '<div class="task-label admin-task-label">' +
+              '<span class="admin-task-label-icon">' + icon + '</span>' +
+              '<strong class="admin-task-label-strong">' + label + '</strong>' +
+              '<span class="text-muted admin-task-desc">' + desc + '</span>' +
             '</div>' +
-            '<div class="task-selects" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-left: 32px;">' +
+            '<div class="task-selects admin-task-selects">' +
               '<div>' +
-                '<label style="font-size: 12px; color: var(--text-tertiary); margin-bottom: 4px; display: block;">Provider</label>' +
-                '<select class="form-select provider-select" data-task="' + task + '" data-field="provider" style="width: 100%;">' +
+                '<label class="admin-field-label">Provider</label>' +
+                '<select class="form-select provider-select" data-task="' + task + '" data-field="provider">' +
                   '<option value=""' + (!taskConfig.provider ? ' selected' : '') + '>-- Select Provider --</option>' +
                   providerOpts.map(p => '<option value="' + p + '"' + (taskConfig.provider === p ? ' selected' : '') + '>' + providerNames[p] + '</option>').join('') +
                 '</select>' +
               '</div>' +
               '<div>' +
-                '<label style="font-size: 12px; color: var(--text-tertiary); margin-bottom: 4px; display: block;">Model</label>' +
-                '<select class="form-select model-select" data-task="' + task + '" data-field="model" style="width: 100%;">' +
+                '<label class="admin-field-label">Model</label>' +
+                '<select class="form-select model-select" data-task="' + task + '" data-field="model">' +
                   '<option value="">-- Select Provider First --</option>' +
                   (taskConfig.model ? '<option value="' + taskConfig.model + '" selected>' + taskConfig.model + '</option>' : '') +
                 '</select>' +
-                '<span class="model-loading" data-task="' + task + '" style="display: none; font-size: 11px; color: var(--primary); margin-top: 4px;">Loading models...</span>' +
+                '<span class="model-loading hidden" data-task="' + task + '">Loading models...</span>' +
               '</div>' +
             '</div>' +
-            '<div class="model-status" data-task="' + task + '" style="margin-top: 8px; margin-left: 32px; font-size: 11px; color: var(--text-tertiary);"></div>' +
+            '<div class="model-status admin-model-status" data-task="' + task + '"></div>' +
           '</div>';
         }).join('')}
         
-        <div style="display: flex; gap: 12px; align-items: center; margin-top: 20px;">
+        <div class="admin-llm-save-row">
           <button class="btn-primary" id="save-llm-config">Save LLM Configuration</button>
-          <span class="text-muted" style="font-size: 12px;">⚠️ Changes apply immediately to all AI processing</span>
+          <span class="text-muted admin-llm-warning">⚠️ Changes apply immediately to all AI processing</span>
         </div>
       </div>
 
@@ -455,7 +483,7 @@ function renderLLMSection(): string {
         
         <div class="api-keys-grid" id="api-keys-container">
           <div class="form-group" data-secret-name="OPENAI_API_KEY">
-            <label>OpenAI <span class="key-status" style="font-size: 11px; margin-left: 8px;"></span></label>
+            <label>OpenAI <span class="key-status admin-key-status"></span></label>
             <div class="input-group">
               <input type="text" id="openai-key" name="llm_key_openai_${Date.now()}" placeholder="sk-proj-..." class="form-input api-key-input" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')">
               <button class="btn-icon" data-toggle-visibility="openai-key">Show</button>
@@ -463,7 +491,7 @@ function renderLLMSection(): string {
           </div>
           
           <div class="form-group" data-secret-name="CLAUDE_API_KEY">
-            <label>Anthropic (Claude) <span class="key-status" style="font-size: 11px; margin-left: 8px;"></span></label>
+            <label>Anthropic (Claude) <span class="key-status admin-key-status"></span></label>
             <div class="input-group">
               <input type="text" id="anthropic-key" name="llm_key_claude_${Date.now()}" placeholder="sk-ant-api03-..." class="form-input api-key-input" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')">
               <button class="btn-icon" data-toggle-visibility="anthropic-key">Show</button>
@@ -471,7 +499,7 @@ function renderLLMSection(): string {
           </div>
           
           <div class="form-group" data-secret-name="GOOGLE_API_KEY">
-            <label>Google AI (Gemini) <span class="key-status" style="font-size: 11px; margin-left: 8px;"></span></label>
+            <label>Google AI (Gemini) <span class="key-status admin-key-status"></span></label>
             <div class="input-group">
               <input type="text" id="google-key" name="llm_key_google_${Date.now()}" placeholder="AIza..." class="form-input api-key-input" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')">
               <button class="btn-icon" data-toggle-visibility="google-key">Show</button>
@@ -479,7 +507,7 @@ function renderLLMSection(): string {
           </div>
           
           <div class="form-group" data-secret-name="XAI_API_KEY">
-            <label>xAI (Grok) <span class="key-status" style="font-size: 11px; margin-left: 8px;"></span></label>
+            <label>xAI (Grok) <span class="key-status admin-key-status"></span></label>
             <div class="input-group">
               <input type="text" id="xai-key" name="llm_key_xai_${Date.now()}" placeholder="xai-..." class="form-input api-key-input" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')">
               <button class="btn-icon" data-toggle-visibility="xai-key">Show</button>
@@ -487,7 +515,7 @@ function renderLLMSection(): string {
           </div>
           
           <div class="form-group" data-secret-name="DEEPSEEK_API_KEY">
-            <label>DeepSeek <span class="key-status" style="font-size: 11px; margin-left: 8px;"></span></label>
+            <label>DeepSeek <span class="key-status admin-key-status"></span></label>
             <div class="input-group">
               <input type="text" id="deepseek-key" name="llm_key_deepseek_${Date.now()}" placeholder="sk-..." class="form-input api-key-input" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')">
               <button class="btn-icon" data-toggle-visibility="deepseek-key">Show</button>
@@ -495,7 +523,7 @@ function renderLLMSection(): string {
           </div>
           
           <div class="form-group" data-secret-name="KIMI_API_KEY">
-            <label>Kimi (Moonshot) <span class="key-status" style="font-size: 11px; margin-left: 8px;"></span></label>
+            <label>Kimi (Moonshot) <span class="key-status admin-key-status"></span></label>
             <div class="input-group">
               <input type="text" id="kimi-key" name="llm_key_kimi_${Date.now()}" placeholder="sk-..." class="form-input api-key-input" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')">
               <button class="btn-icon" data-toggle-visibility="kimi-key">Show</button>
@@ -503,7 +531,7 @@ function renderLLMSection(): string {
           </div>
           
           <div class="form-group" data-secret-name="MINIMAX_API_KEY">
-            <label>MiniMax <span class="key-status" style="font-size: 11px; margin-left: 8px;"></span></label>
+            <label>MiniMax <span class="key-status admin-key-status"></span></label>
             <div class="input-group">
               <input type="text" id="minimax-key" name="llm_key_minimax_${Date.now()}" placeholder="MINIMAX-..." class="form-input api-key-input" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')">
               <button class="btn-icon" data-toggle-visibility="minimax-key">Show</button>
@@ -511,7 +539,7 @@ function renderLLMSection(): string {
           </div>
         </div>
         
-        <div id="api-keys-loading" style="text-align: center; padding: 10px; color: var(--text-tertiary);">Loading configured keys...</div>
+        <div id="api-keys-loading" class="admin-keys-loading">Loading configured keys...</div>
         <button class="btn-primary mt-4" id="save-api-keys">Save LLM API Keys</button>
       </div>
 
@@ -521,11 +549,20 @@ function renderLLMSection(): string {
         <p class="text-muted">Keys for email, notifications and other services</p>
         
         <div class="form-group" data-secret-name="RESEND_API_KEY">
-          <label>Resend API Key (Email Service) <span class="key-status" style="font-size: 11px; margin-left: 8px;"></span></label>
+          <label>Resend API Key (Email Service) <span class="key-status admin-key-status"></span></label>
           <div class="input-group">
             <input type="text" id="resend-key" name="service_key_resend_${Date.now()}" placeholder="re_..." class="form-input api-key-input" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')">
             <button class="btn-icon" data-toggle-visibility="resend-key">Show</button>
           </div>
+        </div>
+        
+        <div class="form-group" data-secret-name="BRAVE_API_KEY">
+          <label>Brave Search API Key (Company analysis) <span class="key-status admin-key-status"></span></label>
+          <div class="input-group">
+            <input type="password" id="brave-key" name="service_key_brave_${Date.now()}" placeholder="Optional – for richer company reports" class="form-input api-key-input" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')">
+            <button class="btn-icon" data-toggle-visibility="brave-key">Show</button>
+          </div>
+          <p class="text-muted text-sm">Get key at <a href="https://api-dashboard.search.brave.com/documentation" target="_blank" rel="noopener">Brave Search API</a>. Used to enrich company analysis with web search.</p>
         </div>
         
         <button class="btn-primary mt-4" id="save-service-keys">Save Service Keys</button>
@@ -558,11 +595,11 @@ function renderGraphSection(): string {
           </label>
         </div>
 
-        <div class="form-group" style="background: var(--bg-tertiary); padding: 12px; border-radius: 8px; margin: 16px 0;">
-          <p style="margin: 0; color: var(--text-secondary);">
+        <div class="form-group admin-form-group-box">
+          <p class="admin-form-group-p">
             <strong>Provider:</strong> Supabase Graph (PostgreSQL-based)
           </p>
-          <p style="margin: 8px 0 0; font-size: 13px; color: var(--text-muted);">
+          <p class="admin-form-group-p-sm">
             Uses your existing Supabase connection. No additional configuration needed.
           </p>
         </div>
@@ -584,14 +621,14 @@ function renderGraphSection(): string {
         <div id="graph-overview-content">
           ${graphOverviewLoading ? '<p class="text-muted">Loading...</p>' : !graphOverviewLoaded ? '<button class="btn-secondary" id="load-graph-overview">Load overview</button>' : (graphList.length === 0 && !graphStatus?.enabled ? '<p class="text-muted">Graph not enabled or not connected. Enable and save configuration.</p><button class="btn-secondary mt-4" id="refresh-graph-overview">Refresh</button>' : `
             ${graphStatus?.enabled && (graphStatus.stats != null || graphStatus.graphName) ? `
-              <div class="graph-status-row" style="margin-bottom: 12px;">
+              <div class="graph-status-row admin-graph-status-row">
                 <strong>Current graph:</strong> ${graphStatus.graphName ?? '—'}
                 ${graphStatus.stats?.nodes !== undefined ? ` · Nodes: ${graphStatus.stats.nodes}` : ''}
                 ${graphStatus.stats?.relationships !== undefined ? ` · Edges: ${graphStatus.stats.relationships}` : ''}
               </div>
             ` : ''}
             ${graphList.length > 0 ? `
-              <table class="admin-table" style="width: 100%; margin-top: 8px;">
+              <table class="admin-table admin-table-full">
                 <thead><tr><th>Graph name</th><th>Project</th></tr></thead>
                 <tbody>
                   ${graphList.map(g => `<tr><td><code>${g.graphName}</code></td><td>${g.projectName ?? '—'}</td></tr>`).join('')}
@@ -678,6 +715,8 @@ function renderPromptsSection(): string {
   const extractionPrompts = systemPrompts.filter(p => p.category === 'extraction');
   const analysisPrompts = systemPrompts.filter(p => p.category === 'analysis');
   const templatePrompts = systemPrompts.filter(p => p.category === 'template');
+  const sprintPrompts = systemPrompts.filter(p => p.category === 'sprint');
+  const reportPrompts = systemPrompts.filter(p => p.category === 'report');
 
   const renderPromptCard = (p: SystemPrompt) => `
     <div class="admin-card prompt-card" data-prompt-id="${p.id}">
@@ -748,6 +787,18 @@ Available placeholders:
       ${templatePrompts.length > 0 ? `
         <h4 class="section-subtitle">Template Sections</h4>
         ${templatePrompts.map(renderPromptCard).join('')}
+      ` : ''}
+
+      ${sprintPrompts.length > 0 ? `
+        <h4 class="section-subtitle">Sprint / Task prompts</h4>
+        <p class="text-muted">Prompts for task description from rules, user stories, and dependencies. Used when adding tasks manually and in sprint flows.</p>
+        ${sprintPrompts.map(renderPromptCard).join('')}
+      ` : ''}
+
+      ${reportPrompts.length > 0 ? `
+        <h4 class="section-subtitle">Report prompts (Relatórios)</h4>
+        <p class="text-muted">Prompts for generating sprint reports as A4 document or PPT-style presentation. Placeholders: {{REPORT_DATA}}, {{STYLE_VARIANT}} (document only).</p>
+        ${reportPrompts.map(renderPromptCard).join('')}
       ` : ''}
 
       <div class="btn-group mt-4">
@@ -887,6 +938,82 @@ async function saveTeamAnalysisSettings(enabled: boolean, access: string): Promi
 }
 
 /**
+ * Load Google Drive config (GET /api/system/google-drive)
+ */
+async function loadGoogleDriveState(): Promise<void> {
+  googleDriveLoading = true;
+  try {
+    const response = await http.get<GoogleDriveState>('/api/system/google-drive');
+    googleDriveState = {
+      enabled: response?.enabled ?? false,
+      rootFolderId: response?.rootFolderId ?? '',
+      hasSystemCredentials: response?.hasSystemCredentials ?? false,
+      bootstrappedAt: response?.bootstrappedAt ?? null
+    };
+    googleDriveLoaded = true;
+  } catch (error) {
+    console.error('[AdminPanel] Error loading Google Drive config:', error);
+    googleDriveState = { enabled: false, rootFolderId: '', hasSystemCredentials: false, bootstrappedAt: null };
+    googleDriveLoaded = true;
+  } finally {
+    googleDriveLoading = false;
+  }
+}
+
+/**
+ * Render Google Drive section
+ */
+function renderGoogleDriveSection(): string {
+  if (googleDriveLoading || !googleDriveLoaded) {
+    if (!googleDriveLoading && !googleDriveLoaded) loadGoogleDriveState();
+    return `
+    <div class="admin-section">
+      <div class="admin-section-header">
+        <h3>Google Drive</h3>
+        <p>Store uploads and transcripts in Google Drive</p>
+      </div>
+      <div class="admin-card">
+        <div class="admin-empty-state"><div class="loading-spinner"></div><p>Loading...</p></div>
+      </div>
+    </div>`;
+  }
+  const gd = googleDriveState!;
+  return `
+  <div class="admin-section">
+    <div class="admin-section-header">
+      <h3>Google Drive</h3>
+      <p>Store uploads and transcripts in Google Drive. Configure system account and root folder, then bootstrap projects.</p>
+    </div>
+    <div class="admin-card">
+      <h4>Integration</h4>
+      <div class="form-group admin-form-group-box">
+        <label class="admin-checkbox-label">
+          <input type="checkbox" id="google-drive-enabled" ${gd.enabled ? 'checked' : ''}>
+          Enable Google Drive for uploads
+        </label>
+      </div>
+      <div class="form-group admin-form-group-box">
+        <label class="admin-field-label-block">Root Folder ID</label>
+        <input type="text" id="google-drive-root-folder" class="form-input" placeholder="Google Drive folder ID" value="${(gd.rootFolderId || '').replace(/"/g, '&quot;')}">
+        <p class="text-muted admin-field-hint">Create a folder in Google Drive and paste its ID here. All project folders will be created under it.</p>
+      </div>
+      <div class="form-group admin-form-group-box">
+        <label class="admin-field-label-block">System Service Account JSON</label>
+        <textarea id="google-drive-service-json" class="form-input" rows="4" placeholder="${gd.hasSystemCredentials ? 'Already configured. Paste new JSON to replace.' : 'Paste the full JSON key file content'}"></textarea>
+        ${gd.hasSystemCredentials ? '<p class="text-muted">Credentials are stored. Paste new JSON only to replace.</p>' : ''}
+      </div>
+      <button type="button" class="btn-primary" id="save-google-drive">Save Google Drive config</button>
+    </div>
+    <div class="admin-card">
+      <h4>Bootstrap projects</h4>
+      <p class="text-muted admin-mb-4">Create folder structure (uploads, newtranscripts, archived, exports) for all projects under the root folder.</p>
+      <button type="button" class="btn-secondary" id="bootstrap-google-drive">Bootstrap all projects</button>
+      ${gd.bootstrappedAt ? `<p class="text-muted admin-mt-2">Last run: ${gd.bootstrappedAt}</p>` : ''}
+    </div>
+  </div>`;
+}
+
+/**
  * Render Team Analysis section
  */
 function renderTeamAnalysisSection(): string {
@@ -903,8 +1030,8 @@ function renderTeamAnalysisSection(): string {
       </div>
       
       <div class="admin-card">
-        <div style="text-align: center; padding: 40px; color: var(--text-tertiary);">
-          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" width="48" height="48" style="margin: 0 auto 16px; opacity: 0.5;">
+        <div class="admin-empty-state">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" width="48" height="48">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
           </svg>
           <p>Please select a project to configure Team Analysis settings.</p>
@@ -928,8 +1055,8 @@ function renderTeamAnalysisSection(): string {
       </div>
       
       <div class="admin-card">
-        <div style="text-align: center; padding: 40px; color: var(--text-tertiary);">
-          <div class="loading-spinner" style="margin: 0 auto 16px;"></div>
+        <div class="admin-empty-state">
+          <div class="loading-spinner"></div>
           <p>Loading settings...</p>
         </div>
       </div>
@@ -947,13 +1074,11 @@ function renderTeamAnalysisSection(): string {
       <!-- Current Project Info -->
       <div class="admin-card">
         <h4>Current Project</h4>
-        <div style="display: flex; align-items: center; gap: 12px; margin-top: 12px;">
-          <div style="width: 40px; height: 40px; background: var(--primary); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold;">
-            ${projectName.charAt(0).toUpperCase()}
-          </div>
+        <div class="admin-project-preview">
+          <div class="admin-project-preview-icon">${projectName.charAt(0).toUpperCase()}</div>
           <div>
-            <div style="font-weight: 500;">${projectName}</div>
-            <div style="font-size: 12px; color: var(--text-tertiary);">ID: ${projectId}</div>
+            <div class="admin-project-name">${projectName}</div>
+            <div class="admin-project-id">ID: ${projectId}</div>
           </div>
         </div>
       </div>
@@ -961,14 +1086,14 @@ function renderTeamAnalysisSection(): string {
       <!-- Feature Toggle -->
       <div class="admin-card">
         <h4>Feature Status</h4>
-        <p class="text-muted" style="margin-bottom: 16px;">Enable or disable Team Analysis for this project</p>
+        <p class="text-muted admin-mb-4">Enable or disable Team Analysis for this project</p>
         
         <div class="form-group">
-          <label class="toggle-label" style="display: flex; align-items: center; gap: 12px; cursor: pointer;">
-            <input type="checkbox" id="team-analysis-enabled" ${teamAnalysisSettings.enabled ? 'checked' : ''} style="width: 20px; height: 20px;">
+          <label class="toggle-label admin-toggle-label">
+            <input type="checkbox" id="team-analysis-enabled" ${teamAnalysisSettings.enabled ? 'checked' : ''} class="admin-checkbox">
             <div>
-              <span style="font-weight: 500;">Enable Team Analysis</span>
-              <p style="font-size: 12px; color: var(--text-tertiary); margin: 4px 0 0 0;">When enabled, users with access can analyze team member behavior from meeting transcripts</p>
+              <span class="admin-toggle-title">Enable Team Analysis</span>
+              <p class="admin-toggle-desc">When enabled, users with access can analyze team member behavior from meeting transcripts</p>
             </div>
           </label>
         </div>
@@ -977,15 +1102,15 @@ function renderTeamAnalysisSection(): string {
       <!-- Access Control -->
       <div class="admin-card">
         <h4>Access Control</h4>
-        <p class="text-muted" style="margin-bottom: 16px;">Define who can access Team Analysis features</p>
+        <p class="text-muted admin-mb-4">Define who can access Team Analysis features</p>
         
         <div class="form-group">
-          <label style="font-weight: 500; display: block; margin-bottom: 8px;">Access Level</label>
-          <select id="team-analysis-access" class="form-input" style="width: 100%; max-width: 400px;">
+          <label class="admin-field-label-block">Access Level</label>
+          <select id="team-analysis-access" class="form-input admin-select-max">
             <option value="admin_only" ${teamAnalysisSettings.access === 'admin_only' ? 'selected' : ''}>Admins Only - Only project owner and admins can access</option>
             <option value="all" ${teamAnalysisSettings.access === 'all' ? 'selected' : ''}>All Members - All project members can access</option>
           </select>
-          <p style="font-size: 12px; color: var(--text-tertiary); margin-top: 8px;">
+          <p class="admin-field-hint">
             <strong>Admins Only:</strong> Restricts access to sensitive behavioral analysis to project owner and administrators.<br>
             <strong>All Members:</strong> Allows all project collaborators to view and run team analysis.
           </p>
@@ -995,32 +1120,32 @@ function renderTeamAnalysisSection(): string {
       <!-- Analysis Scope Info -->
       <div class="admin-card">
         <h4>How It Works</h4>
-        <div style="display: grid; gap: 16px; margin-top: 12px;">
-          <div style="display: flex; gap: 12px; align-items: start;">
-            <div style="min-width: 32px; height: 32px; background: var(--info); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white;">1</div>
+        <div class="admin-steps-grid">
+          <div class="admin-step-row">
+            <div class="admin-step-num">1</div>
             <div>
-              <div style="font-weight: 500;">Contact-Based Analysis</div>
-              <div style="font-size: 13px; color: var(--text-secondary);">Analysis is performed on contacts defined in the project. Contacts can have aliases to match different name variations in transcripts.</div>
+              <div class="admin-step-title">Contact-Based Analysis</div>
+              <div class="admin-step-desc">Analysis is performed on contacts defined in the project. Contacts can have aliases to match different name variations in transcripts.</div>
             </div>
           </div>
-          <div style="display: flex; gap: 12px; align-items: start;">
-            <div style="min-width: 32px; height: 32px; background: var(--info); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white;">2</div>
+          <div class="admin-step-row">
+            <div class="admin-step-num">2</div>
             <div>
-              <div style="font-weight: 500;">Incremental Learning</div>
-              <div style="font-size: 13px; color: var(--text-secondary);">Profiles are refined iteratively as more transcripts are processed, building evidence over time.</div>
+              <div class="admin-step-title">Incremental Learning</div>
+              <div class="admin-step-desc">Profiles are refined iteratively as more transcripts are processed, building evidence over time.</div>
             </div>
           </div>
-          <div style="display: flex; gap: 12px; align-items: start;">
-            <div style="min-width: 32px; height: 32px; background: var(--info); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white;">3</div>
+          <div class="admin-step-row">
+            <div class="admin-step-num">3</div>
             <div>
-              <div style="font-weight: 500;">Privacy Consideration</div>
-              <div style="font-size: 13px; color: var(--text-secondary);">Behavioral analysis may contain sensitive insights. Configure access carefully.</div>
+              <div class="admin-step-title">Privacy Consideration</div>
+              <div class="admin-step-desc">Behavioral analysis may contain sensitive insights. Configure access carefully.</div>
             </div>
           </div>
         </div>
       </div>
 
-      <button class="btn-primary" id="save-team-analysis" style="margin-top: 8px;">Save Team Analysis Settings</button>
+      <button class="btn-primary admin-mt-2" id="save-team-analysis">Save Team Analysis Settings</button>
     </div>
   `;
 }
@@ -1038,15 +1163,15 @@ function renderQueueSection(): string {
 
       <!-- Queue Status -->
       <div class="admin-card" id="queue-status-card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <div class="admin-card-header">
           <h4>Queue Status</h4>
-          <div style="display: flex; gap: 8px;">
-            <span id="db-status-badge" class="badge" style="font-size: 11px;">DB: Checking...</span>
+          <div class="admin-card-actions">
+            <span id="db-status-badge" class="badge admin-badge-sm">DB: Checking...</span>
             <button class="btn-sm" id="refresh-queue-status">↻ Refresh</button>
           </div>
         </div>
         
-        <div id="queue-status-content" style="text-align: center; padding: 20px; color: var(--text-tertiary);">
+        <div id="queue-status-content" class="admin-placeholder">
           Loading queue status...
         </div>
       </div>
@@ -1056,57 +1181,57 @@ function renderQueueSection(): string {
         <h4>Queue Controls</h4>
         <p class="text-muted">Control queue processing behavior</p>
         
-        <div style="display: flex; gap: 12px; flex-wrap: wrap; margin-top: 16px;">
+        <div class="admin-actions-row">
           <button class="btn-primary" id="queue-pause-btn">⏸ Pause Queue</button>
           <button class="btn-primary" id="queue-resume-btn">▶ Resume Queue</button>
-          <button class="btn-secondary" id="queue-clear-btn" style="background: var(--warning); color: white;">🗑 Clear Queue</button>
+          <button class="btn-secondary admin-btn-warning" id="queue-clear-btn">🗑 Clear Queue</button>
         </div>
       </div>
 
       <!-- Statistics -->
       <div class="admin-card">
         <h4>Queue Statistics (Today)</h4>
-        <div id="queue-stats-content" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; margin-top: 16px;">
-          <div class="stat-box" style="background: var(--bg-secondary); padding: 12px; border-radius: 8px; text-align: center;">
-            <div style="font-size: 20px; font-weight: bold; color: var(--primary);" id="stat-pending">-</div>
-            <div style="font-size: 11px; color: var(--text-tertiary);">Pending</div>
+        <div id="queue-stats-content" class="admin-stats-grid">
+          <div class="stat-box admin-stat-box">
+            <div class="admin-stat-value admin-stat-primary" id="stat-pending">-</div>
+            <div class="admin-stat-label">Pending</div>
           </div>
-          <div class="stat-box" style="background: var(--bg-secondary); padding: 12px; border-radius: 8px; text-align: center;">
-            <div style="font-size: 20px; font-weight: bold; color: var(--info);" id="stat-processing">-</div>
-            <div style="font-size: 11px; color: var(--text-tertiary);">Processing</div>
+          <div class="stat-box admin-stat-box">
+            <div class="admin-stat-value admin-stat-info" id="stat-processing">-</div>
+            <div class="admin-stat-label">Processing</div>
           </div>
-          <div class="stat-box" style="background: var(--bg-secondary); padding: 12px; border-radius: 8px; text-align: center;">
-            <div style="font-size: 20px; font-weight: bold; color: var(--success);" id="stat-success">-</div>
-            <div style="font-size: 11px; color: var(--text-tertiary);">Completed</div>
+          <div class="stat-box admin-stat-box">
+            <div class="admin-stat-value admin-stat-success" id="stat-success">-</div>
+            <div class="admin-stat-label">Completed</div>
           </div>
-          <div class="stat-box" style="background: var(--bg-secondary); padding: 12px; border-radius: 8px; text-align: center;">
-            <div style="font-size: 20px; font-weight: bold; color: var(--error);" id="stat-failed">-</div>
-            <div style="font-size: 11px; color: var(--text-tertiary);">Failed</div>
+          <div class="stat-box admin-stat-box">
+            <div class="admin-stat-value admin-stat-error" id="stat-failed">-</div>
+            <div class="admin-stat-label">Failed</div>
           </div>
-          <div class="stat-box" style="background: var(--bg-secondary); padding: 12px; border-radius: 8px; text-align: center;">
-            <div style="font-size: 20px; font-weight: bold; color: var(--warning);" id="stat-retry">-</div>
-            <div style="font-size: 11px; color: var(--text-tertiary);">Retry Pending</div>
+          <div class="stat-box admin-stat-box">
+            <div class="admin-stat-value admin-stat-warning" id="stat-retry">-</div>
+            <div class="admin-stat-label">Retry Pending</div>
           </div>
-          <div class="stat-box" style="background: var(--bg-secondary); padding: 12px; border-radius: 8px; text-align: center;">
-            <div style="font-size: 20px; font-weight: bold;" id="stat-avg-time">-</div>
-            <div style="font-size: 11px; color: var(--text-tertiary);">Avg Time (ms)</div>
+          <div class="stat-box admin-stat-box">
+            <div class="admin-stat-value" id="stat-avg-time">-</div>
+            <div class="admin-stat-label">Avg Time (ms)</div>
           </div>
-          <div class="stat-box" style="background: var(--bg-secondary); padding: 12px; border-radius: 8px; text-align: center;">
-            <div style="font-size: 20px; font-weight: bold; color: var(--success);" id="stat-cost">$-</div>
-            <div style="font-size: 11px; color: var(--text-tertiary);">Cost Today</div>
+          <div class="stat-box admin-stat-box">
+            <div class="admin-stat-value admin-stat-success" id="stat-cost">$-</div>
+            <div class="admin-stat-label">Cost Today</div>
           </div>
         </div>
       </div>
 
       <!-- Queue Items -->
       <div class="admin-card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <div class="admin-card-header">
           <h4>Pending Items</h4>
           <span id="pending-count" class="text-muted">0 items</span>
         </div>
         
-        <div id="queue-items-content" style="max-height: 300px; overflow-y: auto;">
-          <div style="text-align: center; padding: 20px; color: var(--text-tertiary);">
+        <div id="queue-items-content" class="admin-scroll-content admin-scroll-300">
+          <div class="admin-placeholder">
             No items in queue
           </div>
         </div>
@@ -1114,16 +1239,16 @@ function renderQueueSection(): string {
 
       <!-- Failed Items (Retryable) -->
       <div class="admin-card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <div class="admin-card-header">
           <h4>Failed Items</h4>
-          <div style="display: flex; gap: 8px;">
+          <div class="admin-card-actions">
             <button class="btn-sm btn-primary" id="retry-all-btn">↻ Retry All</button>
             <button class="btn-sm" id="refresh-failed-btn">↻ Refresh</button>
           </div>
         </div>
         
-        <div id="failed-items-content" style="max-height: 300px; overflow-y: auto;">
-          <div style="text-align: center; padding: 20px; color: var(--text-tertiary);">
+        <div id="failed-items-content" class="admin-scroll-content admin-scroll-300">
+          <div class="admin-placeholder">
             No failed items
           </div>
         </div>
@@ -1131,13 +1256,13 @@ function renderQueueSection(): string {
 
       <!-- Recent History -->
       <div class="admin-card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <div class="admin-card-header">
           <h4>Recent Processing History</h4>
           <button class="btn-sm" id="refresh-queue-history">↻ Refresh</button>
         </div>
         
-        <div id="queue-history-content" style="max-height: 400px; overflow-y: auto;">
-          <div style="text-align: center; padding: 20px; color: var(--text-tertiary);">
+        <div id="queue-history-content" class="admin-scroll-content admin-scroll-400">
+          <div class="admin-placeholder">
             Loading history...
           </div>
         </div>
@@ -1198,9 +1323,9 @@ function renderBillingSection(): string {
           <h3>Billing & Cost Control</h3>
           <p>Manage project balances, pricing, and cost limits</p>
         </div>
-        <div class="admin-card" style="text-align: center; padding: 40px;">
+        <div class="admin-card admin-loading-card">
           <div class="spinner"></div>
-          <p style="margin-top: 16px;">Loading billing data...</p>
+          <p class="admin-loading-p">Loading billing data...</p>
         </div>
       </div>
     `;
@@ -1225,50 +1350,50 @@ function renderBillingSection(): string {
 
       <!-- Exchange Rate Configuration -->
       <div class="admin-card">
-        <h4 style="margin-bottom: 16px;">Exchange Rate (USD to EUR)</h4>
+        <h4 class="admin-h4-mb">Exchange Rate (USD to EUR)</h4>
         
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 16px;">
+        <div class="admin-exchange-grid">
           <div>
             <div class="form-group">
-              <label style="display: flex; align-items: center; gap: 8px;">
+              <label class="admin-checkbox-label">
                 <input type="checkbox" id="exchange-rate-auto" ${exchangeRateConfig?.auto !== false ? 'checked' : ''}>
                 <span>Automatic rate from API</span>
               </label>
               <small class="text-muted">Fetches live USD/EUR rate daily</small>
             </div>
             
-            <div class="form-group" id="manual-rate-group" style="${exchangeRateConfig?.auto !== false ? 'display: none;' : ''}">
+            <div class="form-group ${exchangeRateConfig?.auto !== false ? 'hidden' : ''}" id="manual-rate-group">
               <label>Manual Rate</label>
               <input type="number" id="exchange-rate-manual" class="form-input" 
                      value="${exchangeRateConfig?.manualRate ?? 0.92}" min="0.01" max="2" step="0.001">
             </div>
           </div>
           
-          <div style="background: var(--bg-secondary); padding: 16px; border-radius: 8px;">
-            <div style="font-size: 12px; color: var(--text-tertiary); margin-bottom: 8px;">Current Rate</div>
-            <div style="font-size: 28px; font-weight: 600; color: var(--text-primary);" id="current-rate-display">
+          <div class="admin-rate-block">
+            <div class="admin-rate-label">Current Rate</div>
+            <div class="admin-rate-value" id="current-rate-display">
               ${exchangeRateConfig?.currentRate?.toFixed(4) ?? '0.9200'}
             </div>
-            <div style="font-size: 12px; color: var(--text-tertiary); margin-top: 4px;">
+            <div class="admin-rate-meta">
               Source: <span id="rate-source">${exchangeRateConfig?.source ?? 'default'}</span>
               ${exchangeRateConfig?.lastUpdated ? `<br>Updated: ${new Date(exchangeRateConfig.lastUpdated).toLocaleString()}` : ''}
             </div>
-            <button class="btn-sm btn-secondary" id="refresh-rate-btn" style="margin-top: 12px;" ${exchangeRateConfig?.auto === false ? 'disabled' : ''}>
+            <button class="btn-sm btn-secondary admin-rate-refresh" id="refresh-rate-btn" ${exchangeRateConfig?.auto === false ? 'disabled' : ''}>
               Refresh Rate
             </button>
           </div>
         </div>
         
-        <div style="display: flex; justify-content: flex-end; gap: 8px;">
+        <div class="admin-actions-end">
           <button class="btn-primary" id="save-exchange-rate-btn">Save Exchange Rate Settings</button>
         </div>
       </div>
 
       <!-- Global Pricing Configuration -->
       <div class="admin-card">
-        <h4 style="margin-bottom: 16px;">Global Pricing Configuration</h4>
+        <h4 class="admin-h4-mb">Global Pricing Configuration</h4>
         
-        <div class="admin-form-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 16px;">
+        <div class="admin-form-grid admin-form-grid-2">
           <div class="form-group">
             <label>Fixed Markup (%)</label>
             <input type="number" id="global-markup-percent" class="form-input" 
@@ -1286,17 +1411,17 @@ function renderBillingSection(): string {
           </div>
         </div>
         
-        <div style="display: flex; justify-content: flex-end; gap: 8px;">
+        <div class="admin-actions-end">
           <button class="btn-primary" id="save-global-pricing-btn">Save Global Pricing</button>
         </div>
       </div>
       
       <!-- Pricing Tiers -->
       <div class="admin-card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <div class="admin-card-header">
           <div>
             <h4>Pricing Tiers (Volume Discount)</h4>
-            <p class="text-muted" style="font-size: 13px; margin-top: 4px;">
+            <p class="text-muted admin-subtitle">
               Lower markup as projects consume more tokens per period
             </p>
           </div>
@@ -1305,15 +1430,15 @@ function renderBillingSection(): string {
         
         <div id="pricing-tiers-list">
           ${globalPricingTiers.length > 0 ? globalPricingTiers.map((tier, i) => `
-            <div class="tier-row" data-tier-index="${i}" style="display: grid; grid-template-columns: 150px 150px 120px auto; gap: 12px; align-items: center; padding: 12px; background: var(--bg-secondary); border-radius: 6px; margin-bottom: 8px;">
+            <div class="tier-row admin-tier-row" data-tier-index="${i}">
               <input type="text" class="form-input tier-name" placeholder="Tier Name" value="${tier.name || `Tier ${i + 1}`}">
               <input type="number" class="form-input tier-limit" placeholder="Token Limit" value="${tier.token_limit || ''}" min="0" ${tier.token_limit === null ? 'disabled' : ''}>
-              <div style="display: flex; align-items: center; gap: 4px;">
-                <input type="number" class="form-input tier-markup" placeholder="Markup %" value="${tier.markup_percent}" min="0" step="0.1" style="width: 80px;">
+              <div class="admin-tier-markup-wrap">
+                <input type="number" class="form-input tier-markup" placeholder="Markup %" value="${tier.markup_percent}" min="0" step="0.1">
                 <span>%</span>
               </div>
-              <div style="display: flex; justify-content: flex-end; gap: 8px;">
-                <label style="display: flex; align-items: center; gap: 4px; font-size: 12px;">
+              <div class="admin-tier-actions">
+                <label class="admin-tier-unlimited-label">
                   <input type="checkbox" class="tier-unlimited" ${tier.token_limit === null ? 'checked' : ''}>
                   Unlimited
                 </label>
@@ -1321,14 +1446,14 @@ function renderBillingSection(): string {
               </div>
             </div>
           `).join('') : `
-            <div style="text-align: center; padding: 20px; color: var(--text-tertiary);">
+            <div class="admin-placeholder">
               No tiers configured. Using fixed markup of ${globalPricingConfig?.fixed_markup_percent ?? 0}% for all usage.
             </div>
           `}
         </div>
         
         ${globalPricingTiers.length > 0 ? `
-          <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
+          <div class="admin-actions-end admin-mt-4">
             <button class="btn-primary" id="save-tiers-btn">Save Tiers</button>
           </div>
         ` : ''}
@@ -1336,10 +1461,10 @@ function renderBillingSection(): string {
 
       <!-- Projects Billing Overview -->
       <div class="admin-card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <div class="admin-card-header">
           <div>
             <h4>Projects Billing</h4>
-            <p class="text-muted" style="font-size: 13px; margin-top: 4px;">
+            <p class="text-muted admin-subtitle">
               ${billingProjects.length} projects | 
               ${billingProjects.filter(p => p.is_blocked).length} blocked | 
               ${billingProjects.filter(p => p.unlimited_balance).length} unlimited
@@ -1348,41 +1473,41 @@ function renderBillingSection(): string {
           <button class="btn-sm" id="refresh-billing-btn">↻ Refresh</button>
         </div>
         
-        <div style="overflow-x: auto;">
-          <table class="data-table" style="width: 100%; border-collapse: collapse;">
+        <div class="admin-table-wrap">
+          <table class="data-table admin-data-table">
             <thead>
-              <tr style="background: var(--bg-tertiary);">
-                <th style="text-align: left; padding: 8px;">Project</th>
-                <th style="text-align: right; padding: 8px;">Balance</th>
-                <th style="text-align: center; padding: 8px;">Status</th>
-                <th style="text-align: right; padding: 8px;">Tokens (Period)</th>
-                <th style="text-align: right; padding: 8px;">Cost (Period)</th>
-                <th style="text-align: center; padding: 8px;">Actions</th>
+              <tr>
+                <th class="admin-th-left">Project</th>
+                <th class="admin-th-right">Balance</th>
+                <th class="admin-th-center">Status</th>
+                <th class="admin-th-right">Tokens (Period)</th>
+                <th class="admin-th-right">Cost (Period)</th>
+                <th class="admin-th-center">Actions</th>
               </tr>
             </thead>
             <tbody>
               ${billingProjects.length > 0 ? billingProjects.map(p => `
-                <tr style="border-bottom: 1px solid var(--border-color);">
-                  <td style="padding: 12px 8px;">
-                    <div style="font-weight: 500;">${escapeHtml(p.project_name)}</div>
+                <tr class="admin-tr">
+                  <td class="admin-td admin-td-project">
+                    <div class="admin-td-project-name">${escapeHtml(p.project_name)}</div>
                     ${p.current_tier_name ? `<small class="text-muted">Tier: ${p.current_tier_name}</small>` : ''}
                   </td>
-                  <td style="text-align: right; padding: 8px;">
+                  <td class="admin-td admin-td-right">
                     ${p.unlimited_balance 
-                      ? '<span style="color: var(--success-color);">∞ Unlimited</span>' 
+                      ? '<span class="admin-unlimited">∞ Unlimited</span>' 
                       : formatEur(p.balance_eur)}
                   </td>
-                  <td style="text-align: center; padding: 8px;">
+                  <td class="admin-td admin-td-center">
                     ${p.is_blocked 
                       ? '<span class="badge badge-danger">Blocked</span>' 
                       : p.unlimited_balance
                         ? '<span class="badge badge-success">Unlimited</span>'
                         : '<span class="badge badge-primary">Active</span>'}
                   </td>
-                  <td style="text-align: right; padding: 8px;">${formatTokens(p.tokens_this_period)}</td>
-                  <td style="text-align: right; padding: 8px;">${formatEur(p.billable_cost_this_period)}</td>
-                  <td style="text-align: center; padding: 8px;">
-                    <div style="display: flex; justify-content: center; gap: 4px;">
+                  <td class="admin-td admin-td-right">${formatTokens(p.tokens_this_period)}</td>
+                  <td class="admin-td admin-td-right">${formatEur(p.billable_cost_this_period)}</td>
+                  <td class="admin-td admin-td-center">
+                    <div class="admin-td-actions">
                       <button class="btn-sm add-balance-btn" data-project-id="${p.project_id}" data-project-name="${escapeHtml(p.project_name)}" title="Add Balance">💰</button>
                       <button class="btn-sm toggle-unlimited-btn" data-project-id="${p.project_id}" data-unlimited="${p.unlimited_balance}" title="${p.unlimited_balance ? 'Disable Unlimited' : 'Enable Unlimited'}">
                         ${p.unlimited_balance ? '🔓' : '🔒'}
@@ -1392,7 +1517,7 @@ function renderBillingSection(): string {
                 </tr>
               `).join('') : `
                 <tr>
-                  <td colspan="6" style="text-align: center; padding: 20px; color: var(--text-tertiary);">
+                  <td colspan="6" class="admin-placeholder">
                     No projects found
                   </td>
                 </tr>
@@ -1473,31 +1598,31 @@ function renderModelsSection(): string {
       
       <!-- Sync Controls -->
       <div class="admin-card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <div class="admin-card-header">
           <h4>Sync Model Metadata</h4>
           <button class="btn btn-primary" id="sync-all-metadata-btn">
             ↻ Sync All Providers
           </button>
         </div>
-        <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">
+        <p class="admin-desc admin-mb-4">
           Fetch the latest model list from each configured provider API and update the database with current models and capabilities.
           Pricing information is updated from known sources.
         </p>
         
-        <div id="metadata-sync-status" style="margin-bottom: 16px;">
-          <div style="text-align: center; padding: 20px; color: var(--text-tertiary);">
+        <div id="metadata-sync-status" class="admin-mb-4">
+          <div class="admin-placeholder">
             Loading sync status...
           </div>
         </div>
         
-        <div id="metadata-sync-result" style="display: none;"></div>
+        <div id="metadata-sync-result" class="hidden"></div>
       </div>
       
       <!-- Provider Status -->
       <div class="admin-card">
-        <h4 style="margin-bottom: 16px;">Provider Model Count</h4>
+        <h4 class="admin-h4-mb">Provider Model Count</h4>
         <div id="provider-model-counts">
-          <div style="text-align: center; padding: 20px; color: var(--text-tertiary);">
+          <div class="admin-placeholder">
             Loading...
           </div>
         </div>
@@ -1505,10 +1630,10 @@ function renderModelsSection(): string {
       
       <!-- Model Browser -->
       <div class="admin-card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <div class="admin-card-header">
           <h4>Browse Models</h4>
-          <div style="display: flex; gap: 8px;">
-            <select id="browse-provider-select" class="form-select" style="min-width: 150px;">
+          <div class="admin-card-actions">
+            <select id="browse-provider-select" class="form-select admin-select-min">
               <option value="">Select Provider</option>
               <option value="openai">OpenAI</option>
               <option value="anthropic">Anthropic</option>
@@ -1521,7 +1646,7 @@ function renderModelsSection(): string {
         </div>
         
         <div id="models-browser-content">
-          <div style="text-align: center; padding: 40px; color: var(--text-tertiary);">
+          <div class="admin-empty-state">
             Select a provider to browse available models
           </div>
         </div>
@@ -1551,6 +1676,8 @@ function renderSectionContent(): string {
       return renderProcessingSection();
     case 'team-analysis':
       return renderTeamAnalysisSection();
+    case 'google-drive':
+      return renderGoogleDriveSection();
     case 'billing':
       return renderBillingSection();
     case 'audit':
@@ -1572,10 +1699,15 @@ function bindSectionEvents(container: HTMLElement): void {
       
       // Load Team Analysis settings when switching to that section
       if (newSection === 'team-analysis') {
-        teamAnalysisLoaded = false; // Force reload
+        teamAnalysisLoaded = false;
         teamAnalysisLoading = false;
         renderAdminPanel(container);
         await loadTeamAnalysisSettings();
+        renderAdminPanel(container);
+      } else if (newSection === 'google-drive') {
+        googleDriveLoaded = false;
+        renderAdminPanel(container);
+        await loadGoogleDriveState();
         renderAdminPanel(container);
       } else if (newSection === 'billing') {
         // Load billing data
@@ -1636,7 +1768,7 @@ function bindSectionEvents(container: HTMLElement): void {
     }
     
     // Show loading state
-    if (loadingSpan) loadingSpan.style.display = 'inline';
+    if (loadingSpan) loadingSpan.classList.remove('hidden');
     modelSelect.disabled = true;
     
     try {
@@ -1668,7 +1800,8 @@ function bindSectionEvents(container: HTMLElement): void {
         statusDiv.textContent = models.length > 0 
           ? `${models.length} model(s) available` 
           : 'No models found for this task type. Check provider configuration.';
-        statusDiv.style.color = models.length > 0 ? 'var(--success)' : 'var(--warning)';
+        statusDiv.classList.remove('admin-status-success', 'admin-status-warning', 'admin-status-error');
+        statusDiv.classList.add(models.length > 0 ? 'admin-status-success' : 'admin-status-warning');
       }
       
     } catch (error) {
@@ -1676,10 +1809,11 @@ function bindSectionEvents(container: HTMLElement): void {
       modelSelect.innerHTML = '<option value="">Error loading models</option>';
       if (statusDiv) {
         statusDiv.textContent = 'Failed to load models. Check API key configuration.';
-        statusDiv.style.color = 'var(--error)';
+        statusDiv.classList.remove('admin-status-success', 'admin-status-warning');
+        statusDiv.classList.add('admin-status-error');
       }
     } finally {
-      if (loadingSpan) loadingSpan.style.display = 'none';
+      if (loadingSpan) loadingSpan.classList.add('hidden');
       modelSelect.disabled = false;
     }
   }
@@ -1746,7 +1880,7 @@ function bindSectionEvents(container: HTMLElement): void {
             if (statusSpan) {
               if (secret.masked_value) {
                 statusSpan.textContent = '✓ Configured';
-                statusSpan.style.color = 'var(--success)';
+                statusSpan.classList.add('admin-status-success');
                 if (input) {
                   input.placeholder = secret.masked_value;
                 }
@@ -1758,7 +1892,7 @@ function bindSectionEvents(container: HTMLElement): void {
     } catch (error) {
       console.warn('Failed to load API keys status:', error);
     } finally {
-      if (loadingEl) loadingEl.style.display = 'none';
+      if (loadingEl) loadingEl.classList.add('hidden');
     }
   }
   
@@ -1804,16 +1938,26 @@ function bindSectionEvents(container: HTMLElement): void {
   if (saveServiceKeysBtn) {
     on(saveServiceKeysBtn as HTMLElement, 'click', async () => {
       const resendKey = (container.querySelector('#resend-key') as HTMLInputElement)?.value;
+      const braveKey = (container.querySelector('#brave-key') as HTMLInputElement)?.value;
 
       try {
+        let saved = 0;
         if (resendKey && resendKey.trim()) {
           await http.post('/api/secrets', { name: 'RESEND_API_KEY', value: resendKey.trim(), scope: 'system' });
-          toast.success('Service API key saved securely');
+          saved++;
+        }
+        if (braveKey && braveKey.trim()) {
+          await http.post('/api/secrets', { name: 'BRAVE_API_KEY', value: braveKey.trim(), scope: 'system' });
+          saved++;
+        }
+        if (saved > 0) {
+          toast.success('Service API key(s) saved securely');
         } else {
           toast.info('No service keys to save');
         }
-      } catch (error) {
-        toast.error('Failed to save service keys');
+      } catch (error: unknown) {
+        const msg = (error as { message?: string })?.message;
+        toast.error(msg && typeof msg === 'string' ? msg : 'Failed to save service keys');
       }
     });
   }
@@ -1867,25 +2011,25 @@ function bindSectionEvents(container: HTMLElement): void {
         const statusText = data.isPaused ? '⏸ PAUSED' : (data.isProcessing ? '🔄 PROCESSING' : '✓ IDLE');
         
         statusContent.innerHTML = `
-          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;">
-            <div>
-              <div style="font-size: 28px; font-weight: bold; color: ${statusColor};">${statusText}</div>
-              <div style="font-size: 12px; color: var(--text-tertiary); margin-top: 4px;">Queue Status</div>
+          <div class="admin-queue-status-grid">
+            <div class="admin-queue-stat">
+              <div class="admin-queue-stat-value" style="--queue-stat-color: ${statusColor}">${statusText}</div>
+              <div class="admin-queue-stat-label">Queue Status</div>
             </div>
-            <div>
-              <div style="font-size: 28px; font-weight: bold;">${data.queueLength}</div>
-              <div style="font-size: 12px; color: var(--text-tertiary); margin-top: 4px;">Items in Queue</div>
+            <div class="admin-queue-stat">
+              <div class="admin-queue-stat-value">${data.queueLength}</div>
+              <div class="admin-queue-stat-label">Items in Queue</div>
             </div>
-            <div>
-              <div style="font-size: 28px; font-weight: bold; color: var(--primary);">${data.isProcessing ? '1' : '0'}</div>
-              <div style="font-size: 12px; color: var(--text-tertiary); margin-top: 4px;">Processing Now</div>
+            <div class="admin-queue-stat">
+              <div class="admin-queue-stat-value admin-queue-stat-primary">${data.isProcessing ? '1' : '0'}</div>
+              <div class="admin-queue-stat-label">Processing Now</div>
             </div>
           </div>
           ${data.currentRequest ? `
-            <div style="margin-top: 16px; padding: 12px; background: var(--bg-secondary); border-radius: 8px; text-align: left;">
+            <div class="admin-queue-current-box">
               <strong>Currently Processing:</strong> ${data.currentRequest.context || 'Unknown'} 
-              <span style="color: var(--text-tertiary);">(Priority: ${data.currentRequest.priority})</span>
-              <span style="color: var(--text-tertiary); font-size: 11px; margin-left: 8px;">Started: ${new Date(data.currentRequest.startedAt).toLocaleTimeString()}</span>
+              <span class="admin-queue-current-meta">(Priority: ${data.currentRequest.priority})</span>
+              <span class="admin-queue-current-meta admin-queue-current-time">Started: ${new Date(data.currentRequest.startedAt).toLocaleTimeString()}</span>
             </div>
           ` : ''}
         `;
@@ -1898,29 +2042,29 @@ function bindSectionEvents(container: HTMLElement): void {
         
         if (pendingLen > 0) {
           itemsContent.innerHTML = `
-            <table style="width: 100%; font-size: 13px;">
+            <table class="admin-queue-table admin-queue-table-sm">
               <thead>
-                <tr style="text-align: left; color: var(--text-tertiary); border-bottom: 1px solid var(--border);">
-                  <th style="padding: 8px;">Context</th>
-                  <th style="padding: 8px;">Priority</th>
-                  <th style="padding: 8px;">Queued</th>
-                  <th style="padding: 8px;">Actions</th>
+                <tr>
+                  <th class="admin-queue-th">Context</th>
+                  <th class="admin-queue-th">Priority</th>
+                  <th class="admin-queue-th">Queued</th>
+                  <th class="admin-queue-th">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 ${data.pendingItems.map(item => `
-                  <tr style="border-bottom: 1px solid var(--border-light);">
-                    <td style="padding: 8px;">${item.context || 'Unknown'}</td>
-                    <td style="padding: 8px;"><span class="badge badge-${item.priority}">${item.priority}</span></td>
-                    <td style="padding: 8px;">${new Date(item.queuedAt).toLocaleTimeString()}</td>
-                    <td style="padding: 8px;"><button class="btn-sm btn-danger" data-cancel-item="${item.id}">Cancel</button></td>
+                  <tr>
+                    <td class="admin-queue-td">${item.context || 'Unknown'}</td>
+                    <td class="admin-queue-td"><span class="badge badge-${item.priority}">${item.priority}</span></td>
+                    <td class="admin-queue-td">${new Date(item.queuedAt).toLocaleTimeString()}</td>
+                    <td class="admin-queue-td"><button class="btn-sm btn-danger" data-cancel-item="${item.id}">Cancel</button></td>
                   </tr>
                 `).join('')}
               </tbody>
             </table>
           `;
         } else {
-          itemsContent.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--text-tertiary);">No items in queue</div>';
+          itemsContent.innerHTML = '<div class="admin-placeholder">No items in queue</div>';
         }
       }
       
@@ -1945,7 +2089,7 @@ function bindSectionEvents(container: HTMLElement): void {
     } catch (error) {
       console.error('Failed to load queue status:', error);
       if (statusContent) {
-        statusContent.innerHTML = '<div style="color: var(--error);">Failed to load queue status</div>';
+        statusContent.innerHTML = '<div class="admin-error-msg">Failed to load queue status</div>';
       }
     }
   }
@@ -1977,46 +2121,44 @@ function bindSectionEvents(container: HTMLElement): void {
       if (historyContent) {
         if (history.length > 0) {
           historyContent.innerHTML = `
-            <table style="width: 100%; font-size: 12px;">
+            <table class="admin-queue-table">
               <thead>
-                <tr style="text-align: left; color: var(--text-tertiary); border-bottom: 1px solid var(--border);">
-                  <th style="padding: 6px;">Context</th>
-                  <th style="padding: 6px;">Provider/Model</th>
-                  <th style="padding: 6px;">Status</th>
-                  <th style="padding: 6px;">Tokens</th>
-                  <th style="padding: 6px;">Time</th>
-                  <th style="padding: 6px;">Completed</th>
-                  <th style="padding: 6px;">Details</th>
+                <tr>
+                  <th class="admin-queue-th">Context</th>
+                  <th class="admin-queue-th">Provider/Model</th>
+                  <th class="admin-queue-th">Status</th>
+                  <th class="admin-queue-th">Tokens</th>
+                  <th class="admin-queue-th">Time</th>
+                  <th class="admin-queue-th">Completed</th>
+                  <th class="admin-queue-th">Details</th>
                 </tr>
               </thead>
               <tbody>
                 ${history.map(item => `
-                  <tr style="border-bottom: 1px solid var(--border-light);">
-                    <td style="padding: 6px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${item.context || ''}">${item.context || 'Unknown'}</td>
-                    <td style="padding: 6px; font-size: 11px; color: var(--text-secondary);">${item.provider || '-'}/${item.model || '-'}</td>
-                    <td style="padding: 6px;">
-                      <span style="color: ${item.status === 'completed' ? 'var(--success)' : 'var(--error)'};">
-                        ${item.status === 'completed' ? '✓' : '✗'}
-                      </span>
-                      ${item.error ? `<span style="font-size: 10px; color: var(--error);" title="${item.error}">Error</span>` : ''}
+                  <tr>
+                    <td class="admin-queue-td admin-queue-td-ellipsis" title="${item.context || ''}">${item.context || 'Unknown'}</td>
+                    <td class="admin-queue-td admin-queue-td-sm">${item.provider || '-'}/${item.model || '-'}</td>
+                    <td class="admin-queue-td">
+                      <span class="admin-queue-status-dot admin-queue-status-${item.status === 'completed' ? 'ok' : 'err'}">${item.status === 'completed' ? '✓' : '✗'}</span>
+                      ${item.error ? `<span class="admin-queue-error-hint" title="${item.error}">Error</span>` : ''}
                     </td>
-                    <td style="padding: 6px; font-size: 11px;">${item.inputTokens || '-'}/${item.outputTokens || '-'}</td>
-                    <td style="padding: 6px;">${item.processingTime || '-'}ms</td>
-                    <td style="padding: 6px; font-size: 11px;">${item.completedAt ? new Date(item.completedAt).toLocaleString() : '-'}</td>
-                    <td style="padding: 6px;"><button class="btn-sm" data-view-request="${item.id}">View</button></td>
+                    <td class="admin-queue-td admin-queue-td-sm">${item.inputTokens || '-'}/${item.outputTokens || '-'}</td>
+                    <td class="admin-queue-td">${item.processingTime || '-'}ms</td>
+                    <td class="admin-queue-td admin-queue-td-sm">${item.completedAt ? new Date(item.completedAt).toLocaleString() : '-'}</td>
+                    <td class="admin-queue-td"><button class="btn-sm" data-view-request="${item.id}">View</button></td>
                   </tr>
                 `).join('')}
               </tbody>
             </table>
           `;
         } else {
-          historyContent.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--text-tertiary);">No processing history yet</div>';
+          historyContent.innerHTML = '<div class="admin-placeholder">No processing history yet</div>';
         }
       }
     } catch (error) {
       console.error('Failed to load queue history:', error);
       if (historyContent) {
-        historyContent.innerHTML = '<div style="color: var(--error);">Failed to load history</div>';
+        historyContent.innerHTML = '<div class="admin-error-msg">Failed to load history</div>';
       }
     }
   }
@@ -2069,21 +2211,21 @@ function bindSectionEvents(container: HTMLElement): void {
       const formatJsonHtml = (obj: unknown): string => {
         const json = JSON.stringify(obj, null, 2);
         return escapeHtml(json)
-          .replace(/"([^"]+)":/g, '<span style="color: #0550ae;">"$1"</span>:')
-          .replace(/: "([^"]*)"/g, ': <span style="color: #0a3069;">"$1"</span>')
-          .replace(/: (\d+)/g, ': <span style="color: #0550ae;">$1</span>')
-          .replace(/: (true|false|null)/g, ': <span style="color: #cf222e;">$1</span>');
+          .replace(/"([^"]+)":/g, '<span class="hl-json-key">"$1"</span>:')
+          .replace(/: "([^"]*)"/g, ': <span class="hl-json-string">"$1"</span>')
+          .replace(/: (\d+)/g, ': <span class="hl-json-num">$1</span>')
+          .replace(/: (true|false|null)/g, ': <span class="hl-json-bool">$1</span>');
       };
       
       // Format prompt text for readability
       const formatPromptText = (text: string | null | undefined): string => {
-        if (!text) return '<span style="color: var(--text-tertiary);">(No content)</span>';
+        if (!text) return '<span class="hl-prompt-empty">(No content)</span>';
         return escapeHtml(text)
           .replace(/\\n/g, '\n')
           .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-          .replace(/^(#{1,3})\s*(.+)$/gm, '<span style="color: var(--accent); font-weight: 600;">$2</span>')
+          .replace(/^(#{1,3})\s*(.+)$/gm, '<span class="hl-prompt-heading">$2</span>')
           .replace(/^[-•]\s*(.+)$/gm, '  • $1')
-          .replace(/---+/g, '<hr style="border: none; border-top: 1px solid var(--border); margin: 8px 0;">');
+          .replace(/---+/g, '<hr class="hl-prompt-hr">');
       };
       
       // Get status color and icon
@@ -2113,123 +2255,114 @@ function bindSectionEvents(container: HTMLElement): void {
       const modal = document.createElement('div');
       modal.id = 'llm-request-details-modal';
       modal.className = 'modal open';
-      modal.style.cssText = 'display: flex !important; z-index: 999999 !important;';
+      modal.className = 'modal open admin-llm-modal-overlay';
       modal.innerHTML = `
-        <div class="modal-content" style="max-width: 900px; width: 95%;">
+        <div class="modal-content admin-llm-modal-content">
           <div class="modal-header">
-            <div style="display: flex; align-items: center; gap: 12px;">
-              <span style="font-size: 24px; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; background: ${statusInfo.bg}; border-radius: 8px; color: ${statusInfo.color};">${statusInfo.icon}</span>
+            <div class="admin-llm-modal-header-inner">
+              <span class="admin-llm-modal-icon" style="--status-bg: ${statusInfo.bg}; --status-color: ${statusInfo.color}">${statusInfo.icon}</span>
               <div>
-                <h3 style="margin: 0;">LLM Request Details</h3>
-                <span style="font-size: 12px; color: var(--text-tertiary);">ID: ${req.id}</span>
+                <h3 class="admin-llm-modal-title">LLM Request Details</h3>
+                <span class="admin-llm-modal-id">ID: ${req.id}</span>
               </div>
             </div>
             <button class="modal-close">&times;</button>
           </div>
           
-          <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
-            <!-- Status Bar -->
-            <div style="display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 24px; padding: 16px; background: var(--bg-tertiary); border-radius: 12px;">
-              <div style="flex: 1; min-width: 120px;">
-                <div style="font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Context</div>
-                <div style="font-weight: 600; font-size: 16px; color: var(--accent);">${req.context || 'Unknown'}</div>
+          <div class="modal-body admin-llm-modal-body">
+            <div class="admin-llm-status-bar">
+              <div class="admin-llm-status-item">
+                <div class="admin-llm-status-label">Context</div>
+                <div class="admin-llm-status-value admin-llm-status-accent">${req.context || 'Unknown'}</div>
               </div>
-              <div style="flex: 1; min-width: 120px;">
-                <div style="font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Provider</div>
-                <div style="font-weight: 600; font-size: 16px;">${req.provider || '-'}</div>
+              <div class="admin-llm-status-item">
+                <div class="admin-llm-status-label">Provider</div>
+                <div class="admin-llm-status-value">${req.provider || '-'}</div>
               </div>
-              <div style="flex: 1; min-width: 120px;">
-                <div style="font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Model</div>
-                <div style="font-weight: 600; font-size: 14px; font-family: monospace;">${req.model || '-'}</div>
+              <div class="admin-llm-status-item">
+                <div class="admin-llm-status-label">Model</div>
+                <div class="admin-llm-status-value admin-llm-status-mono">${req.model || '-'}</div>
               </div>
-              <div style="flex: 1; min-width: 100px;">
-                <div style="font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Status</div>
-                <div style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: ${statusInfo.bg}; border-radius: 12px; color: ${statusInfo.color}; font-weight: 600; font-size: 13px;">
-                  ${statusInfo.icon} ${req.status}
-                </div>
+              <div class="admin-llm-status-item">
+                <div class="admin-llm-status-label">Status</div>
+                <div class="admin-llm-status-badge" style="--status-bg: ${statusInfo.bg}; --status-color: ${statusInfo.color}">${statusInfo.icon} ${req.status}</div>
               </div>
             </div>
             
-            <!-- Metrics -->
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 24px;">
-              <div style="text-align: center; padding: 16px; background: var(--bg-secondary); border-radius: 8px;">
-                <div style="font-size: 24px; font-weight: 700; color: var(--text-primary);">${req.input_tokens?.toLocaleString() || '-'}</div>
-                <div style="font-size: 11px; color: var(--text-tertiary);">Input Tokens</div>
+            <div class="admin-llm-metrics-grid">
+              <div class="admin-llm-metric-box">
+                <div class="admin-llm-metric-value">${req.input_tokens?.toLocaleString() || '-'}</div>
+                <div class="admin-llm-metric-label">Input Tokens</div>
               </div>
-              <div style="text-align: center; padding: 16px; background: var(--bg-secondary); border-radius: 8px;">
-                <div style="font-size: 24px; font-weight: 700; color: var(--text-primary);">${req.output_tokens?.toLocaleString() || '-'}</div>
-                <div style="font-size: 11px; color: var(--text-tertiary);">Output Tokens</div>
+              <div class="admin-llm-metric-box">
+                <div class="admin-llm-metric-value">${req.output_tokens?.toLocaleString() || '-'}</div>
+                <div class="admin-llm-metric-label">Output Tokens</div>
               </div>
-              <div style="text-align: center; padding: 16px; background: var(--bg-secondary); border-radius: 8px;">
-                <div style="font-size: 24px; font-weight: 700; color: var(--text-primary);">${req.processing_time_ms ? `${(req.processing_time_ms / 1000).toFixed(1)}s` : '-'}</div>
-                <div style="font-size: 11px; color: var(--text-tertiary);">Duration</div>
+              <div class="admin-llm-metric-box">
+                <div class="admin-llm-metric-value">${req.processing_time_ms ? `${(req.processing_time_ms / 1000).toFixed(1)}s` : '-'}</div>
+                <div class="admin-llm-metric-label">Duration</div>
               </div>
-              <div style="text-align: center; padding: 16px; background: var(--bg-secondary); border-radius: 8px;">
-                <div style="font-size: 24px; font-weight: 700; color: ${req.estimated_cost_usd ? 'var(--success)' : 'var(--text-tertiary)'};">$${req.estimated_cost_usd?.toFixed(4) || '-'}</div>
-                <div style="font-size: 11px; color: var(--text-tertiary);">Est. Cost</div>
+              <div class="admin-llm-metric-box">
+                <div class="admin-llm-metric-value admin-llm-metric-cost${req.estimated_cost_usd ? ' admin-llm-metric-has-cost' : ''}">$${req.estimated_cost_usd?.toFixed(4) || '-'}</div>
+                <div class="admin-llm-metric-label">Est. Cost</div>
               </div>
             </div>
             
-            <!-- Timeline -->
-            <div style="display: flex; gap: 24px; margin-bottom: 24px; padding: 12px 16px; background: var(--bg-secondary); border-radius: 8px; font-size: 12px; flex-wrap: wrap;">
-              <div><strong style="color: var(--text-tertiary);">Queued:</strong> ${req.queued_at ? new Date(req.queued_at).toLocaleString() : '-'}</div>
-              <div><strong style="color: var(--text-tertiary);">Started:</strong> ${req.started_at ? new Date(req.started_at).toLocaleString() : '-'}</div>
-              <div><strong style="color: var(--text-tertiary);">Completed:</strong> ${req.completed_at ? new Date(req.completed_at).toLocaleString() : '-'}</div>
+            <div class="admin-llm-timeline">
+              <div><strong class="admin-llm-timeline-label">Queued:</strong> ${req.queued_at ? new Date(req.queued_at).toLocaleString() : '-'}</div>
+              <div><strong class="admin-llm-timeline-label">Started:</strong> ${req.started_at ? new Date(req.started_at).toLocaleString() : '-'}</div>
+              <div><strong class="admin-llm-timeline-label">Completed:</strong> ${req.completed_at ? new Date(req.completed_at).toLocaleString() : '-'}</div>
             </div>
             
             ${req.last_error ? `
-              <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid var(--error); border-radius: 8px; padding: 16px; margin-bottom: 24px;">
-                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
-                  <span style="color: var(--error); font-size: 18px;">⚠</span>
-                  <strong style="color: var(--error);">Error</strong>
-                  <span style="font-size: 12px; color: var(--text-tertiary);">(Attempt ${req.attempt_count}/${req.max_attempts})</span>
+              <div class="admin-llm-error-box">
+                <div class="admin-llm-error-header">
+                  <span class="admin-llm-error-icon">⚠</span>
+                  <strong>Error</strong>
+                  <span class="admin-llm-error-attempt">(Attempt ${req.attempt_count}/${req.max_attempts})</span>
                 </div>
-                <div style="font-size: 13px; color: var(--error); font-family: monospace; white-space: pre-wrap;">${escapeHtml(req.last_error)}</div>
+                <div class="admin-llm-error-body">${escapeHtml(req.last_error)}</div>
               </div>
             ` : ''}
             
             <!-- Prompt / Input -->
-            <div style="margin-bottom: 24px;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                <h4 style="margin: 0; display: flex; align-items: center; gap: 8px;">
-                  <span style="font-size: 16px;">📝</span> Prompt / Input
-                </h4>
+            <div class="admin-llm-section">
+              <div class="admin-llm-section-header">
+                <h4 class="admin-llm-section-title"><span class="admin-llm-section-emoji">📝</span> Prompt / Input</h4>
                 <button class="btn btn-sm btn-secondary" id="copy-input-btn">Copy</button>
               </div>
-              <div style="background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 8px; padding: 16px; max-height: 250px; overflow-y: auto; font-size: 13px; line-height: 1.6; white-space: pre-wrap; font-family: inherit;" id="input-display">${formatPromptText(promptText as string)}</div>
+              <div class="admin-llm-code-block" id="input-display">${formatPromptText(promptText as string)}</div>
             </div>
             
             <!-- Output -->
-            <div style="margin-bottom: 24px;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                <h4 style="margin: 0; display: flex; align-items: center; gap: 8px;">
-                  <span style="font-size: 16px;">🤖</span> Response
-                </h4>
+            <div class="admin-llm-section">
+              <div class="admin-llm-section-header">
+                <h4 class="admin-llm-section-title"><span class="admin-llm-section-emoji">🤖</span> Response</h4>
                 <button class="btn btn-sm btn-secondary" id="copy-output-btn">Copy</button>
               </div>
-              <div style="background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 8px; padding: 16px; max-height: 350px; overflow-y: auto; font-size: 13px; line-height: 1.6; white-space: pre-wrap;" id="output-display">${formatPromptText(req.output_text)}</div>
+              <div class="admin-llm-code-block admin-llm-code-block-tall" id="output-display">${formatPromptText(req.output_text)}</div>
             </div>
             
             <!-- Raw Data Toggle -->
-            <details style="margin-bottom: 16px;">
-              <summary style="cursor: pointer; font-weight: 600; padding: 12px; background: var(--bg-secondary); border-radius: 8px; user-select: none;">
-                <span style="margin-left: 8px;">📋 Raw Data (JSON)</span>
+            <details class="admin-llm-details">
+              <summary class="admin-llm-details-summary">
+                <span class="admin-llm-details-summary-inner">📋 Raw Data (JSON)</span>
               </summary>
-              <div style="margin-top: 12px;">
-                <div style="margin-bottom: 16px;">
-                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                    <span style="font-size: 12px; font-weight: 600; color: var(--text-secondary);">Input Data</span>
+              <div class="admin-llm-details-content">
+                <div class="admin-llm-json-block">
+                  <div class="admin-llm-json-header">
+                    <span class="admin-llm-json-label">Input Data</span>
                     <button class="btn btn-xs btn-secondary" id="copy-input-json-btn">Copy JSON</button>
                   </div>
-                  <pre style="background: #1e1e1e; color: #d4d4d4; padding: 12px; border-radius: 8px; overflow-x: auto; font-size: 11px; max-height: 200px; overflow-y: auto; margin: 0;">${formatJsonHtml(req.input_data)}</pre>
+                  <pre class="admin-llm-pre">${formatJsonHtml(req.input_data)}</pre>
                 </div>
                 ${req.output_data ? `
-                  <div>
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                      <span style="font-size: 12px; font-weight: 600; color: var(--text-secondary);">Output Data</span>
+                  <div class="admin-llm-json-block">
+                    <div class="admin-llm-json-header">
+                      <span class="admin-llm-json-label">Output Data</span>
                       <button class="btn btn-xs btn-secondary" id="copy-output-json-btn">Copy JSON</button>
                     </div>
-                    <pre style="background: #1e1e1e; color: #d4d4d4; padding: 12px; border-radius: 8px; overflow-x: auto; font-size: 11px; max-height: 200px; overflow-y: auto; margin: 0;">${formatJsonHtml(req.output_data)}</pre>
+                    <pre class="admin-llm-pre">${formatJsonHtml(req.output_data)}</pre>
                   </div>
                 ` : ''}
               </div>
@@ -2310,26 +2443,26 @@ function bindSectionEvents(container: HTMLElement): void {
       if (failedContent) {
         if (items.length > 0) {
           failedContent.innerHTML = `
-            <table style="width: 100%; font-size: 12px;">
+            <table class="admin-queue-table">
               <thead>
-                <tr style="text-align: left; color: var(--text-tertiary); border-bottom: 1px solid var(--border);">
-                  <th style="padding: 6px;">Context</th>
-                  <th style="padding: 6px;">Provider</th>
-                  <th style="padding: 6px;">Attempts</th>
-                  <th style="padding: 6px;">Error</th>
-                  <th style="padding: 6px;">Actions</th>
+                <tr>
+                  <th class="admin-queue-th">Context</th>
+                  <th class="admin-queue-th">Provider</th>
+                  <th class="admin-queue-th">Attempts</th>
+                  <th class="admin-queue-th">Error</th>
+                  <th class="admin-queue-th">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 ${items.map(item => `
-                  <tr style="border-bottom: 1px solid var(--border-light);">
-                    <td style="padding: 6px;">${item.context || 'Unknown'}</td>
-                    <td style="padding: 6px; font-size: 11px;">${item.provider || '-'}</td>
-                    <td style="padding: 6px;">${item.attemptCount}/${item.maxAttempts}</td>
-                    <td style="padding: 6px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--error);" title="${item.error || ''}">${item.error || '-'}</td>
-                    <td style="padding: 6px;">
+                  <tr>
+                    <td class="admin-queue-td">${item.context || 'Unknown'}</td>
+                    <td class="admin-queue-td admin-queue-td-sm">${item.provider || '-'}</td>
+                    <td class="admin-queue-td">${item.attemptCount}/${item.maxAttempts}</td>
+                    <td class="admin-queue-td admin-queue-td-ellipsis admin-queue-td-error" title="${item.error || ''}">${item.error || '-'}</td>
+                    <td class="admin-queue-td">
                       <button class="btn-sm btn-primary" data-retry-item="${item.id}" ${!item.canRetry ? 'disabled' : ''}>↻ Retry</button>
-                      <button class="btn-sm" data-retry-reset-item="${item.id}" style="margin-left: 4px;">Reset & Retry</button>
+                      <button class="btn-sm admin-ml-1" data-retry-reset-item="${item.id}">Reset & Retry</button>
                     </td>
                   </tr>
                 `).join('')}
@@ -2337,13 +2470,13 @@ function bindSectionEvents(container: HTMLElement): void {
             </table>
           `;
         } else {
-          failedContent.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--text-tertiary);">No failed items</div>';
+          failedContent.innerHTML = '<div class="admin-placeholder">No failed items</div>';
         }
       }
     } catch (error) {
       console.error('Failed to load failed items:', error);
       if (failedContent) {
-        failedContent.innerHTML = '<div style="color: var(--error);">Failed to load failed items</div>';
+        failedContent.innerHTML = '<div class="admin-error-msg">Failed to load failed items</div>';
       }
     }
   }
@@ -2530,33 +2663,33 @@ function bindSectionEvents(container: HTMLElement): void {
       if (statusDiv) {
         if (providers.length > 0) {
           statusDiv.innerHTML = `
-            <table style="width: 100%; font-size: 13px;">
+            <table class="admin-queue-table admin-queue-table-sm">
               <thead>
-                <tr style="text-align: left; color: var(--text-tertiary); border-bottom: 1px solid var(--border);">
-                  <th style="padding: 8px;">Provider</th>
-                  <th style="padding: 8px;">Text</th>
-                  <th style="padding: 8px;">Vision</th>
-                  <th style="padding: 8px;">Embeddings</th>
-                  <th style="padding: 8px;">Total</th>
-                  <th style="padding: 8px;">Last Synced</th>
+                <tr>
+                  <th class="admin-queue-th">Provider</th>
+                  <th class="admin-queue-th">Text</th>
+                  <th class="admin-queue-th">Vision</th>
+                  <th class="admin-queue-th">Embeddings</th>
+                  <th class="admin-queue-th">Total</th>
+                  <th class="admin-queue-th">Last Synced</th>
                 </tr>
               </thead>
               <tbody>
                 ${providers.map(p => `
-                  <tr style="border-bottom: 1px solid var(--border-light);">
-                    <td style="padding: 8px; font-weight: 600; text-transform: capitalize;">${p.provider}</td>
-                    <td style="padding: 8px;">${p.text_models || 0}</td>
-                    <td style="padding: 8px;">${p.vision_models || 0}</td>
-                    <td style="padding: 8px;">${p.embedding_models || 0}</td>
-                    <td style="padding: 8px; font-weight: 600;">${p.active_models || 0}</td>
-                    <td style="padding: 8px; font-size: 11px; color: var(--text-tertiary);">${p.last_synced ? new Date(p.last_synced).toLocaleString() : 'Never'}</td>
+                  <tr>
+                    <td class="admin-queue-td admin-queue-td-bold admin-queue-td-cap">${p.provider}</td>
+                    <td class="admin-queue-td">${p.text_models || 0}</td>
+                    <td class="admin-queue-td">${p.vision_models || 0}</td>
+                    <td class="admin-queue-td">${p.embedding_models || 0}</td>
+                    <td class="admin-queue-td admin-queue-td-bold">${p.active_models || 0}</td>
+                    <td class="admin-queue-td admin-queue-td-sm admin-queue-td-muted">${p.last_synced ? new Date(p.last_synced).toLocaleString() : 'Never'}</td>
                   </tr>
                 `).join('')}
               </tbody>
             </table>
           `;
         } else {
-          statusDiv.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--text-tertiary);">No metadata found. Click "Sync All Providers" to fetch model data.</div>';
+          statusDiv.innerHTML = '<div class="admin-placeholder">No metadata found. Click "Sync All Providers" to fetch model data.</div>';
         }
       }
       
@@ -2564,16 +2697,16 @@ function bindSectionEvents(container: HTMLElement): void {
       if (countsDiv && providers.length > 0) {
         const total = providers.reduce((sum, p) => sum + (p.active_models || 0), 0);
         countsDiv.innerHTML = `
-          <div style="display: flex; flex-wrap: wrap; gap: 12px;">
+          <div class="admin-provider-counts-grid">
             ${providers.map(p => `
-              <div style="flex: 1; min-width: 120px; text-align: center; padding: 16px; background: var(--bg-tertiary); border-radius: 8px;">
-                <div style="font-size: 24px; font-weight: 700;">${p.active_models || 0}</div>
-                <div style="font-size: 12px; color: var(--text-tertiary); text-transform: capitalize;">${p.provider}</div>
+              <div class="admin-provider-count-card">
+                <div class="admin-provider-count-value">${p.active_models || 0}</div>
+                <div class="admin-provider-count-label">${p.provider}</div>
               </div>
             `).join('')}
-            <div style="flex: 1; min-width: 120px; text-align: center; padding: 16px; background: var(--accent); border-radius: 8px; color: white;">
-              <div style="font-size: 24px; font-weight: 700;">${total}</div>
-              <div style="font-size: 12px; opacity: 0.9;">Total Models</div>
+            <div class="admin-provider-count-total">
+              <div class="admin-provider-count-value">${total}</div>
+              <div class="admin-provider-count-label">Total Models</div>
             </div>
           </div>
         `;
@@ -2581,7 +2714,7 @@ function bindSectionEvents(container: HTMLElement): void {
     } catch (error) {
       console.error('Failed to load metadata status:', error);
       if (statusDiv) {
-        statusDiv.innerHTML = '<div style="color: var(--error);">Failed to load metadata status</div>';
+        statusDiv.innerHTML = '<div class="admin-error-msg">Failed to load metadata status</div>';
       }
     }
   }
@@ -2603,24 +2736,24 @@ function bindSectionEvents(container: HTMLElement): void {
         }>('/api/llm/metadata/sync', {});
         
         if (resultDiv) {
-          (resultDiv as HTMLElement).style.display = 'block';
+          (resultDiv as HTMLElement).classList.remove('hidden');
           const providers = response.data?.providers || {};
           const entries = Object.entries(providers);
           
           resultDiv.innerHTML = `
-            <div style="padding: 16px; background: var(--bg-tertiary); border-radius: 8px;">
-              <div style="font-weight: 600; margin-bottom: 12px;">Sync Results</div>
-              <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+            <div class="admin-sync-result-box">
+              <div class="admin-sync-result-title">Sync Results</div>
+              <div class="admin-sync-result-chips">
                 ${entries.map(([provider, result]) => `
-                  <div style="padding: 8px 12px; background: ${result.status === 'success' ? 'rgba(34, 197, 94, 0.1)' : result.status === 'skipped' ? 'var(--bg-secondary)' : 'rgba(239, 68, 68, 0.1)'}; border-radius: 6px; font-size: 12px;">
-                    <span style="font-weight: 600; text-transform: capitalize;">${provider}</span>
-                    ${result.status === 'success' ? `<span style="color: var(--success);"> ✓ ${result.synced} models</span>` : ''}
-                    ${result.status === 'skipped' ? `<span style="color: var(--text-tertiary);"> - ${result.reason}</span>` : ''}
-                    ${result.status === 'error' ? `<span style="color: var(--error);"> ✗ ${result.error}</span>` : ''}
+                  <div class="admin-sync-chip admin-sync-chip-${result.status}">
+                    <span class="admin-sync-chip-provider">${provider}</span>
+                    ${result.status === 'success' ? `<span class="admin-sync-chip-ok"> ✓ ${result.synced} models</span>` : ''}
+                    ${result.status === 'skipped' ? `<span class="admin-sync-chip-skip"> - ${result.reason}</span>` : ''}
+                    ${result.status === 'error' ? `<span class="admin-sync-chip-err"> ✗ ${result.error}</span>` : ''}
                   </div>
                 `).join('')}
               </div>
-              <div style="margin-top: 12px; font-size: 13px; color: var(--success);">
+              <div class="admin-sync-result-total">
                 Total: ${response.data?.totalModels || 0} models synced
               </div>
             </div>
@@ -2633,8 +2766,8 @@ function bindSectionEvents(container: HTMLElement): void {
       } catch (error) {
         toast.error('Failed to sync metadata');
         if (resultDiv) {
-          (resultDiv as HTMLElement).style.display = 'block';
-          resultDiv.innerHTML = '<div style="color: var(--error);">Sync failed. Check console for details.</div>';
+          (resultDiv as HTMLElement).classList.remove('hidden');
+          resultDiv.innerHTML = '<div class="admin-error-msg">Sync failed. Check console for details.</div>';
         }
       } finally {
         (syncAllBtn as HTMLButtonElement).disabled = false;
@@ -2657,7 +2790,7 @@ function bindSectionEvents(container: HTMLElement): void {
       }
       
       if (contentDiv) {
-        contentDiv.innerHTML = '<div style="text-align: center; padding: 20px;">Loading models...</div>';
+        contentDiv.innerHTML = '<div class="admin-placeholder">Loading models...</div>';
       }
       
       try {
@@ -2672,19 +2805,19 @@ function bindSectionEvents(container: HTMLElement): void {
         
         if (contentDiv) {
           if (textModels.length === 0 && embeddingModels.length === 0) {
-            contentDiv.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-tertiary);">No models found for this provider. Try syncing first.</div>';
+            contentDiv.innerHTML = '<div class="admin-empty-state">No models found for this provider. Try syncing first.</div>';
           } else {
             contentDiv.innerHTML = `
-              <div style="display: grid; gap: 16px;">
+              <div class="admin-models-browser-grid">
                 ${textModels.length > 0 ? `
                   <div>
-                    <h5 style="margin-bottom: 8px; color: var(--text-secondary);">Text Models (${textModels.length})</h5>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px;">
+                    <h5 class="admin-models-section-title">Text Models (${textModels.length})</h5>
+                    <div class="admin-models-cards">
                       ${textModels.map(m => `
-                        <div style="padding: 12px; background: var(--bg-tertiary); border-radius: 8px; font-size: 12px;">
-                          <div style="font-weight: 600; margin-bottom: 4px;">${m.display_name || m.model_id}</div>
-                          <div style="color: var(--text-tertiary); font-family: monospace; font-size: 11px;">${m.model_id}</div>
-                          <div style="margin-top: 8px; display: flex; gap: 12px; color: var(--text-secondary);">
+                        <div class="admin-model-card">
+                          <div class="admin-model-card-name">${m.display_name || m.model_id}</div>
+                          <div class="admin-model-card-id">${m.model_id}</div>
+                          <div class="admin-model-card-meta">
                             <span title="Context Window">📏 ${m.context_tokens ? (m.context_tokens / 1000).toFixed(0) + 'K' : '-'}</span>
                             <span title="Input Price">💰 $${m.price_input?.toFixed(2) || '-'}/1M</span>
                             <span title="Output Price">💵 $${m.price_output?.toFixed(2) || '-'}/1M</span>
@@ -2696,12 +2829,10 @@ function bindSectionEvents(container: HTMLElement): void {
                 ` : ''}
                 ${embeddingModels.length > 0 ? `
                   <div>
-                    <h5 style="margin-bottom: 8px; color: var(--text-secondary);">Embedding Models (${embeddingModels.length})</h5>
-                    <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                    <h5 class="admin-models-section-title">Embedding Models (${embeddingModels.length})</h5>
+                    <div class="admin-models-chips">
                       ${embeddingModels.map(m => `
-                        <div style="padding: 8px 12px; background: var(--bg-tertiary); border-radius: 6px; font-size: 12px;">
-                          ${m.display_name || m.model_id}
-                        </div>
+                        <div class="admin-model-chip">${m.display_name || m.model_id}</div>
                       `).join('')}
                     </div>
                   </div>
@@ -2712,7 +2843,7 @@ function bindSectionEvents(container: HTMLElement): void {
         }
       } catch (error) {
         if (contentDiv) {
-          contentDiv.innerHTML = '<div style="color: var(--error);">Failed to load models</div>';
+          contentDiv.innerHTML = '<div class="admin-error-msg">Failed to load models</div>';
         }
       }
     });
@@ -2959,13 +3090,13 @@ function bindSectionEvents(container: HTMLElement): void {
               const previewModal = document.createElement('div');
               previewModal.className = 'modal-overlay';
               previewModal.innerHTML = `
-                <div class="modal-content" style="max-width: 800px; max-height: 80vh; overflow: auto;">
+                <div class="modal-content admin-prompt-preview-modal">
                   <div class="modal-header">
                     <h3>Version ${version} Preview</h3>
                     <button class="modal-close">&times;</button>
                   </div>
                   <div class="modal-body">
-                    <pre style="white-space: pre-wrap; font-size: 12px; background: var(--bg-tertiary); padding: 1rem; border-radius: 8px;">${template.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
+                    <pre class="admin-prompt-preview-pre">${template.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
                   </div>
                 </div>
               `;
@@ -3013,6 +3144,42 @@ function bindSectionEvents(container: HTMLElement): void {
     });
   }
 
+  // Google Drive: use delegation so buttons work when section is rendered later
+  on(container, 'click', async (e: Event) => {
+    const target = (e.target as HTMLElement).closest?.('[id]') as HTMLElement | null;
+    if (!target?.id) return;
+    if (target.id === 'save-google-drive') {
+      e.preventDefault();
+      const enabled = (container.querySelector('#google-drive-enabled') as HTMLInputElement)?.checked ?? false;
+      const rootFolderId = (container.querySelector('#google-drive-root-folder') as HTMLInputElement)?.value?.trim() ?? '';
+      const serviceJson = (container.querySelector('#google-drive-service-json') as HTMLTextAreaElement)?.value?.trim() ?? '';
+      try {
+        await http.post('/api/system/google-drive', { enabled, rootFolderId, serviceAccountJson: serviceJson || undefined });
+        toast.success('Google Drive config saved');
+        googleDriveLoaded = false;
+        await loadGoogleDriveState();
+        renderAdminPanel(container);
+      } catch (err: unknown) {
+        toast.error(err && typeof err === 'object' && 'message' in err ? String((err as { message: string }).message) : 'Failed to save');
+      }
+    } else if (target.id === 'bootstrap-google-drive') {
+      e.preventDefault();
+      const btn = container.querySelector('#bootstrap-google-drive') as HTMLButtonElement;
+      if (btn) { btn.disabled = true; btn.textContent = 'Running...'; }
+      try {
+        const res = await http.post<{ success: boolean; message?: string; projectsCount?: number }>('/api/system/google-drive/bootstrap-all');
+        toast.success(res?.message ?? `Bootstrap complete: ${res?.projectsCount ?? 0} projects`);
+        googleDriveLoaded = false;
+        await loadGoogleDriveState();
+        renderAdminPanel(container);
+      } catch (err: unknown) {
+        toast.error(err && typeof err === 'object' && 'message' in err ? String((err as { message: string }).message) : 'Bootstrap failed');
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Bootstrap all projects'; }
+      }
+    }
+  });
+
   // =========================
   // BILLING SECTION EVENTS
   // =========================
@@ -3025,7 +3192,7 @@ function bindSectionEvents(container: HTMLElement): void {
       const manualGroup = container.querySelector('#manual-rate-group') as HTMLElement;
       const refreshBtn = container.querySelector('#refresh-rate-btn') as HTMLButtonElement;
       if (manualGroup) {
-        manualGroup.style.display = isAuto ? 'none' : 'block';
+        manualGroup.classList.toggle('hidden', !!isAuto);
       }
       if (refreshBtn) {
         refreshBtn.disabled = !isAuto;

@@ -5,6 +5,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'soft-delete' });
 
 class SoftDelete {
     constructor(options = {}) {
@@ -37,7 +40,7 @@ class SoftDelete {
                 }
             }
         } catch (e) {
-            console.log(`[SoftDelete] Load warning: ${e.message}`);
+            log.warn({ event: 'soft_delete_load_warning', reason: e.message }, 'Load warning');
             this.deletedItems = new Map();
         }
     }
@@ -51,7 +54,7 @@ class SoftDelete {
             const data = Object.fromEntries(this.deletedItems);
             fs.writeFileSync(this.deletedFile, JSON.stringify(data, null, 2));
         } catch (e) {
-            console.log(`[SoftDelete] Save warning: ${e.message}`);
+            log.warn({ event: 'soft_delete_save_warning', reason: e.message }, 'Save warning');
         }
     }
 
@@ -74,7 +77,7 @@ class SoftDelete {
         this.deletedItems.get(type).push(deletedItem);
         this.save();
 
-        console.log(`[SoftDelete] Marked ${type} "${item.name || item.title || item.id}" as deleted`);
+        log.debug({ event: 'soft_delete_marked', type, itemName: item.name || item.title || item.id }, 'Marked as deleted');
         return deletedItem;
     }
 
@@ -120,7 +123,7 @@ class SoftDelete {
         delete item._expiresAt;
         delete item._originalType;
 
-        console.log(`[SoftDelete] Restored ${type} "${item.name || item.title || item.id}"`);
+        log.debug({ event: 'soft_delete_restored', type, itemName: item.name || item.title || item.id }, 'Restored');
         return item;
     }
 
@@ -144,7 +147,7 @@ class SoftDelete {
 
         if (purged > 0) {
             this.save();
-            console.log(`[SoftDelete] Purged ${purged} expired items`);
+            log.debug({ event: 'soft_delete_purged', purged }, 'Purged expired items');
         }
         return purged;
     }

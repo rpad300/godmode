@@ -4,7 +4,10 @@
  * Uses pgcrypto for encryption at rest
  */
 
+const { logger } = require('../logger');
 const { getAdminClient } = require('./client');
+
+const log = logger.child({ module: 'secrets' });
 
 // Encryption key from environment
 const ENCRYPTION_KEY = process.env.SECRETS_ENCRYPTION_KEY || process.env.SUPABASE_SERVICE_KEY || 'default-dev-key';
@@ -82,8 +85,8 @@ async function setSecret({
             .rpc('encrypt_secret', { p_value: value, p_key: ENCRYPTION_KEY });
         
         if (encryptError) {
-            console.error('[Secrets] Encryption error:', encryptError);
-            throw new Error('Failed to encrypt secret');
+            log.warn({ event: 'secrets_encryption_error', reason: encryptError?.message }, 'Encryption error');
+            return { success: false, error: encryptError?.message || 'Failed to encrypt secret' };
         }
 
         // Generate masked value
@@ -103,8 +106,8 @@ async function setSecret({
             query = query.is('project_id', null);
         }
         
-        const { data: existing } = await query.single();
-        if (existing) {
+        const { data: existing } = await query.maybeSingle();
+        if (existing?.id) {
             existingId = existing.id;
         }
 
@@ -151,12 +154,15 @@ async function setSecret({
             error = result.error;
         }
 
-        if (error) throw error;
+        if (error) {
+            log.warn({ event: 'secrets_set_error', reason: error?.message, code: error?.code }, 'Set error');
+            return { success: false, error: error?.message || 'Database error' };
+        }
 
         return { success: true, secret };
     } catch (error) {
-        console.error('[Secrets] Set error:', error);
-        return { success: false, error: error.message };
+        log.warn({ event: 'secrets_set_error', reason: error?.message }, 'Set error');
+        return { success: false, error: error?.message || 'Unexpected error' };
     }
 }
 
@@ -199,7 +205,7 @@ async function getSecret(scope, name, projectId = null) {
             .rpc('decrypt_secret', { p_encrypted: secret.encrypted_value, p_key: ENCRYPTION_KEY });
 
         if (decryptError) {
-            console.error('[Secrets] Decryption error:', decryptError);
+            log.warn({ event: 'secrets_decryption_error', reason: decryptError?.message }, 'Decryption error');
             return { success: false, error: 'Failed to decrypt secret' };
         }
 
@@ -215,7 +221,7 @@ async function getSecret(scope, name, projectId = null) {
             provider: secret.provider
         };
     } catch (error) {
-        console.error('[Secrets] Get error:', error);
+        log.warn({ event: 'secrets_get_error', reason: error?.message }, 'Get error');
         return { success: false, error: error.message };
     }
 }
@@ -254,7 +260,7 @@ async function getSecretInfo(scope, name, projectId = null) {
 
         return { success: true, secret };
     } catch (error) {
-        console.error('[Secrets] Get info error:', error);
+        log.warn({ event: 'secrets_get_info_error', reason: error?.message }, 'Get info error');
         return { success: false, error: error.message };
     }
 }
@@ -287,7 +293,7 @@ async function listSecrets(scope, projectId = null) {
 
         return { success: true, secrets: secrets || [] };
     } catch (error) {
-        console.error('[Secrets] List error:', error);
+        log.error({ event: 'secrets_list_error', reason: error?.message }, 'List error');
         return { success: false, error: error.message };
     }
 }
@@ -320,7 +326,7 @@ async function deleteSecret(scope, name, projectId = null) {
 
         return { success: true };
     } catch (error) {
-        console.error('[Secrets] Delete error:', error);
+        log.warn({ event: 'secrets_delete_error', reason: error?.message }, 'Delete error');
         return { success: false, error: error.message };
     }
 }
@@ -353,7 +359,7 @@ async function markSecretInvalid(scope, name, projectId = null) {
 
         return { success: true };
     } catch (error) {
-        console.error('[Secrets] Mark invalid error:', error);
+        log.warn({ event: 'secrets_mark_invalid_error', reason: error?.message }, 'Mark invalid error');
         return { success: false, error: error.message };
     }
 }
@@ -477,7 +483,7 @@ async function getConfiguredProviders(projectId = null) {
 
         return { success: true, providers };
     } catch (error) {
-        console.error('[Secrets] Get providers error:', error);
+        log.warn({ event: 'secrets_get_providers_error', reason: error?.message }, 'Get providers error');
         return { success: false, error: error.message };
     }
 }

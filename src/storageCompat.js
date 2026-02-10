@@ -22,14 +22,16 @@
 
 const path = require('path');
 const fs = require('fs');
+const { logger: rootLogger, logError } = require('./logger');
+
+const log = rootLogger.child({ module: 'storage' });
 
 // Try to load Supabase helper - may fail due to project folder name conflict
 let supabaseHelper = null;
 try {
     supabaseHelper = require('./supabase/storageHelper');
 } catch (e) {
-    console.warn('[StorageCompat] Supabase module not available:', e.message);
-    console.warn('[StorageCompat] Using local storage fallback only');
+    log.warn({ event: 'supabase_module_unavailable', err: e.message, code: e.code }, 'Supabase module not available, using local storage fallback');
 }
 
 class StorageCompat {
@@ -101,18 +103,17 @@ class StorageCompat {
                     // Set project in Supabase storage
                     await this._supabase.setProject(currentProject.id);
                     
-                    console.log(`[StorageCompat] Using Supabase project: ${currentProject.name} (${currentProject.id})`);
+                    log.info({ event: 'storage_init_project', projectId: currentProject.id, projectName: currentProject.name }, 'Using Supabase project');
                 } else {
-                    // No projects - will need to create one
-                    console.log('[StorageCompat] No projects found in Supabase');
+                    log.info({ event: 'storage_init_no_projects' }, 'No projects found in Supabase');
                     this.currentProjectId = null;
                     this.currentProjectName = null;
                 }
                 
                 await this._refreshCache();
-                console.log('[StorageCompat] Initialized in Supabase mode');
+                log.info({ event: 'storage_init_complete', mode: 'supabase' }, 'Initialized in Supabase mode');
             } catch (e) {
-                console.warn('[StorageCompat] Supabase init failed, using local fallback:', e.message);
+                log.warn({ event: 'storage_init_failed', err: e.message }, 'Supabase init failed, using local fallback');
                 this._isSupabaseMode = false;
             }
         }
@@ -130,7 +131,7 @@ class StorageCompat {
                     }
                 }
             } catch (e) {
-                console.warn('[StorageCompat] Could not load projects.json:', e.message);
+                log.warn({ event: 'storage_load_projects_failed', err: e.message }, 'Could not load projects.json');
             }
         }
         
@@ -158,24 +159,25 @@ class StorageCompat {
      */
     async _refreshCache() {
         if (!this._supabase || !this.currentProjectId) return;
-        
+
+        const projectId = this.currentProjectId;
         try {
             // Use legacy support to auto-resolve/create project if needed
             if (!this._isValidUUID(this.currentProjectId)) {
-                console.log('[StorageCompat] Resolving legacy project ID via Supabase...');
+                log.debug({ event: 'legacy_id_resolution_started', projectId: this.currentProjectId }, 'Resolving legacy project ID via Supabase');
                 const resolvedId = await this._supabase.setProjectWithLegacySupport(
-                    this.currentProjectId, 
+                    this.currentProjectId,
                     this.currentProjectName
                 );
                 if (this._isValidUUID(resolvedId)) {
-                    console.log(`[StorageCompat] Resolved to UUID: ${resolvedId}`);
-                    // Keep the original legacy ID for local file paths
-                    // but use the UUID for Supabase operations
+                    log.info({ event: 'legacy_id_resolution_succeeded', projectId: this.currentProjectId, resolvedId }, 'Resolved to UUID');
+                } else {
+                    log.warn({ event: 'legacy_id_resolution_failed', projectId: this.currentProjectId }, 'Legacy ID resolution did not return valid UUID');
                 }
             } else {
                 this._supabase.setProject(this.currentProjectId);
             }
-            
+
             const [facts, decisions, risks, actions, questions, people, documents, contacts, teams, relationships, contactRelationships] = await Promise.all([
                 this._supabase.getFacts(),
                 this._supabase.getDecisions(),
@@ -189,7 +191,7 @@ class StorageCompat {
                 this._supabase.getRelationships(),
                 this._supabase.getContactRelationships()
             ]);
-            
+
             this._cache = {
                 facts: facts || [],
                 decisions: decisions || [],
@@ -206,13 +208,13 @@ class StorageCompat {
                 lastRefresh: Date.now(),
                 teams: teams || []
             };
-            
+
             // Store teams in the contacts structure for compatibility
             if (!this.contacts) this.contacts = { items: [], teams: [], relationships: [] };
             this.contacts.teams = teams || [];
-            
-            console.log(`[StorageCompat] Cache loaded: ${(contacts || []).length} contacts, ${(teams || []).length} teams, ${(facts || []).length} facts`);
-            
+
+            log.debug({ event: 'contacts_cache_refresh', projectId, counts: { contacts: (contacts || []).length, teams: (teams || []).length, facts: (facts || []).length }, source: 'supabase' }, 'Cache loaded');
+
             // Update legacy structures
             this.knowledge.facts = this._cache.facts;
             this.knowledge.decisions = this._cache.decisions;
@@ -220,10 +222,66 @@ class StorageCompat {
             this.knowledge.people = this._cache.people;
             this.questions.items = this._cache.questions;
             this.documents.items = this._cache.documents;
-            
+
         } catch (e) {
-            console.warn('[StorageCompat] Cache refresh failed:', e.message);
+            log.warn({ event: 'cache_refresh_failed', projectId, err: e.message }, 'Cache refresh failed');
         }
+    }
+
+    // ==================== Data Stats & Maintenance (API compatibility) ====================
+
+    /**
+     * Get data statistics. Compatible with Storage.getDataStats().
+     * Uses in-memory cache in Supabase mode.
+     */
+    getDataStats() {
+        const facts = this.knowledge?.facts?.length || 0;
+        const people = this.knowledge?.people?.length || 0;
+        const decisions = this.knowledge?.decisions?.length || 0;
+        const risks = this.knowledge?.risks?.length || 0;
+        const questions = this.questions?.items?.length || 0;
+        const documents = (this.documents?.items ?? this.documents)?.length || 0;
+        const estimateSize = (obj) => {
+            try {
+                return JSON.stringify(obj || {}).length;
+            } catch {
+                return 0;
+            }
+        };
+        const memoryBytes = estimateSize(this.knowledge) + estimateSize(this.questions) + estimateSize(this.documents);
+        return {
+            counts: { facts, people, decisions, risks, questions, documents },
+            total: facts + people + decisions + risks + questions + documents,
+            memoryEstimateKB: Math.round(memoryBytes / 1024),
+            memoryEstimateMB: (memoryBytes / 1024 / 1024).toFixed(2)
+        };
+    }
+
+    /**
+     * Recover from change_log. Not supported in Supabase mode (no change_log).
+     */
+    recoverFromChangeLog() {
+        if (!this._isSupabaseMode && this.knowledge?.change_log?.length) {
+            return { recovered: false, message: 'Local change_log recovery not implemented in StorageCompat' };
+        }
+        return { recovered: false, message: 'Recovery from change_log not supported in Supabase mode' };
+    }
+
+    /**
+     * Cleanup old data. In Supabase mode returns no-op (data managed by DB).
+     */
+    cleanupOldData(_options = {}) {
+        if (!this._isSupabaseMode) {
+            return { cleaned: { facts: 0, questions: 0 }, archived: null };
+        }
+        return { cleaned: { facts: 0, questions: 0 }, archived: null, message: 'Cleanup not applied in Supabase mode' };
+    }
+
+    /**
+     * Remove duplicates. In Supabase mode returns no-op.
+     */
+    removeDuplicates() {
+        return { removed: { facts: 0, people: 0 } };
     }
 
     // ==================== Project Management ====================
@@ -315,6 +373,23 @@ class StorageCompat {
         return this._cache.facts[0];
     }
 
+    async addFacts(facts, options = {}) {
+        if (this._supabase && typeof this._supabase.addFacts === 'function') {
+            const result = await this._supabase.addFacts(facts, options);
+            if (result.data && result.data.length > 0) {
+                this._cache.facts = (result.data || []).concat(this._cache.facts);
+                this.knowledge.facts = this._cache.facts;
+            }
+            return result;
+        }
+        let inserted = 0;
+        for (const fact of facts) {
+            const r = await this.addFact(fact, options.skipDedup !== false);
+            if (!r.duplicate) inserted++;
+        }
+        return { data: [], inserted };
+    }
+
     // ==================== Decisions ====================
 
     getDecisions() {
@@ -329,6 +404,22 @@ class StorageCompat {
         }
         this._cache.decisions.unshift({ id: Date.now().toString(), ...decision });
         return this._cache.decisions[0];
+    }
+
+    async addDecisions(decisions) {
+        if (this._supabase && typeof this._supabase.addDecisions === 'function') {
+            const result = await this._supabase.addDecisions(decisions);
+            if (result.data?.length) {
+                this._cache.decisions = (result.data || []).concat(this._cache.decisions);
+            }
+            return result;
+        }
+        let inserted = 0;
+        for (const d of decisions) {
+            await this.addDecision(d);
+            inserted++;
+        }
+        return { data: [], inserted };
     }
 
     // ==================== Risks ====================
@@ -412,16 +503,18 @@ class StorageCompat {
         return this._cache.actions.filter(a => a.status === status);
     }
 
-    async getActions(status = null, owner = null) {
+    async getActions(status = null, owner = null, sprintId = null, decisionId = null) {
         if (this._supabase) {
-            const data = await this._supabase.getActions(status, owner);
-            this._cache.actions = data || [];
-            return this._cache.actions;
+            const data = await this._supabase.getActions(status, owner, sprintId, decisionId);
+            if (!decisionId) this._cache.actions = data || [];
+            return data || [];
         }
-        if (!status && !owner) return this._cache.actions;
+        if (!status && !owner && !sprintId && !decisionId) return this._cache.actions;
         return this._cache.actions.filter(a => {
             if (status && a.status !== status) return false;
             if (owner && a.owner !== owner) return false;
+            if (sprintId && a.sprint_id !== sprintId) return false;
+            if (decisionId && a.decision_id !== decisionId) return false;
             return true;
         });
     }
@@ -463,11 +556,116 @@ class StorageCompat {
         this._cache.actions = this._cache.actions.filter(a => String(a.id) !== String(id));
     }
 
+    async getDeletedActions() {
+        if (this._supabase && typeof this._supabase.getDeletedActions === 'function') {
+            return await this._supabase.getDeletedActions();
+        }
+        return [];
+    }
+
+    async restoreAction(id) {
+        if (this._supabase && typeof this._supabase.restoreAction === 'function') {
+            const result = await this._supabase.restoreAction(id);
+            this._cache.actions = [result, ...(this._cache.actions || [])];
+            return result;
+        }
+        throw new Error('Restore not available');
+    }
+
     async getActionEvents(actionId) {
         if (this._supabase) {
             return await this._supabase.getActionEvents(actionId);
         }
         return [];
+    }
+
+    async getTaskDependencies(taskId) {
+        if (this._supabase && typeof this._supabase.getTaskDependencies === 'function') {
+            return await this._supabase.getTaskDependencies(taskId);
+        }
+        return [];
+    }
+
+    async setTaskDependencies(taskId, dependsOnIds) {
+        if (this._supabase && typeof this._supabase.setTaskDependencies === 'function') {
+            await this._supabase.setTaskDependencies(taskId, dependsOnIds);
+        }
+    }
+
+    async getUserStories(status = null) {
+        if (this._supabase && typeof this._supabase.getUserStories === 'function') {
+            return await this._supabase.getUserStories(status);
+        }
+        return [];
+    }
+
+    async getUserStory(id) {
+        if (this._supabase && typeof this._supabase.getUserStory === 'function') {
+            return await this._supabase.getUserStory(id);
+        }
+        return null;
+    }
+
+    async addUserStory(story) {
+        if (this._supabase && typeof this._supabase.addUserStory === 'function') {
+            return await this._supabase.addUserStory(story);
+        }
+        return { id: Date.now().toString(), ...story };
+    }
+
+    async updateUserStory(id, updates) {
+        if (this._supabase && typeof this._supabase.updateUserStory === 'function') {
+            return await this._supabase.updateUserStory(id, updates);
+        }
+        return null;
+    }
+
+    async deleteUserStory(id, soft = true) {
+        if (this._supabase && typeof this._supabase.deleteUserStory === 'function') {
+            await this._supabase.deleteUserStory(id, soft);
+        }
+    }
+
+    async createSprint(projectId, data) {
+        if (this._supabase && typeof this._supabase.createSprint === 'function') {
+            return await this._supabase.createSprint(projectId, data);
+        }
+        return { id: null, ...data };
+    }
+
+    async getSprint(id) {
+        if (this._supabase && typeof this._supabase.getSprint === 'function') {
+            return await this._supabase.getSprint(id);
+        }
+        return null;
+    }
+
+    async getSprints(projectId) {
+        if (this._supabase && typeof this._supabase.getSprints === 'function') {
+            return await this._supabase.getSprints(projectId);
+        }
+        return [];
+    }
+
+    async updateSprint(id, updates) {
+        if (this._supabase && typeof this._supabase.updateSprint === 'function') {
+            return await this._supabase.updateSprint(id, updates);
+        }
+        return null;
+    }
+
+    async getDeletedUserStories() {
+        if (this._supabase && typeof this._supabase.getDeletedUserStories === 'function') {
+            return await this._supabase.getDeletedUserStories();
+        }
+        return [];
+    }
+
+    async restoreUserStory(id) {
+        if (this._supabase && typeof this._supabase.restoreUserStory === 'function') {
+            return await this._supabase.restoreUserStory(id);
+        }
+        throw new Error('Restore not available');
     }
 
     // ==================== Questions ====================
@@ -487,6 +685,23 @@ class StorageCompat {
         }
         this._cache.questions.unshift({ id: Date.now().toString(), ...question });
         return this._cache.questions[0];
+    }
+
+    async addQuestions(questions, options = {}) {
+        if (this._supabase && typeof this._supabase.addQuestions === 'function') {
+            const result = await this._supabase.addQuestions(questions, options);
+            if (result.data?.length) {
+                this._cache.questions = (result.data || []).concat(this._cache.questions);
+                this.questions.items = this._cache.questions;
+            }
+            return result;
+        }
+        let inserted = 0;
+        for (const q of questions) {
+            const r = await this.addQuestion(q, options.skipDedup !== false);
+            if (!r.duplicate) inserted++;
+        }
+        return { data: [], inserted };
     }
 
     getQuestionById(id) {
@@ -515,7 +730,7 @@ class StorageCompat {
                 // If result is null/undefined, the question doesn't exist
                 return { success: false, ok: false, error: 'Question not found in database' };
             } catch (e) {
-                console.error('[StorageCompat] updateQuestion error:', e.message);
+                log.error({ event: 'update_question_error', err: e.message }, 'updateQuestion error');
                 // Return the actual error instead of falling through
                 return { success: false, ok: false, error: e.message };
             }
@@ -625,7 +840,7 @@ class StorageCompat {
                 this.documents.items = this._cache.documents;
                 return result;
             } catch (error) {
-                console.error('[StorageCompat] addDocument error:', error.message);
+                log.error({ event: 'add_document_error', err: error.message }, 'addDocument error');
                 // Fallback: add to cache only
                 const fallbackDoc = { id: `local-${Date.now()}`, ...normalizedDoc, created_at: new Date().toISOString() };
                 this._cache.documents.unshift(fallbackDoc);
@@ -665,7 +880,7 @@ class StorageCompat {
                 }
                 return result;
             } catch (error) {
-                console.error('[StorageCompat] updateDocument error:', error.message);
+                log.error({ event: 'update_document_error', err: error.message }, 'updateDocument error');
                 // Fallback to cache-only update
             }
         }
@@ -690,7 +905,7 @@ class StorageCompat {
      * Delete a document with cascade (removes all related facts, decisions, questions, etc.)
      */
     async deleteDocument(documentId, options = {}) {
-        console.log(`[StorageCompat] deleteDocument called for ID: ${documentId}`);
+        log.debug({ event: 'delete_document_start', documentId }, 'deleteDocument called');
         
         if (this._supabase) {
             try {
@@ -708,10 +923,10 @@ class StorageCompat {
                 // Refresh cache to reflect cascade deletes
                 await this._refreshCache();
                 
-                console.log(`[StorageCompat] Document ${documentId} deleted with cascade:`, result.deleted);
+                log.debug({ event: 'delete_document_success', documentId, deleted: result.deleted }, 'Document deleted with cascade');
                 return result;
             } catch (error) {
-                console.error(`[StorageCompat] deleteDocument error:`, error);
+                log.error({ event: 'delete_document_error', documentId, err: error?.message }, 'deleteDocument error');
                 throw error;
             }
         }
@@ -736,7 +951,7 @@ class StorageCompat {
                 this._cache.contacts = contacts || [];
                 return this._cache.contacts;
             } catch (error) {
-                console.warn('[StorageCompat] getContacts error:', error.message);
+                log.warn({ event: 'get_contacts_error', err: error.message }, 'getContacts error');
                 // Fall through to cached version
             }
         }
@@ -811,14 +1026,14 @@ class StorageCompat {
      * Adds the participant name as an alias for future auto-matching
      */
     async linkParticipantToContact(participantName, contactId) {
-        console.log(`[StorageCompat] linkParticipantToContact: "${participantName}" -> ${contactId}`);
+        log.debug({ event: 'link_participant_start', participantName, contactId }, 'linkParticipantToContact');
         
         // Try cache first, but also query Supabase directly to be sure
         let contact = this.getContactById(contactId);
         
         // If not in cache and we have Supabase, fetch directly
         if (!contact && this._supabase) {
-            console.log('[StorageCompat] Contact not in cache, fetching from Supabase...');
+            log.debug({ event: 'link_participant_fetch_contact' }, 'Contact not in cache, fetching from Supabase');
             try {
                 const { data } = await this._supabase.supabase
                     .from('contacts')
@@ -831,18 +1046,18 @@ class StorageCompat {
                     this._cache.contacts.push(contact);
                 }
             } catch (e) {
-                console.warn('[StorageCompat] Failed to fetch contact from Supabase:', e.message);
+                log.warn({ event: 'link_participant_fetch_failed', err: e.message }, 'Failed to fetch contact from Supabase');
             }
         }
         
         if (!contact) {
-            console.error('[StorageCompat] Contact not found:', contactId);
+            log.warn({ event: 'contact_not_found', contactId }, 'Contact not found');
             throw new Error('Contact not found');
         }
         
         // Don't add if it's already the main name
         if (contact.name?.toLowerCase().trim() === participantName?.toLowerCase().trim()) {
-            console.log('[StorageCompat] Name matches contact name, skipping');
+            log.debug({ event: 'link_participant_skip_name_match' }, 'Name matches contact name, skipping');
             return { linked: false, reason: 'Name matches contact name' };
         }
         
@@ -850,7 +1065,7 @@ class StorageCompat {
         const aliases = contact.aliases || [];
         const normalizedName = participantName.trim();
         if (aliases.some(a => a?.toLowerCase() === normalizedName.toLowerCase())) {
-            console.log('[StorageCompat] Alias already exists, skipping');
+            log.debug({ event: 'link_participant_skip_alias_exists' }, 'Alias already exists, skipping');
             return { linked: false, reason: 'Alias already exists' };
         }
         
@@ -859,11 +1074,10 @@ class StorageCompat {
         
         if (this._supabase) {
             try {
-                console.log('[StorageCompat] Updating contact aliases in Supabase...');
+                log.debug({ event: 'link_participant_update_aliases' }, 'Updating contact aliases in Supabase');
                 await this._supabase.updateContact(contactId, { aliases: updatedAliases });
-                console.log('[StorageCompat] Aliases updated successfully');
             } catch (e) {
-                console.error('[StorageCompat] linkParticipantToContact error:', e.message);
+                log.error({ event: 'link_participant_error', err: e.message }, 'linkParticipantToContact error');
                 throw e;
             }
         }
@@ -874,7 +1088,7 @@ class StorageCompat {
             this._cache.contacts[cacheIdx].aliases = updatedAliases;
         }
         
-        console.log(`[StorageCompat] ✓ Linked "${participantName}" to contact "${contact.name}" (aliases: ${updatedAliases.length})`);
+        log.debug({ event: 'link_participant_success', participantName, contactId, aliasCount: updatedAliases.length }, 'Linked participant to contact');
         return { linked: true, contactId, contactName: contact.name, alias: normalizedName };
     }
 
@@ -883,7 +1097,7 @@ class StorageCompat {
      * Removes the participant name from the contact's aliases
      */
     async unlinkParticipant(participantName) {
-        console.log(`[StorageCompat] unlinkParticipant: "${participantName}"`);
+        log.debug({ event: 'unlink_participant_start', participantName }, 'unlinkParticipant');
         
         if (!participantName) {
             return { unlinked: false, reason: 'No participant name provided' };
@@ -903,7 +1117,7 @@ class StorageCompat {
         
         // If not in cache and we have Supabase, search directly
         if (!contact && this._supabase) {
-            console.log('[StorageCompat] Alias not found in cache, searching Supabase...');
+            log.debug({ event: 'unlink_participant_search' }, 'Alias not found in cache, searching Supabase');
             try {
                 const projectId = this._supabase.getProjectId();
                 const { data: contacts } = await this._supabase.supabase
@@ -923,12 +1137,12 @@ class StorageCompat {
                     });
                 }
             } catch (e) {
-                console.warn('[StorageCompat] Failed to search contacts in Supabase:', e.message);
+                log.warn({ event: 'unlink_participant_search_failed', err: e.message }, 'Failed to search contacts in Supabase');
             }
         }
         
         if (!contact) {
-            console.log('[StorageCompat] No linked contact found for alias');
+            log.debug({ event: 'unlink_participant_not_found' }, 'No linked contact found for alias');
             return { unlinked: false, reason: 'No linked contact found' };
         }
         
@@ -939,11 +1153,10 @@ class StorageCompat {
         
         if (this._supabase) {
             try {
-                console.log('[StorageCompat] Removing alias from contact in Supabase...');
+                log.debug({ event: 'unlink_participant_remove_alias' }, 'Removing alias from contact in Supabase');
                 await this._supabase.updateContact(contact.id, { aliases: updatedAliases });
-                console.log('[StorageCompat] Alias removed successfully');
             } catch (e) {
-                console.error('[StorageCompat] unlinkParticipant error:', e.message);
+                log.error({ event: 'unlink_participant_error', err: e.message }, 'unlinkParticipant error');
                 throw e;
             }
         }
@@ -954,7 +1167,7 @@ class StorageCompat {
             this._cache.contacts[cacheIdx].aliases = updatedAliases;
         }
         
-        console.log(`[StorageCompat] ✓ Unlinked "${participantName}" from contact "${contact.name}"`);
+        log.debug({ event: 'unlink_participant_success', participantName, contactId: contact.id }, 'Unlinked participant from contact');
         return { unlinked: true, contactId: contact.id, contactName: contact.name };
     }
 
@@ -976,8 +1189,7 @@ class StorageCompat {
             }
         }
         
-        console.log(`[StorageCompat] getUnmatchedParticipants: ${people.length} people, ${contacts.length} contacts, ${knownNames.size} known names`);
-        console.log(`[StorageCompat] Known names: ${[...knownNames].join(', ')}`);
+        log.debug({ event: 'get_unmatched_participants', peopleCount: people.length, contactsCount: contacts.length, knownNamesCount: knownNames.size }, 'getUnmatchedParticipants');
         
         // Filter people not in known names
         const unmatched = people.filter(p => {
@@ -985,7 +1197,7 @@ class StorageCompat {
             return name && !knownNames.has(name);
         });
         
-        console.log(`[StorageCompat] Unmatched: ${unmatched.length}`);
+        log.debug({ event: 'get_unmatched_result', unmatchedCount: unmatched.length }, 'Unmatched count');
         return unmatched;
     }
 
@@ -1009,7 +1221,7 @@ class StorageCompat {
             try {
                 await this._supabase.updateContact(id, updates);
             } catch (e) {
-                console.warn('[StorageCompat] updateContact error:', e.message);
+                log.warn({ event: 'update_contact_error', err: e.message }, 'updateContact error');
             }
         }
         return true;
@@ -1020,8 +1232,8 @@ class StorageCompat {
         if (idx === -1) return false;
         this._cache.contacts.splice(idx, 1);
         if (this._supabase) {
-            this._supabase.deleteContact(id).catch(e => 
-                console.warn('[StorageCompat] deleteContact error:', e.message)
+            this._supabase.deleteContact(id).catch(e =>
+                log.warn({ event: 'delete_contact_error', err: e.message }, 'deleteContact error')
             );
         }
         return true;
@@ -1069,7 +1281,7 @@ class StorageCompat {
             try {
                 return await this._supabase.findDuplicateContacts();
             } catch (error) {
-                console.error('[StorageCompat] Supabase findDuplicates failed:', error);
+                log.error({ event: 'find_duplicates_failed', err: error?.message }, 'Supabase findDuplicates failed');
                 // Fall through to local version
             }
         }
@@ -1130,7 +1342,7 @@ class StorageCompat {
                 this._cache.contactRelationships.push(result);
                 return result;
             } catch (e) {
-                console.error('[StorageCompat] addContactRelationship error:', e.message);
+                log.error({ event: 'add_contact_relationship_error', err: e.message }, 'addContactRelationship error');
                 throw e;
             }
         }
@@ -1162,7 +1374,7 @@ class StorageCompat {
                 }
                 return result;
             } catch (e) {
-                console.error('[StorageCompat] removeContactRelationship error:', e.message);
+                log.error({ event: 'remove_contact_relationship_error', err: e.message }, 'removeContactRelationship error');
                 return false;
             }
         }
@@ -1344,7 +1556,7 @@ class StorageCompat {
             try {
                 return await this._supabase.mergeContacts(contactIds);
             } catch (error) {
-                console.error('[StorageCompat] Supabase merge failed:', error);
+                log.error({ event: 'supabase_merge_failed', err: error?.message }, 'Supabase merge failed');
                 throw error;
             }
         }
@@ -1462,7 +1674,7 @@ class StorageCompat {
                 const teams = await this._supabase.getTeams();
                 return teams || [];
             } catch (e) {
-                console.warn('[StorageCompat] getTeams() error:', e.message);
+                log.warn({ event: 'get_teams_error', reason: e.message }, 'getTeams error');
             }
         }
         return this.contacts?.teams || [];
@@ -1481,10 +1693,10 @@ class StorageCompat {
         if (this._supabase) {
             try {
                 const result = await this._supabase.addTeam(team);
-                console.log(`[StorageCompat] addTeam() to Supabase: ${team.name} (${result?.id})`);
+                log.debug({ event: 'add_team_supabase', teamName: team.name, teamId: result?.id }, 'addTeam to Supabase');
                 return result?.id;
             } catch (e) {
-                console.warn('[StorageCompat] addTeam() Supabase error:', e.message);
+                log.warn({ event: 'add_team_supabase_error', reason: e.message }, 'addTeam Supabase error');
                 throw e;
             }
         }
@@ -1500,7 +1712,7 @@ class StorageCompat {
             createdAt: new Date().toISOString()
         };
         this.contacts.teams.push(newTeam);
-        console.log(`[StorageCompat] addTeam() to memory: ${newTeam.name} (${newTeam.id})`);
+        log.debug({ event: 'add_team_memory', teamName: newTeam.name, teamId: newTeam.id }, 'addTeam to memory');
         return newTeam.id;
     }
 
@@ -1509,7 +1721,7 @@ class StorageCompat {
             try {
                 return await this._supabase.getTeamById(id);
             } catch (e) {
-                console.warn('[StorageCompat] getTeamById() error:', e.message);
+                log.warn({ event: 'get_team_by_id_error', reason: e.message }, 'getTeamById error');
             }
         }
         return this.contacts?.teams?.find(t => t.id === id);
@@ -1525,7 +1737,7 @@ class StorageCompat {
                 await this._supabase.updateTeam(id, updates);
                 return true;
             } catch (e) {
-                console.warn('[StorageCompat] updateTeam() error:', e.message);
+                log.warn({ event: 'update_team_error', reason: e.message }, 'updateTeam error');
             }
         }
         if (!this.contacts?.teams) return false;
@@ -1541,7 +1753,7 @@ class StorageCompat {
                 await this._supabase.deleteTeam(id);
                 return true;
             } catch (e) {
-                console.warn('[StorageCompat] deleteTeam() error:', e.message);
+                log.warn({ event: 'delete_team_error', reason: e.message }, 'deleteTeam error');
             }
         }
         if (!this.contacts?.teams) return false;
@@ -1567,7 +1779,7 @@ class StorageCompat {
             try {
                 return await this._supabase.addTeamMember(teamId, contactId, role, isLead);
             } catch (e) {
-                console.warn('[StorageCompat] addTeamMember() error:', e.message);
+                log.warn({ event: 'add_team_member_error', reason: e.message }, 'addTeamMember error');
                 throw e;
             }
         }
@@ -1588,7 +1800,7 @@ class StorageCompat {
                 await this._supabase.removeTeamMember(teamId, contactId);
                 return true;
             } catch (e) {
-                console.warn('[StorageCompat] removeTeamMember() error:', e.message);
+                log.warn({ event: 'remove_team_member_error', reason: e.message }, 'removeTeamMember error');
                 throw e;
             }
         }
@@ -1616,7 +1828,7 @@ class StorageCompat {
                 await this._supabase.ensureTimezonesExist();
                 return await this._supabase.getTimezones();
             } catch (e) {
-                console.warn('[StorageCompat] getTimezones() error:', e.message);
+                log.warn({ event: 'get_timezones_error', reason: e.message }, 'getTimezones error');
                 // Return fallback data
                 return this._supabase?._getTimezoneData?.() || [];
             }
@@ -1635,7 +1847,7 @@ class StorageCompat {
                 await this._supabase.ensureTimezonesExist();
                 return await this._supabase.getTimezonesGrouped();
             } catch (e) {
-                console.warn('[StorageCompat] getTimezonesGrouped() error:', e.message);
+                log.warn({ event: 'get_timezones_grouped_error', reason: e.message }, 'getTimezonesGrouped error');
             }
         }
         return {};
@@ -1647,7 +1859,7 @@ class StorageCompat {
                 const team = await this._supabase.getTeamById(teamId);
                 return team?.members || [];
             } catch (e) {
-                console.warn('[StorageCompat] getTeamMembers() error:', e.message);
+                log.warn({ event: 'get_team_members_error', reason: e.message }, 'getTeamMembers error');
             }
         }
         return this.getContactsByTeam(teamId);
@@ -1740,24 +1952,23 @@ class StorageCompat {
     // ==================== Save Methods (No-op in Supabase mode) ====================
     
     saveKnowledge() {
-        // No-op in Supabase mode - data is saved on each write
-        console.log('[StorageCompat] saveKnowledge called (no-op in Supabase mode)');
+        log.debug({ event: 'save_knowledge_noop' }, 'saveKnowledge (no-op in Supabase mode)');
     }
 
     saveQuestions() {
-        console.log('[StorageCompat] saveQuestions called (no-op in Supabase mode)');
+        log.debug({ event: 'save_questions_noop' }, 'saveQuestions (no-op in Supabase mode)');
     }
 
     saveDocuments() {
-        console.log('[StorageCompat] saveDocuments called (no-op in Supabase mode)');
+        log.debug({ event: 'save_documents_noop' }, 'saveDocuments (no-op in Supabase mode)');
     }
 
     saveContacts() {
-        console.log('[StorageCompat] saveContacts called (no-op in Supabase mode)');
+        log.debug({ event: 'save_contacts_noop' }, 'saveContacts (no-op in Supabase mode)');
     }
 
     saveAll() {
-        console.log('[StorageCompat] saveAll called (no-op in Supabase mode)');
+        log.debug({ event: 'save_all_noop' }, 'saveAll (no-op in Supabase mode)');
     }
 
     /**
@@ -1792,8 +2003,8 @@ class StorageCompat {
     recordDailyStats() {
         if (this._isSupabaseMode && this._supabase && this._isValidUUID(this.currentProjectId)) {
             // Fire and forget - don't block startup
-            this._supabase.recordDailyStats().catch(e => 
-                console.warn('[StorageCompat] recordDailyStats error:', e.message)
+            this._supabase.recordDailyStats().catch(e =>
+                log.warn({ event: 'record_daily_stats_error', reason: e.message }, 'recordDailyStats error')
             );
         }
     }
@@ -2204,13 +2415,11 @@ class StorageCompat {
      */
     async initGraph(graphConfig) {
         if (!graphConfig?.enabled) {
-            console.log('[StorageCompat] Graph database disabled');
+            log.debug({ event: 'graph_disabled' }, 'Graph database disabled');
             return { ok: true, message: 'Graph disabled' };
         }
-
-        // Must have Supabase configured
         if (!this._supabase?.supabase) {
-            console.log('[StorageCompat] Supabase not configured, graph disabled');
+            log.debug({ event: 'graph_supabase_not_configured' }, 'Supabase not configured, graph disabled');
             return { ok: false, error: 'Supabase not configured' };
         }
 
@@ -2228,15 +2437,14 @@ class StorageCompat {
             const connectResult = await this.graphProvider.connect();
             
             if (!connectResult.ok) {
-                console.error('[StorageCompat] Failed to connect to Supabase graph:', connectResult.error);
+                log.warn({ event: 'graph_connect_failed', error: connectResult.error }, 'Failed to connect to Supabase graph');
                 this.graphProvider = null;
                 return connectResult;
             }
-            
-            console.log(`[StorageCompat] Connected to Supabase graph: ${graphName}`);
+            log.info({ event: 'graph_connected', graphName }, 'Connected to Supabase graph');
             return { ok: true, graphName };
         } catch (error) {
-            console.error('[StorageCompat] Graph init error:', error.message);
+            log.warn({ event: 'graph_init_error', reason: error.message }, 'Graph init error');
             this.graphProvider = null;
             return { ok: false, error: error.message };
         }
@@ -2263,7 +2471,7 @@ class StorageCompat {
             return { ok: false, error: 'Graph provider not available' };
         }
 
-        console.log('[StorageCompat] Syncing graphs with projects...');
+        log.info({ event: 'sync_graphs_start' }, 'Syncing graphs with projects');
 
         try {
             // 1. List all graphs
@@ -2300,7 +2508,7 @@ class StorageCompat {
 
             return { ok: true, graphs: allGraphs, validGraphs, orphanGraphs, deleted, dryRun };
         } catch (error) {
-            console.error('[StorageCompat] syncGraphs error:', error);
+            log.warn({ event: 'sync_graphs_error', reason: error.message }, 'syncGraphs error');
             return { ok: false, error: error.message };
         }
     }
@@ -2326,7 +2534,7 @@ class StorageCompat {
                 ...stats
             };
         } catch (error) {
-            console.error('[StorageCompat] getGraphStats error:', error);
+            log.warn({ event: 'get_graph_stats_error', reason: error.message }, 'getGraphStats error');
             return { enabled: false, error: error.message };
         }
     }
@@ -2447,7 +2655,7 @@ class StorageCompat {
                     }
                 }
             } catch (e) {
-                console.log('[StorageCompat] Contact relationships sync warning:', e.message);
+                log.warn({ event: 'sync_contact_relationships_warning', reason: e.message }, 'Contact relationships sync warning');
             }
             
             // 6. Sync Facts to graph (use prefixed IDs for consistency)
@@ -2468,11 +2676,10 @@ class StorageCompat {
                 }
             }
             
-            console.log(`[StorageCompat] syncToGraph: ${synced.nodes} nodes, ${synced.relationships} relationships`);
-            
+            log.info({ event: 'sync_to_graph_done', nodes: synced.nodes, relationships: synced.relationships }, 'syncToGraph completed');
             return { ok: true, synced };
         } catch (error) {
-            console.error('[StorageCompat] syncToGraph error:', error.message);
+            log.warn({ event: 'sync_to_graph_error', reason: error.message }, 'syncToGraph error');
             return { ok: false, error: error.message };
         }
     }
@@ -2614,7 +2821,7 @@ class StorageCompat {
                     };
                 });
             } catch (e) {
-                console.warn('[StorageCompat] Could not load history:', e.message);
+                log.warn({ event: 'load_history_error', reason: e.message }, 'Could not load history');
                 return [];
             }
         }
@@ -2651,7 +2858,7 @@ class StorageCompat {
                     details.duration_ms || null
                 );
             } catch (e) {
-                console.warn('[StorageCompat] Could not log processing:', e.message);
+                log.warn({ event: 'log_processing_error', reason: e.message }, 'Could not log processing');
             }
         }
     }
@@ -2683,7 +2890,7 @@ class StorageCompat {
                     options.duration_ms || null
                 );
             } catch (e) {
-                console.warn('[StorageCompat] Could not log file processing:', e.message);
+                log.warn({ event: 'log_file_processing_error', reason: e.message }, 'Could not log file processing');
             }
         }
     }
@@ -2697,11 +2904,9 @@ class StorageCompat {
                 const projects = await this._supabase.listProjects();
                 return projects || [];
             } catch (e) {
-                console.warn('[StorageCompat] Could not load projects from Supabase:', e.message);
+                log.warn({ event: 'load_projects_supabase_error', reason: e.message }, 'Could not load projects from Supabase');
             }
         }
-        
-        // Fallback to local
         try {
             const projectsPath = path.join(this.dataDir, 'projects.json');
             if (fs.existsSync(projectsPath)) {
@@ -2709,7 +2914,7 @@ class StorageCompat {
                 return data.projects || [];
             }
         } catch (e) {
-            console.warn('[StorageCompat] Could not load local projects:', e.message);
+            log.warn({ event: 'load_local_projects_error', reason: e.message }, 'Could not load local projects');
         }
         return [];
     }
@@ -2730,7 +2935,7 @@ class StorageCompat {
                 return data.projects || [];
             }
         } catch (e) {
-            console.warn('[StorageCompat] Could not load projects:', e.message);
+            log.warn({ event: 'load_projects_error', reason: e.message }, 'Could not load projects');
         }
         return [];
     }
@@ -3023,11 +3228,9 @@ class StorageCompat {
                 const projects = await this._supabase.listProjects();
                 return projects.find(p => p.id === projectId) || null;
             } catch (e) {
-                console.warn('[StorageCompat] getProject error:', e.message);
+                log.warn({ event: 'get_project_error', reason: e.message }, 'getProject error');
             }
         }
-        
-        // Fallback to local
         const projects = this.getProjects();
         return projects.find(p => p.id === projectId) || null;
     }
@@ -3056,7 +3259,7 @@ class StorageCompat {
                     updated_at: result.updated_at
                 };
             } catch (e) {
-                console.error('[StorageCompat] updateProject error:', e.message);
+                log.warn({ event: 'update_project_error', reason: e.message }, 'updateProject error');
                 throw e;
             }
         }
@@ -3072,7 +3275,7 @@ class StorageCompat {
                 return project;
             }
         } catch (e) {
-            console.error('[StorageCompat] Local updateProject error:', e.message);
+            log.warn({ event: 'update_project_local_error', reason: e.message }, 'Local updateProject error');
         }
         return null;
     }
@@ -3100,7 +3303,7 @@ class StorageCompat {
     setDefaultProject(projectId) {
         // In Supabase mode, just update current project
         this.currentProjectId = projectId;
-        console.log(`[StorageCompat] Default project set to: ${projectId}`);
+        log.debug({ event: 'default_project_set', projectId }, 'Default project set');
         return true;
     }
 
@@ -3115,7 +3318,7 @@ class StorageCompat {
             try {
                 return await this._supabase.getMemberRole(pid, userId);
             } catch (e) {
-                console.warn('[StorageCompat] getMemberRole error:', e.message);
+                log.warn({ event: 'get_member_role_error', reason: e.message }, 'getMemberRole error');
             }
         }
         
@@ -3156,8 +3359,7 @@ class StorageCompat {
                 
                 return await this._supabase.updateMemberRole(pid, updates, uid);
             } catch (e) {
-                console.warn('[StorageCompat] updateMemberRole error:', e.message);
-                // Fall through to legacy update
+                log.warn({ event: 'update_member_role_error', reason: e.message }, 'updateMemberRole error');
             }
         }
         
@@ -3177,7 +3379,7 @@ class StorageCompat {
                     .delete()
                     .eq('project_id', projectId);
                 
-                if (error) console.warn('[StorageCompat] Error deleting project members:', error.message);
+                if (error) log.warn({ event: 'delete_project_members_error', reason: error.message }, 'Error deleting project members');
                 
                 const { error: projectError } = await this._supabase.supabase
                     .from('projects')
@@ -3185,7 +3387,7 @@ class StorageCompat {
                     .eq('id', projectId);
                 
                 if (projectError) {
-                    console.error('[StorageCompat] Error deleting project:', projectError.message);
+                    log.warn({ event: 'delete_project_error', reason: projectError.message }, 'Error deleting project');
                     return false;
                 }
                 
@@ -3200,7 +3402,7 @@ class StorageCompat {
                 
                 return true;
             } catch (e) {
-                console.error('[StorageCompat] deleteProject error:', e.message);
+                log.warn({ event: 'delete_project_error', reason: e.message }, 'deleteProject error');
                 return false;
             }
         }
@@ -3219,19 +3421,22 @@ class StorageCompat {
                 return true;
             }
         } catch (e) {
-            console.error('[StorageCompat] Local deleteProject error:', e.message);
+            log.warn({ event: 'delete_project_local_error', reason: e.message }, 'Local deleteProject error');
         }
         return false;
     }
 
     /**
      * Create a new project
+     * @param {string} name
+     * @param {string} userRole
+     * @param {string} [companyId] - optional; used when creating via Supabase (user flow uses createProject with auth)
      */
-    async createProject(name, userRole = '') {
+    async createProject(name, userRole = '', companyId = null) {
         if (this._isSupabaseMode && this._supabase) {
             try {
-                // Try to create via Supabase
-                const project = await this._supabase.createProjectWithServiceKey(name, userRole);
+                // Try to create via Supabase (createProjectWithServiceKey resolves company for system user)
+                const project = await this._supabase.createProject(name, userRole, companyId);
                 
                 // Update current project
                 this.currentProjectId = project.id;
@@ -3245,7 +3450,7 @@ class StorageCompat {
                 
                 return project;
             } catch (e) {
-                console.error('[StorageCompat] Supabase createProject failed:', e.message);
+                log.warn({ event: 'create_project_supabase_failed', reason: e.message }, 'Supabase createProject failed');
                 throw e;
             }
         }
@@ -3701,6 +3906,16 @@ class StorageCompat {
             items.push({ id: `person_${p.id}`, type: 'person', text: `${p.name} - ${p.role || 'unknown role'}`, data: p });
         });
 
+        (this._cache.actions || []).forEach((a) => {
+            const title = (a.task || a.content || '').trim();
+            const desc = (a.description || '').trim();
+            const status = (a.status || 'pending').toLowerCase();
+            const priority = (a.priority || 'medium').toLowerCase();
+            const due = (a.due_date || a.deadline || '').toString();
+            const text = `[Task] ${title} - ${desc}. Status: ${status}, Priority: ${priority}. Due: ${due}`.trim();
+            items.push({ id: `action_item_${a.id}`, type: 'action_item', text: text || `Task ${a.id}`, data: a });
+        });
+
         return items;
     }
 
@@ -3750,13 +3965,24 @@ class StorageCompat {
      * @returns {object}
      */
     async saveEmbeddings(embeddings) {
-        if (this._isSupabaseMode && this._supabase) {
-            // In Supabase mode, embeddings should be upserted individually
-            // This method is kept for compatibility
-            console.log('[StorageCompat] saveEmbeddings: use upsertEmbedding for Supabase mode');
-            return { version: 'supabase', count: embeddings.length };
+        if (this._isSupabaseMode && this._supabase && typeof this._supabase.upsertEmbedding === 'function') {
+            let count = 0;
+            for (const item of embeddings || []) {
+                if (!item.embedding || !Array.isArray(item.embedding)) continue;
+                const entityType = item.type || (item.id && item.id.split('_')[0]);
+                const entityId = item.id && entityType ? item.id.slice(String(entityType).length + 1) : item.id;
+                if (!entityId) continue;
+                try {
+                    await this._supabase.upsertEmbedding(entityType, entityId, item.text || '', item.embedding);
+                    count++;
+                } catch (err) {
+                    log.warn({ event: 'save_embedding_item_error', entityType, entityId, reason: err.message }, 'upsertEmbedding item failed');
+                }
+            }
+            log.debug({ event: 'save_embeddings_supabase', count }, 'saveEmbeddings: upserted to Supabase');
+            return { version: 'supabase', count };
         }
-        return { version: 'local', count: embeddings.length };
+        return { version: 'local', count: (embeddings || []).length };
     }
 
     /**
@@ -3764,7 +3990,7 @@ class StorageCompat {
      */
     invalidateRAGCache() {
         // In Supabase mode, there's no local cache to invalidate
-        console.log('[StorageCompat] RAG cache invalidated (Supabase mode uses DB)');
+        log.debug({ event: 'rag_cache_invalidated' }, 'RAG cache invalidated (Supabase mode uses DB)');
     }
 
     /**
@@ -3789,7 +4015,7 @@ class StorageCompat {
                     isSupabaseMode: true
                 };
             } catch (e) {
-                console.warn('[StorageCompat] getEmbeddingStatus error:', e.message);
+                log.warn({ event: 'get_embedding_status_error', reason: e.message }, 'getEmbeddingStatus error');
             }
         }
         return { indexed: false, count: 0, total: this.getAllItemsForEmbedding().length, model: null };
@@ -3853,7 +4079,7 @@ class StorageCompat {
         const { limit = 15, threshold = 0.5, entityTypes = null, useHybrid = true } = options;
 
         if (!this._isSupabaseMode || !this._supabase) {
-            console.warn('[StorageCompat] searchWithEmbedding requires Supabase mode');
+            log.warn({ event: 'search_embedding_requires_supabase' }, 'searchWithEmbedding requires Supabase mode');
             return [];
         }
 
@@ -3894,7 +4120,7 @@ class StorageCompat {
 
             return hybridResults;
         } catch (e) {
-            console.error('[StorageCompat] searchWithEmbedding error:', e.message);
+            log.warn({ event: 'search_with_embedding_error', reason: e.message }, 'searchWithEmbedding error');
             // Fallback to keyword-only
             return this.hybridSearch(query, [], { semanticWeight: 0, keywordWeight: 1, limit });
         }
@@ -3959,10 +4185,10 @@ async function createCompatStorage(dataDir) {
                 });
             }
             supabaseStorage = supabaseHelper.getStorage();
-            console.log('[StorageCompat] Using Supabase storage');
+            log.info({ event: 'storage_using_supabase' }, 'Using Supabase storage');
         }
     } catch (e) {
-        console.warn('[StorageCompat] Supabase not available:', e.message);
+        log.warn({ event: 'storage_supabase_unavailable', err: e.message }, 'Supabase not available');
     }
     
     const compat = new StorageCompat(dataDir, supabaseStorage);

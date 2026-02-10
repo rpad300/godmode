@@ -47,12 +47,12 @@ export function createFileUploader(props: FileUploaderProps = {}): HTMLElement {
                ${allowedTypes ? `accept="${allowedTypes.join(',')}"` : ''} hidden>
       </div>
     </div>
-    <div class="file-queue" id="file-queue" style="display: none;"></div>
-    <div class="upload-actions" id="upload-actions" style="display: none;">
+    <div class="file-queue hidden" id="file-queue"></div>
+    <div class="upload-actions hidden" id="upload-actions">
       <button class="btn btn-secondary" id="clear-queue-btn">Clear</button>
       <button class="btn btn-primary" id="upload-btn">Upload Files</button>
     </div>
-    <div class="processing-status" id="processing-status" style="display: none;"></div>
+    <div class="processing-status hidden" id="processing-status"></div>
   `;
 
   const dropzone = uploader.querySelector('#dropzone') as HTMLElement;
@@ -146,13 +146,13 @@ function addFilesToQueue(files: File[], maxSize: number): void {
  */
 function updateQueueUI(container: HTMLElement, actionsContainer: HTMLElement): void {
   if (fileQueue.length === 0) {
-    container.style.display = 'none';
-    actionsContainer.style.display = 'none';
+    container.classList.add('hidden');
+    actionsContainer.classList.add('hidden');
     return;
   }
 
-  container.style.display = 'block';
-  actionsContainer.style.display = 'flex';
+  container.classList.remove('hidden');
+  actionsContainer.classList.remove('hidden');
 
   container.innerHTML = fileQueue.map(qf => `
     <div class="queued-file ${qf.status}" data-id="${qf.id}">
@@ -164,7 +164,7 @@ function updateQueueUI(container: HTMLElement, actionsContainer: HTMLElement): v
       <div class="file-status">
         ${qf.status === 'uploading' ? `
           <div class="progress-bar">
-            <div class="progress-fill" style="width: ${qf.progress}%"></div>
+            <div class="progress-fill" style="--progress: ${qf.progress}"></div>
           </div>
           <span class="progress-text">${qf.progress}%</span>
         ` : qf.status === 'complete' ? `
@@ -290,9 +290,7 @@ function pollProcessingStatus(container: HTMLElement): void {
           clearInterval(pollingInterval);
           pollingInterval = null;
         }
-        setTimeout(() => {
-          container.style.display = 'none';
-        }, 3000);
+        setTimeout(() => container.classList.add('hidden'), 3000);
       }
     } catch {
       if (pollingInterval) {
@@ -307,7 +305,7 @@ function pollProcessingStatus(container: HTMLElement): void {
  * Render processing status
  */
 function renderProcessingStatus(container: HTMLElement, status: ProcessingStatus): void {
-  container.style.display = 'block';
+  container.classList.remove('hidden');
 
   container.innerHTML = `
     <div class="processing-header">
@@ -323,7 +321,7 @@ function renderProcessingStatus(container: HTMLElement, status: ProcessingStatus
     ${status.isProcessing ? `
       <div class="processing-progress">
         <div class="progress-bar">
-          <div class="progress-fill" style="width: ${(status.completedCount / (status.completedCount + status.queueLength + 1)) * 100}%"></div>
+          <div class="progress-fill" style="--progress: ${(status.completedCount / (status.completedCount + status.queueLength + 1)) * 100}"></div>
         </div>
       </div>
     ` : ''}

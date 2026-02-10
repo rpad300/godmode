@@ -4,6 +4,7 @@
  */
 
 const { parseUrl, parseBody } = require('../../server/request');
+const { getLogger } = require('../../server/requestContext');
 const { jsonResponse } = require('../../server/response');
 
 /**
@@ -13,7 +14,7 @@ const { jsonResponse } = require('../../server/response');
  */
 async function handleCosts(ctx) {
     const { req, res, pathname, storage, llm } = ctx;
-    
+    const log = getLogger().child({ module: 'costs' });
     // Quick check - if not a costs route, return false immediately
     if (!pathname.startsWith('/api/costs')) {
         return false;
@@ -30,7 +31,7 @@ async function handleCosts(ctx) {
             const summary = await llm.costTracker.getSummaryForPeriod(validPeriod);
             jsonResponse(res, summary);
         } catch (e) {
-            console.error('[Costs] Error getting summary for period:', e);
+            log.warn({ event: 'costs_summary_period_error', reason: e?.message }, 'Error getting summary for period');
             jsonResponse(res, { error: e.message }, 500);
         }
         return true;
@@ -50,14 +51,14 @@ async function handleCosts(ctx) {
                     const recentRequests = await storage._supabase.getRecentLLMRequests(20);
                     summary.recentRequests = recentRequests || [];
                 } catch (e) {
-                    console.warn('[Costs] Could not get recent requests:', e.message);
+                    log.warn({ event: 'costs_recent_requests_error', reason: e.message }, 'Could not get recent requests');
                     summary.recentRequests = [];
                 }
             }
             
             jsonResponse(res, summary);
         } catch (e) {
-            console.error('[Costs] Error getting summary:', e);
+            log.warn({ event: 'costs_summary_error', reason: e?.message }, 'Error getting summary');
             jsonResponse(res, { error: e.message }, 500);
         }
         return true;
@@ -75,7 +76,7 @@ async function handleCosts(ctx) {
                 : [];
             jsonResponse(res, { requests });
         } catch (e) {
-            console.error('[Costs] Error getting recent requests:', e);
+            log.warn({ event: 'costs_recent_requests_error', reason: e?.message }, 'Error getting recent requests');
             jsonResponse(res, { error: e.message }, 500);
         }
         return true;
@@ -87,7 +88,7 @@ async function handleCosts(ctx) {
             const modelStats = await llm.costTracker.getModelStats();
             jsonResponse(res, { models: modelStats });
         } catch (e) {
-            console.error('[Costs] Error getting model stats:', e);
+            log.warn({ event: 'costs_model_stats_error', reason: e?.message }, 'Error getting model stats');
             jsonResponse(res, { error: e.message }, 500);
         }
         return true;
@@ -150,7 +151,7 @@ async function handleCosts(ctx) {
                 res.end(JSON.stringify(summary, null, 2));
             }
         } catch (e) {
-            console.error('[Costs] Export error:', e);
+            log.warn({ event: 'costs_export_error', reason: e?.message }, 'Export error');
             jsonResponse(res, { error: e.message }, 500);
         }
         return true;
@@ -169,7 +170,7 @@ async function handleCosts(ctx) {
                 : null;
             jsonResponse(res, { budget });
         } catch (e) {
-            console.error('[Costs] Error getting budget:', e);
+            log.warn({ event: 'costs_budget_get_error', reason: e?.message }, 'Error getting budget');
             jsonResponse(res, { error: e.message }, 500);
         }
         return true;
@@ -196,7 +197,7 @@ async function handleCosts(ctx) {
                 : null;
             jsonResponse(res, { success: true, budget });
         } catch (e) {
-            console.error('[Costs] Error setting budget:', e);
+            log.warn({ event: 'costs_budget_set_error', reason: e?.message }, 'Error setting budget');
             jsonResponse(res, { error: e.message }, 500);
         }
         return true;

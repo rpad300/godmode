@@ -9,6 +9,9 @@
 const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
+const { logger: rootLogger, logError } = require('../logger');
+
+const log = rootLogger.child({ module: 'supabase' });
 
 // Fix module resolution for project named 'node_modules'
 const modulePath = path.join(__dirname, '..', '..', 'node_modules');
@@ -104,13 +107,13 @@ class SupabaseStorage {
             .single();
 
         if (existingProject) {
-            console.log(`[SupabaseStorage] Found project by legacy_id: ${legacyId} -> ${existingProject.id}`);
+            log.debug({ event: 'legacy_project_found', legacyId, resolvedId: existingProject.id }, 'Found project by legacy_id');
             return existingProject;
         }
 
         // Not found - create new project with legacy_id
         // Note: This requires a system user or service-level operation
-        console.log(`[SupabaseStorage] Creating new project for legacy_id: ${legacyId}`);
+        log.info({ event: 'legacy_project_create', legacyId }, 'Creating new project for legacy_id');
         
         const { data: newProject, error: createError } = await this.supabase
             .from('projects')
@@ -123,11 +126,11 @@ class SupabaseStorage {
             .single();
 
         if (createError) {
-            console.warn(`[SupabaseStorage] Could not create project: ${createError.message}`);
+            log.warn({ event: 'project_create_failed', legacyId, err: createError.message }, 'Could not create project');
             return null;
         }
 
-        console.log(`[SupabaseStorage] Created project: ${newProject.name} (${newProject.id})`);
+        log.info({ event: 'project_created', projectId: newProject.id, name: newProject.name }, 'Created project');
         return newProject;
     }
 
@@ -154,12 +157,12 @@ class SupabaseStorage {
         if (project) {
             this.currentProjectId = project.id;
             this._cache.clear();
-            console.log(`[SupabaseStorage] Mapped legacy ID ${projectId} -> ${project.id}`);
+            log.debug({ event: 'legacy_id_mapped', projectId, resolvedId: project.id }, 'Mapped legacy ID');
             return project.id;
         }
 
         // Fallback: use the legacy ID directly (queries will fail but at least we don't crash)
-        console.warn(`[SupabaseStorage] Using legacy ID directly (may cause query errors): ${projectId}`);
+        log.warn({ event: 'legacy_id_unresolved', projectId }, 'Using legacy ID directly (may cause query errors)');
         this.currentProjectId = projectId;
         this._cache.clear();
         return projectId;
@@ -167,8 +170,11 @@ class SupabaseStorage {
 
     /**
      * Create a new project
+     * @param {string} name
+     * @param {string} userRole
+     * @param {string} [companyId] - optional; if missing, uses first company of user or creates "Minha Empresa"
      */
-    async createProject(name, userRole = '') {
+    async createProject(name, userRole = '', companyId = null) {
         if (!name || name.trim().length === 0) {
             throw new Error('Project name is required');
         }
@@ -176,11 +182,22 @@ class SupabaseStorage {
         const user = await this.getCurrentUser();
         if (!user) throw new Error('Authentication required');
 
+        if (!companyId) {
+            const { data: list } = await this.supabase.from('companies').select('id').eq('owner_id', user.id).order('name').limit(1);
+            if (list?.length) companyId = list[0].id;
+            else {
+                const { data: created, error: createErr } = await this.supabase.from('companies').insert({ name: 'Minha Empresa', owner_id: user.id }).select('id').single();
+                if (createErr || !created?.id) throw new Error(createErr?.message || 'Could not create default company');
+                companyId = created.id;
+            }
+        }
+
         const { data, error } = await this.supabase
             .from('projects')
             .insert({
                 name: name.trim(),
                 owner_id: user.id,
+                company_id: companyId,
                 settings: { userRole: userRole || '' }
             })
             .select()
@@ -211,7 +228,7 @@ class SupabaseStorage {
         // Sync to FalkorDB via outbox
         await this._addToOutbox('project.created', 'CREATE', 'Project', data.id, data);
 
-        console.log(`Project created: ${name} (${data.id})`);
+        log.info({ event: 'project_created', projectId: data.id, name }, 'Project created');
         return data;
     }
 
@@ -244,7 +261,7 @@ class SupabaseStorage {
             });
             
             if (userError) {
-                console.error('[SupabaseStorage] Could not create system user:', userError.message);
+                log.error({ event: 'system_user_create_failed', err: userError.message }, 'Could not create system user');
                 throw new Error('Could not create system user');
             }
             
@@ -259,12 +276,23 @@ class SupabaseStorage {
             }, { onConflict: 'id' });
         }
 
+        // Get or create company for system user
+        let companyId = null;
+        const { data: companyList } = await this.supabase.from('companies').select('id').eq('owner_id', systemUserId).limit(1);
+        if (companyList?.length) companyId = companyList[0].id;
+        else {
+            const { data: newCompany, error: companyErr } = await this.supabase.from('companies').insert({ name: 'System', owner_id: systemUserId }).select('id').single();
+            if (companyErr || !newCompany?.id) throw new Error(companyErr?.message || 'Could not create system company');
+            companyId = newCompany.id;
+        }
+
         // Create the project
         const { data, error } = await this.supabase
             .from('projects')
             .insert({
                 name: name.trim(),
                 owner_id: systemUserId,
+                company_id: companyId,
                 settings: { userRole: userRole || '' }
             })
             .select()
@@ -281,7 +309,7 @@ class SupabaseStorage {
             user_role_prompt: null
         }, { onConflict: 'project_id,user_id' });
 
-        console.log(`[SupabaseStorage] Project created with service key: ${name} (${data.id})`);
+        log.info({ event: 'project_created_service_key', projectId: data.id, name }, 'Project created with service key');
         return {
             id: data.id,
             name: data.name,
@@ -335,7 +363,7 @@ class SupabaseStorage {
             .single();
 
         if (error) {
-            console.warn('[SupabaseStorage] getMemberRole error:', error.message);
+            log.warn({ event: 'db_query_failed', table: 'project_members', operation: 'select', err: error.message }, 'getMemberRole error');
             return null;
         }
 
@@ -374,7 +402,7 @@ class SupabaseStorage {
             .single();
 
         if (error) {
-            console.error('[SupabaseStorage] updateMemberRole error:', error.message);
+            log.error({ event: 'db_query_failed', table: 'project_members', operation: 'update', err: error.message }, 'updateMemberRole error');
             throw error;
         }
 
@@ -396,6 +424,8 @@ class SupabaseStorage {
             .from('projects')
             .select(`
                 *,
+                company_id,
+                company:companies(id, name, logo_url, brand_assets),
                 project_members!inner(role),
                 _stats:stats_history(
                     facts_count, questions_count, documents_count,
@@ -434,23 +464,25 @@ class SupabaseStorage {
         const { data, error } = await this.supabase
             .from('projects')
             .select(`
-                id, name, legacy_id, settings, created_at, updated_at,
+                id, name, legacy_id, company_id, settings, created_at, updated_at,
+                company:companies(id, name, logo_url, brand_assets),
                 project_members(user_role, user_role_prompt, role)
             `)
             .order('updated_at', { ascending: false });
 
         if (error) {
-            console.warn('[SupabaseStorage] listProjects error:', error.message);
+            log.warn({ event: 'db_query_failed', table: 'projects', operation: 'select', err: error.message }, 'listProjects error');
             return [];
         }
 
         return (data || []).map(p => {
-            // Get the owner's role (or first member)
             const owner = p.project_members?.find(m => m.role === 'owner') || p.project_members?.[0];
             return {
                 id: p.id,
                 name: p.name,
                 legacyId: p.legacy_id,
+                company_id: p.company_id,
+                company: p.company,
                 userRole: owner?.user_role || p.settings?.userRole || '',
                 userRolePrompt: owner?.user_role_prompt || p.settings?.userRolePrompt || '',
                 created_at: p.created_at,
@@ -458,6 +490,20 @@ class SupabaseStorage {
                 isCurrent: p.id === this.currentProjectId
             };
         });
+    }
+
+    /**
+     * Get a single project by ID (with company for branding/templates)
+     */
+    async getProject(projectId) {
+        if (!projectId) return null;
+        const { data, error } = await this.supabase
+            .from('projects')
+            .select('*, company:companies(id, name, logo_url, brand_assets, a4_template_html, ppt_template_html)')
+            .eq('id', projectId)
+            .single();
+        if (error || !data) return null;
+        return { ...data, company: data.company };
     }
 
     /**
@@ -494,7 +540,7 @@ class SupabaseStorage {
             .update({ updated_at: new Date().toISOString() })
             .eq('id', projectId);
 
-        console.log(`Switched to project: ${data.name} (${projectId})`);
+        log.debug({ event: 'project_switched', projectId, name: data?.name }, 'Switched to project');
         return data;
     }
 
@@ -535,7 +581,7 @@ class SupabaseStorage {
             this.currentProjectId = null;
         }
 
-        console.log(`Project deleted: ${projectId}`);
+        log.info({ event: 'project_deleted', projectId }, 'Project deleted');
     }
 
     /**
@@ -593,7 +639,7 @@ class SupabaseStorage {
                     }, userId);
                 }
             } catch (e) {
-                console.warn('[SupabaseStorage] Could not update member role:', e.message);
+                log.warn({ event: 'db_query_failed', table: 'project_members', operation: 'update', err: e.message }, 'Could not update member role');
             }
         }
 
@@ -682,7 +728,9 @@ class SupabaseStorage {
                 content: doc.content || null,  // Store raw content for analysis
                 status: doc.status || 'pending',
                 doc_type: doc.doc_type || 'document',
-                uploaded_by: user?.id
+                uploaded_by: user?.id,
+                sprint_id: doc.sprint_id || doc.sprintId || null,
+                action_id: doc.action_id || doc.actionId || null
             })
             .select()
             .single();
@@ -777,7 +825,7 @@ class SupabaseStorage {
      * Update a document with AI-generated metadata (title, summary)
      */
     async updateDocument(id, updates) {
-        const allowedFields = ['title', 'summary', 'ai_title', 'ai_summary', 'status', 'extraction_result', 'content'];
+        const allowedFields = ['title', 'summary', 'ai_title', 'ai_summary', 'status', 'extraction_result', 'content', 'content_path'];
         const updateData = {};
         
         for (const [key, value] of Object.entries(updates)) {
@@ -805,11 +853,11 @@ class SupabaseStorage {
             .single();
 
         if (error) {
-            console.error('[Supabase] Failed to update document:', error.message);
+            log.error({ event: 'db_query_failed', table: 'documents', operation: 'update', err: error.message }, 'Failed to update document');
             throw error;
         }
 
-        console.log(`[Supabase] Document ${id} updated:`, Object.keys(updateData).join(', '));
+        log.debug({ event: 'document_updated', documentId: id, keys: Object.keys(updateData) }, 'Document updated');
         return data;
     }
 
@@ -878,26 +926,27 @@ class SupabaseStorage {
             });
         }
 
-        // Delete related entities
+        // Delete related entities (parallel)
         const entitiesToDelete = ['facts', 'decisions', 'risks', 'action_items', 'knowledge_questions', 'people'];
-        
-        for (const entity of entitiesToDelete) {
+        const entityPromises = entitiesToDelete.map(async (entity) => {
+            const key = entity.replace('action_items', 'actions').replace('knowledge_questions', 'questions');
             if (softDelete) {
                 const { count } = await this.supabase
                     .from(entity)
                     .update({ deleted_at: new Date().toISOString() })
                     .eq('source_document_id', documentId)
                     .select('id', { count: 'exact', head: true });
-                results.deleted[entity.replace('action_items', 'actions').replace('knowledge_questions', 'questions')] = count || 0;
-            } else {
-                const { count } = await this.supabase
-                    .from(entity)
-                    .delete()
-                    .eq('source_document_id', documentId)
-                    .select('id', { count: 'exact', head: true });
-                results.deleted[entity.replace('action_items', 'actions').replace('knowledge_questions', 'questions')] = count || 0;
+                return { key, count: count || 0 };
             }
-        }
+            const { count } = await this.supabase
+                .from(entity)
+                .delete()
+                .eq('source_document_id', documentId)
+                .select('id', { count: 'exact', head: true });
+            return { key, count: count || 0 };
+        });
+        const entityResults = await Promise.all(entityPromises);
+        entityResults.forEach(({ key, count }) => { results.deleted[key] = count; });
 
         // Delete embeddings
         const { count: embeddingsCount } = await this.supabase
@@ -927,7 +976,7 @@ class SupabaseStorage {
                     fs.unlinkSync(doc.filepath);
                 }
             } catch (e) {
-                console.warn(`Could not delete physical file: ${e.message}`);
+                log.warn({ event: 'file_delete_failed', err: e.message }, 'Could not delete physical file');
             }
         }
 
@@ -971,7 +1020,7 @@ class SupabaseStorage {
             const existing = await this.getFacts();
             const dupCheck = this._findDuplicate(content, existing);
             if (dupCheck.isDuplicate) {
-                console.log(`Duplicate fact found (${(dupCheck.similarity * 100).toFixed(0)}% similar)`);
+                log.debug({ event: 'fact_duplicate_found', similarity: dupCheck.similarity }, 'Duplicate fact found');
                 return { duplicate: true, existing: dupCheck.match, similarity: dupCheck.similarity };
             }
         }
@@ -1013,6 +1062,79 @@ class SupabaseStorage {
         await this._addToOutbox('fact.created', 'CREATE', 'Fact', data.id, data);
 
         return data;
+    }
+
+    /**
+     * Add multiple facts in one insert (batch). Use for bulk extract/import to avoid N+1.
+     * Does not run per-fact duplicate check when skipDedup is true; does not emit per-fact
+     * events or outbox (FalkorDB sync) for performance.
+     * @param {Array<object>} facts - Array of fact objects (same shape as addFact)
+     * @param {{ skipDedup?: boolean }} [options] - skipDedup: true to skip duplicate check (default true for bulk)
+     * @returns {{ data: Array<object>, inserted: number }}
+     */
+    async addFacts(facts, options = {}) {
+        const skipDedup = options.skipDedup !== false;
+        if (!Array.isArray(facts) || facts.length === 0) {
+            return { data: [], inserted: 0 };
+        }
+
+        const projectId = this.getProjectId();
+        const user = await this.getCurrentUser();
+
+        const rows = [];
+        for (const fact of facts) {
+            const content = (fact.content && typeof fact.content === 'string') ? fact.content.trim() : '';
+            if (content.length < 10) continue;
+
+            const category = this._normalizeCategory(fact.category);
+            const sourceDocId = fact.source_document_id || fact.document_id || null;
+            const generationSource = sourceDocId ? 'extracted' : (fact.source_file === 'quick_capture' ? 'quick_capture' : 'manual');
+
+            rows.push({
+                project_id: projectId,
+                content,
+                category,
+                confidence: fact.confidence ?? 0.8,
+                source_document_id: sourceDocId,
+                source_file: fact.source_file ?? null,
+                generation_source: generationSource,
+                metadata: fact.metadata || {},
+                created_by: user?.id,
+                verified: fact.verified === true,
+                verified_by: fact.verified === true ? user?.id : null,
+                verified_at: fact.verified === true ? new Date().toISOString() : null
+            });
+        }
+
+        if (rows.length === 0) return { data: [], inserted: 0 };
+
+        if (!skipDedup) {
+            const existing = await this.getFacts();
+            const existingSet = new Set(existing.map(f => f.content?.toLowerCase().trim()));
+            const filtered = rows.filter(r => !existingSet.has(r.content?.toLowerCase().trim()));
+            if (filtered.length === 0) return { data: [], inserted: 0 };
+            rows.length = 0;
+            rows.push(...filtered);
+        }
+
+        const { data: inserted, error } = await this.supabase
+            .from('facts')
+            .insert(rows)
+            .select();
+
+        if (error) throw error;
+
+        const count = Array.isArray(inserted) ? inserted.length : 0;
+        if (count > 0) {
+            await this._addChangeLogBulk((inserted || []).map(row => ({
+                action: 'add',
+                entityType: 'fact',
+                entityId: row.id,
+                sourceFile: row.source_file
+            })));
+        }
+
+        return { data: inserted || [], inserted: count };
     }
 
     /**
@@ -1136,7 +1258,7 @@ class SupabaseStorage {
                         ignoreDuplicates: false
                     });
                 } catch (e) {
-                    console.warn('[Storage] fact_similarities upsert failed:', e.message);
+                    log.warn({ event: 'fact_similarities_upsert_failed', reason: e.message }, 'fact_similarities upsert failed');
                 }
             }
             return [...result, ...toCache];
@@ -1158,7 +1280,7 @@ class SupabaseStorage {
                 actor_name: actorName
             });
         } catch (e) {
-            console.warn(`Failed to add fact event: ${e.message}`);
+            log.warn({ event: 'fact_event_add_failed', factId, eventType, reason: e.message }, 'Failed to add fact event');
         }
     }
 
@@ -1166,7 +1288,8 @@ class SupabaseStorage {
      * Update a fact
      */
     async updateFact(id, updates) {
-        const { data: existing } = await this.supabase.from('facts').select('*').eq('id', id).single();
+        const projectId = this.getProjectId();
+        const { data: existing } = await this.supabase.from('facts').select('*').eq('id', id).eq('project_id', projectId).single();
         const user = await this.getCurrentUser();
 
         const updatePayload = {
@@ -1185,6 +1308,7 @@ class SupabaseStorage {
             .from('facts')
             .update(updatePayload)
             .eq('id', id)
+            .eq('project_id', projectId)
             .select()
             .single();
 
@@ -1209,7 +1333,8 @@ class SupabaseStorage {
      * Delete a fact
      */
     async deleteFact(id, soft = true) {
-        const { data: existing } = await this.supabase.from('facts').select('*').eq('id', id).single();
+        const projectId = this.getProjectId();
+        const { data: existing } = await this.supabase.from('facts').select('*').eq('id', id).eq('project_id', projectId).single();
 
         const user = await this.getCurrentUser();
         await this._addFactEvent(id, 'deleted', { reason: soft ? 'soft' : 'hard' }, user?.id, user?.user_metadata?.name || user?.email);
@@ -1218,9 +1343,10 @@ class SupabaseStorage {
             await this.supabase
                 .from('facts')
                 .update({ deleted_at: new Date().toISOString() })
-                .eq('id', id);
+                .eq('id', id)
+                .eq('project_id', projectId);
         } else {
-            await this.supabase.from('facts').delete().eq('id', id);
+            await this.supabase.from('facts').delete().eq('id', id).eq('project_id', projectId);
         }
 
         await this._addChangeLog('delete', 'fact', id, existing);
@@ -1248,7 +1374,8 @@ class SupabaseStorage {
      * Restore a soft-deleted fact (undo). Sets deleted_at = null and syncs to FalkorDB so the Fact node is recreated in the graph.
      */
     async restoreFact(id) {
-        const { data: existing } = await this.supabase.from('facts').select('*').eq('id', id).single();
+        const projectId = this.getProjectId();
+        const { data: existing } = await this.supabase.from('facts').select('*').eq('id', id).eq('project_id', projectId).single();
         if (!existing) throw new Error('Fact not found');
         if (existing.deleted_at == null) throw new Error('Fact is not deleted');
 
@@ -1256,6 +1383,7 @@ class SupabaseStorage {
             .from('facts')
             .update({ deleted_at: null })
             .eq('id', id)
+            .eq('project_id', projectId)
             .select()
             .single();
         if (error) throw error;
@@ -1335,6 +1463,41 @@ class SupabaseStorage {
     }
 
     /**
+     * Add multiple decisions in one insert (batch). No per-item events/outbox.
+     * @param {Array<object>} decisions - Same shape as addDecision
+     * @returns {{ data: Array<object>, inserted: number }}
+     */
+    async addDecisions(decisions) {
+        if (!Array.isArray(decisions) || decisions.length === 0) return { data: [], inserted: 0 };
+        const projectId = this.getProjectId();
+        const user = await this.getCurrentUser();
+        const rows = decisions.map(d => ({
+            project_id: projectId,
+            content: d.content?.trim() ?? null,
+            owner: d.owner ?? null,
+            decision_date: (d.date || d.decision_date) ?? null,
+            context: (d.context || d.rationale) ?? null,
+            status: d.status || 'active',
+            source_document_id: d.source_document_id || d.document_id || null,
+            source_file: d.source_file ?? null,
+            created_by: user?.id,
+            generation_source: d.generation_source || (d.source_document_id ? 'extracted' : 'manual'),
+            rationale: d.rationale ?? null,
+            made_by: (d.made_by || d.owner) ?? null,
+            approved_by: d.approved_by ?? null,
+            decided_at: d.decided_at ?? null,
+            impact: d.impact ?? null,
+            reversible: d.reversible ?? null,
+            summary: d.summary ?? null
+        })).filter(r => r.content);
+        if (rows.length === 0) return { data: [], inserted: 0 };
+        const { data: inserted, error } = await this.supabase.from('decisions').insert(rows).select();
+        if (error) throw error;
+        const count = Array.isArray(inserted) ? inserted.length : 0;
+        return { data: inserted || [], inserted: count };
+    }
+
+    /**
      * Get decisions
      */
     async getDecisions(status = null) {
@@ -1384,7 +1547,7 @@ class SupabaseStorage {
                 actor_name: actorName
             });
         } catch (e) {
-            console.warn(`Failed to add decision event: ${e.message}`);
+            log.warn({ event: 'decision_event_add_failed', decisionId, eventType, reason: e.message }, 'Failed to add decision event');
         }
     }
 
@@ -1420,7 +1583,8 @@ class SupabaseStorage {
      * Restore a soft-deleted decision; syncs back to FalkorDB
      */
     async restoreDecision(id) {
-        const { data: existing } = await this.supabase.from('decisions').select('*').eq('id', id).single();
+        const projectId = this.getProjectId();
+        const { data: existing } = await this.supabase.from('decisions').select('*').eq('id', id).eq('project_id', projectId).single();
         if (!existing) throw new Error('Decision not found');
         if (existing.deleted_at == null) throw new Error('Decision is not deleted');
 
@@ -1428,6 +1592,7 @@ class SupabaseStorage {
             .from('decisions')
             .update({ deleted_at: null })
             .eq('id', id)
+            .eq('project_id', projectId)
             .select()
             .single();
         if (error) throw error;
@@ -1545,7 +1710,7 @@ class SupabaseStorage {
                         ignoreDuplicates: false
                     });
                 } catch (e) {
-                    console.warn('[Storage] decision_similarities upsert failed:', e.message);
+                    log.warn({ event: 'decision_similarities_upsert_failed', reason: e.message }, 'decision_similarities upsert failed');
                 }
             }
             return [...result, ...toCache];
@@ -1616,7 +1781,7 @@ class SupabaseStorage {
                 actor_name: actorName
             });
         } catch (e) {
-            console.warn(`Failed to add risk event: ${e.message}`);
+            log.warn({ event: 'risk_event_add_failed', riskId, eventType, reason: e.message }, 'Failed to add risk event');
         }
     }
 
@@ -1652,7 +1817,8 @@ class SupabaseStorage {
      * Restore a soft-deleted risk; syncs back to FalkorDB
      */
     async restoreRisk(id) {
-        const { data: existing } = await this.supabase.from('risks').select('*').eq('id', id).single();
+        const projectId = this.getProjectId();
+        const { data: existing } = await this.supabase.from('risks').select('*').eq('id', id).eq('project_id', projectId).single();
         if (!existing) throw new Error('Risk not found');
         if (existing.deleted_at == null) throw new Error('Risk is not deleted');
 
@@ -1660,6 +1826,7 @@ class SupabaseStorage {
             .from('risks')
             .update({ deleted_at: null })
             .eq('id', id)
+            .eq('project_id', projectId)
             .select()
             .single();
         if (error) throw error;
@@ -1765,7 +1932,7 @@ class SupabaseStorage {
                 actor_name: actorName
             });
         } catch (e) {
-            console.warn(`Failed to add action event: ${e.message}`);
+            log.warn({ event: 'action_event_add_failed', actionId, eventType, reason: e.message }, 'Failed to add action event');
         }
     }
 
@@ -1783,18 +1950,23 @@ class SupabaseStorage {
     }
 
     /**
-     * Get a single action by id
+     * Get a single action by id (includes depends_on from task_dependencies)
      */
     async getAction(id) {
         const projectId = this.getProjectId();
         const { data, error } = await this.supabase
             .from('action_items')
-            .select('*')
+            .select('*, sprints(name)')
             .eq('id', id)
             .eq('project_id', projectId)
             .is('deleted_at', null)
             .single();
         if (error || !data) return null;
+        try {
+            data.depends_on = await this.getTaskDependencies(id);
+        } catch (_) {
+            data.depends_on = [];
+        }
         return data;
     }
 
@@ -1804,6 +1976,10 @@ class SupabaseStorage {
     async addAction(action) {
         const projectId = this.getProjectId();
         const user = await this.getCurrentUser();
+
+        const generationSource = action.generation_source || (action.source_document_id ? 'extracted' : (action.source_email_id ? 'extracted' : 'manual'));
+        const sourceType = action.source_type || (action.source_document_id ? 'transcript' : (action.source_email_id ? 'email' : 'manual'));
+        const supportingIds = Array.isArray(action.supporting_document_ids) ? action.supporting_document_ids : (action.supporting_document_ids ? [action.supporting_document_ids] : []);
 
         const { data, error } = await this.supabase
             .from('action_items')
@@ -1816,12 +1992,31 @@ class SupabaseStorage {
                 status: action.status || 'pending',
                 source_document_id: action.source_document_id || action.document_id || null,
                 source_file: action.source_file,
-                created_by: user?.id
+                source_email_id: action.source_email_id ?? null,
+                source_type: sourceType,
+                generation_source: generationSource,
+                requested_by: action.requested_by ?? null,
+                requested_by_contact_id: action.requested_by_contact_id ?? null,
+                supporting_document_ids: supportingIds,
+                created_by: user?.id,
+                parent_story_ref: action.parent_story_ref ?? action.parent_story ?? null,
+                parent_story_id: action.parent_story_id ?? null,
+                size_estimate: action.size_estimate ?? action.size ?? null,
+                description: action.description ?? null,
+                definition_of_done: Array.isArray(action.definition_of_done) ? action.definition_of_done : (action.definition_of_done ? [action.definition_of_done] : []),
+                acceptance_criteria: Array.isArray(action.acceptance_criteria) ? action.acceptance_criteria : (action.acceptance_criteria ? [action.acceptance_criteria] : []),
+                sprint_id: action.sprint_id ?? null,
+                task_points: action.task_points != null ? action.task_points : null,
+                decision_id: action.decision_id ?? null
             })
             .select()
             .single();
 
         if (error) throw error;
+
+        if (Array.isArray(action.depends_on) && action.depends_on.length > 0) {
+            await this.setTaskDependencies(data.id, action.depends_on);
+        }
 
         await this._addActionEvent(data.id, 'created', {}, user?.id, user?.user_metadata?.name || user?.email);
         await this._addToOutbox('action.created', 'CREATE', 'Action', data.id, data);
@@ -1829,14 +2024,295 @@ class SupabaseStorage {
     }
 
     /**
-     * Get action items
+     * Get task dependency IDs (task_ids this task depends on)
      */
-    async getActions(status = null, owner = null) {
+    async getTaskDependencies(taskId) {
+        const { data, error } = await this.supabase
+            .from('task_dependencies')
+            .select('depends_on_id')
+            .eq('task_id', taskId);
+        if (error) throw error;
+        return (data || []).map(r => r.depends_on_id);
+    }
+
+    /**
+     * Get dependencies for multiple tasks at once (task_id -> depends_on_id[])
+     */
+    async getTaskDependenciesBatch(taskIds) {
+        if (!Array.isArray(taskIds) || taskIds.length === 0) return {};
+        const { data, error } = await this.supabase
+            .from('task_dependencies')
+            .select('task_id, depends_on_id')
+            .in('task_id', taskIds);
+        if (error) throw error;
+        const map = {};
+        for (const id of taskIds) map[id] = [];
+        for (const row of data || []) {
+            if (!map[row.task_id]) map[row.task_id] = [];
+            map[row.task_id].push(row.depends_on_id);
+        }
+        return map;
+    }
+
+    /**
+     * Set task dependencies (replaces existing). dependsOnIds = array of action_item UUIDs.
+     */
+    async setTaskDependencies(taskId, dependsOnIds) {
+        await this.supabase.from('task_dependencies').delete().eq('task_id', taskId);
+        if (!Array.isArray(dependsOnIds) || dependsOnIds.length === 0) return;
+        const rows = dependsOnIds
+            .filter(id => id && String(id) !== String(taskId))
+            .map(depends_on_id => ({ task_id: taskId, depends_on_id }));
+        if (rows.length === 0) return;
+        const { error } = await this.supabase.from('task_dependencies').insert(rows);
+        if (error) throw error;
+    }
+
+    // ==================== User Stories ====================
+
+    async _addUserStoryEvent(userStoryId, eventType, eventData = {}, actorUserId = null, actorName = null) {
+        try {
+            await this.supabase.from('user_story_events').insert({
+                user_story_id: userStoryId,
+                event_type: eventType,
+                event_data: eventData,
+                actor_user_id: actorUserId,
+                actor_name: actorName
+            });
+        } catch (e) {
+            log.warn({ event: 'user_story_event_add_failed', userStoryId, eventType, reason: e.message }, 'Failed to add user story event');
+        }
+    }
+
+    async addUserStory(story) {
+        const projectId = this.getProjectId();
+        const user = await this.getCurrentUser();
+        const supportingIds = Array.isArray(story.supporting_document_ids) ? story.supporting_document_ids : (story.supporting_document_ids ? [story.supporting_document_ids] : []);
+        const { data, error } = await this.supabase
+            .from('user_stories')
+            .insert({
+                project_id: projectId,
+                title: (story.title || '').trim(),
+                description: story.description || null,
+                status: story.status || 'draft',
+                acceptance_criteria: Array.isArray(story.acceptance_criteria) ? story.acceptance_criteria : [],
+                source_document_id: story.source_document_id ?? null,
+                source_file: story.source_file ?? null,
+                source_email_id: story.source_email_id ?? null,
+                source_type: story.source_type ?? 'manual',
+                requested_by: story.requested_by ?? null,
+                requested_by_contact_id: story.requested_by_contact_id ?? null,
+                supporting_document_ids: supportingIds,
+                generation_source: story.generation_source ?? 'manual',
+                created_by: user?.id,
+                story_points: story.story_points != null ? story.story_points : null
+            })
+            .select()
+            .single();
+        if (error) throw error;
+        await this._addUserStoryEvent(data.id, 'created', {}, user?.id, user?.user_metadata?.name || user?.email);
+        return data;
+    }
+
+    async getUserStory(id) {
+        const projectId = this.getProjectId();
+        const { data, error } = await this.supabase
+            .from('user_stories')
+            .select('*')
+            .eq('id', id)
+            .eq('project_id', projectId)
+            .is('deleted_at', null)
+            .single();
+        if (error || !data) return null;
+        return data;
+    }
+
+    async getUserStories(status = null) {
+        const projectId = this.getProjectId();
+        let query = this.supabase
+            .from('user_stories')
+            .select('*')
+            .eq('project_id', projectId)
+            .is('deleted_at', null)
+            .order('created_at', { ascending: false });
+        if (status) query = query.eq('status', status);
+        const { data, error } = await query;
+        if (error) throw error;
+        return data || [];
+    }
+
+    async updateUserStory(id, updates) {
+        const projectId = this.getProjectId();
+        const user = await this.getCurrentUser();
+        const updatePayload = {};
+        if (updates.title !== undefined) updatePayload.title = String(updates.title).trim();
+        if (updates.description !== undefined) updatePayload.description = updates.description;
+        if (updates.status !== undefined) updatePayload.status = updates.status;
+        if (updates.acceptance_criteria !== undefined) updatePayload.acceptance_criteria = Array.isArray(updates.acceptance_criteria) ? updates.acceptance_criteria : [];
+        if (updates.source_document_id !== undefined) updatePayload.source_document_id = updates.source_document_id;
+        if (updates.source_file !== undefined) updatePayload.source_file = updates.source_file;
+        if (updates.source_email_id !== undefined) updatePayload.source_email_id = updates.source_email_id;
+        if (updates.source_type !== undefined) updatePayload.source_type = updates.source_type;
+        if (updates.requested_by !== undefined) updatePayload.requested_by = updates.requested_by;
+        if (updates.requested_by_contact_id !== undefined) updatePayload.requested_by_contact_id = updates.requested_by_contact_id;
+        if (updates.supporting_document_ids !== undefined) updatePayload.supporting_document_ids = Array.isArray(updates.supporting_document_ids) ? updates.supporting_document_ids : [];
+        if (updates.generation_source !== undefined) updatePayload.generation_source = updates.generation_source;
+        if (updates.story_points !== undefined) updatePayload.story_points = updates.story_points;
+        if (Object.keys(updatePayload).length === 0) return await this.getUserStory(id);
+        const { data, error } = await this.supabase
+            .from('user_stories')
+            .update(updatePayload)
+            .eq('id', id)
+            .eq('project_id', projectId)
+            .select()
+            .single();
+        if (error) throw error;
+        await this._addUserStoryEvent(id, 'updated', { changes: Object.keys(updatePayload) }, user?.id, user?.user_metadata?.name || user?.email);
+        return data;
+    }
+
+    async deleteUserStory(id, soft = true) {
+        const projectId = this.getProjectId();
+        const user = await this.getCurrentUser();
+        if (soft) {
+            await this.supabase.from('user_stories').update({ deleted_at: new Date().toISOString() }).eq('id', id).eq('project_id', projectId);
+            await this._addUserStoryEvent(id, 'deleted', { reason: 'soft' }, user?.id, user?.user_metadata?.name || user?.email);
+        } else {
+            await this.supabase.from('user_stories').delete().eq('id', id).eq('project_id', projectId);
+        }
+    }
+
+    /**
+     * List soft-deleted user stories (for restore)
+     */
+    async getDeletedUserStories() {
+        const projectId = this.getProjectId();
+        const { data, error } = await this.supabase
+            .from('user_stories')
+            .select('*')
+            .eq('project_id', projectId)
+            .not('deleted_at', 'is', null)
+            .order('deleted_at', { ascending: false });
+        if (error) throw error;
+        return data || [];
+    }
+
+    /**
+     * Restore a soft-deleted user story
+     */
+    async restoreUserStory(id) {
+        const projectId = this.getProjectId();
+        const { data: existing } = await this.supabase.from('user_stories').select('*').eq('id', id).eq('project_id', projectId).single();
+        if (!existing) throw new Error('User story not found');
+        if (existing.deleted_at == null) throw new Error('User story is not deleted');
+
+        const { data, error } = await this.supabase
+            .from('user_stories')
+            .update({ deleted_at: null })
+            .eq('id', id)
+            .eq('project_id', projectId)
+            .select()
+            .single();
+        if (error) throw error;
+
+        const user = await this.getCurrentUser();
+        await this._addUserStoryEvent(data.id, 'restored', {}, user?.id, user?.user_metadata?.name || user?.email);
+        return data;
+    }
+
+    // ==================== Sprints ====================
+
+    /**
+     * Create a sprint
+     */
+    async createSprint(projectId, data) {
+        const user = await this.getCurrentUser();
+        const { data: row, error } = await this.supabase
+            .from('sprints')
+            .insert({
+                project_id: projectId,
+                name: data.name,
+                start_date: data.start_date,
+                end_date: data.end_date,
+                context: data.context ?? null,
+                analysis_start_date: data.analysis_start_date ?? null,
+                analysis_end_date: data.analysis_end_date ?? null,
+                created_by: user?.id
+            })
+            .select()
+            .single();
+        if (error) throw error;
+        await this._addToOutbox('sprint.created', 'CREATE', 'Sprint', row.id, { id: row.id, name: row.name, start_date: row.start_date, end_date: row.end_date, context: row.context, project_id: row.project_id });
+        return row;
+    }
+
+    /**
+     * Get a single sprint by id
+     */
+    async getSprint(id) {
+        const projectId = this.getProjectId();
+        const { data, error } = await this.supabase
+            .from('sprints')
+            .select('*')
+            .eq('id', id)
+            .eq('project_id', projectId)
+            .single();
+        if (error || !data) return null;
+        return data;
+    }
+
+    /**
+     * List sprints for the current project
+     */
+    async getSprints(projectId) {
+        const pid = projectId || this.getProjectId();
+        const { data, error } = await this.supabase
+            .from('sprints')
+            .select('*')
+            .eq('project_id', pid)
+            .order('start_date', { ascending: false });
+        if (error) throw error;
+        return data || [];
+    }
+
+    /**
+     * Update a sprint
+     */
+    async updateSprint(id, updates) {
+        const projectId = this.getProjectId();
+        const payload = {};
+        if (updates.name !== undefined) payload.name = updates.name;
+        if (updates.start_date !== undefined) payload.start_date = updates.start_date;
+        if (updates.end_date !== undefined) payload.end_date = updates.end_date;
+        if (updates.context !== undefined) payload.context = updates.context;
+        if (updates.analysis_start_date !== undefined) payload.analysis_start_date = updates.analysis_start_date;
+        if (updates.analysis_end_date !== undefined) payload.analysis_end_date = updates.analysis_end_date;
+        if (Object.keys(payload).length === 0) return await this.getSprint(id);
+        payload.updated_at = new Date().toISOString();
+        const { data, error } = await this.supabase
+            .from('sprints')
+            .update(payload)
+            .eq('id', id)
+            .eq('project_id', projectId)
+            .select()
+            .single();
+        if (error) throw error;
+        return data;
+    }
+
+    /**
+     * Get action items
+     * @param {string|null} status - Filter by status
+     * @param {string|null} owner - Filter by owner
+     * @param {string|null} sprintId - Filter by sprint_id
+     * @param {string|null} decisionId - Filter by decision_id (tasks implementing this decision)
+     */
+    async getActions(status = null, owner = null, sprintId = null, decisionId = null) {
         const projectId = this.getProjectId();
 
         let query = this.supabase
             .from('action_items')
-            .select('*')
+            .select('*, sprints(name)')
             .eq('project_id', projectId)
             .is('deleted_at', null)
             .order('deadline', { ascending: true, nullsFirst: false });
@@ -1847,29 +2323,106 @@ class SupabaseStorage {
         if (owner) {
             query = query.eq('owner', owner);
         }
+        if (sprintId) {
+            query = query.eq('sprint_id', sprintId);
+        }
+        if (decisionId) {
+            query = query.eq('decision_id', decisionId);
+        }
 
         const { data, error } = await query;
         if (error) throw error;
-        return data;
+        const actions = data || [];
+        if (actions.length > 0) {
+            const depMap = await this.getTaskDependenciesBatch(actions.map(a => a.id));
+            actions.forEach(a => { a.depends_on = depMap[a.id] || []; });
+        }
+        return actions;
+    }
+
+    /**
+     * Truncate a value for timeline display (avoid wall of text in event_data.changes)
+     */
+    _truncateForTimeline(value, maxLen = 80) {
+        if (value == null) return value;
+        if (Array.isArray(value)) return value.length ? `${value.length} item(s)` : '—';
+        const s = String(value);
+        return s.length > maxLen ? s.substring(0, maxLen) + '…' : s;
     }
 
     /**
      * Update an action item
+     * Supports refined_with_ai (emit refined_with_ai event + snapshot for rollback) and restore_snapshot (apply snapshot, no full changes in timeline).
      */
     async updateAction(id, updates) {
         const user = await this.getCurrentUser();
         const previous = await this.getAction(id);
-        const updateData = {
-            task: updates.task || updates.content,
-            owner: updates.owner,
-            deadline: updates.deadline,
-            priority: updates.priority,
-            status: updates.status
-        };
+        const refinedWithAi = updates.refined_with_ai === true;
+        const restoreSnapshot = updates.restore_snapshot && typeof updates.restore_snapshot === 'object';
+
+        // Build update payload (exclude internal flags and restore_snapshot)
+        const updateData = {};
+        if (restoreSnapshot) {
+            const s = updates.restore_snapshot;
+            if (s.content !== undefined) updateData.task = s.content;
+            if (s.task !== undefined) updateData.task = s.task;
+            if (s.description !== undefined) updateData.description = s.description;
+            if (s.definition_of_done !== undefined) updateData.definition_of_done = Array.isArray(s.definition_of_done) ? s.definition_of_done : (s.definition_of_done ? [s.definition_of_done] : []);
+            if (s.acceptance_criteria !== undefined) updateData.acceptance_criteria = Array.isArray(s.acceptance_criteria) ? s.acceptance_criteria : (s.acceptance_criteria ? [s.acceptance_criteria] : []);
+            if (s.size_estimate !== undefined) updateData.size_estimate = s.size_estimate;
+        } else {
+            updateData.task = updates.task || updates.content;
+            updateData.owner = updates.owner;
+            updateData.deadline = updates.deadline;
+            updateData.priority = updates.priority;
+            updateData.status = updates.status;
+            updateData.parent_story_ref = updates.parent_story_ref ?? updates.parent_story;
+            updateData.parent_story_id = updates.parent_story_id;
+            updateData.size_estimate = updates.size_estimate ?? updates.size;
+            updateData.description = updates.description;
+            updateData.definition_of_done = updates.definition_of_done;
+            updateData.acceptance_criteria = updates.acceptance_criteria;
+            updateData.source_email_id = updates.source_email_id;
+            updateData.source_type = updates.source_type;
+            updateData.requested_by = updates.requested_by;
+            updateData.requested_by_contact_id = updates.requested_by_contact_id;
+            updateData.supporting_document_ids = Array.isArray(updates.supporting_document_ids) ? updates.supporting_document_ids : undefined;
+            updateData.sprint_id = updates.sprint_id;
+            updateData.task_points = updates.task_points;
+            updateData.decision_id = updates.decision_id !== undefined ? updates.decision_id : undefined;
+        }
         Object.keys(updateData).forEach(k => updateData[k] === undefined && delete updateData[k]);
+        if (Array.isArray(updates.depends_on)) {
+            await this.setTaskDependencies(id, updates.depends_on);
+        }
 
         if (updates.status === 'completed') {
             updateData.completed_at = new Date().toISOString();
+        }
+
+        // Only one task "Active" (in_progress) per assignee: clear in_progress on others for this owner
+        const owner = updates.owner !== undefined ? updates.owner : previous?.owner;
+        if (updateData.status === 'in_progress' && owner) {
+            await this.supabase
+                .from('action_items')
+                .update({ status: 'pending' })
+                .eq('project_id', this.getProjectId())
+                .eq('owner', owner)
+                .neq('id', id)
+                .is('deleted_at', null)
+                .eq('status', 'in_progress');
+        }
+
+        // Snapshot of previous state for refine rollback (before applying update)
+        let refineSnapshot = null;
+        if (refinedWithAi && previous) {
+            refineSnapshot = {
+                content: previous.task ?? previous.content ?? '',
+                description: previous.description ?? null,
+                definition_of_done: Array.isArray(previous.definition_of_done) ? previous.definition_of_done : (previous.definition_of_done ? [previous.definition_of_done] : []),
+                acceptance_criteria: Array.isArray(previous.acceptance_criteria) ? previous.acceptance_criteria : (previous.acceptance_criteria ? [previous.acceptance_criteria] : []),
+                size_estimate: previous.size_estimate ?? null
+            };
         }
 
         const { data, error } = await this.supabase
@@ -1881,15 +2434,30 @@ class SupabaseStorage {
 
         if (error) throw error;
 
-        const changes = [];
-        const fieldLabels = { task: 'Task', owner: 'Assignee', deadline: 'Due date', priority: 'Priority', status: 'Status' };
-        for (const [key, to] of Object.entries(updateData)) {
-            const from = previous?.[key];
-            if (from !== to && (from !== undefined || to !== undefined)) {
-                changes.push({ field: fieldLabels[key] || key, from: from ?? '', to: to ?? '' });
+        const actorName = user?.user_metadata?.name || user?.email || null;
+        const actorUserId = user?.id || null;
+
+        if (refinedWithAi && refineSnapshot) {
+            await this._addActionEvent(id, 'refined_with_ai', { snapshot: refineSnapshot, actor_name: actorName, actor_user_id: actorUserId }, actorUserId, actorName);
+        } else if (restoreSnapshot) {
+            await this._addActionEvent(id, 'rollback', { reason: 'restore_snapshot' }, actorUserId, actorName);
+        } else {
+            const changes = [];
+            const fieldLabels = { task: 'Task', owner: 'Assignee', deadline: 'Due date', priority: 'Priority', status: 'Status', parent_story_ref: 'Parent Story', size_estimate: 'Size', description: 'Description', definition_of_done: 'DoD', acceptance_criteria: 'Acceptance criteria', requested_by: 'Requested by', supporting_document_ids: 'Supporting documents', sprint_id: 'Sprint', task_points: 'Task points', decision_id: 'Decision' };
+            for (const [key, to] of Object.entries(updateData)) {
+                const from = previous?.[key];
+                if (from !== to && (from !== undefined || to !== undefined)) {
+                    const fromVal = from ?? '';
+                    const toVal = to ?? '';
+                    changes.push({
+                        field: fieldLabels[key] || key,
+                        from: this._truncateForTimeline(fromVal),
+                        to: this._truncateForTimeline(toVal)
+                    });
+                }
             }
+            await this._addActionEvent(id, 'updated', { changes }, actorUserId, actorName);
         }
-        await this._addActionEvent(id, 'updated', { changes }, user?.id, user?.user_metadata?.name || user?.email);
         await this._addToOutbox('action.updated', 'UPDATE', 'Action', id, data);
         return data;
     }
@@ -1910,6 +2478,51 @@ class SupabaseStorage {
         }
 
         await this._addToOutbox('action.deleted', 'DELETE', 'Action', id, { id });
+    }
+
+    /**
+     * List soft-deleted actions (for restore / undo)
+     */
+    async getDeletedActions() {
+        const projectId = this.getProjectId();
+        const { data, error } = await this.supabase
+            .from('action_items')
+            .select('*')
+            .eq('project_id', projectId)
+            .not('deleted_at', 'is', null)
+            .order('deleted_at', { ascending: false });
+        if (error) throw error;
+        const actions = data || [];
+        for (const a of actions) {
+            try { a.depends_on = await this.getTaskDependencies(a.id); } catch (_) { a.depends_on = []; }
+        }
+        return actions;
+    }
+
+    /**
+     * Restore a soft-deleted action (undo). Sets deleted_at = null and syncs to graph.
+     */
+    async restoreAction(id) {
+        const projectId = this.getProjectId();
+        const { data: existing } = await this.supabase.from('action_items').select('*').eq('id', id).eq('project_id', projectId).single();
+        if (!existing) throw new Error('Action not found');
+        if (existing.deleted_at == null) throw new Error('Action is not deleted');
+
+        const { data, error } = await this.supabase
+            .from('action_items')
+            .update({ deleted_at: null })
+            .eq('id', id)
+            .eq('project_id', projectId)
+            .select()
+            .single();
+        if (error) throw error;
+
+        const user = await this.getCurrentUser();
+        await this._addActionEvent(data.id, 'restored', {}, user?.id, user?.user_metadata?.name || user?.email);
+        await this._addToOutbox('action.restored', 'CREATE', 'Action', data.id, data);
+
+        try { data.depends_on = await this.getTaskDependencies(data.id); } catch (_) { data.depends_on = []; }
+        return data;
     }
 
     // ==================== Questions ====================
@@ -1965,6 +2578,48 @@ class SupabaseStorage {
 
         await this._addToOutbox('question.created', 'CREATE', 'Question', data.id, data);
         return data;
+    }
+
+    /**
+     * Add multiple questions in one insert (batch). No per-item outbox/events.
+     * @param {Array<object>} questions - Same shape as addQuestion
+     * @param {{ skipDedup?: boolean }} [options]
+     * @returns {{ data: Array<object>, inserted: number }}
+     */
+    async addQuestions(questions, options = {}) {
+        const skipDedup = options.skipDedup !== false;
+        if (!Array.isArray(questions) || questions.length === 0) return { data: [], inserted: 0 };
+        const projectId = this.getProjectId();
+        const user = await this.getCurrentUser();
+        const rows = [];
+        for (const q of questions) {
+            const content = (q.content && typeof q.content === 'string') ? q.content.trim() : '';
+            if (!content) continue;
+            rows.push({
+                project_id: projectId,
+                content,
+                priority: q.priority || 'medium',
+                status: q.status || 'open',
+                category: q.category ?? null,
+                context: q.context ?? null,
+                assigned_to: q.assigned_to ?? null,
+                source_document_id: q.source_document_id || q.document_id || null,
+                source_file: q.source_file ?? null,
+                created_by: user?.id,
+                requester_role: q.requester_role ?? null,
+                requester_role_prompt: q.requester_role_prompt ?? null,
+                requester_contact_id: q.requester_contact_id ?? null,
+                requester_name: q.requester_name ?? null,
+                ai_generated: q.ai_generated || false,
+                generation_source: q.generation_source ?? null,
+                generated_for_role: q.generated_for_role ?? null
+            });
+        }
+        if (rows.length === 0) return { data: [], inserted: 0 };
+        const { data: inserted, error } = await this.supabase.from('knowledge_questions').insert(rows).select();
+        if (error) throw error;
+        const count = Array.isArray(inserted) ? inserted.length : 0;
+        return { data: inserted || [], inserted: count };
     }
 
     /**
@@ -2236,10 +2891,10 @@ class SupabaseStorage {
     async addRelationship(fromPersonId, toPersonId, type, context = null) {
         const projectId = this.getProjectId();
 
-        // Get person names
+        // Get person names (scoped to current project)
         const [from, to] = await Promise.all([
-            this.supabase.from('people').select('name').eq('id', fromPersonId).single(),
-            this.supabase.from('people').select('name').eq('id', toPersonId).single()
+            this.supabase.from('people').select('name').eq('id', fromPersonId).eq('project_id', projectId).single(),
+            this.supabase.from('people').select('name').eq('id', toPersonId).eq('project_id', projectId).single()
         ]);
 
         const { data, error } = await this.supabase
@@ -2340,7 +2995,7 @@ class SupabaseStorage {
                     addedBy: user?.id
                 });
             } catch (e) {
-                console.error('[SupabaseStorage] Failed to add contact_project link:', e.message);
+                log.error({ event: 'db_query_failed', table: 'contact_projects', operation: 'insert', err: e.message }, 'Failed to add contact_project link');
             }
         }
 
@@ -2352,7 +3007,6 @@ class SupabaseStorage {
      */
     async getContacts(filter = null) {
         const projectId = this.getProjectId();
-        console.log('[Supabase] getContacts for project:', projectId);
 
         // First, get contact IDs from contact_projects table
         const { data: contactProjectLinks, error: linkError } = await this.supabase
@@ -2361,11 +3015,10 @@ class SupabaseStorage {
             .eq('project_id', projectId);
 
         if (linkError) {
-            console.warn('[Supabase] Error fetching contact_projects:', linkError.message);
+            log.warn({ event: 'db_query_failed', table: 'contact_projects', operation: 'select', projectId, code: linkError.code, err: linkError.message }, 'Error fetching contact_projects');
         }
 
         const linkedContactIds = (contactProjectLinks || []).map(cp => cp.contact_id);
-        console.log('[Supabase] Linked contact IDs:', linkedContactIds.length);
 
         // Get contacts with legacy project_id
         const { data: legacyContacts, error: legacyError } = await this.supabase
@@ -2375,7 +3028,7 @@ class SupabaseStorage {
             .is('deleted_at', null);
 
         if (legacyError) {
-            console.warn('[Supabase] Error fetching legacy contacts:', legacyError.message);
+            log.warn({ event: 'db_query_failed', table: 'contacts', operation: 'select', projectId, code: legacyError.code, err: legacyError.message }, 'Error fetching legacy contacts');
         }
 
         // Get contacts linked via contact_projects
@@ -2388,7 +3041,7 @@ class SupabaseStorage {
                 .is('deleted_at', null);
 
             if (linkedError) {
-                console.warn('[Supabase] Error fetching linked contacts:', linkedError.message);
+                log.warn({ event: 'db_query_failed', table: 'contacts', operation: 'select', projectId, code: linkedError.code, err: linkedError.message }, 'Error fetching linked contacts');
             }
             linkedContacts = linked || [];
         }
@@ -2411,7 +3064,7 @@ class SupabaseStorage {
             }
             if (filter.search) {
                 const search = filter.search.toLowerCase();
-                contacts = contacts.filter(c => 
+                contacts = contacts.filter(c =>
                     c.name?.toLowerCase().includes(search) ||
                     c.email?.toLowerCase().includes(search)
                 );
@@ -2424,7 +3077,6 @@ class SupabaseStorage {
         // Sort by name
         contacts.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
-        console.log('[Supabase] Total contacts found:', contacts.length);
         return contacts;
     }
 
@@ -2794,7 +3446,7 @@ class SupabaseStorage {
             }
         }
 
-        console.log(`[Supabase] Found ${duplicateGroups.length} potential duplicate groups`);
+        log.debug({ event: 'duplicate_groups_found', count: duplicateGroups.length }, 'Potential duplicate groups');
         return duplicateGroups;
     }
 
@@ -3097,7 +3749,7 @@ class SupabaseStorage {
 
         if (deleteError) throw deleteError;
 
-        console.log(`[Supabase] Merged ${contacts.length} contacts into ${primary.id}`);
+        log.info({ event: 'contacts_merged', count: contacts.length, primaryId: primary.id }, 'Merged contacts');
         await this._addToOutbox('contacts.merged', 'UPDATE', 'Contact', primary.id, {
             mergedIds: otherIds,
             primaryId: primary.id
@@ -3223,7 +3875,7 @@ class SupabaseStorage {
             .order('name');
 
         if (error) {
-            console.warn('[Supabase] getTimezones error:', error.message);
+            log.warn({ event: 'timezones_get_failed', reason: error.message }, 'getTimezones error');
             return [];
         }
         return data || [];
@@ -3259,17 +3911,16 @@ class SupabaseStorage {
                 .limit(1);
 
             if (error) {
-                console.log('[Supabase] Timezones table may not exist yet, migration needed');
+                log.debug({ event: 'timezones_table_missing' }, 'Timezones table may not exist yet, migration needed');
                 return false;
             }
 
             if (data && data.length > 0) {
-                console.log('[Supabase] Timezones table already populated');
+                log.debug({ event: 'timezones_already_populated' }, 'Timezones table already populated');
                 return true;
             }
 
-            // Table exists but empty, populate it
-            console.log('[Supabase] Populating timezones table...');
+            log.info({ event: 'timezones_populating' }, 'Populating timezones table');
             const timezoneData = this._getTimezoneData();
             
             const { error: insertError } = await this.supabase
@@ -3277,14 +3928,14 @@ class SupabaseStorage {
                 .upsert(timezoneData, { onConflict: 'code' });
 
             if (insertError) {
-                console.warn('[Supabase] Error populating timezones:', insertError.message);
+                log.warn({ event: 'timezones_populate_failed', reason: insertError.message }, 'Error populating timezones');
                 return false;
             }
 
-            console.log(`[Supabase] Inserted ${timezoneData.length} timezones`);
+            log.info({ event: 'timezones_inserted', count: timezoneData.length }, 'Inserted timezones');
             return true;
         } catch (e) {
-            console.warn('[Supabase] ensureTimezonesExist error:', e.message);
+            log.warn({ event: 'timezones_ensure_failed', reason: e.message }, 'ensureTimezonesExist error');
             return false;
         }
     }
@@ -4057,7 +4708,7 @@ class SupabaseStorage {
         // Use provided projectId or current project
         const pid = projectId || this.currentProjectId;
         if (!pid) {
-            console.warn('[Storage] No projectId for trackLLMCostWithBilling');
+            log.warn({ event: 'llm_cost_no_project' }, 'No projectId for trackLLMCostWithBilling');
             return null;
         }
 
@@ -4088,7 +4739,7 @@ class SupabaseStorage {
             if (error) throw error;
             return data?.id;
         } catch (e) {
-            console.error('[Storage] trackLLMCostWithBilling error:', e.message);
+            logError(e, { module: 'supabase', event: 'llm_cost_track_error' });
             return null;
         }
     }
@@ -4387,8 +5038,7 @@ class SupabaseStorage {
             if (error) throw error;
             return data;
         } catch (joinError) {
-            // Fallback: simple query without join
-            console.warn('[Supabase] Processing history join failed, using simple query:', joinError.message);
+            log.warn({ event: 'processing_history_join_failed', reason: joinError.message }, 'Using simple query');
             
             let query = this.supabase
                 .from('processing_history')
@@ -4847,7 +5497,7 @@ class SupabaseStorage {
                 p_payload: payload
             });
         } catch (e) {
-            console.warn(`Failed to add to outbox: ${e.message}`);
+            log.warn({ event: 'outbox_add_failed', entityType, entityId, reason: e.message }, 'Failed to add to outbox');
         }
     }
 
@@ -4869,7 +5519,31 @@ class SupabaseStorage {
                 created_by: user?.id
             });
         } catch (e) {
-            console.warn(`Failed to add change log: ${e.message}`);
+            log.warn({ event: 'changelog_add_failed', entityType, entityId, reason: e.message }, 'Failed to add change log');
+        }
+    }
+
+    /**
+     * Add multiple change log entries in one insert (for bulk fact/entity creation).
+     * @param {Array<{ action: string, entityType: string, entityId: string, previousData?: object, sourceFile?: string }>} entries
+     */
+    async _addChangeLogBulk(entries) {
+        if (!Array.isArray(entries) || entries.length === 0) return;
+        const projectId = this.getProjectId();
+        const user = await this.getCurrentUser();
+        const rows = entries.map(e => ({
+            project_id: projectId,
+            action: e.action,
+            entity_type: e.entityType,
+            entity_id: e.entityId,
+            previous_data: e.previousData ?? null,
+            source_file: e.sourceFile ?? null,
+            created_by: user?.id
+        }));
+        try {
+            await this.supabase.from('knowledge_change_log').insert(rows);
+        } catch (e) {
+            log.warn({ event: 'changelog_bulk_add_failed', reason: e.message, count: entries.length }, 'Failed to add change log bulk');
         }
     }
 
@@ -4877,13 +5551,14 @@ class SupabaseStorage {
      * Get full document data for backup
      */
     async _getDocumentFullData(documentId) {
+        const projectId = this.getProjectId();
         const [doc, facts, decisions, risks, actions, questions] = await Promise.all([
             this.getDocumentById(documentId),
-            this.supabase.from('facts').select('*').eq('source_document_id', documentId),
-            this.supabase.from('decisions').select('*').eq('source_document_id', documentId),
-            this.supabase.from('risks').select('*').eq('source_document_id', documentId),
-            this.supabase.from('action_items').select('*').eq('source_document_id', documentId),
-            this.supabase.from('knowledge_questions').select('*').eq('source_document_id', documentId)
+            this.supabase.from('facts').select('*').eq('source_document_id', documentId).eq('project_id', projectId),
+            this.supabase.from('decisions').select('*').eq('source_document_id', documentId).eq('project_id', projectId),
+            this.supabase.from('risks').select('*').eq('source_document_id', documentId).eq('project_id', projectId),
+            this.supabase.from('action_items').select('*').eq('source_document_id', documentId).eq('project_id', projectId),
+            this.supabase.from('knowledge_questions').select('*').eq('source_document_id', documentId).eq('project_id', projectId)
         ]);
 
         return {
@@ -5098,7 +5773,7 @@ class SupabaseStorage {
             .single();
         
         if (cached && !error) {
-            console.log('[Briefing] Cache hit - using existing briefing');
+            log.debug({ event: 'briefing_cache_hit' }, 'Using existing briefing');
             return {
                 cached: true,
                 briefing: cached.content,
@@ -5155,11 +5830,10 @@ class SupabaseStorage {
             .single();
         
         if (error) {
-            console.error('[Briefing] Failed to save:', error.message);
+            log.warn({ event: 'briefing_save_failed', reason: error.message }, 'Failed to save briefing');
             return null;
         }
-        
-        console.log(`[Briefing] Saved new briefing (hash: ${hash.substring(0, 8)}...)`);
+        log.info({ event: 'briefing_saved', hashPrefix: hash.substring(0, 8) }, 'Saved new briefing');
         return data;
     }
 
@@ -5201,7 +5875,7 @@ class SupabaseStorage {
         const { data, error } = await query;
         
         if (error) {
-            console.error('[Supabase] Failed to get ontology suggestions:', error.message);
+            log.warn({ event: 'ontology_suggestions_get_failed', reason: error.message }, 'Failed to get ontology suggestions');
             return [];
         }
         return data;
@@ -5230,11 +5904,10 @@ class SupabaseStorage {
             .single();
         
         if (error) {
-            console.error('[Supabase] Failed to add ontology suggestion:', error.message);
+            log.warn({ event: 'ontology_suggestion_add_failed', reason: error.message }, 'Failed to add ontology suggestion');
             return null;
         }
-        
-        console.log(`[Supabase] Added ontology suggestion: ${suggestion.name}`);
+        log.info({ event: 'ontology_suggestion_added', name: suggestion.name }, 'Added ontology suggestion');
         return data;
     }
 
@@ -5265,10 +5938,9 @@ class SupabaseStorage {
             .single();
         
         if (error) {
-            console.error('[Supabase] Failed to update ontology suggestion:', error.message);
+            log.warn({ event: 'ontology_suggestion_update_failed', reason: error.message }, 'Failed to update ontology suggestion');
             return null;
         }
-        
         return data;
     }
 
@@ -5296,11 +5968,10 @@ class SupabaseStorage {
             .select();
         
         if (error) {
-            console.error('[Supabase] Failed to bulk add suggestions:', error.message);
+            log.warn({ event: 'ontology_suggestions_bulk_add_failed', reason: error.message }, 'Failed to bulk add suggestions');
             return [];
         }
-        
-        console.log(`[Supabase] Added ${data.length} ontology suggestions`);
+        log.info({ event: 'ontology_suggestions_added', count: data.length }, 'Added ontology suggestions');
         return data;
     }
 
@@ -5334,10 +6005,9 @@ class SupabaseStorage {
             .order('schema_name');
         
         if (error) {
-            console.error('[Supabase] Failed to get ontology schema:', error.message);
+            log.warn({ event: 'ontology_schema_get_failed', reason: error.message }, 'Failed to get ontology schema');
             return [];
         }
-        
         return data || [];
     }
 
@@ -5371,10 +6041,9 @@ class SupabaseStorage {
             .single();
         
         if (error) {
-            console.error(`[Supabase] Failed to save ontology schema ${schemaType}/${schemaName}:`, error.message);
+            log.warn({ event: 'ontology_schema_save_failed', schemaType, schemaName, reason: error.message }, 'Failed to save ontology schema item');
             throw error;
         }
-        
         return data;
     }
 
@@ -5461,13 +6130,11 @@ class SupabaseStorage {
                 .select();
             
             if (error) {
-                console.error('[Supabase] Failed to save ontology schema batch:', error.message);
+                log.warn({ event: 'ontology_schema_batch_save_failed', reason: error.message }, 'Failed to save ontology schema batch');
                 throw error;
             }
-            
             totalInserted += data?.length || 0;
         }
-        
         const counts = {
             total: totalInserted,
             entities: Object.keys(schema.entityTypes || {}).length,
@@ -5475,8 +6142,7 @@ class SupabaseStorage {
             patterns: Object.keys(schema.queryPatterns || {}).length,
             rules: (schema.inferenceRules || []).length
         };
-        
-        console.log(`[Supabase] Saved ontology schema: ${counts.entities} entities, ${counts.relations} relations, ${counts.patterns} patterns, ${counts.rules} rules`);
+        log.info({ event: 'ontology_schema_saved', ...counts }, 'Saved ontology schema');
         return { success: true, counts };
     }
 
@@ -5523,7 +6189,7 @@ class SupabaseStorage {
             }
         }
         
-        console.log(`[Supabase] Built schema from DB: v${schema.version} with ${Object.keys(schema.entityTypes).length} entities, ${Object.keys(schema.relationTypes).length} relations`);
+        log.debug({ event: 'ontology_schema_built', version: schema.version, entities: Object.keys(schema.entityTypes || {}).length, relations: Object.keys(schema.relationTypes || {}).length }, 'Built schema from DB');
         return schema;
     }
 
@@ -5550,7 +6216,7 @@ class SupabaseStorage {
         const { error } = await query;
         
         if (error) {
-            console.error(`[Supabase] Failed to deactivate ${schemaType}/${schemaName}:`, error.message);
+            log.warn({ event: 'ontology_schema_deactivate_failed', schemaType, schemaName, reason: error.message }, 'Failed to deactivate');
             return false;
         }
         
@@ -5613,7 +6279,7 @@ class SupabaseStorage {
         
         if (error) {
             // Table might not exist yet - log but don't fail
-            console.warn('[Supabase] Could not log ontology change (table may not exist):', error.message);
+            log.warn({ event: 'ontology_change_log_failed', reason: error.message }, 'Could not log ontology change');
             return null;
         }
         
@@ -5653,7 +6319,7 @@ class SupabaseStorage {
         const { data, error } = await query;
         
         if (error) {
-            console.warn('[Supabase] Could not get ontology changes:', error.message);
+            log.warn({ event: 'ontology_changes_get_failed', reason: error.message }, 'Could not get ontology changes');
             return [];
         }
         
@@ -5689,6 +6355,8 @@ class SupabaseStorage {
             source_type: emailData.source_type || 'paste',
             original_filename: emailData.original_filename || null,
             attachment_count: emailData.attachments?.length || 0,
+            sprint_id: emailData.sprint_id || null,
+            action_id: emailData.action_id || null,
         };
         
         const { data, error } = await this.supabase
@@ -5698,11 +6366,11 @@ class SupabaseStorage {
             .single();
         
         if (error) {
-            console.error('[Supabase] Failed to save email:', error.message);
+            log.warn({ event: 'email_save_failed', reason: error.message }, 'Failed to save email');
             throw error;
         }
         
-        console.log(`[Supabase] Saved email: ${record.subject || '(no subject)'}`);
+        log.info({ event: 'email_saved', subject: record.subject || '(no subject)' }, 'Saved email');
         return data;
     }
 
@@ -5717,7 +6385,7 @@ class SupabaseStorage {
             'extracted_entities', 'ai_summary', 'detected_intent', 'sentiment',
             'requires_response', 'response_drafted', 'response_sent',
             'draft_response', 'draft_generated_at', 'sender_contact_id',
-            'processed_at', 'thread_id'
+            'processed_at', 'thread_id', 'sprint_id', 'action_id'
         ];
         
         const updateData = {};
@@ -5736,7 +6404,7 @@ class SupabaseStorage {
             .single();
         
         if (error) {
-            console.error('[Supabase] Failed to update email:', error.message);
+            log.warn({ event: 'email_update_failed', reason: error.message }, 'Failed to update email');
             return null;
         }
         
@@ -5750,7 +6418,7 @@ class SupabaseStorage {
      */
     async getEmails(options = {}) {
         const projectId = this.getProjectId();
-        const { limit = 50, requiresResponse, direction, includeDeleted = false } = options;
+        const { limit = 50, requiresResponse, direction, includeDeleted = false, sinceDate, untilDate } = options;
         
         let query = this.supabase
             .from('emails')
@@ -5771,10 +6439,17 @@ class SupabaseStorage {
             query = query.eq('direction', direction);
         }
         
+        if (sinceDate) {
+            query = query.gte('date_sent', sinceDate);
+        }
+        if (untilDate) {
+            query = query.lte('date_sent', untilDate);
+        }
+        
         const { data, error } = await query;
         
         if (error) {
-            console.error('[Supabase] Failed to get emails:', error.message);
+            log.warn({ event: 'emails_get_failed', reason: error.message }, 'Failed to get emails');
             return [];
         }
         
@@ -5794,7 +6469,7 @@ class SupabaseStorage {
             .single();
         
         if (error) {
-            console.error('[Supabase] Failed to get email:', error.message);
+            log.warn({ event: 'email_get_failed', reason: error.message }, 'Failed to get email');
             return null;
         }
         
@@ -5818,7 +6493,7 @@ class SupabaseStorage {
             .single();
         
         if (error && error.code !== 'PGRST116') { // PGRST116 = no rows
-            console.error('[Supabase] Failed to find email by hash:', error.message);
+            log.warn({ event: 'email_find_by_hash_failed', reason: error.message }, 'Failed to find email by hash');
         }
         
         return data || null;
@@ -5836,7 +6511,7 @@ class SupabaseStorage {
             .eq('id', id);
         
         if (error) {
-            console.error('[Supabase] Failed to delete email:', error.message);
+            log.warn({ event: 'email_delete_failed', reason: error.message }, 'Failed to delete email');
             return false;
         }
         
@@ -5865,7 +6540,7 @@ class SupabaseStorage {
         if (error) {
             // Ignore duplicate errors
             if (!error.message.includes('duplicate')) {
-                console.error('[Supabase] Failed to add email recipient:', error.message);
+                log.warn({ event: 'email_recipient_add_failed', reason: error.message }, 'Failed to add email recipient');
             }
             return null;
         }
@@ -5888,7 +6563,7 @@ class SupabaseStorage {
             .eq('email_id', emailId);
         
         if (error) {
-            console.error('[Supabase] Failed to get email recipients:', error.message);
+            log.warn({ event: 'email_recipients_get_failed', reason: error.message }, 'Failed to get email recipients');
             return [];
         }
         
@@ -5916,7 +6591,7 @@ class SupabaseStorage {
             .single();
         
         if (error) {
-            console.error('[Supabase] Failed to add email attachment:', error.message);
+            log.warn({ event: 'email_attachment_add_failed', reason: error.message }, 'Failed to add email attachment');
             return null;
         }
         
@@ -5940,7 +6615,7 @@ class SupabaseStorage {
             .order('date_sent', { ascending: true });
         
         if (error) {
-            console.error('[Supabase] Failed to get emails needing response:', error.message);
+            log.warn({ event: 'emails_needing_response_failed', reason: error.message }, 'Failed to get emails needing response');
             return [];
         }
         
@@ -5967,7 +6642,7 @@ class SupabaseStorage {
             .maybeSingle();
         
         if (error) {
-            console.error('[Supabase] Failed to find contact by email:', error.message);
+            log.warn({ event: 'contact_find_by_email_failed', reason: error.message }, 'Failed to find contact by email');
             return null;
         }
         
@@ -6035,11 +6710,10 @@ class SupabaseStorage {
             .single();
         
         if (error) {
-            console.error('[Supabase] Failed to create contact:', error.message);
+            log.warn({ event: 'contact_create_from_email_failed', reason: error.message }, 'Failed to create contact');
             throw error;
         }
-        
-        console.log(`[Supabase] Created contact from email: ${record.name}`);
+        log.info({ event: 'contact_created_from_email', name: record.name }, 'Created contact from email');
         return data;
     }
 
@@ -6069,7 +6743,7 @@ class SupabaseStorage {
             .maybeSingle();
         
         if (error) {
-            console.error('[Supabase] Failed to find contact by name+org:', error.message);
+            log.warn({ event: 'contact_find_by_name_org_failed', reason: error.message }, 'Failed to find contact by name+org');
             return null;
         }
         
@@ -6097,7 +6771,7 @@ class SupabaseStorage {
             .maybeSingle();
         
         if (error) {
-            console.error('[Supabase] Failed to find contact by alias:', error.message);
+            log.warn({ event: 'contact_find_by_alias_failed', reason: error.message }, 'Failed to find contact by alias');
             return null;
         }
         
@@ -6169,7 +6843,7 @@ class SupabaseStorage {
             const newContact = await this.createContactFromExtraction(personData);
             return { contact: newContact, action: 'created', confidence: 1.0 };
         } catch (err) {
-            console.error('[Supabase] Failed to create contact:', err.message);
+            log.warn({ event: 'contact_create_failed', reason: err.message }, 'Failed to create contact');
             return { contact: null, action: 'error', confidence: 0 };
         }
     }
@@ -6204,7 +6878,7 @@ class SupabaseStorage {
             throw error;
         }
         
-        console.log(`[Supabase] Created contact from extraction: ${record.name}`);
+        log.info({ event: 'contact_created_from_extraction', name: record.name }, 'Created contact from extraction');
         return data;
     }
 
@@ -6340,7 +7014,7 @@ class SupabaseStorage {
             }
             return { success: true, message: 'Project knowledge data reset; team, contacts and cost preserved.' };
         } catch (err) {
-            console.error('[SupabaseStorage] resetProjectData error:', err);
+            log.error({ event: 'reset_project_data_error', err: err?.message }, 'resetProjectData error');
             return { success: false, error: err.message };
         }
     }

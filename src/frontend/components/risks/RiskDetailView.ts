@@ -158,7 +158,7 @@ export function createRiskDetailView(props: RiskDetailViewProps): HTMLElement {
             </div>
 
             <!-- Contact Picker (hidden by default) -->
-            <div id="risk-contact-picker" class="contact-picker-sota" style="display: none;">
+            <div id="risk-contact-picker" class="contact-picker-sota hidden">
               <div class="picker-search">
                 <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
                 <input type="text" id="risk-contact-search" placeholder="Search contacts..." autocomplete="off">
@@ -167,7 +167,7 @@ export function createRiskDetailView(props: RiskDetailViewProps): HTMLElement {
             </div>
 
             <!-- AI Suggestions Panel -->
-            <div id="risk-suggestions-panel" class="suggestions-panel-sota risk-suggestions-panel" style="display: none;"></div>
+            <div id="risk-suggestions-panel" class="suggestions-panel-sota risk-suggestions-panel hidden"></div>
 
             <!-- Mitigation (below assignment) -->
             <div class="risk-mitigation-block">
@@ -215,11 +215,11 @@ export function createRiskDetailView(props: RiskDetailViewProps): HTMLElement {
       </div>
       </div>
 
-      <div id="risk-edit-form" class="risk-detail-edit-form" style="display: none;">
+      <div id="risk-edit-form" class="risk-detail-edit-form hidden">
         <form id="risk-inline-form" class="risk-form">
           <div class="form-group">
-            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 6px;">
-              <label for="risk-edit-content" style="margin-bottom: 0;">Risk description *</label>
+            <div class="gm-flex gm-flex-center gm-justify-between gm-flex-wrap gm-gap-2 gm-mb-2">
+              <label for="risk-edit-content" class="gm-mb-0">Risk description *</label>
               <button type="button" class="btn-ai-suggest btn-sm" id="risk-edit-ai-suggest-btn" title="Suggest owner and mitigation from description">
                 <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
                 AI suggest
@@ -227,7 +227,7 @@ export function createRiskDetailView(props: RiskDetailViewProps): HTMLElement {
             </div>
             <textarea id="risk-edit-content" rows="3" required placeholder="Describe the risk...">${escapeHtml(risk.content || '')}</textarea>
           </div>
-          <div id="risk-edit-suggestions-panel" class="suggestions-panel-sota risk-suggestions-panel" style="display: none; margin-bottom: 16px;"></div>
+          <div id="risk-edit-suggestions-panel" class="suggestions-panel-sota risk-suggestions-panel hidden gm-mb-4"></div>
           <div class="form-row">
             <div class="form-group">
               <label for="risk-edit-impact">Impact</label>
@@ -263,7 +263,7 @@ export function createRiskDetailView(props: RiskDetailViewProps): HTMLElement {
               <span class="risk-owner-picker-value" id="risk-owner-picker-value">${risk.owner ? escapeHtml(risk.owner) : '<span class="text-muted">Select owner...</span>'}</span>
               <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
             </div>
-            <div id="risk-owner-picker-dropdown" class="risk-owner-picker-dropdown" style="display: none;">
+            <div id="risk-owner-picker-dropdown" class="risk-owner-picker-dropdown hidden">
               <div class="risk-owner-picker-search">
                 <input type="text" id="risk-owner-picker-search" placeholder="Search contacts..." autocomplete="off">
               </div>
@@ -302,16 +302,16 @@ export function createRiskDetailView(props: RiskDetailViewProps): HTMLElement {
   const editBtn = container.querySelector('#edit-risk-btn');
   if (editBtn && viewContent && editForm) {
     on(editBtn as HTMLElement, 'click', () => {
-      viewContent.style.display = 'none';
-      editForm.style.display = 'block';
+      viewContent.classList.add('hidden');
+      editForm.classList.remove('hidden');
     });
   }
 
   const cancelEditBtn = container.querySelector('#risk-cancel-edit-btn');
   if (cancelEditBtn && viewContent && editForm) {
     on(cancelEditBtn as HTMLElement, 'click', () => {
-      editForm.style.display = 'none';
-      viewContent.style.display = '';
+      editForm.classList.add('hidden');
+      viewContent.classList.remove('hidden');
     });
   }
 
@@ -416,14 +416,14 @@ export function createRiskDetailView(props: RiskDetailViewProps): HTMLElement {
           const name = card.getAttribute('data-contact-name') || '';
           ownerHiddenInput.value = name;
           if (ownerPickerValue) ownerPickerValue.innerHTML = name ? escapeHtml(name) : '<span class="text-muted">Select owner...</span>';
-          ownerPickerDropdown.style.display = 'none';
+          ownerPickerDropdown.classList.add('hidden');
         });
       });
     };
     on(ownerPickerTrigger as HTMLElement, 'click', async (e) => {
       e.stopPropagation();
-      const isOpen = ownerPickerDropdown.style.display === 'block';
-      ownerPickerDropdown.style.display = isOpen ? 'none' : 'block';
+      const isOpen = !ownerPickerDropdown.classList.contains('hidden');
+      ownerPickerDropdown.classList.toggle('hidden', isOpen);
       if (!isOpen && editFormContacts.length === 0) {
         ownerPickerList.innerHTML = '<div class="empty-state">Loading...</div>';
         try {
@@ -440,8 +440,8 @@ export function createRiskDetailView(props: RiskDetailViewProps): HTMLElement {
     }
     document.addEventListener('click', (e) => {
       const target = e.target as HTMLElement;
-      if (!target.closest('.risk-owner-picker-wrap') && ownerPickerDropdown?.style.display === 'block') {
-        ownerPickerDropdown.style.display = 'none';
+      if (!target.closest('.risk-owner-picker-wrap') && !ownerPickerDropdown?.classList.contains('hidden')) {
+        ownerPickerDropdown.classList.add('hidden');
       }
     });
   }
@@ -460,7 +460,7 @@ export function createRiskDetailView(props: RiskDetailViewProps): HTMLElement {
       const btn = editAiSuggestBtn as HTMLButtonElement;
       btn.disabled = true;
       btn.innerHTML = '<span class="spin">⋯</span> Analyzing...';
-      editSuggestionsPanel.style.display = 'block';
+      editSuggestionsPanel.classList.remove('hidden');
       editSuggestionsPanel.innerHTML = '<div class="suggestions-loading"><div class="loading-text">AI is suggesting owners and mitigation...</div></div>';
       try {
         const [result, contactsRes] = await Promise.all([
@@ -499,7 +499,7 @@ export function createRiskDetailView(props: RiskDetailViewProps): HTMLElement {
             on(assignBtn as HTMLElement, 'click', () => {
               if (ownerHiddenInput) ownerHiddenInput.value = name;
               if (ownerPickerValue) ownerPickerValue.innerHTML = escapeHtml(name);
-              editSuggestionsPanel.style.display = 'none';
+              editSuggestionsPanel.classList.add('hidden');
               toast.success(`Owner set to ${name}`);
             });
           });
@@ -513,11 +513,11 @@ export function createRiskDetailView(props: RiskDetailViewProps): HTMLElement {
           }
         }
         const hideBtn = editSuggestionsPanel.querySelector('#risk-edit-hide-suggest-btn');
-        if (hideBtn) on(hideBtn as HTMLElement, 'click', () => { editSuggestionsPanel.style.display = 'none'; });
+        if (hideBtn) on(hideBtn as HTMLElement, 'click', () => { editSuggestionsPanel.classList.add('hidden'); });
       } catch {
         editSuggestionsPanel.innerHTML = '<div class="suggestions-error">Failed to get suggestions. <button type="button" class="btn-link" id="risk-edit-hide-suggest-btn">Close</button></div>';
         const h = editSuggestionsPanel.querySelector('#risk-edit-hide-suggest-btn');
-        if (h) on(h as HTMLElement, 'click', () => { editSuggestionsPanel.style.display = 'none'; });
+        if (h) on(h as HTMLElement, 'click', () => { editSuggestionsPanel.classList.add('hidden'); });
       } finally {
         btn.disabled = false;
         btn.innerHTML = '<svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg> AI suggest';
@@ -553,7 +553,7 @@ export function createRiskDetailView(props: RiskDetailViewProps): HTMLElement {
         </svg>
         Analyzing...
       `;
-      suggestionsPanel.style.display = 'block';
+      suggestionsPanel.classList.remove('hidden');
       suggestionsPanel.innerHTML = `
         <div class="suggestions-loading">
           <div class="ai-thinking-animation"><span></span><span></span><span></span></div>
@@ -654,7 +654,7 @@ export function createRiskDetailView(props: RiskDetailViewProps): HTMLElement {
               e.stopPropagation();
               try {
                 const updated = await risksService.update(risk.id, { owner: suggestion.name });
-                suggestionsPanel.style.display = 'none';
+                suggestionsPanel.classList.add('hidden');
                 onUpdate(updated);
                 toast.success(`Assigned to ${suggestion.name}`);
               } catch {
@@ -683,7 +683,7 @@ export function createRiskDetailView(props: RiskDetailViewProps): HTMLElement {
         const hideBtn = suggestionsPanel.querySelector('#risk-hide-suggestions-btn');
         if (hideBtn) {
           on(hideBtn as HTMLElement, 'click', () => {
-            suggestionsPanel.style.display = 'none';
+            suggestionsPanel.classList.add('hidden');
           });
         }
       } catch {
@@ -790,7 +790,7 @@ export function createRiskDetailView(props: RiskDetailViewProps): HTMLElement {
         try {
           const updated = await risksService.update(risk.id, { owner: name });
           toast.success(`Owner set to ${name}`);
-          if (riskContactPicker) riskContactPicker.style.display = 'none';
+          if (riskContactPicker) riskContactPicker.classList.add('hidden');
           onUpdate?.(updated);
         } catch {
           toast.error('Failed to save');
@@ -801,15 +801,16 @@ export function createRiskDetailView(props: RiskDetailViewProps): HTMLElement {
 
   const showRiskPicker = () => {
     if (!riskContactPicker) return;
-    riskContactPicker.style.display = riskContactPicker.style.display === 'none' ? 'block' : 'none';
-    if (riskContactPicker.style.display === 'block' && viewContacts.length === 0) {
+    const wasHidden = riskContactPicker.classList.contains('hidden');
+    riskContactPicker.classList.toggle('hidden', wasHidden);
+    if (wasHidden && viewContacts.length === 0) {
       contactsService.getAll().then((res) => {
         viewContacts = res?.contacts || [];
         renderRiskContactGrid(riskContactSearch?.value || '');
       }).catch(() => {
         if (riskContactList) riskContactList.innerHTML = '<div class="empty-state">Failed to load contacts</div>';
       });
-    } else if (riskContactPicker.style.display === 'block') {
+    } else if (wasHidden) {
       renderRiskContactGrid(riskContactSearch?.value || '');
     }
     if (riskContactSearch) riskContactSearch.focus();

@@ -8,15 +8,20 @@
 
 const fs = require('fs');
 const path = require('path');
+const { logger } = require('../logger');
 const llm = require('../llm');
+const llmConfig = require('../llm/config');
 const { getOntologyManager } = require('./OntologyManager');
+
+const log = logger.child({ module: 'ontology-agent' });
 
 class OntologyAgent {
     constructor(options = {}) {
         this.ontologyManager = options.ontologyManager || getOntologyManager();
         this.graphProvider = options.graphProvider;
-        this.storage = options.storage; // Supabase storage for persistence
+        this.storage = options.storage;
         this.llmConfig = options.llmConfig || {};
+        this.appConfig = options.appConfig || null;
         this.dataDir = options.dataDir || './data';
         
         // Pending suggestions file (fallback for local storage)
@@ -59,7 +64,7 @@ class OntologyAgent {
                 return JSON.parse(fs.readFileSync(this.suggestionsFile, 'utf-8'));
             }
         } catch (e) {
-            console.log('[OntologyAgent] Could not load suggestions from file');
+            log.debug({ event: 'ontology_agent_load_file_failed' }, 'Could not load suggestions from file');
         }
         return {
             pending: [],
@@ -99,9 +104,9 @@ class OntologyAgent {
                     rejectedAt: s.rejected_at
                 }));
                 
-                console.log(`[OntologyAgent] Loaded ${this.suggestions.pending.length} pending suggestions from Supabase`);
+                log.debug({ event: 'ontology_agent_loaded_supabase', count: this.suggestions.pending.length }, 'Loaded pending suggestions from Supabase');
             } catch (e) {
-                console.log('[OntologyAgent] Could not load from Supabase:', e.message);
+                log.warn({ event: 'ontology_agent_load_supabase_failed', reason: e.message }, 'Could not load from Supabase');
             }
         }
     }
@@ -118,7 +123,7 @@ class OntologyAgent {
             }
             fs.writeFileSync(this.suggestionsFile, JSON.stringify(this.suggestions, null, 2));
         } catch (e) {
-            console.log('[OntologyAgent] Could not save suggestions to file:', e.message);
+            log.warn({ event: 'ontology_agent_save_file_failed', reason: e.message }, 'Could not save suggestions to file');
         }
     }
 
@@ -131,11 +136,11 @@ class OntologyAgent {
                 const result = await this.storage.addOntologySuggestion(suggestion);
                 if (result) {
                     suggestion.id = result.id; // Update with Supabase ID
-                    console.log(`[OntologyAgent] Persisted suggestion to Supabase: ${suggestion.name}`);
+                    log.debug({ event: 'ontology_agent_persisted_supabase', name: suggestion.name }, 'Persisted suggestion to Supabase');
                 }
                 return result;
             } catch (e) {
-                console.log('[OntologyAgent] Could not persist to Supabase:', e.message);
+                log.warn({ event: 'ontology_agent_persist_supabase_failed', reason: e.message }, 'Could not persist to Supabase');
             }
         }
         return null;
@@ -150,7 +155,7 @@ class OntologyAgent {
                 const result = await this.storage.updateOntologySuggestion(id, updates);
                 return result;
             } catch (e) {
-                console.log('[OntologyAgent] Could not update in Supabase:', e.message);
+                log.warn({ event: 'ontology_agent_update_supabase_failed', reason: e.message }, 'Could not update in Supabase');
             }
         }
         return null;
@@ -364,18 +369,18 @@ Respond in JSON:
 }`;
 
         try {
-            const provider = this.llmConfig?.perTask?.text?.provider || this.llmConfig?.provider;
-            const model = this.llmConfig?.perTask?.text?.model || this.llmConfig?.models?.text;
-            
+            const textCfg = this.appConfig ? llmConfig.getTextConfig(this.appConfig) : null;
+            const provider = textCfg?.provider ?? this.llmConfig?.perTask?.text?.provider ?? this.llmConfig?.provider;
+            const model = textCfg?.model ?? this.llmConfig?.perTask?.text?.model ?? this.llmConfig?.models?.text;
+            const providerConfig = textCfg?.providerConfig ?? this.llmConfig?.providers?.[provider] ?? {};
             if (!provider || !model) {
-                console.warn('[OntologyAgent] No LLM provider/model configured');
+                log.warn({ event: 'ontology_agent_no_llm' }, 'No LLM provider/model configured');
                 return [];
             }
-            
             const result = await llm.generateText({
-                provider: provider,
-                providerConfig: this.llmConfig?.providers?.[provider] || {},
-                model: model,
+                provider,
+                providerConfig,
+                model,
                 prompt,
                 temperature: 0.3,
                 maxTokens: 500
@@ -392,7 +397,7 @@ Respond in JSON:
                 }
             }
         } catch (e) {
-            console.log('[OntologyAgent] AI enrichment failed:', e.message);
+            log.warn({ event: 'ontology_agent_enrichment_failed', reason: e.message }, 'AI enrichment failed');
         }
 
         return { error: 'Could not enrich suggestion' };
@@ -409,11 +414,11 @@ Respond in JSON:
      * Approve a suggestion and update ontology
      */
     async approveSuggestion(suggestionId, modifications = {}) {
-        console.log(`[OntologyAgent] Approving suggestion ${suggestionId}, pending count: ${this.suggestions.pending.length}`);
+        log.debug({ event: 'ontology_agent_approving', suggestionId, pendingCount: this.suggestions.pending.length }, 'Approving suggestion');
         
         const index = this.suggestions.pending.findIndex(s => s.id === suggestionId);
         if (index === -1) {
-            console.log(`[OntologyAgent] Suggestion not found. Available IDs: ${this.suggestions.pending.map(s => s.id).join(', ')}`);
+            log.warn({ event: 'ontology_agent_suggestion_not_found', suggestionId, availableIds: this.suggestions.pending.map(s => s.id) }, 'Suggestion not found');
             return { success: false, error: `Suggestion not found (ID: ${suggestionId}). Available: ${this.suggestions.pending.length} suggestions.` };
         }
 
@@ -460,11 +465,11 @@ Respond in JSON:
      * Reject a suggestion
      */
     async rejectSuggestion(suggestionId, reason = null) {
-        console.log(`[OntologyAgent] Rejecting suggestion ${suggestionId}`);
+        log.debug({ event: 'ontology_agent_rejecting', suggestionId }, 'Rejecting suggestion');
         
         const index = this.suggestions.pending.findIndex(s => s.id === suggestionId);
         if (index === -1) {
-            console.log(`[OntologyAgent] Suggestion not found for rejection`);
+            log.warn({ event: 'ontology_agent_reject_not_found', suggestionId }, 'Suggestion not found for rejection');
             return { success: false, error: 'Suggestion not found' };
         }
 
@@ -520,7 +525,7 @@ Respond in JSON:
         // Save updated schema
         await this.ontologyManager.updateSchema(schema);
         
-        console.log(`[OntologyAgent] Added entity type: ${suggestion.name}`);
+        log.info({ event: 'ontology_agent_entity_added', name: suggestion.name }, 'Added entity type');
     }
 
     /**
@@ -538,7 +543,7 @@ Respond in JSON:
 
         await this.ontologyManager.updateSchema(schema);
         
-        console.log(`[OntologyAgent] Added relation type: ${suggestion.name}`);
+        log.info({ event: 'ontology_agent_relation_added', name: suggestion.name }, 'Added relation type');
     }
 
     /**
@@ -558,7 +563,7 @@ Respond in JSON:
 
             await this.ontologyManager.updateSchema(schema);
             
-            console.log(`[OntologyAgent] Added property ${suggestion.name} to ${suggestion.entityType}`);
+            log.info({ event: 'ontology_agent_property_added', name: suggestion.name, entityType: suggestion.entityType }, 'Added property');
         }
     }
 
@@ -612,9 +617,10 @@ Respond in JSON:
             return { error: 'Graph not connected' };
         }
 
-        const provider = this.llmConfig?.perTask?.text?.provider || this.llmConfig?.provider;
-        const model = this.llmConfig?.perTask?.text?.model || this.llmConfig?.models?.text;
-        
+        const textCfg = this.appConfig ? llmConfig.getTextConfig(this.appConfig) : null;
+        const provider = textCfg?.provider ?? this.llmConfig?.perTask?.text?.provider ?? this.llmConfig?.provider;
+        const model = textCfg?.model ?? this.llmConfig?.perTask?.text?.model ?? this.llmConfig?.models?.text;
+        const providerConfig = textCfg?.providerConfig ?? this.llmConfig?.providers?.[provider] ?? {};
         if (!provider || !model) {
             return { error: 'No LLM configured' };
         }
@@ -685,7 +691,7 @@ Respond in JSON format:
         try {
             const result = await llm.generateText({
                 provider,
-                providerConfig: this.llmConfig?.providers?.[provider] || {},
+                providerConfig,
                 model,
                 prompt,
                 temperature: 0.2,
@@ -727,7 +733,7 @@ Respond in JSON format:
                 if (!isDuplicate) {
                     // Auto-approve high confidence suggestions if enabled
                     if (this.autoApproveEnabled && suggestion.confidence >= OntologyAgent.AUTO_APPROVE_THRESHOLD) {
-                        console.log(`[OntologyAgent] Auto-approving high-confidence suggestion: ${suggestion.name}`);
+                        log.debug({ event: 'ontology_agent_auto_approving', name: suggestion.name }, 'Auto-approving high-confidence suggestion');
                         await this.approveSuggestion(suggestion.id);
                     } else {
                         await this.persistSuggestionToSupabase(suggestion);
@@ -773,7 +779,7 @@ Respond in JSON format:
                 summary: analysis.summary
             };
         } catch (e) {
-            console.error('[OntologyAgent] LLM analysis failed:', e.message);
+            log.error({ event: 'ontology_agent_llm_analysis_failed', reason: e.message }, 'LLM analysis failed');
             return { error: e.message };
         }
     }
@@ -795,10 +801,10 @@ Respond in JSON format:
             try {
                 await this.approveSuggestion(suggestion.id);
                 results.approved++;
-                console.log(`[OntologyAgent] Auto-approved: ${suggestion.name} (confidence: ${suggestion.confidence})`);
+                log.debug({ event: 'ontology_agent_auto_approved', name: suggestion.name, confidence: suggestion.confidence }, 'Auto-approved');
             } catch (e) {
                 results.skipped++;
-                console.log(`[OntologyAgent] Auto-approve failed for ${suggestion.name}: ${e.message}`);
+                log.warn({ event: 'ontology_agent_auto_approve_failed', name: suggestion.name, reason: e.message }, 'Auto-approve failed');
             }
         }
 
@@ -925,7 +931,7 @@ Respond in JSON format:
                     };
                 }
             } catch (e) {
-                console.warn('[OntologyAgent] Could not get compliance stats:', e.message);
+                log.warn({ event: 'ontology_agent_compliance_stats_failed', reason: e.message }, 'Could not get compliance stats');
             }
         }
 
@@ -960,7 +966,7 @@ function getOntologyAgent(options = {}) {
         ontologyAgentInstance.dataDir = options.dataDir;
         ontologyAgentInstance.suggestionsFile = require('path').join(options.dataDir, 'ontology-suggestions.json');
         ontologyAgentInstance.suggestions = ontologyAgentInstance.loadSuggestions();
-        console.log(`[OntologyAgent] Reloaded suggestions from ${options.dataDir}, pending: ${ontologyAgentInstance.suggestions.pending.length}`);
+        log.debug({ event: 'ontology_agent_reloaded', dataDir: options.dataDir, pending: ontologyAgentInstance.suggestions.pending.length }, 'Reloaded suggestions');
     }
     
     return ontologyAgentInstance;

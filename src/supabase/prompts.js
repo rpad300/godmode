@@ -3,7 +3,10 @@
  * Loads AI prompts from Supabase instead of hardcoded values
  */
 
+const { logger } = require('../logger');
 const { getAdminClient } = require('./client');
+
+const log = logger.child({ module: 'prompts' });
 
 // Cache prompts in memory
 let promptsCache = {};
@@ -16,7 +19,7 @@ const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 async function loadPrompts() {
     const admin = getAdminClient();
     if (!admin) {
-        console.log('[Prompts] No database client, using defaults');
+        log.debug({ event: 'prompts_no_client' }, 'No database client, using defaults');
         return null;
     }
 
@@ -27,7 +30,7 @@ async function loadPrompts() {
             .eq('is_active', true);
 
         if (error) {
-            console.error('[Prompts] Failed to load:', error.message);
+            log.warn({ event: 'prompts_load_failed', reason: error.message }, 'Failed to load');
             return null;
         }
 
@@ -39,11 +42,11 @@ async function loadPrompts() {
 
         promptsCache = prompts;
         cacheTimestamp = Date.now();
-        console.log(`[Prompts] Loaded ${Object.keys(prompts).length} prompts from database`);
+        log.debug({ event: 'prompts_loaded', count: Object.keys(prompts).length }, 'Loaded prompts from database');
 
         return prompts;
     } catch (err) {
-        console.error('[Prompts] Exception:', err.message);
+        log.warn({ event: 'prompts_exception', reason: err.message }, 'Exception');
         return null;
     }
 }
@@ -168,7 +171,7 @@ async function buildContactsIndex(projectId, maxTokens = 2000) {
 
         return result;
     } catch (err) {
-        console.error('[Prompts] Failed to build CONTACTS_INDEX:', err.message);
+        log.warn({ event: 'prompts_build_contacts_index_failed', reason: err.message }, 'Failed to build CONTACTS_INDEX');
         return '';
     }
 }
@@ -223,7 +226,7 @@ async function buildOrgIndex(projectId, maxTokens = 500) {
 
         return result;
     } catch (err) {
-        console.error('[Prompts] Failed to build ORG_INDEX:', err.message);
+        log.warn({ event: 'prompts_build_org_index_failed', reason: err.message }, 'Failed to build ORG_INDEX');
         return '';
     }
 }
@@ -262,7 +265,7 @@ async function buildProjectIndex(projectId, maxTokens = 500) {
 
         return result;
     } catch (err) {
-        console.error('[Prompts] Failed to build PROJECT_INDEX:', err.message);
+        log.warn({ event: 'prompts_build_project_index_failed', reason: err.message }, 'Failed to build PROJECT_INDEX');
         return '';
     }
 }
@@ -315,7 +318,7 @@ async function buildUsernameMap(projectId, maxTokens = 500) {
 
         return hasEntries ? result : '';
     } catch (err) {
-        console.error('[Prompts] Failed to build USERNAME_MAP:', err.message);
+        log.warn({ event: 'prompts_build_username_map_failed', reason: err.message }, 'Failed to build USERNAME_MAP');
         return '';
     }
 }
@@ -366,7 +369,7 @@ async function buildDomainMap(projectId, maxTokens = 300) {
 
         return result;
     } catch (err) {
-        console.error('[Prompts] Failed to build DOMAIN_MAP:', err.message);
+        log.warn({ event: 'prompts_build_domain_map_failed', reason: err.message }, 'Failed to build DOMAIN_MAP');
         return '';
     }
 }
@@ -406,12 +409,33 @@ async function buildContextVariables(projectId, availableTokens = 4000) {
         buildDomainMap(projectId, budget.domains)
     ]);
 
+    // Company vars for project (branding in documents)
+    let companyVars = { COMPANY_NAME: '', COMPANY_LOGO_URL: '', COMPANY_PRIMARY_COLOR: '', COMPANY_SECONDARY_COLOR: '', COMPANY_AI_CONTEXT: '' };
+    try {
+        const admin = getAdminClient();
+        if (admin && projectId) {
+            const { data: proj } = await admin.from('projects').select('company_id, company:companies(id, name, logo_url, brand_assets)').eq('id', projectId).single();
+            if (proj?.company) {
+                const c = proj.company;
+                const brand = c.brand_assets || {};
+                companyVars = {
+                    COMPANY_NAME: c.name || '',
+                    COMPANY_LOGO_URL: c.logo_url || '',
+                    COMPANY_PRIMARY_COLOR: brand.primary_color || '',
+                    COMPANY_SECONDARY_COLOR: brand.secondary_color || '',
+                    COMPANY_AI_CONTEXT: brand.ai_context || ''
+                };
+            }
+        }
+    } catch (e) { /* ignore */ }
+
     return {
         CONTACTS_INDEX: contacts,
         ORG_INDEX: orgs,
         PROJECT_INDEX: projects,
         USERNAME_MAP: usernames,
-        DOMAIN_MAP: domains
+        DOMAIN_MAP: domains,
+        ...companyVars
     };
 }
 

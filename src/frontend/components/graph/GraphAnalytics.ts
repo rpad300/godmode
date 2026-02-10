@@ -341,11 +341,11 @@ function renderEntityDistribution(container: HTMLElement, state: AnalyticsState)
         return `
           <div class="distribution-row">
             <div class="distribution-label">
-              <span class="type-dot" style="background: ${getTypeColor(type)}"></span>
+              <span class="type-dot" style="--type-color: ${getTypeColor(type)}"></span>
               <span class="type-name">${escapeHtml(type)}</span>
             </div>
             <div class="distribution-bar-container">
-              <div class="distribution-bar" style="width: ${width}%; background: ${getTypeColor(type)}"></div>
+              <div class="distribution-bar" style="--bar-width: ${width}%; --bar-color: ${getTypeColor(type)}"></div>
             </div>
             <div class="distribution-value">${count} (${percentage}%)</div>
           </div>
@@ -383,7 +383,7 @@ function renderCommunities(
       ${state.communities.slice(0, 6).map((community, i) => `
         <div class="community-card" data-id="${community.id}">
           <div class="community-header">
-            <div class="community-color" style="background: ${colors[i % colors.length]}"></div>
+            <div class="community-color" style="--community-color: ${colors[i % colors.length]}"></div>
             <span class="community-name">${community.hub?.name || `Community ${i + 1}`}</span>
           </div>
           <div class="community-stats">
@@ -391,7 +391,7 @@ function renderCommunities(
           </div>
           ${community.members.slice(0, 3).map(m => `
             <div class="community-member">
-              <span class="member-type" style="color: ${getTypeColor(m.type)}">${m.type}</span>
+              <span class="member-type" style="--member-type-color: ${getTypeColor(m.type)}">${m.type}</span>
               <span class="member-name">${escapeHtml(m.name)}</span>
             </div>
           `).join('')}
@@ -439,7 +439,7 @@ function renderKeyPeople(
           <div class="person-rank">${i + 1}</div>
           <div class="person-avatar">
             ${person.avatarUrl
-              ? `<img src="${person.avatarUrl}" alt="" onerror="this.style.display='none'">`
+              ? `<img src="${person.avatarUrl}" alt="" onerror="this.classList.add('gm-none')">`
               : `<div class="avatar-placeholder">${getInitials(person.name)}</div>`
             }
           </div>
@@ -449,7 +449,7 @@ function renderKeyPeople(
           </div>
           <div class="person-metrics">
             <div class="connections-bar-container">
-              <div class="connections-bar" style="width: ${(person.connections / maxConnections) * 100}%"></div>
+              <div class="connections-bar" style="--bar-width: ${(person.connections / maxConnections) * 100}%"></div>
             </div>
             <span class="connections-count">${person.connections}</span>
           </div>

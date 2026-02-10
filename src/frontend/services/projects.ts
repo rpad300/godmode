@@ -3,7 +3,7 @@
  * Handles project CRUD operations and state
  */
 
-import { http } from './api';
+import { http, fetchWithProject } from './api';
 import { appStore, Project } from '../stores/app';
 import { dataStore } from '../stores/data';
 import { toast } from './toast';
@@ -167,7 +167,7 @@ export async function getProjectStats(id: string): Promise<ProjectStats> {
  * Export project data
  */
 export async function exportProject(id: string): Promise<Blob> {
-  const response = await fetch(`/api/projects/${id}/export`);
+  const response = await fetchWithProject(`/api/projects/${id}/export`);
   if (!response.ok) {
     throw new Error('Failed to export project');
   }
@@ -181,7 +181,7 @@ export async function importProject(file: File): Promise<Project> {
   const formData = new FormData();
   formData.append('file', file);
 
-  const response = await fetch('/api/projects/import', {
+  const response = await fetchWithProject('/api/projects/import', {
     method: 'POST',
     body: formData,
   });

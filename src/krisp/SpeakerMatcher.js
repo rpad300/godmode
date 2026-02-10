@@ -4,7 +4,10 @@
  * REUTILIZES existing logic from src/supabase/storage.js
  */
 
+const { logger } = require('../logger');
 const { getAdminClient } = require('../supabase/client');
+
+const log = logger.child({ module: 'speaker-matcher' });
 
 // Pattern for unidentified speakers
 const UNIDENTIFIED_PATTERN = /^(Speaker\s*\d+|Unknown|Guest|Participant)$/i;
@@ -64,7 +67,7 @@ class SpeakerMatcher {
             .maybeSingle();
 
         if (error) {
-            console.error('[SpeakerMatcher] Error finding mapping:', error);
+            log.warn({ event: 'speaker_matcher_find_error', reason: error?.message }, 'Error finding mapping');
             return null;
         }
 
@@ -98,7 +101,7 @@ class SpeakerMatcher {
             .maybeSingle();
 
         if (error) {
-            console.error('[SpeakerMatcher] Error finding global mapping:', error);
+            log.warn({ event: 'speaker_matcher_global_find_error', reason: error?.message }, 'Error finding global mapping');
             return null;
         }
 
@@ -156,7 +159,7 @@ class SpeakerMatcher {
 
                 return result;
             } catch (err) {
-                console.error('[SpeakerMatcher] Storage error:', err);
+                log.warn({ event: 'speaker_matcher_storage_error', reason: err?.message }, 'Storage error');
             }
         }
 
@@ -289,7 +292,7 @@ class SpeakerMatcher {
             .eq('user_id', userId);
 
         if (error) {
-            console.error('[SpeakerMatcher] Error getting user projects:', error);
+            log.warn({ event: 'speaker_matcher_user_projects_error', reason: error?.message }, 'Error getting user projects');
             return [];
         }
 
@@ -444,7 +447,7 @@ class SpeakerMatcher {
             .single();
 
         if (error) {
-            console.error('[SpeakerMatcher] Error creating mapping:', error);
+            log.warn({ event: 'speaker_matcher_create_error', reason: error?.message }, 'Error creating mapping');
             return { success: false, error: error.message };
         }
 
@@ -483,7 +486,7 @@ class SpeakerMatcher {
             .order('created_at', { ascending: false });
 
         if (error) {
-            console.error('[SpeakerMatcher] Error getting mappings:', error);
+            log.warn({ event: 'speaker_matcher_get_mappings_error', reason: error?.message }, 'Error getting mappings');
             return [];
         }
 

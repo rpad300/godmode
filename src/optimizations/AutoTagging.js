@@ -4,13 +4,16 @@
  */
 
 const llm = require('../llm');
+const llmConfig = require('../llm/config');
+const { logger } = require('../logger');
+const log = logger.child({ module: 'auto-tagging' });
 
 class AutoTagging {
     constructor(options = {}) {
-        // No hardcoded defaults - must come from admin config
         this.llmProvider = options.llmProvider || null;
         this.llmModel = options.llmModel || null;
         this.llmConfig = options.llmConfig || {};
+        this.appConfig = options.appConfig || null;
         
         // Predefined tag categories
         this.categories = options.categories || [
@@ -66,10 +69,15 @@ Classify this document and respond in JSON format:
 Be concise and accurate.`;
 
         try {
+            const textCfg = this.appConfig ? llmConfig.getTextConfig(this.appConfig) : null;
+            const provider = textCfg?.provider ?? this.llmProvider;
+            const model = textCfg?.model ?? this.llmModel;
+            const providerConfig = textCfg?.providerConfig ?? this.llmConfig?.providers?.[provider] ?? {};
+            if (!provider || !model) return this.fallbackTagging(content, title);
             const result = await llm.generateText({
-                provider: this.llmProvider,
-                providerConfig: this.llmConfig?.providers?.[this.llmProvider] || {},
-                model: this.llmModel,
+                provider,
+                providerConfig,
+                model,
                 prompt,
                 temperature: 0.2,
                 maxTokens: 500
@@ -80,7 +88,7 @@ Be concise and accurate.`;
             }
             return this.fallbackTagging(content, title);
         } catch (e) {
-            console.log('[AutoTagging] LLM error:', e.message);
+            log.warn({ event: 'auto_tagging_llm_error', reason: e.message }, 'LLM error');
             return this.fallbackTagging(content, title);
         }
     }
@@ -104,7 +112,7 @@ Be concise and accurate.`;
                 };
             }
         } catch (e) {
-            console.log('[AutoTagging] Parse error');
+            log.warn({ event: 'auto_tagging_parse_error' }, 'Parse error');
         }
         return { category: 'general', tags: [], importance: 'medium' };
     }

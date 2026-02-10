@@ -5,6 +5,10 @@
  * Refactored to use Supabase instead of local JSON files
  */
 
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'usage-analytics' });
+
 // Try to load Supabase - may fail due to project folder name conflict
 let getStorage = null;
 try {
@@ -129,7 +133,7 @@ class UsageAnalytics {
                 errors: []
             };
         } catch (e) {
-            console.warn('[UsageAnalytics] Could not flush data:', e.message);
+            log.warn({ event: 'usage_analytics_flush_failed', message: e.message }, 'Could not flush data');
         }
     }
 
@@ -267,7 +271,7 @@ class UsageAnalytics {
             
             return summary;
         } catch (e) {
-            console.warn('[UsageAnalytics] Could not get summary:', e.message);
+            log.warn({ event: 'usage_analytics_summary_failed', message: e.message }, 'Could not get summary');
             return this._getEmptySummary();
         }
     }

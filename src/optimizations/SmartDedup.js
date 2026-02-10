@@ -3,14 +3,18 @@
  * Advanced deduplication using semantic similarity and context
  */
 
+const { logger } = require('../logger');
 const llm = require('../llm');
+const llmConfig = require('../llm/config');
+
+const log = logger.child({ module: 'smart-dedup' });
 
 class SmartDedup {
     constructor(options = {}) {
-        // No hardcoded defaults - must come from admin config
         this.llmProvider = options.llmProvider || null;
         this.llmModel = options.llmModel || null;
         this.llmConfig = options.llmConfig || {};
+        this.appConfig = options.appConfig || null;
         this.storage = options.storage;
         
         // Similarity thresholds
@@ -82,15 +86,23 @@ class SmartDedup {
         const texts = items.map(i => i[textField]);
         
         try {
+            const embedCfg = this.appConfig ? llmConfig.getEmbeddingsConfig(this.appConfig) : null;
+            const provider = embedCfg?.provider || this.llmConfig?.embeddingsProvider;
+            const providerConfig = embedCfg?.providerConfig || this.llmConfig?.providers?.[provider] || {};
+            const model = embedCfg?.model || this.llmConfig?.models?.embeddings;
+            if (!provider || !model) {
+                log.debug({ event: 'smart_dedup_no_embed_config' }, 'No embeddings config, falling back to text similarity');
+                return this.findTextDuplicates(items, textField);
+            }
             const embedResult = await llm.embed({
-                provider: this.llmConfig?.embeddingsProvider || 'ollama',
-                providerConfig: this.llmConfig?.providers?.[this.llmConfig?.embeddingsProvider] || {},
-                model: this.llmConfig?.models?.embeddings || 'mxbai-embed-large',
+                provider,
+                providerConfig,
+                model,
                 texts
             });
 
             if (!embedResult.success) {
-                console.log('[SmartDedup] Embedding failed, falling back to text similarity');
+                log.debug({ event: 'smart_dedup_embed_fallback' }, 'Embedding failed, falling back to text similarity');
                 return this.findTextDuplicates(items, textField);
             }
 
@@ -295,7 +307,7 @@ class SmartDedup {
             people: await this.deduplicatePeople()
         };
 
-        console.log(`[SmartDedup] Dedup complete: ${results.facts.merged || 0} facts merged, ${results.people.duplicateGroups || 0} people groups found`);
+        log.debug({ event: 'smart_dedup_complete', factsMerged: results.facts.merged || 0, peopleGroups: results.people.duplicateGroups || 0 }, 'Dedup complete');
         
         return results;
     }

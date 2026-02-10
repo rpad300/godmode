@@ -240,10 +240,26 @@ function invalidateUserCache(userId) {
     cache.invalidatePattern(`:${userId}`);
 }
 
+/**
+ * Invalidate GET /api/config cache (call after POST /api/config)
+ */
+function invalidateConfigCache() {
+    cache.invalidate('GET:/api/config:config');
+}
+
+/**
+ * Invalidate GET /api/dashboard cache (e.g. after mutations so dashboard reflects fresh data)
+ */
+function invalidateDashboardCache() {
+    cache.invalidatePattern('GET:/api/dashboard');
+}
+
 module.exports = {
     cache,
     cacheMiddleware,
     invalidateProjectCache,
     invalidateUserCache,
+    invalidateConfigCache,
+    invalidateDashboardCache,
     getStats: () => cache.getStats()
 };

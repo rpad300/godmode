@@ -2,6 +2,13 @@
  * Briefing and Reports Styles
  */
 
+/* PDF export temporary container (ReportsPanel) */
+.report-pdf-container {
+  font-family: system-ui, sans-serif;
+  padding: 40px;
+  max-width: 800px;
+}
+
 /* Briefing Panel */
 .briefing-panel {
   background: var(--color-surface);

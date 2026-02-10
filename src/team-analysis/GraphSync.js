@@ -3,7 +3,10 @@
  * Syncs team analysis data to the graph database for queries and visualization
  */
 
+const { logger } = require('../logger');
 const { getSupabaseClient } = require('../supabase/client');
+
+const log = logger.child({ module: 'graph-sync' });
 
 class GraphSync {
     constructor(options = {}) {
@@ -16,7 +19,7 @@ class GraphSync {
      * @param {string} projectId - Project ID
      */
     async syncProfilesToGraph(projectId) {
-        console.log(`[GraphSync] Syncing profiles to graph for project ${projectId}`);
+        log.debug({ event: 'graph_sync_profiles_start', projectId }, 'Syncing profiles to graph');
 
         // Get all profiles
         const { data: profiles, error } = await this.supabase
@@ -68,7 +71,7 @@ class GraphSync {
             }
         }
 
-        console.log(`[GraphSync] Synced ${profiles.length} profiles to graph`);
+        log.debug({ event: 'graph_sync_profiles_done', projectId, count: profiles.length }, 'Synced profiles to graph');
     }
 
     /**
@@ -76,7 +79,7 @@ class GraphSync {
      * @param {string} projectId - Project ID
      */
     async syncBehavioralRelationshipsToGraph(projectId) {
-        console.log(`[GraphSync] Syncing behavioral relationships to graph for project ${projectId}`);
+        log.debug({ event: 'graph_sync_relationships_start', projectId }, 'Syncing behavioral relationships to graph');
 
         // Get all behavioral relationships
         const { data: relationships, error } = await this.supabase
@@ -121,7 +124,7 @@ class GraphSync {
             );
         }
 
-        console.log(`[GraphSync] Synced ${relationships.length} behavioral relationships to graph`);
+        log.debug({ event: 'graph_sync_relationships_done', projectId, count: relationships.length }, 'Synced behavioral relationships to graph');
     }
 
     /**
@@ -129,7 +132,7 @@ class GraphSync {
      * @param {string} projectId - Project ID
      */
     async syncTeamAnalysisToGraph(projectId) {
-        console.log(`[GraphSync] Syncing team analysis to graph for project ${projectId}`);
+        log.debug({ event: 'graph_sync_team_analysis_start', projectId }, 'Syncing team analysis to graph');
 
         // Get team analysis
         const { data: analysis, error } = await this.supabase
@@ -139,7 +142,7 @@ class GraphSync {
             .single();
 
         if (error || !analysis) {
-            console.log('[GraphSync] No team analysis found');
+            log.debug({ event: 'graph_sync_no_team_analysis', projectId }, 'No team analysis found');
             return;
         }
 
@@ -166,7 +169,7 @@ class GraphSync {
             );
         }
 
-        console.log('[GraphSync] Team analysis synced to graph');
+        log.debug({ event: 'graph_sync_team_analysis_done', projectId }, 'Team analysis synced to graph');
     }
 
     /**
@@ -309,7 +312,7 @@ class GraphSync {
             });
 
         if (error) {
-            console.error(`[GraphSync] Failed to upsert node ${nodeId}:`, error.message);
+            log.error({ event: 'graph_sync_upsert_node_failed', nodeId, reason: error.message }, 'Failed to upsert node');
         }
     }
 
@@ -335,7 +338,7 @@ class GraphSync {
 
         if (error && !error.message.includes('violates foreign key')) {
             // Ignore foreign key errors (nodes might not exist yet)
-            console.error(`[GraphSync] Failed to upsert relationship ${relId}:`, error.message);
+            log.error({ event: 'graph_sync_upsert_relationship_failed', relId, reason: error.message }, 'Failed to upsert relationship');
         }
     }
 

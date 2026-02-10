@@ -1,10 +1,16 @@
 /**
  * OTP (One-Time Password) Service Tests
+ * Unit tests with mocked Supabase client
  */
 
-const { hashCode, generateCode } = require('../../src/supabase/otp');
+const mockGetAdminClient = jest.fn();
+jest.mock('../../src/supabase/client', () => ({
+    getAdminClient: (...args) => mockGetAdminClient(...args)
+}));
 
 describe('OTP Service', () => {
+    const { hashCode, generateCode } = require('../../src/supabase/otp');
+
     describe('generateCode', () => {
         it('should generate a 6-digit code', () => {
             const code = generateCode();
@@ -12,7 +18,6 @@ describe('OTP Service', () => {
         });
 
         it('should generate codes between 100000 and 999999', () => {
-            // Generate multiple codes to verify range
             for (let i = 0; i < 100; i++) {
                 const code = generateCode();
                 const num = parseInt(code, 10);
@@ -26,7 +31,6 @@ describe('OTP Service', () => {
             for (let i = 0; i < 100; i++) {
                 codes.add(generateCode());
             }
-            // With 6 digits, 100 codes should all be unique (statistically)
             expect(codes.size).toBeGreaterThan(90);
         });
     });
@@ -57,39 +61,159 @@ describe('OTP Service', () => {
     });
 });
 
-describe('OTP Integration Tests', () => {
-    // These tests require a database connection
-    // They are skipped by default and run in integration test suite
-    
-    describe.skip('createOTP', () => {
-        it('should create an OTP code', async () => {
-            // Requires database setup
+describe('OTP Integration Tests (mocked)', () => {
+    let otp;
+    let mockAdmin;
+
+    beforeEach(() => {
+        jest.resetModules();
+        mockAdmin = {
+            rpc: jest.fn(),
+            from: jest.fn()
+        };
+        mockGetAdminClient.mockReturnValue(mockAdmin);
+        otp = require('../../src/supabase/otp');
+    });
+
+    describe('createOTP', () => {
+        it('should create an OTP code when DB allows', async () => {
+            mockAdmin.rpc.mockResolvedValueOnce({ data: [], error: null });
+            mockAdmin.from.mockReturnValue({
+                insert: jest.fn().mockReturnValue(Promise.resolve({ error: null }))
+            });
+
+            const result = await otp.createOTP('user@example.com', 'login', '127.0.0.1', 'test');
+
+            expect(result.success).toBe(true);
+            expect(result.code).toMatch(/^\d{6}$/);
+            expect(result.expiresAt).toBeInstanceOf(Date);
+            expect(result.expiresInMinutes).toBe(10);
         });
 
-        it('should enforce rate limits', async () => {
-            // Requires database setup
+        it('should enforce rate limits when RPC returns not allowed', async () => {
+            mockAdmin.rpc.mockResolvedValueOnce({
+                data: [{ allowed: false, error_code: 'RATE_LIMIT_MINUTE', retry_after_seconds: 60 }],
+                error: null
+            });
+
+            const result = await otp.createOTP('user@example.com', 'login');
+
+            expect(result.success).toBe(false);
+            expect(result.error).toContain('wait');
+            expect(result.retryAfter).toBe(60);
+            expect(mockAdmin.from).not.toHaveBeenCalled();
+        });
+
+        it('should return error when Supabase not configured', async () => {
+            mockGetAdminClient.mockReturnValueOnce(null);
+
+            const result = await otp.createOTP('user@example.com', 'login');
+
+            expect(result.success).toBe(false);
+            expect(result.error).toBe('Database not configured');
+        });
+
+        it('should return error for invalid purpose', async () => {
+            const result = await otp.createOTP('user@example.com', 'invalid_purpose');
+
+            expect(result.success).toBe(false);
+            expect(result.error).toBe('Invalid OTP purpose');
+        });
+
+        it('should return error for invalid email', async () => {
+            const result = await otp.createOTP('not-an-email', 'login');
+
+            expect(result.success).toBe(false);
+            expect(result.error).toBe('Valid email is required');
+        });
+
+        it('should return error when insert fails', async () => {
+            mockAdmin.rpc.mockResolvedValueOnce({ data: [], error: null });
+            mockAdmin.from.mockReturnValue({
+                insert: jest.fn().mockReturnValue(Promise.resolve({ error: { message: 'insert failed' } }))
+            });
+
+            const result = await otp.createOTP('user@example.com', 'login');
+
+            expect(result.success).toBe(false);
+            expect(result.error).toBe('Failed to create verification code');
         });
     });
 
-    describe.skip('verifyOTP', () => {
+    describe('verifyOTP', () => {
         it('should verify a valid code', async () => {
-            // Requires database setup
+            mockAdmin.rpc.mockResolvedValueOnce({
+                data: [{ success: true }],
+                error: null
+            });
+
+            const result = await otp.verifyOTP('user@example.com', '123456', 'login');
+
+            expect(result.success).toBe(true);
+            expect(mockAdmin.rpc).toHaveBeenCalledWith('verify_otp_code', {
+                p_email: 'user@example.com',
+                p_code_hash: expect.any(String),
+                p_purpose: 'login'
+            });
         });
 
         it('should reject an invalid code', async () => {
-            // Requires database setup
+            mockAdmin.rpc.mockResolvedValueOnce({
+                data: [{ success: false, error_code: 'INVALID_CODE' }],
+                error: null
+            });
+
+            const result = await otp.verifyOTP('user@example.com', '999999', 'login');
+
+            expect(result.success).toBe(false);
+            expect(result.error).toContain('Incorrect');
         });
 
-        it('should reject an expired code', async () => {
-            // Requires database setup
-        });
+        it('should reject an expired or missing code', async () => {
+            mockAdmin.rpc.mockResolvedValueOnce({
+                data: [{ success: false, error_code: 'OTP_NOT_FOUND' }],
+                error: null
+            });
 
-        it('should track attempts', async () => {
-            // Requires database setup
+            const result = await otp.verifyOTP('user@example.com', '123456', 'login');
+
+            expect(result.success).toBe(false);
+            expect(result.error).toContain('Invalid or expired');
         });
 
         it('should reject after max attempts', async () => {
-            // Requires database setup
+            mockAdmin.rpc.mockResolvedValueOnce({
+                data: [{ success: false, error_code: 'MAX_ATTEMPTS_EXCEEDED' }],
+                error: null
+            });
+
+            const result = await otp.verifyOTP('user@example.com', '000000', 'login');
+
+            expect(result.success).toBe(false);
+            expect(result.error).toContain('Too many incorrect');
+        });
+
+        it('should return error when Supabase not configured', async () => {
+            mockGetAdminClient.mockReturnValueOnce(null);
+
+            const result = await otp.verifyOTP('user@example.com', '123456', 'login');
+
+            expect(result.success).toBe(false);
+            expect(result.error).toBe('Database not configured');
+        });
+
+        it('should return error for invalid code format', async () => {
+            const result = await otp.verifyOTP('user@example.com', '12345', 'login');
+
+            expect(result.success).toBe(false);
+            expect(result.error).toBe('Invalid code format');
+            expect(mockAdmin.rpc).not.toHaveBeenCalled();
+        });
+
+        it('should return error when email, code or purpose missing', async () => {
+            expect((await otp.verifyOTP('', '123456', 'login')).success).toBe(false);
+            expect((await otp.verifyOTP('u@e.com', '', 'login')).success).toBe(false);
+            expect((await otp.verifyOTP('u@e.com', '123456', '')).success).toBe(false);
         });
     });
 });

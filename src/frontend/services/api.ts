@@ -5,6 +5,11 @@
 
 import { toast } from './toast';
 
+let getCurrentProjectId: (() => string | null) | null = null;
+export function setProjectIdGetter(getter: () => string | null): void {
+  getCurrentProjectId = getter;
+}
+
 export interface ApiResponse<T = unknown> {
   data: T;
   ok: boolean;
@@ -107,13 +112,19 @@ export async function api<T = unknown>(
 
     clearTimeout(timeoutId);
 
+    const contentType = (response.headers.get('content-type') || '').toLowerCase();
+    const text = await response.text();
     let data: T;
-    const contentType = response.headers.get('content-type');
-    
-    if (contentType?.includes('application/json')) {
-      data = await response.json();
+    if (contentType.includes('application/json') && text) {
+      try {
+        data = JSON.parse(text) as T;
+      } catch {
+        const msg = 'Invalid server response (not JSON). You may be seeing an error page or wrong endpoint.';
+        if (config.showErrorToasts) toast.error(msg);
+        throw new ApiError(msg, response.status || 0);
+      }
     } else {
-      data = await response.text() as unknown as T;
+      data = text as unknown as T;
     }
 
     if (!response.ok) {
@@ -191,7 +202,11 @@ export async function api<T = unknown>(
       return api<T>(path, options, attempt + 1);
     }
 
-    const message = error instanceof Error ? error.message : 'Network error';
+    const rawMessage = error instanceof Error ? error.message : 'Network error';
+    const isJsonParseError = rawMessage.includes('JSON') || rawMessage.includes('Unexpected token');
+    const message = isJsonParseError
+      ? 'Invalid server response. Check that the server is running and the URL is correct.'
+      : rawMessage;
     if (config.showErrorToasts) {
       toast.error(`Connection error: ${message}`);
     }
@@ -272,3 +287,25 @@ export function configureApi(newConfig: Partial<ApiConfig>): void {
 }
 
 export { ApiError };
+
+/**
+ * Returns headers that include X-Project-Id for project-scoped API calls.
+ * Use with raw fetch when the response is not JSON (e.g. blob, stream).
+ */
+export function getProjectHeaders(): Record<string, string> {
+  const id = getCurrentProjectId?.() ?? null;
+  return id ? { 'X-Project-Id': id } : {};
+}
+
+/**
+ * fetch with X-Project-Id and credentials for project-scoped endpoints.
+ * Use instead of raw fetch when the route is project-scoped (e.g. export, upload, graph sync).
+ */
+export async function fetchWithProject(
+  input: RequestInfo | URL,
+  init?: RequestInit
+): Promise<Response> {
+  const headers = new Headers(init?.headers);
+  Object.entries(getProjectHeaders()).forEach(([k, v]) => headers.set(k, v));
+  return fetch(input, { ...init, headers, credentials: 'include' });
+}

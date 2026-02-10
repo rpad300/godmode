@@ -450,7 +450,7 @@ export async function renderRolesPanel(container: HTMLElement): Promise<void> {
           <div class="empty-state">Loading roles...</div>
         </div>
         
-        <div class="role-editor" id="role-editor" style="display: none;">
+        <div class="role-editor hidden" id="role-editor">
           <!-- Editor content will be rendered here -->
         </div>
       </div>
@@ -489,7 +489,7 @@ async function loadRoles(container: HTMLElement): Promise<void> {
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197"/>
           </svg>
           <p>No roles defined yet</p>
-          <p style="font-size: 13px; opacity: 0.7;">Click "Create Role" to get started</p>
+          <p class="empty-state-hint">Click "Create Role" to get started</p>
         </div>
       `;
       return;
@@ -513,7 +513,7 @@ function renderRolesList(listEl: HTMLElement, container: HTMLElement): void {
     return `
       <div class="role-card${editingRole?.id === role.id ? ' active' : ''}" data-id="${role.id}">
         <div class="role-card-header">
-          <div class="role-color-dot" style="background: ${role.color || '#e11d48'}"></div>
+          <div class="role-color-dot" style="--role-color: ${role.color || '#e11d48'}"></div>
           <div class="role-card-name">${escapeHtml(role.display_name || role.name)}</div>
           <div class="role-card-badges">
             ${role.is_template ? '<span class="role-badge template">Template</span>' : ''}
@@ -548,7 +548,7 @@ function showRoleEditor(container: HTMLElement, role: Role | null): void {
   const editorEl = container.querySelector('#role-editor') as HTMLElement;
   if (!editorEl) return;
 
-  editorEl.style.display = 'block';
+  editorEl.classList.remove('hidden');
 
   const isNew = !role;
 
@@ -565,11 +565,11 @@ function showRoleEditor(container: HTMLElement, role: Role | null): void {
       
       <form id="role-form">
         <div class="form-row">
-          <div class="form-group" style="flex: 2">
+          <div class="form-group role-form-flex-2">
             <label>Role Name *</label>
             <input type="text" id="role-name" required value="${escapeHtml(role?.display_name || role?.name || '')}" placeholder="e.g., Project Manager, Senior Developer">
           </div>
-          <div class="form-group" style="flex: 1">
+          <div class="form-group role-form-flex-1">
             <label>Category</label>
             <select id="role-category">
               ${ROLE_CATEGORIES.map(cat => `
@@ -577,9 +577,9 @@ function showRoleEditor(container: HTMLElement, role: Role | null): void {
               `).join('')}
             </select>
           </div>
-          <div class="form-group" style="width: 80px">
+          <div class="form-group role-form-w-80">
             <label>Color</label>
-            <input type="color" id="role-color" value="${role?.color || '#e11d48'}" style="height: 42px; padding: 4px;">
+            <input type="color" id="role-color" class="role-color-input" value="${role?.color || '#e11d48'}">
           </div>
         </div>
         
@@ -600,7 +600,7 @@ function showRoleEditor(container: HTMLElement, role: Role | null): void {
               </svg>
               Enhance with AI
             </button>
-            <span class="form-hint" style="margin: 0; padding-top: 10px;">Let AI generate or improve the role context based on the role name.</span>
+            <span class="form-hint role-form-hint-ai">Let AI generate or improve the role context based on the role name.</span>
           </div>
         </div>
         
@@ -634,7 +634,7 @@ function bindEditorEvents(container: HTMLElement, role: Role | null): void {
   const cancelBtn = editorEl.querySelector('#btn-cancel');
   if (cancelBtn) {
     on(cancelBtn as HTMLElement, 'click', () => {
-      editorEl.style.display = 'none';
+      editorEl.classList.add('hidden');
       editingRole = null;
       const listEl = container.querySelector('#roles-list') as HTMLElement;
       if (listEl) {
@@ -652,7 +652,7 @@ function bindEditorEvents(container: HTMLElement, role: Role | null): void {
       try {
         await http.delete(`/api/role-templates/${role.id}`);
         toast.success('Role deleted');
-        editorEl.style.display = 'none';
+        editorEl.classList.add('hidden');
         editingRole = null;
         await loadRoles(container);
       } catch {
@@ -732,7 +732,7 @@ function bindEditorEvents(container: HTMLElement, role: Role | null): void {
           toast.success('Role created');
         }
 
-        editorEl.style.display = 'none';
+        editorEl.classList.add('hidden');
         editingRole = null;
         await loadRoles(container);
       } catch {

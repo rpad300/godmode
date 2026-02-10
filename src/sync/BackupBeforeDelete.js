@@ -5,6 +5,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'backup-before-delete' });
 
 class BackupBeforeDelete {
     constructor(options = {}) {
@@ -42,7 +45,7 @@ class BackupBeforeDelete {
             }
             fs.writeFileSync(this.indexFile, JSON.stringify(this.backupIndex, null, 2));
         } catch (e) {
-            console.log(`[BackupBeforeDelete] Save index warning: ${e.message}`);
+            log.warn({ event: 'backup_save_index_warning', reason: e.message }, 'Save index warning');
         }
     }
 
@@ -85,10 +88,10 @@ class BackupBeforeDelete {
             this.trimBackups();
             this.saveIndex();
 
-            console.log(`[BackupBeforeDelete] Created backup ${backupId} for ${type} "${item.name || item.title}"`);
+            log.debug({ event: 'backup_created', backupId, type, itemName: item.name || item.title }, 'Created backup');
             return backup;
         } catch (e) {
-            console.log(`[BackupBeforeDelete] Backup failed: ${e.message}`);
+            log.warn({ event: 'backup_failed', reason: e.message }, 'Backup failed');
             return null;
         }
     }

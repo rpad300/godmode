@@ -4,6 +4,9 @@
  */
 
 const os = require('os');
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'health-monitor' });
 
 class HealthMonitor {
     constructor(options = {}) {
@@ -330,7 +333,7 @@ class HealthMonitor {
             await this.getHealth();
         }, this.checkInterval);
         
-        console.log('[HealthMonitor] Started monitoring every', this.checkInterval / 1000, 'seconds');
+        log.info({ event: 'health_monitor_started', intervalSeconds: this.checkInterval / 1000 }, 'Started monitoring');
     }
 
     /**

@@ -5,6 +5,10 @@
  * Refactored to use Supabase instead of local JSON files
  */
 
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'feedback-loop' });
+
 // Try to load Supabase - may fail due to project folder name conflict
 let getStorage = null;
 try {
@@ -69,7 +73,7 @@ class FeedbackLoop {
                     lastRefresh: Date.now()
                 };
             } catch (e) {
-                console.warn('[FeedbackLoop] Could not refresh cache:', e.message);
+                log.warn({ event: 'feedback_loop_refresh_failed', message: e.message }, 'Could not refresh cache');
             }
         }
     }
@@ -112,7 +116,7 @@ class FeedbackLoop {
             
             return result.id;
         } catch (e) {
-            console.warn('[FeedbackLoop] Could not record correction:', e.message);
+            log.warn({ event: 'feedback_loop_record_correction_failed', message: e.message }, 'Could not record correction');
             return null;
         }
     }
@@ -178,7 +182,7 @@ class FeedbackLoop {
                     { original: alias, corrected: canonical }
                 );
             } catch (e) {
-                console.warn('[FeedbackLoop] Could not persist alias:', e.message);
+                log.warn({ event: 'feedback_loop_persist_alias_failed', message: e.message }, 'Could not persist alias');
             }
         }
     }

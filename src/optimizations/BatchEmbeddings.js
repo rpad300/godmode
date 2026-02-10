@@ -3,13 +3,17 @@
  * Process embeddings in batches for better performance
  */
 
+const { logger } = require('../logger');
 const llm = require('../llm');
+
+const log = logger.child({ module: 'batch-embeddings' });
 
 class BatchEmbeddings {
     constructor(options = {}) {
         this.batchSize = options.batchSize || 20;
         this.maxConcurrent = options.maxConcurrent || 3;
         this.llmConfig = options.llmConfig || {};
+        this.appConfig = options.appConfig || null;
         this.retryAttempts = options.retryAttempts || 3;
         this.retryDelay = options.retryDelay || 1000;
         
@@ -78,7 +82,7 @@ class BatchEmbeddings {
                     this.stats.batchCount++;
                 }
             } catch (e) {
-                console.log('[BatchEmbeddings] Batch error:', e.message);
+                log.warn({ event: 'batch_embeddings_batch_error', message: e.message }, 'Batch error');
                 this.stats.errors++;
             }
         }
@@ -98,14 +102,16 @@ class BatchEmbeddings {
      * Process a single batch
      */
     async processBatch(texts, options = {}) {
-        const provider = options.provider || this.llmConfig?.embeddingsProvider || 'ollama';
-        const model = options.model || this.llmConfig?.models?.embeddings || 'mxbai-embed-large';
-        
+        const embedCfg = this.appConfig ? require('../llm/config').getEmbeddingsConfig(this.appConfig) : null;
+        const provider = options.provider || embedCfg?.provider || this.llmConfig?.embeddingsProvider;
+        const model = options.model || embedCfg?.model || this.llmConfig?.models?.embeddings;
+        const providerConfig = embedCfg?.providerConfig || this.llmConfig?.providers?.[provider] || {};
+        if (!provider || !model) return { success: false, embeddings: [] };
         for (let attempt = 1; attempt <= this.retryAttempts; attempt++) {
             try {
                 const result = await llm.embed({
                     provider,
-                    providerConfig: this.llmConfig?.providers?.[provider] || {},
+                    providerConfig,
                     model,
                     texts
                 });

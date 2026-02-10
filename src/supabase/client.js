@@ -4,6 +4,9 @@
  */
 
 const path = require('path');
+const { logger: rootLogger } = require('../logger');
+
+const log = rootLogger.child({ module: 'supabase-client' });
 
 // Fix module resolution when project folder is named "node_modules"
 const projectNodeModules = path.join(__dirname, '..', '..', 'node_modules');
@@ -16,17 +19,68 @@ if (!process.env.NODE_PATH || !process.env.NODE_PATH.includes(projectNodeModules
 
 const { createClient } = require('@supabase/supabase-js');
 
+const DEFAULT_FETCH_TIMEOUT_MS = 30000; // 30s
+const CIRCUIT_THRESHOLD = Number(process.env.SUPABASE_CIRCUIT_THRESHOLD) || 5;
+const CIRCUIT_COOLDOWN_MS = Number(process.env.SUPABASE_CIRCUIT_COOLDOWN_MS) || 30000;
+
+const circuitState = { failures: 0, lastFailureAt: 0, state: 'closed' };
+
+/**
+ * Fetch wrapper that aborts after timeout (prevents hung Supabase requests)
+ */
+function fetchWithTimeout(input, init = {}) {
+    const timeoutMs = Number(process.env.SUPABASE_FETCH_TIMEOUT_MS) || DEFAULT_FETCH_TIMEOUT_MS;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const signal = controller.signal;
+    return fetch(input, { ...init, signal }).then(
+        (r) => { clearTimeout(timeoutId); return r; },
+        (e) => { clearTimeout(timeoutId); throw e; }
+    );
+}
+
+/**
+ * Fetch with circuit breaker: after CIRCUIT_THRESHOLD consecutive failures,
+ * reject immediately for CIRCUIT_COOLDOWN_MS, then allow one probe (half-open).
+ */
+function fetchWithCircuitBreaker(input, init = {}) {
+    const now = Date.now();
+    if (circuitState.state === 'open') {
+        if (now - circuitState.lastFailureAt < CIRCUIT_COOLDOWN_MS) {
+            return Promise.reject(new Error('Supabase circuit open (service unavailable)'));
+        }
+        circuitState.state = 'half-open';
+    }
+    return fetchWithTimeout(input, init).then(
+        (r) => {
+            circuitState.failures = 0;
+            circuitState.state = 'closed';
+            return r;
+        },
+        (e) => {
+            circuitState.failures += 1;
+            circuitState.lastFailureAt = now;
+            if (circuitState.failures >= CIRCUIT_THRESHOLD) {
+                circuitState.state = 'open';
+                log.warn({ event: 'supabase_circuit_open', failures: circuitState.failures, cooldownMs: CIRCUIT_COOLDOWN_MS }, 'Circuit open');
+            }
+            throw e;
+        }
+    );
+}
+
 let clientInstance = null;
 let adminInstance = null;
 
 /**
- * Get environment variables (lazy loading to ensure .env is loaded first)
+ * Get environment variables (lazy loading to ensure .env is loaded first).
+ * Accepts both SUPABASE_PROJECT_* and legacy SUPABASE_URL / SUPABASE_ANON_KEY.
  */
 function getEnvVars() {
     return {
-        url: process.env.SUPABASE_PROJECT_URL,
-        anonKey: process.env.SUPABASE_PROJECT_ANON_KEY,
-        serviceKey: process.env.SUPABASE_PROJECT_SERVICE_ROLE_KEY
+        url: process.env.SUPABASE_PROJECT_URL || process.env.SUPABASE_URL,
+        anonKey: process.env.SUPABASE_PROJECT_ANON_KEY || process.env.SUPABASE_ANON_KEY,
+        serviceKey: process.env.SUPABASE_PROJECT_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY
     };
 }
 
@@ -38,17 +92,14 @@ function getClient() {
     if (!clientInstance) {
         const { url, anonKey } = getEnvVars();
         if (!url || !anonKey) {
-            console.warn('[Supabase] Missing SUPABASE_PROJECT_URL or SUPABASE_PROJECT_ANON_KEY');
+            log.warn({ event: 'supabase_client_missing_config' }, 'Missing SUPABASE_PROJECT_URL or SUPABASE_PROJECT_ANON_KEY');
             return null;
         }
         clientInstance = createClient(url, anonKey, {
-            auth: {
-                autoRefreshToken: true,
-                persistSession: false, // Server-side: don't persist
-                detectSessionInUrl: false
-            }
+            auth: { autoRefreshToken: true, persistSession: false, detectSessionInUrl: false },
+            global: { fetch: fetchWithCircuitBreaker }
         });
-        console.log('[Supabase] Client initialized');
+        log.info({ event: 'supabase_client_initialized' }, 'Client initialized');
     }
     return clientInstance;
 }
@@ -62,16 +113,14 @@ function getAdminClient() {
     if (!adminInstance) {
         const { url, serviceKey } = getEnvVars();
         if (!url || !serviceKey) {
-            console.warn('[Supabase] Missing SUPABASE_PROJECT_URL or SUPABASE_PROJECT_SERVICE_ROLE_KEY');
+            log.warn({ event: 'supabase_admin_missing_config' }, 'Missing SUPABASE_PROJECT_URL or SUPABASE_PROJECT_SERVICE_ROLE_KEY');
             return null;
         }
         adminInstance = createClient(url, serviceKey, {
-            auth: {
-                autoRefreshToken: false,
-                persistSession: false
-            }
+            auth: { autoRefreshToken: false, persistSession: false },
+            global: { fetch: fetchWithCircuitBreaker }
         });
-        console.log('[Supabase] Admin client initialized');
+        log.info({ event: 'supabase_admin_initialized' }, 'Admin client initialized');
     }
     return adminInstance;
 }

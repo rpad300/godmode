@@ -8,6 +8,10 @@
  * - Cluster-aware search expansion
  */
 
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'community-detection' });
+
 class CommunityDetection {
     constructor(options = {}) {
         this.graphProvider = options.graphProvider;
@@ -47,7 +51,7 @@ class CommunityDetection {
             return { ok: true, communities: this.communityCache, cached: true };
         }
         
-        console.log('[Community] Detecting communities...');
+        log.debug({ event: 'community_detect_start' }, 'Detecting communities');
         
         try {
             // Step 1: Get all nodes with their connections
@@ -83,12 +87,12 @@ class CommunityDetection {
             this.communityCache = analyzedCommunities;
             this.cacheTimestamp = Date.now();
             
-            console.log(`[Community] Found ${analyzedCommunities.length} communities`);
+            log.debug({ event: 'community_found', count: analyzedCommunities.length }, 'Found communities');
             
             return { ok: true, communities: analyzedCommunities };
             
         } catch (error) {
-            console.error('[Community] Detection error:', error);
+            log.warn({ event: 'community_detection_error', reason: error?.message }, 'Detection error');
             return { ok: false, error: error.message };
         }
     }
@@ -438,7 +442,7 @@ class CommunityDetection {
             return { ok: false, error: 'Graph not connected' };
         }
 
-        console.log('[CommunityDetection] Calculating betweenness centrality...');
+        log.debug({ event: 'community_betweenness_start' }, 'Calculating betweenness centrality');
 
         try {
             // FalkorDB doesn't have native betweenness algorithm
@@ -477,7 +481,7 @@ class CommunityDetection {
 
             return { ok: true, results: normalized, metric: 'betweenness' };
         } catch (e) {
-            console.error('[CommunityDetection] Betweenness calculation failed:', e.message);
+            log.warn({ event: 'community_betweenness_failed', reason: e.message }, 'Betweenness calculation failed');
             // Fallback to degree centrality
             return this.calculateDegreeCentrality(limit);
         }
@@ -537,7 +541,7 @@ class CommunityDetection {
             return { ok: false, error: 'Graph not connected' };
         }
 
-        console.log('[CommunityDetection] Calculating PageRank...');
+        log.debug({ event: 'community_pagerank_start' }, 'Calculating PageRank');
 
         try {
             // Get all nodes with their degrees
@@ -601,7 +605,7 @@ class CommunityDetection {
 
             return { ok: true, results, metric: 'pagerank', iterations };
         } catch (e) {
-            console.error('[CommunityDetection] PageRank calculation failed:', e.message);
+            log.warn({ event: 'community_pagerank_failed', reason: e.message }, 'PageRank calculation failed');
             return { ok: false, error: e.message };
         }
     }
@@ -616,7 +620,7 @@ class CommunityDetection {
             return { ok: false, error: 'Graph not connected' };
         }
 
-        console.log('[CommunityDetection] Calculating modularity...');
+        log.debug({ event: 'community_modularity_start' }, 'Calculating modularity');
 
         try {
             // First get communities
@@ -685,7 +689,7 @@ class CommunityDetection {
                 }
             };
         } catch (e) {
-            console.error('[CommunityDetection] Modularity calculation failed:', e.message);
+            log.warn({ event: 'community_modularity_failed', reason: e.message }, 'Modularity calculation failed');
             return { ok: false, error: e.message };
         }
     }

@@ -3,13 +3,18 @@
  * Uses LLM to suggest role prompts based on user activity
  */
 
+const { logger } = require('../logger');
 const llm = require('../llm');
+const llmConfig = require('../llm/config');
 const { getRoleTemplates } = require('./RoleTemplates');
+
+const log = logger.child({ module: 'ai-role-suggestions' });
 
 class AIRoleSuggestions {
     constructor(options = {}) {
         this.storage = options.storage;
         this.llmConfig = options.llmConfig || {};
+        this.appConfig = options.appConfig || null;
     }
 
     setStorage(storage) {
@@ -53,7 +58,7 @@ class AIRoleSuggestions {
                 needsMoreData: true
             };
         } catch (error) {
-            console.error('[AIRoleSuggestions] Error:', error.message);
+            log.error({ event: 'ai_role_suggestions_error', message: error.message }, 'Error');
             return {
                 success: false,
                 error: error.message,
@@ -218,10 +223,15 @@ Generate a role context prompt that:
 Respond with ONLY the role prompt text, no explanations.`;
 
         try {
+            const textCfg = this.appConfig ? llmConfig.getTextConfig(this.appConfig) : null;
+            const provider = textCfg?.provider ?? this.llmConfig?.provider;
+            const providerConfig = textCfg?.providerConfig ?? this.llmConfig?.providers?.[provider] ?? {};
+            const model = textCfg?.model ?? this.llmConfig?.models?.text;
+            if (!provider || !model) return null;
             const result = await llm.generateText({
-                provider: this.llmConfig?.provider || 'ollama',
-                providerConfig: this.llmConfig?.providers?.[this.llmConfig?.provider || 'ollama'] || {},
-                model: this.llmConfig?.models?.text || 'llama3.2',
+                provider,
+                providerConfig,
+                model,
                 prompt,
                 temperature: 0.7,
                 maxTokens: 500
@@ -234,7 +244,7 @@ Respond with ONLY the role prompt text, no explanations.`;
                 };
             }
         } catch (error) {
-            console.error('[AIRoleSuggestions] LLM error:', error.message);
+            log.error({ event: 'ai_role_suggestions_llm_error', message: error.message }, 'LLM error');
         }
         
         return null;
@@ -255,10 +265,15 @@ The prompt should:
 Respond with ONLY the prompt text.`;
 
         try {
+            const textCfg = this.appConfig ? llmConfig.getTextConfig(this.appConfig) : null;
+            const provider = textCfg?.provider ?? this.llmConfig?.provider;
+            const providerConfig = textCfg?.providerConfig ?? this.llmConfig?.providers?.[provider] ?? {};
+            const model = textCfg?.model ?? this.llmConfig?.models?.text;
+            if (!provider || !model) return null;
             const result = await llm.generateText({
-                provider: this.llmConfig?.provider || 'ollama',
-                providerConfig: this.llmConfig?.providers?.[this.llmConfig?.provider || 'ollama'] || {},
-                model: this.llmConfig?.models?.text || 'llama3.2',
+                provider,
+                providerConfig,
+                model,
                 prompt,
                 temperature: 0.7,
                 maxTokens: 400
@@ -271,7 +286,7 @@ Respond with ONLY the prompt text.`;
                 };
             }
         } catch (error) {
-            console.error('[AIRoleSuggestions] Generate error:', error.message);
+            log.error({ event: 'ai_role_suggestions_generate_failed', message: error.message }, 'Generate error');
         }
         
         // Fallback to templates

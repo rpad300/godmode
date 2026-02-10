@@ -6,15 +6,19 @@
  * SOTA v2.0 - Now includes EntityResolver integration for deduplication
  */
 
+const { logger } = require('../logger');
 const llm = require('../llm');
+const llmConfig = require('../llm/config');
 const { getOntologyManager } = require('../ontology');
+
+const log = logger.child({ module: 'content-processor' });
 
 // Try to load prompts service for Supabase prompts
 let promptsService = null;
 try {
     promptsService = require('../supabase/prompts');
 } catch (e) {
-    console.log('[ContentProcessor] Supabase prompts service not available');
+    log.debug({ event: 'content_processor_prompts_unavailable' }, 'Supabase prompts service not available');
 }
 
 // Try to load transcript validator
@@ -22,7 +26,7 @@ let transcriptValidator = null;
 try {
     transcriptValidator = require('../validators');
 } catch (e) {
-    console.log('[ContentProcessor] Validators not available');
+    log.debug({ event: 'content_processor_validators_unavailable' }, 'Validators not available');
 }
 
 // Try to load EntityResolver for deduplication (SOTA v2.0)
@@ -31,7 +35,7 @@ try {
     const resolverModule = require('../optimizations/EntityResolver');
     EntityResolver = resolverModule.EntityResolver || resolverModule.getEntityResolver;
 } catch (e) {
-    console.log('[ContentProcessor] EntityResolver not available');
+    log.debug({ event: 'content_processor_entity_resolver_unavailable' }, 'EntityResolver not available');
 }
 
 // Try to load OrganizationResolver for company dedup (SOTA v2.0)
@@ -40,7 +44,7 @@ try {
     const orgModule = require('../optimizations/OrganizationResolver');
     OrganizationResolver = orgModule.OrganizationResolver || orgModule.getOrganizationResolver;
 } catch (e) {
-    console.log('[ContentProcessor] OrganizationResolver not available');
+    log.debug({ event: 'content_processor_organization_resolver_unavailable' }, 'OrganizationResolver not available');
 }
 
 class AIContentProcessor {
@@ -50,14 +54,15 @@ class AIContentProcessor {
         this.llmProvider = options.llmProvider || null;
         this.llmModel = options.llmModel || null;
         this.llmConfig = options.llmConfig || {};
+        this.config = options.config || null;
         this.ontology = options.ontology || getOntologyManager();
         this.storage = options.storage || null; // For contacts context
         
         if (!this.llmProvider) {
-            console.warn('[AIContentProcessor] No LLM provider specified - caller should pass from admin config');
+            log.warn({ event: 'ai_processor_no_llm_provider' }, 'No LLM provider specified - caller should pass from admin config');
         }
         if (!this.llmModel) {
-            console.warn('[AIContentProcessor] No LLM model specified - caller should pass from admin config');
+            log.warn({ event: 'ai_processor_no_llm_model' }, 'No LLM model specified - caller should pass from admin config');
         }
         
         // Processing options
@@ -90,9 +95,9 @@ class AIContentProcessor {
         try {
             this.supabasePrompts = await promptsService.getAllPrompts() || {};
             this.promptsLoaded = true;
-            console.log(`[ContentProcessor] Loaded ${Object.keys(this.supabasePrompts).length} prompts from Supabase`);
+            log.debug({ event: 'content_processor_prompts_loaded', count: Object.keys(this.supabasePrompts).length }, 'Loaded prompts from Supabase');
         } catch (e) {
-            console.log('[ContentProcessor] Could not load prompts:', e.message);
+            log.warn({ event: 'content_processor_prompts_load_failed', message: e.message }, 'Could not load prompts');
         }
     }
 
@@ -141,7 +146,7 @@ class AIContentProcessor {
             return { created: 0, matched: 0, merged: 0, errors: 0 };
         }
 
-        console.log(`[ContentProcessor] Processing ${personEntities.length} Person entities to contacts`);
+        log.debug({ event: 'content_processor_processing_persons', count: personEntities.length }, 'Processing Person entities to contacts');
 
         let created = 0, matched = 0, merged = 0, errors = 0;
         
@@ -153,7 +158,7 @@ class AIContentProcessor {
                     ? EntityResolver({ graphProvider: this.graphProvider, llmConfig: this.llmConfig })
                     : new EntityResolver({ graphProvider: this.graphProvider, llmConfig: this.llmConfig });
             } catch (e) {
-                console.log('[ContentProcessor] Could not initialize EntityResolver:', e.message);
+                log.warn({ event: 'content_processor_entity_resolver_init_failed', message: e.message }, 'Could not initialize EntityResolver');
             }
         }
         
@@ -199,12 +204,12 @@ class AIContentProcessor {
                             const best = duplicates[0];
                             if (best.similarity >= 0.9) {
                                 // High confidence - auto-merge
-                                console.log(`[ContentProcessor] Auto-matched "${personData.name}" to "${best.name}" (${(best.similarity * 100).toFixed(0)}%)`);
+                                log.debug({ event: 'content_processor_auto_matched', name: personData.name, bestName: best.name, similarity: (best.similarity * 100).toFixed(0) }, 'Auto-matched');
                                 merged++;
                                 continue;
                             } else if (best.similarity >= 0.75) {
                                 // Medium confidence - log but still create (will show in review)
-                                console.log(`[ContentProcessor] Potential duplicate: "${personData.name}" ~ "${best.name}" (${(best.similarity * 100).toFixed(0)}%)`);
+                                log.debug({ event: 'content_processor_potential_duplicate', name: personData.name, bestName: best.name, similarity: (best.similarity * 100).toFixed(0) }, 'Potential duplicate');
                             }
                         }
                     } catch (e) {
@@ -237,12 +242,12 @@ class AIContentProcessor {
                     errors++;
                 }
             } catch (err) {
-                console.error(`[ContentProcessor] Failed to save entity ${person.name}:`, err.message);
+                log.error({ event: 'content_processor_entity_save_failed', personName: person.name, message: err.message }, 'Failed to save entity');
                 errors++;
             }
         }
 
-        console.log(`[ContentProcessor] Entity sync: ${created} created, ${matched} matched, ${merged} auto-merged, ${errors} errors`);
+        log.debug({ event: 'content_processor_entity_sync_summary', created, matched, merged, errors }, 'Entity sync');
         return { created, matched, merged, errors };
     }
 
@@ -322,7 +327,7 @@ class AIContentProcessor {
         try {
             return await promptsService.buildContextVariables(projectId);
         } catch (e) {
-            console.log('[ContentProcessor] Failed to get context variables:', e.message);
+            log.warn({ event: 'content_processor_context_vars_failed', message: e.message }, 'Failed to get context variables');
             return {
                 CONTACTS_INDEX: '',
                 ORG_INDEX: '',
@@ -340,7 +345,7 @@ class AIContentProcessor {
      */
     async processDocument(document) {
         const startTime = Date.now();
-        console.log(`[AIProcessor] Processing document: ${document.title || 'Untitled'}`);
+        log.info({ event: 'ai_processor_processing_document', title: document.title || 'Untitled' }, 'Processing document');
         
         const content = document.content || document.text || '';
         if (!content || content.length < 50) {
@@ -356,7 +361,7 @@ class AIContentProcessor {
         
         for (let i = 0; i < chunks.length; i++) {
             const chunk = chunks[i];
-            console.log(`[AIProcessor] Processing chunk ${i + 1}/${chunks.length}`);
+            log.debug({ event: 'ai_processor_processing_chunk', chunkIndex: i + 1, totalChunks: chunks.length }, 'Processing chunk');
             
             const result = await this.extractFromChunk(chunk, {
                 documentTitle: document.title,
@@ -381,7 +386,7 @@ class AIContentProcessor {
         }
         
         const latencyMs = Date.now() - startTime;
-        console.log(`[AIProcessor] Extracted ${uniqueEntities.length} entities, ${uniqueRelationships.length} relationships in ${latencyMs}ms`);
+        log.info({ event: 'ai_processor_extracted', entities: uniqueEntities.length, relationships: uniqueRelationships.length, latencyMs }, 'Extracted');
         
         // Sync extracted Person entities to contacts (v1.6)
         let entitySync = { created: 0, matched: 0, errors: 0 };
@@ -413,7 +418,7 @@ class AIContentProcessor {
         await this.loadPromptsFromSupabase();
 
         const startTime = Date.now();
-        console.log(`[AIProcessor] Processing transcript: ${transcript.title || 'Untitled Meeting'}`);
+        log.info({ event: 'ai_processor_processing_transcript', title: transcript.title || 'Untitled Meeting' }, 'Processing transcript');
         
         const content = transcript.content || transcript.text || '';
         const speakers = transcript.speakers || [];
@@ -433,28 +438,35 @@ class AIContentProcessor {
                 maxTokens = 65536; // Reasoning models have much higher limits
             }
             
-            console.log(`[AIProcessor] Using maxTokens=${maxTokens} for model=${this.llmModel}`);
+            log.debug({ event: 'ai_processor_using_max_tokens', maxTokens, model: this.llmModel }, 'Using maxTokens');
             
+            const textCfg = this.config ? llmConfig.getTextConfig(this.config) : null;
+            const provider = textCfg?.provider ?? this.llmProvider;
+            const model = textCfg?.model ?? this.llmModel;
+            const providerConfig = textCfg?.providerConfig ?? this.llmConfig?.providers?.[provider] ?? {};
+            if (!provider || !model) {
+                log.warn({ event: 'ai_processor_no_llm' }, 'No LLM configured');
+                return this.fallbackTranscriptExtraction(transcript);
+            }
             const result = await llm.generateText({
-                provider: this.llmProvider,
-                providerConfig: this.llmConfig?.providers?.[this.llmProvider] || {},
-                model: this.llmModel,
+                provider,
+                providerConfig,
+                model,
                 prompt,
                 temperature: 0.2,
                 maxTokens
             });
 
             if (!result.success) {
-                console.log('[AIProcessor] LLM call failed:', result.error);
+                log.warn({ event: 'ai_processor_llm_failed', error: result.error }, 'LLM call failed');
                 return this.fallbackTranscriptExtraction(transcript);
             }
 
-            // Debug: log response length and first 500 chars
-            console.log(`[AIProcessor] LLM response length: ${result.text?.length || 0} chars`);
+            log.debug({ event: 'ai_processor_response_length', length: result.text?.length || 0 }, 'LLM response');
             if (result.text && result.text.length < 500) {
-                console.log(`[AIProcessor] Full response (short): ${result.text}`);
+                log.debug({ event: 'ai_processor_response_short', text: result.text }, 'Full response (short)');
             } else if (result.text) {
-                console.log(`[AIProcessor] Response preview: ${result.text.substring(0, 500)}...`);
+                log.debug({ event: 'ai_processor_response_preview', preview: result.text.substring(0, 500) }, 'Response preview');
             }
 
             const parsed = this.parseTranscriptResponse(result.text);
@@ -466,7 +478,7 @@ class AIContentProcessor {
             }
             
             const latencyMs = Date.now() - startTime;
-            console.log(`[AIProcessor] Transcript processed in ${latencyMs}ms`);
+            log.info({ event: 'ai_processor_transcript_processed', latencyMs }, 'Transcript processed');
             
             // Sync extracted Person entities to contacts (v1.6)
             let entitySync = { created: 0, matched: 0, errors: 0 };
@@ -486,7 +498,7 @@ class AIContentProcessor {
                 usage: result.usage // Pass LLM token usage for logging
             };
         } catch (error) {
-            console.error('[AIProcessor] Error processing transcript:', error.message);
+            log.error({ event: 'ai_processor_transcript_error', message: error.message }, 'Error processing transcript');
             return this.fallbackTranscriptExtraction(transcript);
         }
     }
@@ -501,7 +513,7 @@ class AIContentProcessor {
         await this.loadPromptsFromSupabase();
 
         const startTime = Date.now();
-        console.log(`[AIProcessor] Processing conversation: ${conversation.title || 'Untitled'}`);
+        log.info({ event: 'ai_processor_processing_conversation', title: conversation.title || 'Untitled' }, 'Processing conversation');
         
         const messages = conversation.messages || [];
         if (messages.length === 0) {
@@ -519,17 +531,25 @@ class AIContentProcessor {
         const prompt = this.buildConversationPrompt(conversationText, conversation);
         
         try {
+            const textCfgConv = this.config ? llmConfig.getTextConfig(this.config) : null;
+            const providerConv = textCfgConv?.provider ?? this.llmProvider;
+            const modelConv = textCfgConv?.model ?? this.llmModel;
+            const providerConfigConv = textCfgConv?.providerConfig ?? this.llmConfig?.providers?.[providerConv] ?? {};
+            if (!providerConv || !modelConv) {
+                log.warn({ event: 'ai_processor_no_llm' }, 'No LLM configured');
+                return this.fallbackConversationExtraction(conversation);
+            }
             const result = await llm.generateText({
-                provider: this.llmProvider,
-                providerConfig: this.llmConfig?.providers?.[this.llmProvider] || {},
-                model: this.llmModel,
+                provider: providerConv,
+                providerConfig: providerConfigConv,
+                model: modelConv,
                 prompt,
                 temperature: 0.2,
                 maxTokens: 1500
             });
 
             if (!result.success) {
-                console.log('[AIProcessor] LLM call failed:', result.error);
+                log.warn({ event: 'ai_processor_llm_failed', error: result.error }, 'LLM call failed');
                 return this.fallbackConversationExtraction(conversation);
             }
 
@@ -542,7 +562,7 @@ class AIContentProcessor {
             }
             
             const latencyMs = Date.now() - startTime;
-            console.log(`[AIProcessor] Conversation processed in ${latencyMs}ms`);
+            log.info({ event: 'ai_processor_conversation_processed', latencyMs }, 'Conversation processed');
             
             // Sync extracted Person entities to contacts (v1.6)
             let entitySync = { created: 0, matched: 0, errors: 0 };
@@ -562,7 +582,7 @@ class AIContentProcessor {
                 usage: result.usage // Pass LLM token usage for logging
             };
         } catch (error) {
-            console.error('[AIProcessor] Error processing conversation:', error.message);
+            log.error({ event: 'ai_processor_conversation_error', message: error.message }, 'Error processing conversation');
             return this.fallbackConversationExtraction(conversation);
         }
     }
@@ -618,10 +638,15 @@ IMPORTANT:
 - Be precise with entity names (use full names when available)`;
 
         try {
+            const textCfg = this.config ? llmConfig.getTextConfig(this.config) : null;
+            const provider = textCfg?.provider ?? this.llmProvider;
+            const model = textCfg?.model ?? this.llmModel;
+            const providerConfig = textCfg?.providerConfig ?? this.llmConfig?.providers?.[provider] ?? {};
+            if (!provider || !model) return { entities: [], relationships: [], insights: [] };
             const result = await llm.generateText({
-                provider: this.llmProvider,
-                providerConfig: this.llmConfig?.providers?.[this.llmProvider] || {},
-                model: this.llmModel,
+                provider,
+                providerConfig,
+                model,
                 prompt,
                 temperature: 0.1,
                 maxTokens: 1500
@@ -633,7 +658,7 @@ IMPORTANT:
 
             return this.parseExtractionResponse(result.text);
         } catch (error) {
-            console.error('[AIProcessor] Chunk extraction error:', error.message);
+            log.error({ event: 'ai_processor_chunk_extraction_error', message: error.message }, 'Chunk extraction error');
             return { entities: [], relationships: [], insights: [] };
         }
     }
@@ -656,7 +681,7 @@ IMPORTANT:
         const supabaseTemplate = this.getSupabasePrompt('transcript');
         
         if (supabaseTemplate) {
-            console.log('[ContentProcessor] Using Supabase prompt for: transcript');
+            log.debug({ event: 'content_processor_using_supabase_prompt', key: 'transcript' }, 'Using Supabase prompt');
             
             // Get ontology context
             let ontologyContext = '';
@@ -759,7 +784,7 @@ IMPORTANT:
         const supabaseTemplate = this.getSupabasePrompt('conversation');
         
         if (supabaseTemplate) {
-            console.log('[ContentProcessor] Using Supabase prompt for: conversation');
+            log.debug({ event: 'content_processor_using_supabase_prompt', key: 'conversation' }, 'Using Supabase prompt');
             
             // Get ontology context
             let ontologyContext = '';
@@ -871,7 +896,7 @@ EXTRACTION RULES:
                 };
             }
         } catch (e) {
-            console.log('[AIProcessor] Failed to parse extraction response');
+            log.warn({ event: 'ai_processor_parse_extraction_failed' }, 'Failed to parse extraction response');
         }
         return { entities: [], relationships: [], insights: [] };
     }
@@ -944,7 +969,7 @@ EXTRACTION RULES:
                 if (transcriptValidator) {
                     const validation = transcriptValidator.validateTranscriptOutput(result);
                     if (!validation.valid) {
-                        console.log('[AIProcessor] Transcript validation errors:', validation.errors.slice(0, 5));
+                        log.debug({ event: 'ai_processor_validation_errors', errors: validation.errors.slice(0, 5) }, 'Transcript validation errors');
                         
                         // In strict mode, throw error to block processing
                         if (this.strictValidation) {
@@ -953,7 +978,7 @@ EXTRACTION RULES:
                         }
                     }
                     if (validation.warnings.length > 0) {
-                        console.log('[AIProcessor] Transcript validation warnings:', validation.warnings.slice(0, 3));
+                        log.debug({ event: 'ai_processor_validation_warnings', warnings: validation.warnings.slice(0, 3) }, 'Transcript validation warnings');
                     }
                     result._validation = validation;
                 }
@@ -961,7 +986,7 @@ EXTRACTION RULES:
                 return result;
             }
         } catch (e) {
-            console.log('[AIProcessor] Failed to parse transcript response:', e.message);
+            log.warn({ event: 'ai_processor_parse_transcript_failed', message: e.message }, 'Failed to parse transcript response');
         }
         return { 
             participants: [], topics: [], decisions: [], actionItems: [], 
@@ -999,7 +1024,7 @@ EXTRACTION RULES:
                 };
             }
         } catch (e) {
-            console.log('[AIProcessor] Failed to parse conversation response');
+            log.warn({ event: 'ai_processor_parse_conversation_failed' }, 'Failed to parse conversation response');
         }
         return { 
             participants: [], 
@@ -1363,8 +1388,9 @@ let aiProcessorInstance = null;
 function getAIContentProcessor(options = {}) {
     if (!aiProcessorInstance) {
         aiProcessorInstance = new AIContentProcessor(options);
-    } else if (options.llmConfig) {
-        aiProcessorInstance.llmConfig = options.llmConfig;
+    } else if (options.llmConfig || options.config) {
+        if (options.config) aiProcessorInstance.config = options.config;
+        aiProcessorInstance.llmConfig = options.llmConfig || aiProcessorInstance.llmConfig;
         aiProcessorInstance.llmProvider = options.llmProvider || aiProcessorInstance.llmProvider;
         aiProcessorInstance.llmModel = options.llmModel || aiProcessorInstance.llmModel;
     }

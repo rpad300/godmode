@@ -166,6 +166,11 @@
   width: 12px;
   height: 12px;
   border-radius: 50%;
+  background: var(--team-color, #6366f1);
+}
+
+.permissions-btn-icon {
+  font-size: 14px;
 }
 
 .team-name {

@@ -160,7 +160,7 @@ function renderComment(comment: Comment, props: CommentModalProps, depth = 0): s
     .slice(0, 2);
 
   return `
-    <div class="comment ${depth > 0 ? 'reply' : ''}" data-comment-id="${comment.id}" style="margin-left: ${depth * 20}px">
+    <div class="comment ${depth > 0 ? 'reply' : ''}" data-comment-id="${comment.id}" style="--reply-offset: ${depth * 20}px">
       <div class="comment-avatar">
         ${comment.author.avatar 
           ? `<img src="${comment.author.avatar}" alt="${escapeHtml(comment.author.name)}">`

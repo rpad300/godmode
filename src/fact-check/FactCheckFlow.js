@@ -5,35 +5,12 @@
  * Prompt is loaded from Supabase (system_prompts key: fact_check_conflicts) and editable in Admin.
  */
 
+const { logger } = require('../logger');
 const llm = require('../llm');
+
+const log = logger.child({ module: 'fact-check' });
 const llmConfig = require('../llm/config');
 const promptsService = require('../supabase/prompts');
-
-/**
- * Resolve text generation config: use LLM panel config, with fallback to Ollama when only ollama is set.
- * @param {object} config - App config
- * @returns {{ provider: string, providerConfig: object, model: string } | null}
- */
-function getFactCheckLLMConfig(config) {
-    const overrides = { model: config?.ollama?.reasoningModel || config?.llm?.models?.reasoning };
-    let textCfg = llmConfig.getTextConfig(config, overrides);
-    if (textCfg.provider && textCfg.model) {
-        textCfg.providerConfig = textCfg.providerConfig || config?.llm?.providers?.[textCfg.provider] || {};
-        return textCfg;
-    }
-    if (config?.ollama?.model || config?.ollama?.reasoningModel) {
-        return {
-            provider: 'ollama',
-            model: config.ollama.reasoningModel || config.ollama.model,
-            providerConfig: {
-                host: config.ollama.host || '127.0.0.1',
-                port: config.ollama.port || 11434,
-                ...(config.llm?.providers?.ollama || {})
-            }
-        };
-    }
-    return null;
-}
 
 /**
  * Run fact-check analysis: get facts, call app's AI (LLM) for conflict detection,
@@ -55,7 +32,7 @@ async function runFactCheck(storage, config, options = {}) {
         const factsResult = storage.getFacts ? await storage.getFacts() : [];
         allFacts = Array.isArray(factsResult) ? factsResult : (factsResult?.facts || []);
     } catch (e) {
-        console.warn('[FactCheckFlow] getFacts failed:', e.message);
+        log.warn({ event: 'fact_check_get_facts_failed', reason: e.message }, 'getFacts failed');
         return { conflicts: [], analyzed_facts: 0, events_recorded: 0, error: e.message };
     }
 
@@ -63,9 +40,9 @@ async function runFactCheck(storage, config, options = {}) {
         return { conflicts: [], analyzed_facts: allFacts.length, events_recorded: 0 };
     }
 
-    const llmCfg = getFactCheckLLMConfig(config);
+    const llmCfg = llmConfig.getTextConfigForReasoning(config);
     if (!llmCfg?.provider || !llmCfg?.model) {
-        console.log('[FactCheckFlow] No AI/LLM configured, skipping analysis');
+        log.debug({ event: 'fact_check_no_llm' }, 'No AI/LLM configured, skipping analysis');
         return { conflicts: [], analyzed_facts: allFacts.length, events_recorded: 0 };
     }
 
@@ -102,7 +79,7 @@ IMPORTANT: Only output the JSON array, nothing else.`;
         });
         const raw = (result.text || result.response || '').trim();
         if (!result.success) {
-            console.warn('[FactCheckFlow] AI request failed:', result.error);
+            log.warn({ event: 'fact_check_ai_failed', reason: result.error }, 'AI request failed');
             return { conflicts: [], analyzed_facts: allFacts.length, events_recorded: 0, error: result.error || 'AI request failed' };
         }
         const jsonMatch = raw.match(/\[[\s\S]*\]/);
@@ -111,7 +88,7 @@ IMPORTANT: Only output the JSON array, nothing else.`;
             rawConflicts = Array.isArray(parsed) ? parsed : [];
         }
     } catch (e) {
-        console.warn('[FactCheckFlow] AI request failed:', e.message);
+        log.warn({ event: 'fact_check_ai_failed', reason: e.message }, 'AI request failed');
         return { conflicts: [], analyzed_facts: allFacts.length, events_recorded: 0, error: e.message };
     }
 
@@ -146,13 +123,13 @@ IMPORTANT: Only output the JSON array, nothing else.`;
                 await addEvent(fact2.id, 'conflict_detected', eventData2);
                 eventsRecorded += 2;
             } catch (e) {
-                console.warn('[FactCheckFlow] _addFactEvent failed:', e.message);
+                log.warn({ event: 'fact_check_add_fact_event_failed', reason: e.message }, '_addFactEvent failed');
             }
         }
     }
 
     if (conflicts.length > 0) {
-        console.log(`[FactCheckFlow] Found ${conflicts.length} conflict(s), recorded ${eventsRecorded} events`);
+        log.info({ event: 'fact_check_conflicts_found', conflicts: conflicts.length, eventsRecorded }, 'Conflicts found');
     }
 
     return {

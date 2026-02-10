@@ -6,7 +6,10 @@
 const crypto = require('crypto');
 const https = require('https');
 const http = require('http');
+const { logger } = require('../logger');
 const { getAdminClient } = require('./client');
+
+const log = logger.child({ module: 'webhooks' });
 
 // Available webhook events
 const WEBHOOK_EVENTS = {
@@ -117,7 +120,7 @@ async function createWebhook({
             }
         };
     } catch (error) {
-        console.error('[Webhooks] Create error:', error);
+        log.error({ event: 'webhooks_create_error', reason: error?.message }, 'Create error');
         return { success: false, error: error.message };
     }
 }
@@ -148,7 +151,7 @@ async function listWebhooks(projectId) {
 
         return { success: true, webhooks: webhooks || [] };
     } catch (error) {
-        console.error('[Webhooks] List error:', error);
+        log.error({ event: 'webhooks_list_error', reason: error?.message }, 'List error');
         return { success: false, error: error.message };
     }
 }
@@ -183,7 +186,7 @@ async function updateWebhook(webhookId, updates) {
 
         return { success: true, webhook };
     } catch (error) {
-        console.error('[Webhooks] Update error:', error);
+        log.error({ event: 'webhooks_update_error', reason: error?.message }, 'Update error');
         return { success: false, error: error.message };
     }
 }
@@ -207,7 +210,7 @@ async function deleteWebhook(webhookId) {
 
         return { success: true };
     } catch (error) {
-        console.error('[Webhooks] Delete error:', error);
+        log.error({ event: 'webhooks_delete_error', reason: error?.message }, 'Delete error');
         return { success: false, error: error.message };
     }
 }
@@ -235,7 +238,7 @@ async function regenerateSecret(webhookId) {
 
         return { success: true, secret };
     } catch (error) {
-        console.error('[Webhooks] Regenerate secret error:', error);
+        log.error({ event: 'webhooks_regenerate_secret_error', reason: error?.message }, 'Regenerate secret error');
         return { success: false, error: error.message };
     }
 }
@@ -263,7 +266,7 @@ async function triggerWebhooks(projectId, eventType, payload) {
             await deliverWebhook(webhook, eventType, payload);
         }
     } catch (error) {
-        console.error('[Webhooks] Trigger error:', error);
+        log.error({ event: 'webhooks_trigger_error', reason: error?.message }, 'Trigger error');
     }
 }
 
@@ -453,7 +456,7 @@ async function getDeliveryHistory(webhookId, limit = 20) {
 
         return { success: true, deliveries: deliveries || [] };
     } catch (error) {
-        console.error('[Webhooks] Get history error:', error);
+        log.error({ event: 'webhooks_get_history_error', reason: error?.message }, 'Get history error');
         return { success: false, error: error.message };
     }
 }
@@ -486,7 +489,7 @@ async function testWebhook(webhookId) {
 
         return { success: true, message: 'Test webhook sent' };
     } catch (error) {
-        console.error('[Webhooks] Test error:', error);
+        log.error({ event: 'webhooks_test_error', reason: error?.message }, 'Test error');
         return { success: false, error: error.message };
     }
 }

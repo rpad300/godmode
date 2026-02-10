@@ -4,6 +4,10 @@
  * Now supports loading from Supabase with local fallback
  */
 
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'role-templates' });
+
 // Supabase client (lazy loaded)
 let supabaseClient = null;
 
@@ -21,7 +25,7 @@ function getSupabaseClient() {
             });
         }
     } catch (e) {
-        console.warn('[RoleTemplates] Supabase not available:', e.message);
+        log.warn({ event: 'role_templates_supabase_unavailable', reason: e.message }, 'Supabase not available');
     }
     
     return supabaseClient;
@@ -383,7 +387,7 @@ class RoleTemplates {
                         description: t.description
                     };
                 });
-                console.log(`[RoleTemplates] Loaded ${templates.length} templates from Supabase`);
+                log.debug({ event: 'role_templates_loaded', count: templates.length }, 'Loaded templates from Supabase');
             }
             
             // Try to load categories if they exist
@@ -406,7 +410,7 @@ class RoleTemplates {
                 // Categories table might not exist, use defaults
             }
         } catch (e) {
-            console.warn('[RoleTemplates] Error loading from Supabase:', e.message);
+            log.warn({ event: 'role_templates_load_error', reason: e.message }, 'Error loading from Supabase');
         }
         
         this._loaded = true;

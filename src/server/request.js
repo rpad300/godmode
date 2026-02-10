@@ -29,15 +29,31 @@ function parseUrl(reqUrl) {
     }
 }
 
+/** Default max JSON body size (2 MB) to prevent DoS. Override with env MAX_BODY_LENGTH (bytes). */
+const DEFAULT_MAX_BODY_LENGTH = Number(process.env.MAX_BODY_LENGTH) || (2 * 1024 * 1024);
+
 /**
  * Parse JSON body from request
  * @param {http.IncomingMessage} req - The HTTP request
+ * @param {{ maxLength?: number }} [options] - Optional. maxLength in bytes. Exceeding rejects with code ENTITY_TOO_LARGE.
  * @returns {Promise<object>} - Parsed JSON body
  */
-function parseBody(req) {
+function parseBody(req, options = {}) {
+    const maxLength = options.maxLength ?? DEFAULT_MAX_BODY_LENGTH;
     return new Promise((resolve, reject) => {
         let body = '';
-        req.on('data', chunk => body += chunk);
+        let length = 0;
+        req.on('data', (chunk) => {
+            length += chunk.length;
+            if (length > maxLength) {
+                req.destroy();
+                const err = new Error('Request body too large');
+                err.code = 'ENTITY_TOO_LARGE';
+                reject(err);
+                return;
+            }
+            body += chunk;
+        });
         req.on('end', () => {
             try {
                 resolve(body ? JSON.parse(body) : {});
@@ -56,7 +72,7 @@ function parseBody(req) {
  * @returns {{ files: Array, folder: string, documentDate: string|null, documentTime: string|null, emailId: string|null }}
  */
 function parseMultipart(buffer, boundary) {
-    const result = { files: [], folder: 'newinfo', documentDate: null, documentTime: null, emailId: null };
+    const result = { files: [], folder: 'newinfo', documentDate: null, documentTime: null, emailId: null, sprintId: null, actionId: null };
     const boundaryBuffer = Buffer.from('--' + boundary);
     const parts = [];
 
@@ -103,6 +119,10 @@ function parseMultipart(buffer, boundary) {
                 result.documentTime = fieldValue;
             } else if (fieldName === 'emailId') {
                 result.emailId = fieldValue;
+            } else if (fieldName === 'sprintId') {
+                result.sprintId = fieldValue || null;
+            } else if (fieldName === 'actionId') {
+                result.actionId = fieldValue || null;
             }
         }
     }
@@ -113,5 +133,6 @@ function parseMultipart(buffer, boundary) {
 module.exports = {
     parseUrl,
     parseBody,
-    parseMultipart
+    parseMultipart,
+    DEFAULT_MAX_BODY_LENGTH
 };

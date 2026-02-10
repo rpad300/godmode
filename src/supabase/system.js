@@ -4,7 +4,10 @@
  * Only superadmin can write, all authenticated can read
  */
 
+const { logger } = require('../logger');
 const { getAdminClient } = require('./client');
+
+const log = logger.child({ module: 'system-config' });
 
 // Default configurations (used when database is empty)
 const DEFAULTS = {
@@ -99,7 +102,7 @@ async function getSystemConfig(key) {
 
         return { success: true, value: data.value, source: 'database' };
     } catch (error) {
-        console.error('[System] Get config error:', error);
+        log.warn({ event: 'system_config_get_error', reason: error?.message }, 'Get config error');
         // Return default on error
         return { success: true, value: DEFAULTS[key] || null, source: 'default' };
     }
@@ -139,7 +142,7 @@ async function getAllSystemConfigs() {
 
         return { success: true, configs, source: 'database' };
     } catch (error) {
-        console.error('[System] Get all configs error:', error);
+        log.warn({ event: 'system_config_get_all_error', reason: error?.message }, 'Get all configs error');
         return { success: true, configs: DEFAULTS, source: 'default' };
     }
 }
@@ -175,7 +178,7 @@ async function setSystemConfig(key, value, userId = null, description = null) {
 
         return { success: true, config: data };
     } catch (error) {
-        console.error('[System] Set config error:', error);
+        log.warn({ event: 'system_config_set_error', reason: error?.message }, 'Set config error');
         return { success: false, error: error.message };
     }
 }
@@ -203,7 +206,7 @@ async function deleteSystemConfig(key) {
 
         return { success: true };
     } catch (error) {
-        console.error('[System] Delete config error:', error);
+        log.warn({ event: 'system_config_delete_error', reason: error?.message }, 'Delete config error');
         return { success: false, error: error.message };
     }
 }

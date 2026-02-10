@@ -4,8 +4,11 @@
  * Integrates with Ontology for schema-aware query generation
  */
 
+const { logger } = require('../logger');
 const llm = require('../llm');
 const { getOntologyManager } = require('../ontology');
+
+const log = logger.child({ module: 'cypher-generator' });
 
 class CypherGenerator {
     constructor(options = {}) {
@@ -16,10 +19,10 @@ class CypherGenerator {
         this.ontology = options.ontology || getOntologyManager();
         
         if (!this.llmProvider) {
-            console.warn('[CypherGenerator] No LLM provider specified - should be passed from admin config');
+            log.warn({ event: 'cypher_gen_no_llm' }, 'No LLM provider specified - should be passed from admin config');
         }
         if (!this.llmModel) {
-            console.warn('[CypherGenerator] No LLM model specified - should be passed from admin config');
+            log.warn({ event: 'cypher_gen_no_model' }, 'No LLM model specified - should be passed from admin config');
         }
         
         // Cache for generated queries
@@ -42,7 +45,7 @@ class CypherGenerator {
         const cacheKey = this.getCacheKey(question);
         const cached = this.queryCache.get(cacheKey);
         if (cached && Date.now() - cached.timestamp < this.cacheTTL) {
-            console.log('[CypherGen] Using cached query');
+            log.debug({ event: 'cypher_gen_cached' }, 'Using cached query');
             return { ...cached.data, cached: true };
         }
 
@@ -51,7 +54,7 @@ class CypherGenerator {
         const patternMatch = this.tryQueryPatterns(question);
         if (patternMatch) {
             const latencyMs = Date.now() - startTime;
-            console.log(`[CypherGen] Pattern match: ${patternMatch.patternName} (${latencyMs}ms)`);
+            log.debug({ event: 'cypher_gen_pattern', patternName: patternMatch.patternName, latencyMs }, 'Pattern match');
             
             // Cache the pattern result
             this.cacheQuery(cacheKey, patternMatch);
@@ -87,7 +90,7 @@ class CypherGenerator {
             });
 
             if (!result.success) {
-                console.log('[CypherGen] LLM generation failed:', result.error);
+                log.warn({ event: 'cypher_gen_llm_failed', reason: result.error }, 'LLM generation failed');
                 return this.getFallbackQuery(question, hints);
             }
 
@@ -95,7 +98,7 @@ class CypherGenerator {
             const parsed = this.parseResponse(result.text);
             
             const latencyMs = Date.now() - startTime;
-            console.log(`[CypherGen] Generated query in ${latencyMs}ms, confidence: ${parsed.confidence}`);
+            log.debug({ event: 'cypher_gen_generated', latencyMs, confidence: parsed.confidence }, 'Generated query');
 
             // Cache the result
             if (parsed.cypher && parsed.confidence >= 0.5) {
@@ -109,7 +112,7 @@ class CypherGenerator {
                 source: 'llm'
             };
         } catch (error) {
-            console.error('[CypherGen] Error generating query:', error.message);
+            log.warn({ event: 'cypher_gen_error', reason: error.message }, 'Error generating query');
             return this.getFallbackQuery(question, hints);
         }
     }

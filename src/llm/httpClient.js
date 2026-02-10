@@ -1,11 +1,19 @@
 /**
  * HTTP Client Wrapper with Injectable Transport
- * Provides a centralized HTTP layer for LLM providers that can be mocked for testing
+ * Provides a centralized HTTP layer for LLM providers that can be mocked for testing.
+ * Includes optional circuit breaker: after N consecutive failures, reject fast for cooldown.
  */
 
 const https = require('https');
 const http = require('http');
 const { URL } = require('url');
+const { logger: rootLogger } = require('../logger');
+
+const log = rootLogger.child({ module: 'llm-http' });
+
+const LLM_CIRCUIT_THRESHOLD = Number(process.env.LLM_CIRCUIT_THRESHOLD) || 5;
+const LLM_CIRCUIT_COOLDOWN_MS = Number(process.env.LLM_CIRCUIT_COOLDOWN_MS) || 60000;
+const circuitState = { failures: 0, lastFailureAt: 0, state: 'closed' };
 
 // Transport layer - can be swapped for testing
 let transport = null;
@@ -82,7 +90,7 @@ async function defaultTransport(options) {
 }
 
 /**
- * Make an HTTP request
+ * Make an HTTP request (with optional circuit breaker when transport is default)
  * @param {object} options
  * @param {string} options.method - HTTP method
  * @param {string} options.url - Full URL
@@ -93,6 +101,39 @@ async function defaultTransport(options) {
  */
 async function request(options) {
     const activeTransport = transport || defaultTransport;
+    const useCircuit = !transport;
+    if (useCircuit) {
+        const now = Date.now();
+        if (circuitState.state === 'open') {
+            if (now - circuitState.lastFailureAt < LLM_CIRCUIT_COOLDOWN_MS) {
+                throw new Error('LLM circuit open (service temporarily unavailable)');
+            }
+            circuitState.state = 'half-open';
+        }
+        try {
+            const result = await activeTransport(options);
+            if (result.status >= 200 && result.status < 400) {
+                circuitState.failures = 0;
+                circuitState.state = 'closed';
+            } else {
+                circuitState.failures += 1;
+                circuitState.lastFailureAt = now;
+                if (circuitState.failures >= LLM_CIRCUIT_THRESHOLD) {
+                    circuitState.state = 'open';
+                    log.warn({ event: 'llm_circuit_open', failures: circuitState.failures, cooldownMs: LLM_CIRCUIT_COOLDOWN_MS }, 'LLM circuit open');
+                }
+            }
+            return result;
+        } catch (e) {
+            circuitState.failures += 1;
+            circuitState.lastFailureAt = now;
+            if (circuitState.failures >= LLM_CIRCUIT_THRESHOLD) {
+                circuitState.state = 'open';
+                log.warn({ event: 'llm_circuit_open', failures: circuitState.failures, cooldownMs: LLM_CIRCUIT_COOLDOWN_MS }, 'LLM circuit open');
+            }
+            throw e;
+        }
+    }
     return activeTransport(options);
 }
 

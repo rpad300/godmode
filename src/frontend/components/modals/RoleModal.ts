@@ -62,7 +62,7 @@ export function showRoleModal(props: RoleModalProps): void {
     content.innerHTML = `
       <div class="role-view">
         <div class="role-header-info">
-          <div class="role-color-badge" style="background: ${role.color || '#e94560'}"></div>
+          <div class="role-color-badge" style="--role-color: ${role.color || '#e94560'}"></div>
           <div>
             <h3>${escapeHtml(role.name)}</h3>
             ${role.description ? `<p class="text-muted">${escapeHtml(role.description)}</p>` : ''}
@@ -87,13 +87,13 @@ export function showRoleModal(props: RoleModalProps): void {
     content.innerHTML = `
       <form id="role-form" class="role-form">
         <div class="form-row">
-          <div class="form-group" style="flex: 1">
+          <div class="form-group role-form-flex-1">
             <label for="role-name">Role Name *</label>
             <input type="text" id="role-name" required 
                    value="${role?.name || ''}" 
                    placeholder="e.g., Project Manager">
           </div>
-          <div class="form-group" style="width: 80px">
+          <div class="form-group role-form-w-80">
             <label for="role-color">Color</label>
             <input type="color" id="role-color" 
                    value="${role?.color || '#e94560'}">

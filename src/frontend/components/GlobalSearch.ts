@@ -75,9 +75,8 @@ export function initGlobalSearch(props: GlobalSearchProps = {}): void {
 function createSearchModal(props: GlobalSearchProps): HTMLElement {
   const modal = createElement('div', {
     id: 'global-search-modal',
-    className: 'global-search-modal',
+    className: 'global-search-modal hidden',
   });
-  modal.style.display = 'none';
 
   modal.innerHTML = `
     <div class="search-backdrop"></div>
@@ -145,7 +144,7 @@ export function openSearch(): void {
   if (!modal) return;
 
   isOpen = true;
-  modal.style.display = 'block';
+  modal.classList.remove('hidden');
   
   const input = modal.querySelector('#global-search-input') as HTMLInputElement;
   input.value = '';
@@ -180,7 +179,7 @@ export function closeSearch(): void {
   if (!modal) return;
 
   isOpen = false;
-  modal.style.display = 'none';
+  modal.classList.add('hidden');
   
   document.removeEventListener('keydown', handleEscape);
 }

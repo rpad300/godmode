@@ -4,7 +4,7 @@
  */
 
 import { createElement, on } from '../utils/dom';
-import { http } from '../services/api';
+import { http, fetchWithProject } from '../services/api';
 import { formatRelativeTime, formatDate } from '../utils/format';
 import { toast } from '../services/toast';
 
@@ -389,7 +389,7 @@ export async function exportHistory(format: 'json' | 'csv' = 'json'): Promise<vo
     if (currentFilters.dateFrom) params.set('dateFrom', currentFilters.dateFrom);
     if (currentFilters.dateTo) params.set('dateTo', currentFilters.dateTo);
 
-    const response = await fetch(`/api/history/export?${params}`);
+    const response = await fetchWithProject(`/api/history/export?${params}`);
     const blob = await response.blob();
     
     const url = URL.createObjectURL(blob);

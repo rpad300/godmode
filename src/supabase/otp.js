@@ -5,7 +5,10 @@
  */
 
 const crypto = require('crypto');
+const { logger } = require('../logger');
 const { getAdminClient } = require('./client');
+
+const log = logger.child({ module: 'otp' });
 
 // OTP Configuration
 const OTP_CONFIG = {
@@ -54,7 +57,7 @@ async function checkRateLimit(email, requestIp) {
         });
 
         if (error) {
-            console.error('[OTP] Rate limit check error:', error.message);
+            log.warn({ event: 'otp_rate_limit_error', reason: error.message }, 'Rate limit check error');
             // On error, allow the request (fail open for better UX)
             return { allowed: true };
         }
@@ -74,7 +77,7 @@ async function checkRateLimit(email, requestIp) {
 
         return { allowed: true };
     } catch (err) {
-        console.error('[OTP] Rate limit check exception:', err.message);
+        log.warn({ event: 'otp_rate_limit_exception', reason: err.message }, 'Rate limit check exception');
         return { allowed: true }; // Fail open
     }
 }
@@ -135,11 +138,11 @@ async function createOTP(email, purpose, requestIp = null, userAgent = null) {
             });
 
         if (error) {
-            console.error('[OTP] Create error:', error.message);
+            log.warn({ event: 'otp_create_error', reason: error.message }, 'Create error');
             return { success: false, error: 'Failed to create verification code' };
         }
 
-        console.log(`[OTP] Created ${purpose} code for ${normalizedEmail} (expires: ${expiresAt.toISOString()})`);
+        log.debug({ event: 'otp_created', purpose, normalizedEmail, expiresAt: expiresAt.toISOString() }, 'Created OTP code');
 
         return { 
             success: true, 
@@ -149,7 +152,7 @@ async function createOTP(email, purpose, requestIp = null, userAgent = null) {
         };
 
     } catch (err) {
-        console.error('[OTP] Create exception:', err.message);
+        log.warn({ event: 'otp_create_exception', reason: err.message }, 'Create exception');
         return { success: false, error: 'Failed to create verification code' };
     }
 }
@@ -188,7 +191,7 @@ async function verifyOTP(email, code, purpose) {
         });
 
         if (error) {
-            console.error('[OTP] Verify error:', error.message);
+            log.warn({ event: 'otp_verify_error', reason: error.message }, 'Verify error');
             return { success: false, error: 'Verification failed' };
         }
 
@@ -196,7 +199,7 @@ async function verifyOTP(email, code, purpose) {
             const result = data[0];
             
             if (result.success) {
-                console.log(`[OTP] Verified ${purpose} code for ${normalizedEmail}`);
+                log.debug({ event: 'otp_verified', purpose, normalizedEmail }, 'Verified OTP code');
                 return { success: true };
             }
 
@@ -226,7 +229,7 @@ async function verifyOTP(email, code, purpose) {
         return { success: false, error: 'Verification failed' };
 
     } catch (err) {
-        console.error('[OTP] Verify exception:', err.message);
+        log.warn({ event: 'otp_verify_exception', reason: err.message }, 'Verify exception');
         return { success: false, error: 'Verification failed' };
     }
 }
@@ -257,7 +260,7 @@ async function invalidateOTPs(email, purpose = null) {
         await query;
         return { success: true };
     } catch (err) {
-        console.error('[OTP] Invalidate error:', err.message);
+        log.warn({ event: 'otp_invalidate_error', reason: err.message }, 'Invalidate error');
         return { success: false };
     }
 }
@@ -277,18 +280,18 @@ async function cleanupExpiredOTPs() {
         const { data, error } = await admin.rpc('cleanup_expired_otp_codes');
 
         if (error) {
-            console.error('[OTP] Cleanup error:', error.message);
+            log.warn({ event: 'otp_cleanup_error', reason: error.message }, 'Cleanup error');
             return { success: false };
         }
 
         const deletedCount = data || 0;
         if (deletedCount > 0) {
-            console.log(`[OTP] Cleaned up ${deletedCount} expired codes`);
+            log.debug({ event: 'otp_cleanup_done', deletedCount }, 'Cleaned up expired codes');
         }
 
         return { success: true, deletedCount };
     } catch (err) {
-        console.error('[OTP] Cleanup exception:', err.message);
+        log.warn({ event: 'otp_cleanup_exception', reason: err.message }, 'Cleanup exception');
         return { success: false };
     }
 }

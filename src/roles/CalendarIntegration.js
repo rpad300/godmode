@@ -5,6 +5,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'calendar-integration' });
 
 class CalendarIntegration {
     constructor(options = {}) {
@@ -25,7 +28,7 @@ class CalendarIntegration {
                 return JSON.parse(fs.readFileSync(this.calendarFile, 'utf8'));
             }
         } catch (e) {
-            console.error('[CalendarIntegration] Load error:', e.message);
+            log.error({ event: 'calendar_integration_load_failed', message: e.message }, 'Load error');
         }
         return {
             events: [],
@@ -43,7 +46,7 @@ class CalendarIntegration {
             fs.mkdirSync(this.dataDir, { recursive: true });
             fs.writeFileSync(this.calendarFile, JSON.stringify(this.data, null, 2));
         } catch (e) {
-            console.error('[CalendarIntegration] Save error:', e.message);
+            log.error({ event: 'calendar_integration_save_failed', message: e.message }, 'Save error');
         }
     }
 
@@ -265,7 +268,7 @@ class CalendarIntegration {
                     }
                 }
             } catch (e) {
-                console.error('[CalendarIntegration] Error parsing event:', e.message);
+                log.error({ event: 'calendar_integration_parse_event_failed', message: e.message }, 'Error parsing event');
             }
         });
         

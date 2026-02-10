@@ -96,35 +96,16 @@ async function loadFullDashboard(dashboard: HTMLElement, props: DashboardProps):
     // No project selected - show empty state
     if (statsGrid) {
       statsGrid.innerHTML = `
-        <div class="no-project-state" style="
-          grid-column: 1 / -1;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          padding: 64px 24px;
-          text-align: center;
-          background: linear-gradient(135deg, rgba(225,29,72,0.05) 0%, rgba(225,29,72,0.02) 100%);
-          border-radius: 16px;
-          border: 2px dashed rgba(225,29,72,0.2);
-          min-height: 300px;
-        ">
-          <svg width="80" height="80" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="color: #e11d48; margin-bottom: 20px; opacity: 0.6;">
+        <div class="no-project-state">
+          <svg class="no-project-icon" width="80" height="80" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
           </svg>
-          <h2 style="margin: 0 0 12px 0; font-size: 24px; font-weight: 700; color: var(--text-primary);">No Project Selected</h2>
-          <p style="margin: 0 0 24px 0; font-size: 15px; color: var(--text-secondary); max-width: 450px; line-height: 1.6;">
+          <h2 class="no-project-title">No Project Selected</h2>
+          <p class="no-project-desc">
             Select a project from the dropdown in the header to view your dashboard, or create a new project to get started.
           </p>
-          <div style="display: flex; gap: 12px;">
-            <button class="btn btn-primary create-project-btn" style="
-              padding: 12px 28px;
-              font-size: 14px;
-              font-weight: 600;
-              display: inline-flex;
-              align-items: center;
-              gap: 8px;
-            ">
+          <div class="no-project-actions">
+            <button class="btn btn-primary create-project-btn no-project-btn">
               <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
               </svg>
@@ -266,11 +247,11 @@ function renderHealthIndicator(container: HTMLElement, health: HealthData): void
           <span class="score-label">Health</span>
         </div>
         <div class="health-bar">
-          <div class="health-fill" style="width: ${score}%; background: ${color}"></div>
+          <div class="health-fill" style="--fill-width: ${score}%; --fill-color: ${color}"></div>
         </div>
       </div>
       <div class="health-status">
-        <span class="status-text" style="color: ${color}">${health.status}</span>
+        <span class="status-text" style="--status-color: ${color}">${health.status}</span>
       </div>
       <div class="health-factors">
         ${factors.slice(0, 3).map(f => `
@@ -435,7 +416,7 @@ function renderRiskSummary(container: HTMLElement, risks: Array<{ impact?: strin
       
       <div class="risk-summary-content">
         <div class="risk-donut-container">
-          <div class="risk-donut" style="background: conic-gradient(${conicStops})">
+          <div class="risk-donut" style="--donut-conic: conic-gradient(${conicStops})">
             <div class="risk-donut-center">
               <span class="donut-value">${total}</span>
               <span class="donut-label">Risks</span>
@@ -447,25 +428,25 @@ function renderRiskSummary(container: HTMLElement, risks: Array<{ impact?: strin
           <div class="risk-bar-item critical">
             <span class="bar-icon">🔴</span>
             <span class="bar-label">Critical</span>
-            <div class="bar-track"><div class="bar-fill" style="width: ${getPercent(counts.critical)}%"></div></div>
+            <div class="bar-track"><div class="bar-fill" style="--bar-width: ${getPercent(counts.critical)}%"></div></div>
             <span class="bar-count">${counts.critical}</span>
           </div>
           <div class="risk-bar-item high">
             <span class="bar-icon">🟠</span>
             <span class="bar-label">High</span>
-            <div class="bar-track"><div class="bar-fill" style="width: ${getPercent(counts.high)}%"></div></div>
+            <div class="bar-track"><div class="bar-fill" style="--bar-width: ${getPercent(counts.high)}%"></div></div>
             <span class="bar-count">${counts.high}</span>
           </div>
           <div class="risk-bar-item medium">
             <span class="bar-icon">🟡</span>
             <span class="bar-label">Medium</span>
-            <div class="bar-track"><div class="bar-fill" style="width: ${getPercent(counts.medium)}%"></div></div>
+            <div class="bar-track"><div class="bar-fill" style="--bar-width: ${getPercent(counts.medium)}%"></div></div>
             <span class="bar-count">${counts.medium}</span>
           </div>
           <div class="risk-bar-item low">
             <span class="bar-icon">🟢</span>
             <span class="bar-label">Low</span>
-            <div class="bar-track"><div class="bar-fill" style="width: ${getPercent(counts.low)}%"></div></div>
+            <div class="bar-track"><div class="bar-fill" style="--bar-width: ${getPercent(counts.low)}%"></div></div>
             <span class="bar-count">${counts.low}</span>
           </div>
         </div>
@@ -507,7 +488,7 @@ function renderFactsChart(data: DashboardData): void {
         <div class="priority-bar">
           <div class="bar-label">${cat}</div>
           <div class="bar-track">
-            <div class="bar-fill" style="width: ${pct}%"></div>
+            <div class="bar-fill" style="--bar-width: ${pct}%"></div>
           </div>
           <div class="bar-value">${count}</div>
         </div>`;
@@ -536,28 +517,28 @@ function renderQuestionsPriorityChart(data: DashboardData): void {
       <div class="priority-bar">
         <div class="bar-label">Critical</div>
         <div class="bar-track">
-          <div class="bar-fill critical" style="width: ${(critical / total) * 100}%"></div>
+          <div class="bar-fill critical" style="--bar-width: ${(critical / total) * 100}%"></div>
         </div>
         <div class="bar-value">${critical}</div>
       </div>
       <div class="priority-bar">
         <div class="bar-label">High</div>
         <div class="bar-track">
-          <div class="bar-fill high" style="width: ${(high / total) * 100}%"></div>
+          <div class="bar-fill high" style="--bar-width: ${(high / total) * 100}%"></div>
         </div>
         <div class="bar-value">${high}</div>
       </div>
       <div class="priority-bar">
         <div class="bar-label">Medium</div>
         <div class="bar-track">
-          <div class="bar-fill medium" style="width: ${(medium / total) * 100}%"></div>
+          <div class="bar-fill medium" style="--bar-width: ${(medium / total) * 100}%"></div>
         </div>
         <div class="bar-value">${medium}</div>
       </div>
       <div class="priority-bar">
         <div class="bar-label">Resolved</div>
         <div class="bar-track">
-          <div class="bar-fill resolved" style="width: ${(resolved / total) * 100}%"></div>
+          <div class="bar-fill resolved" style="--bar-width: ${(resolved / total) * 100}%"></div>
         </div>
         <div class="bar-value">${resolved}</div>
       </div>
@@ -625,10 +606,10 @@ async function renderWeeklyTrendsChart(data: DashboardData): Promise<void> {
           ${days.map((day, i) => `
             <div class="trend-column">
               <div class="trend-bars-group">
-                <div class="trend-bar facts" style="height: ${(trends.facts[i] / maxValue) * 100}%" title="Facts: ${trends.facts[i]}"></div>
-                <div class="trend-bar questions" style="height: ${(trends.questions[i] / maxValue) * 100}%" title="Questions: ${trends.questions[i]}"></div>
-                <div class="trend-bar risks" style="height: ${(trends.risks[i] / maxValue) * 100}%" title="Risks: ${trends.risks[i]}"></div>
-                <div class="trend-bar actions" style="height: ${(trends.actions[i] / maxValue) * 100}%" title="Actions: ${trends.actions[i]}"></div>
+                <div class="trend-bar facts" style="--trend-height: ${(trends.facts[i] / maxValue) * 100}%" title="Facts: ${trends.facts[i]}"></div>
+                <div class="trend-bar questions" style="--trend-height: ${(trends.questions[i] / maxValue) * 100}%" title="Questions: ${trends.questions[i]}"></div>
+                <div class="trend-bar risks" style="--trend-height: ${(trends.risks[i] / maxValue) * 100}%" title="Risks: ${trends.risks[i]}"></div>
+                <div class="trend-bar actions" style="--trend-height: ${(trends.actions[i] / maxValue) * 100}%" title="Actions: ${trends.actions[i]}"></div>
               </div>
               <div class="trend-label">${day}</div>
             </div>
@@ -1669,7 +1650,7 @@ async function loadGoldenHours(container: HTMLElement, projectId: string): Promi
             </svg>
             Golden Hours
           </h3>
-          <span style="font-size: 13px; color: var(--text-secondary);">
+          <span class="golden-header-time">
             ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })} your time
           </span>
         </div>
@@ -1684,11 +1665,11 @@ async function loadGoldenHours(container: HTMLElement, projectId: string): Promi
                 </svg>
                 Team Members
                 <span class="count">${memberEntries.length}</span>
-                ${onlineMembers > 0 ? `<span style="margin-left: auto; font-size: 11px; color: #10b981;">● ${onlineMembers} online</span>` : ''}
+                ${onlineMembers > 0 ? `<span class="online-badge">● ${onlineMembers} online</span>` : ''}
               </h4>
               
               <!-- Team People List -->
-              <div class="people-list" style="margin-bottom: 16px;">
+              <div class="people-list">
                 ${memberEntries.map(e => {
                   const initials = e.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
                   return `
@@ -1714,7 +1695,7 @@ async function loadGoldenHours(container: HTMLElement, projectId: string): Promi
               ${(() => {
                 const teamSuggestions = findBestMeetingTimes(memberEntries);
                 return teamSuggestions.length > 0 ? `
-                  <div class="meeting-suggestions" style="margin-top: 16px;">
+                  <div class="meeting-suggestions">
                     <h5>
                       <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
@@ -1724,7 +1705,7 @@ async function loadGoldenHours(container: HTMLElement, projectId: string): Promi
                     <div class="suggestion-list">
                       ${teamSuggestions.map((s, i) => `
                         <div class="suggestion-pill">
-                          <span style="color: ${i === 0 ? '#f59e0b' : 'var(--text-muted)'};">${i === 0 ? '⭐' : '🕐'}</span>
+                          <span class="suggestion-star" style="--suggestion-star-color: ${i === 0 ? '#f59e0b' : 'var(--text-muted)'};">${i === 0 ? '⭐' : '🕐'}</span>
                           <span class="time">${s.time}</span>
                           <span class="availability">${s.available}/${memberEntries.length}</span>
                         </div>
@@ -1745,11 +1726,11 @@ async function loadGoldenHours(container: HTMLElement, projectId: string): Promi
                 </svg>
                 Contacts
                 <span class="count">${contactEntries.length}</span>
-                ${onlineContacts > 0 ? `<span style="margin-left: auto; font-size: 11px; color: #10b981;">● ${onlineContacts} online</span>` : ''}
+                ${onlineContacts > 0 ? `<span class="online-badge">● ${onlineContacts} online</span>` : ''}
               </h4>
               
               <!-- Contacts People List -->
-              <div class="people-list" style="margin-bottom: 16px;">
+              <div class="people-list">
                 ${contactEntries.map(e => {
                   const initials = e.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
                   return `
@@ -1775,7 +1756,7 @@ async function loadGoldenHours(container: HTMLElement, projectId: string): Promi
               ${(() => {
                 const contactSuggestions = findBestMeetingTimes(contactEntries);
                 return contactSuggestions.length > 0 ? `
-                  <div class="meeting-suggestions" style="margin-top: 16px;">
+                  <div class="meeting-suggestions">
                     <h5>
                       <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
@@ -1785,7 +1766,7 @@ async function loadGoldenHours(container: HTMLElement, projectId: string): Promi
                     <div class="suggestion-list">
                       ${contactSuggestions.map((s, i) => `
                         <div class="suggestion-pill">
-                          <span style="color: ${i === 0 ? '#f59e0b' : 'var(--text-muted)'};">${i === 0 ? '⭐' : '🕐'}</span>
+                          <span class="suggestion-star" style="--suggestion-star-color: ${i === 0 ? '#f59e0b' : 'var(--text-muted)'};">${i === 0 ? '⭐' : '🕐'}</span>
                           <span class="time">${s.time}</span>
                           <span class="availability">${s.available}/${contactEntries.length}</span>
                         </div>
@@ -1800,20 +1781,20 @@ async function loadGoldenHours(container: HTMLElement, projectId: string): Promi
         
         <!-- Combined Section (only if both exist) -->
         ${memberEntries.length > 0 && contactEntries.length > 0 ? `
-          <div class="golden-card" style="margin-top: 20px;">
+          <div class="golden-card golden-card-mt">
             <h4>
               <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
               </svg>
               Combined: Team + Contacts
               <span class="count">${allEntries.length}</span>
-              <span style="margin-left: auto; font-size: 11px; color: #10b981;">● ${onlineAll} online</span>
+              <span class="online-badge">● ${onlineAll} online</span>
             </h4>
             ${renderGoldenSummary(allGolden, allEntries)}
             
             <!-- Combined Meeting Suggestions -->
             ${meetingSuggestions.length > 0 ? `
-              <div class="meeting-suggestions" style="margin-top: 16px;">
+              <div class="meeting-suggestions">
                 <h5>
                   <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
@@ -1823,7 +1804,7 @@ async function loadGoldenHours(container: HTMLElement, projectId: string): Promi
                 <div class="suggestion-list">
                   ${meetingSuggestions.map((s, i) => `
                     <div class="suggestion-pill">
-                      <span style="color: ${i === 0 ? '#f59e0b' : 'var(--text-muted)'};">${i === 0 ? '⭐' : '🕐'}</span>
+                      <span class="suggestion-star" style="--suggestion-star-color: ${i === 0 ? '#f59e0b' : 'var(--text-muted)'};">${i === 0 ? '⭐' : '🕐'}</span>
                       <span class="time">${s.time}</span>
                       <span class="availability">${s.available}/${allEntries.length}</span>
                     </div>
@@ -1958,8 +1939,8 @@ function renderTimezoneChart(entries: TimezoneEntry[], golden: { start: number; 
           <div class="timezone-row">
             <span class="tz-name" title="${tz}">${displayTz} ${count > 1 ? `(${count})` : ''}</span>
             <div class="tz-bar-container">
-              <div class="tz-bar work-hours" style="left: ${workLeft}%; width: ${workWidth}%;"></div>
-              ${golden ? `<div class="tz-bar golden" style="left: ${(golden.start / 24) * 100}%; width: ${((golden.end - golden.start) / 24) * 100}%;"></div>` : ''}
+              <div class="tz-bar work-hours" style="--tz-left: ${workLeft}%; --tz-width: ${workWidth}%;"></div>
+              ${golden ? `<div class="tz-bar golden" style="--tz-left: ${(golden.start / 24) * 100}%; --tz-width: ${((golden.end - golden.start) / 24) * 100}%;"></div>` : ''}
             </div>
           </div>
         `;
@@ -1974,11 +1955,11 @@ function renderTimezoneChart(entries: TimezoneEntry[], golden: { start: number; 
 function renderGoldenSummary(golden: { start: number; end: number } | null, entries: TimezoneEntry[]): string {
   if (!golden) {
     return `
-      <div class="golden-summary" style="background: linear-gradient(135deg, rgba(239,68,68,0.1) 0%, rgba(239,68,68,0.05) 100%); border-color: rgba(239,68,68,0.2);">
-        <div class="golden-icon" style="background: linear-gradient(135deg, #ef4444, #dc2626);">⚠</div>
+      <div class="golden-summary golden-summary-warning">
+        <div class="golden-icon">⚠</div>
         <div class="golden-text">
           <div class="label">No overlap found</div>
-          <div class="hours" style="color: #dc2626;">Timezones too far apart</div>
+          <div class="hours">Timezones too far apart</div>
         </div>
       </div>
     `;

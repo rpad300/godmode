@@ -3,7 +3,7 @@
  * Handles user profile management
  */
 
-import { http } from './api';
+import { http, fetchWithProject } from './api';
 import { appStore, User } from '../stores/app';
 
 export interface UserProfile {
@@ -74,7 +74,7 @@ export async function uploadAvatar(file: File): Promise<string> {
   const formData = new FormData();
   formData.append('avatar', file);
 
-  const response = await fetch('/api/profile/avatar', {
+  const response = await fetchWithProject('/api/profile/avatar', {
     method: 'POST',
     body: formData,
   });

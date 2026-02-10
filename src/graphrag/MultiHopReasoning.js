@@ -8,7 +8,10 @@
  * - Reasoning chains with intermediate steps
  */
 
+const { logger } = require('../logger');
 const llm = require('../llm');
+
+const log = logger.child({ module: 'multi-hop' });
 
 class MultiHopReasoning {
     constructor(options = {}) {
@@ -18,7 +21,7 @@ class MultiHopReasoning {
         this.llmConfig = options.llmConfig || {};
         
         if (!this.llmProvider) {
-            console.warn('[MultiHopReasoning] No LLM provider specified');
+            log.warn({ event: 'multi_hop_no_llm' }, 'No LLM provider specified');
         }
         
         this.graphProvider = options.graphProvider;
@@ -36,7 +39,7 @@ class MultiHopReasoning {
      * @returns {Promise<{subQueries: Array<{query: string, type: string, depends: Array<number>}>}>}
      */
     async decomposeQuery(query) {
-        console.log('[MultiHop] Decomposing query:', query.substring(0, 50));
+        log.debug({ event: 'multi_hop_decompose', queryPreview: query.substring(0, 50) }, 'Decomposing query');
         
         const prompt = `Analyze this question and break it down into simpler sub-questions that can be answered independently, then combined.
 
@@ -70,7 +73,7 @@ Return ONLY valid JSON.`;
         
         try {
             const parsed = JSON.parse(result.text);
-            console.log(`[MultiHop] Decomposed into ${parsed.subQueries?.length || 1} sub-queries`);
+            log.debug({ event: 'multi_hop_decomposed', count: parsed.subQueries?.length || 1 }, 'Decomposed into sub-queries');
             return parsed;
         } catch {
             return { isComplex: false, subQueries: [{ id: 1, query, type: 'general', depends: [] }] };
@@ -177,7 +180,7 @@ Return ONLY valid JSON.`;
         let confidence = 0;
         
         for (let i = 0; i < maxIterations && confidence < this.confidenceThreshold; i++) {
-            console.log(`[MultiHop] Iteration ${i + 1}: "${currentQuery.substring(0, 50)}..."`);
+            log.debug({ event: 'multi_hop_iteration', iteration: i + 1, queryPreview: currentQuery.substring(0, 50) }, 'Iteration');
             
             // Retrieve
             const results = await retrieveFn(currentQuery);
@@ -194,7 +197,7 @@ Return ONLY valid JSON.`;
             });
             
             if (confidence >= this.confidenceThreshold) {
-                console.log(`[MultiHop] Confidence ${confidence.toFixed(2)} >= threshold, stopping`);
+                log.debug({ event: 'multi_hop_confidence_stop', confidence }, 'Confidence >= threshold, stopping');
                 break;
             }
             
@@ -233,7 +236,7 @@ Return ONLY valid JSON.`;
             return intent;
         }
         
-        console.log(`[MultiHop] Graph traversal: ${intent.startType} -> ${intent.targetType} via ${intent.relations.join(', ')}`);
+        log.debug({ event: 'multi_hop_traversal', startType: intent.startType, targetType: intent.targetType, relations: intent.relations }, 'Graph traversal');
         
         // Build Cypher query for traversal
         const cypher = this.buildTraversalCypher(intent, maxDepth);

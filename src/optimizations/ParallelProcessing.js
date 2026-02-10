@@ -4,6 +4,9 @@
  */
 
 const { Worker, isMainThread, parentPort, workerData } = require('worker_threads');
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'parallel-processing' });
 
 class ParallelProcessing {
     constructor(options = {}) {
@@ -23,7 +26,7 @@ class ParallelProcessing {
         const errors = [];
         const concurrency = options.concurrency || this.maxWorkers;
         
-        console.log(`[ParallelProcessing] Processing ${items.length} items with concurrency ${concurrency}`);
+        log.debug({ event: 'parallel_processing_batch_start', itemCount: items.length, concurrency }, 'Processing items');
 
         // Process in batches
         for (let i = 0; i < items.length; i += concurrency) {
@@ -132,7 +135,7 @@ class ParallelProcessing {
         result.duration = Date.now() - startTime;
         result.avgTimePerFile = result.duration / result.total;
 
-        console.log(`[ParallelProcessing] Completed ${result.successful}/${result.total} files in ${result.duration}ms (avg: ${Math.round(result.avgTimePerFile)}ms/file)`);
+        log.info({ event: 'parallel_processing_completed', successful: result.successful, total: result.total, durationMs: result.duration, avgMsPerFile: Math.round(result.avgTimePerFile) }, 'Completed');
 
         return result;
     }

@@ -8,6 +8,10 @@
  * - Namespace support
  */
 
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'cache' });
+
 class Cache {
     constructor(options = {}) {
         this.maxSize = options.maxSize || 1000;
@@ -245,7 +249,7 @@ class QueryCache extends Cache {
         const key = this.queryKey(query);
         const result = this.get(key);
         if (result) {
-            console.log(`[Cache] Hit for query: "${query.substring(0, 30)}..."`);
+            log.debug({ event: 'cache_query_hit', queryPreview: query.substring(0, 30) }, 'Hit for query');
         }
         return result;
     }
@@ -258,7 +262,7 @@ class QueryCache extends Cache {
      */
     setQuery(query, result, options = {}) {
         const key = this.queryKey(query);
-        console.log(`[Cache] Storing query: "${query.substring(0, 30)}..."`);
+        log.debug({ event: 'cache_query_store', queryPreview: query.substring(0, 30) }, 'Storing query');
         this.set(key, result, {
             ttl: options.ttl || this.defaultTTL
         });

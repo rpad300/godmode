@@ -14,6 +14,7 @@
  */
 
 const { parseBody } = require('../../server/request');
+const { getLogger } = require('../../server/requestContext');
 const { jsonResponse } = require('../../server/response');
 const { getClientIp } = require('../../server/middleware');
 
@@ -24,7 +25,47 @@ const { getClientIp } = require('../../server/middleware');
  */
 async function handleProfile(ctx) {
     const { req, res, pathname, parsedUrl, supabase } = ctx;
-    
+    const log = getLogger().child({ module: 'profile' });
+    // GET /api/user/profile - Get current user profile (Supabase user API)
+    if (pathname === '/api/user/profile' && req.method === 'GET') {
+        if (!supabase || !supabase.isConfigured()) {
+            jsonResponse(res, { error: 'Not configured' }, 503);
+            return true;
+        }
+        const token = supabase.auth.extractToken(req);
+        const userResult = await supabase.auth.getUser(token);
+        if (!userResult.success) {
+            jsonResponse(res, { error: 'Authentication required' }, 401);
+            return true;
+        }
+        const profileResult = await supabase.auth.getUserProfile(userResult.user.id);
+        jsonResponse(res, { user: userResult.user, profile: profileResult.success ? profileResult.profile : null });
+        return true;
+    }
+
+    // PUT /api/user/profile - Update current user profile (Supabase user API)
+    if (pathname === '/api/user/profile' && req.method === 'PUT') {
+        if (!supabase || !supabase.isConfigured()) {
+            jsonResponse(res, { error: 'Not configured' }, 503);
+            return true;
+        }
+        const token = supabase.auth.extractToken(req);
+        const userResult = await supabase.auth.getUser(token);
+        if (!userResult.success) {
+            jsonResponse(res, { error: 'Authentication required' }, 401);
+            return true;
+        }
+        const body = await parseBody(req);
+        const result = await supabase.auth.upsertUserProfile(userResult.user.id, {
+            username: body.username,
+            display_name: body.display_name,
+            avatar_url: body.avatar_url
+        });
+        if (result.success) jsonResponse(res, { success: true, profile: result.profile });
+        else jsonResponse(res, { error: result.error }, 400);
+        return true;
+    }
+
     // Only handle /api/profile routes
     if (!pathname.startsWith('/api/profile')) {
         return false;
@@ -243,7 +284,7 @@ async function handleProfile(ctx) {
             
             jsonResponse(res, { avatar_url: avatarUrl });
         } catch (error) {
-            console.error('[API] Avatar upload error:', error.message);
+            log.warn({ event: 'profile_avatar_upload_error', reason: error.message }, 'Avatar upload error');
             jsonResponse(res, { error: 'Avatar upload failed: ' + error.message }, 500);
         }
         return true;
@@ -280,7 +321,7 @@ async function handleProfile(ctx) {
             
             jsonResponse(res, { success: true });
         } catch (error) {
-            console.error('[API] Avatar delete error:', error.message);
+            log.warn({ event: 'profile_avatar_delete_error', reason: error.message }, 'Avatar delete error');
             jsonResponse(res, { error: 'Failed to remove avatar' }, 500);
         }
         return true;

@@ -6,8 +6,11 @@
  * This bridge provides utilities to process meeting data received from the frontend.
  */
 
+const { logger } = require('../logger');
 const { getAdminClient } = require('../supabase/client');
 const { processTranscript } = require('./TranscriptProcessor');
+
+const log = logger.child({ module: 'mcp-bridge' });
 
 /**
  * Check which meetings have already been imported
@@ -28,7 +31,7 @@ async function getImportedMeetingIds(userId, meetingIds) {
 
         return new Set((data || []).map(t => t.krisp_meeting_id));
     } catch (error) {
-        console.error('[McpBridge] Error checking imported meetings:', error);
+        log.error({ event: 'mcp_bridge_check_imported_failed', err: error }, 'Error checking imported meetings');
         return new Set();
     }
 }
@@ -108,7 +111,7 @@ async function importMeeting(userId, meetingData, options = {}) {
             .single();
 
         if (createError) {
-            console.error('[McpBridge] Error creating transcript:', createError);
+            log.error({ event: 'mcp_bridge_create_transcript_failed', err: createError }, 'Error creating transcript');
             return { success: false, error: createError.message };
         }
 
@@ -123,7 +126,7 @@ async function importMeeting(userId, meetingData, options = {}) {
         };
 
     } catch (error) {
-        console.error('[McpBridge] Import error:', error);
+        log.error({ event: 'mcp_bridge_import_failed', err: error }, 'Import error');
         return { success: false, error: error.message };
     }
 }

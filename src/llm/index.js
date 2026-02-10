@@ -3,6 +3,9 @@
  * Provides a unified interface for multiple LLM providers
  */
 
+const { logger: rootLogger } = require('../logger');
+const log = rootLogger.child({ module: 'llm' });
+
 const OllamaProvider = require('./providers/ollama');
 const OpenAIProvider = require('./providers/openai');
 const GeminiProvider = require('./providers/gemini');
@@ -161,11 +164,10 @@ async function generateText(options) {
         const client = getClient(provider, providerConfig);
         const result = await client.generateText(rest);
         
-        // Log the operation
         const latency = Date.now() - startTime;
-        console.log(`[LLM] generateText: provider=${provider}, model=${rest.model}, context=${context || 'none'}, latency=${latency}ms, success=${result.success}`);
+        log.debug({ event: 'llm_generate_text', provider, model: rest.model, context: context || 'none', latencyMs: latency, success: result.success }, 'generateText');
         if (result.usage) {
-            console.log(`[LLM] Token usage: input=${result.usage.inputTokens}, output=${result.usage.outputTokens}`);
+            log.debug({ event: 'llm_usage', inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens }, 'Token usage');
         }
         
         // Track costs with context
@@ -182,7 +184,7 @@ async function generateText(options) {
         
         return result;
     } catch (error) {
-        console.error(`[LLM] generateText error: provider=${provider}, error=${error.message}`);
+        log.warn({ event: 'llm_generate_text_error', provider, reason: error.message }, 'generateText error');
         return {
             success: false,
             error: error.message
@@ -190,22 +192,15 @@ async function generateText(options) {
     }
 }
 
-// Queue enabled flag (can be disabled for debugging)
 let queueEnabled = true;
 
-/**
- * Check if queue is enabled
- */
 function isQueueEnabled() {
     return queueEnabled;
 }
 
-/**
- * Enable or disable the LLM queue
- */
 function setQueueEnabled(enabled) {
     queueEnabled = enabled;
-    console.log(`[LLM] Queue ${enabled ? 'enabled' : 'disabled'}`);
+    log.info({ event: 'llm_queue_toggle', enabled }, `Queue ${enabled ? 'enabled' : 'disabled'}`);
 }
 
 /**
@@ -263,7 +258,7 @@ async function generateVision(options) {
         const result = await client.generateVision(rest);
         
         const latency = Date.now() - startTime;
-        console.log(`[LLM] generateVision: provider=${provider}, model=${rest.model}, context=${context || 'none'}, images=${rest.images?.length || 0}, latency=${latency}ms, success=${result.success}`);
+        log.debug({ event: 'llm_generate_vision', provider, model: rest.model, context: context || 'none', images: rest.images?.length || 0, latencyMs: latency, success: result.success }, 'generateVision');
         
         // Track costs with context
         costTracker.track({
@@ -279,7 +274,7 @@ async function generateVision(options) {
         
         return result;
     } catch (error) {
-        console.error(`[LLM] generateVision error: provider=${provider}, error=${error.message}`);
+        log.warn({ event: 'llm_generate_vision_error', provider, reason: error.message }, 'generateVision error');
         return {
             success: false,
             error: error.message
@@ -324,7 +319,7 @@ async function embed(options) {
         const result = await client.embed(rest);
         
         const latency = Date.now() - startTime;
-        console.log(`[LLM] embed: provider=${provider}, model=${rest.model}, context=${context || 'none'}, texts=${rest.texts?.length || 0}, latency=${latency}ms, success=${result.success}`);
+        log.debug({ event: 'llm_embed', provider, model: rest.model, context: context || 'none', texts: rest.texts?.length || 0, latencyMs: latency, success: result.success }, 'embed');
         
         // Track costs (embeddings are input-only)
         // Estimate tokens: ~4 chars per token average
@@ -342,7 +337,7 @@ async function embed(options) {
         
         return result;
     } catch (error) {
-        console.error(`[LLM] embed error: provider=${provider}, error=${error.message}`);
+        log.warn({ event: 'llm_embed_error', provider, reason: error.message }, 'embed error');
         return {
             success: false,
             error: error.message
@@ -400,6 +395,106 @@ async function getModelInfo(providerId, modelId, providerConfig = {}) {
     return metadata;
 }
 
+const { OLLAMA_VISION_PATTERNS } = require('./constants');
+
+/**
+ * Check if a model supports vision (images)
+ * @param {string} providerId - Provider identifier
+ * @param {string} modelName - Model name
+ * @returns {boolean}
+ */
+function isVisionModel(providerId, modelName) {
+    if (!modelName) return false;
+    if (providerId === 'ollama') {
+        return OLLAMA_VISION_PATTERNS.some(vm => modelName.toLowerCase().includes(vm));
+    }
+    const modelMetadata = require('./modelMetadata');
+    const meta = modelMetadata.getModelMetadata(providerId, modelName);
+    return !!meta?.supportsVision;
+}
+
+/**
+ * Find the best available model for a task type (text or vision)
+ * @param {string} providerId - Provider identifier
+ * @param {string} taskType - 'text' or 'vision'
+ * @param {object} providerConfig - Provider configuration
+ * @returns {Promise<{model: string, type: string}|null>}
+ */
+async function findBestModel(providerId, taskType = 'text', providerConfig = {}) {
+    try {
+        const { textModels = [], visionModels = [] } = await listModels(providerId, providerConfig);
+        const vision = Array.isArray(visionModels) ? visionModels : [];
+        const text = Array.isArray(textModels) ? textModels : [];
+        const allVision = vision.map(m => (typeof m === 'string' ? { name: m } : m));
+        const allText = text.map(m => (typeof m === 'string' ? { name: m } : m));
+        const hasSize = (allVision[0] || allText[0])?.size != null;
+
+        const pickBest = (arr) => {
+            if (arr.length === 0) return null;
+            const sorted = hasSize ? [...arr].sort((a, b) => (b.size || 0) - (a.size || 0)) : arr;
+            const m = sorted[0];
+            return m?.name || m;
+        };
+
+        if (taskType === 'vision') {
+            const model = pickBest(allVision) || pickBest(allText);
+            return model ? { model, type: allVision.length ? 'vision' : 'text' } : null;
+        }
+        const model = pickBest(allText) || pickBest(allVision);
+        return model ? { model, type: allText.length ? 'text' : 'vision' } : null;
+    } catch (err) {
+        log.warn({ event: 'llm_find_best_model_error', providerId, taskType, reason: err.message }, 'findBestModel error');
+        return null;
+    }
+}
+
+/**
+ * Unload models from memory (Ollama-only; no-op for other providers)
+ * @param {string} providerId - Provider identifier
+ * @param {string[]} modelNames - Model names to unload
+ * @param {object} providerConfig - Provider configuration
+ * @returns {Promise<{success: boolean, unloaded: string[], errors: object}>}
+ */
+async function unloadModels(providerId, modelNames, providerConfig = {}) {
+    if (providerId !== 'ollama' || !modelNames?.length) {
+        return { success: true, unloaded: [], errors: {} };
+    }
+    try {
+        const client = getClient(providerId, providerConfig);
+        if (typeof client.unloadModels === 'function') {
+            return await client.unloadModels(modelNames);
+        }
+    } catch (err) {
+        log.warn({ event: 'llm_unload_models_error', providerId, reason: err.message }, 'unloadModels error');
+        return { success: false, unloaded: [], errors: { [modelNames[0]]: err.message } };
+    }
+    return { success: true, unloaded: [], errors: {} };
+}
+
+/**
+ * Pull/download a model (Ollama-only; no-op for other providers)
+ * @param {string} providerId - Provider identifier
+ * @param {string} modelName - Model name to pull
+ * @param {object} providerConfig - Provider configuration
+ * @param {function} onProgress - Optional progress callback
+ * @returns {Promise<{success: boolean, error?: string}>}
+ */
+async function pullModel(providerId, modelName, providerConfig = {}, onProgress = null) {
+    if (providerId !== 'ollama' || !modelName) {
+        return { success: false, error: 'pullModel is only supported for Ollama' };
+    }
+    try {
+        const client = getClient(providerId, providerConfig);
+        if (typeof client.pullModel === 'function') {
+            return await client.pullModel(modelName, onProgress);
+        }
+    } catch (err) {
+        log.warn({ event: 'llm_pull_model_error', providerId, modelName, reason: err.message }, 'pullModel error');
+        return { success: false, error: err.message };
+    }
+    return { success: false, error: 'Provider does not support pullModel' };
+}
+
 module.exports = {
     getProviders,
     getClient,
@@ -413,6 +508,10 @@ module.exports = {
     isProviderConfigured,
     getProviderCapabilities,
     getModelInfo,
+    isVisionModel,
+    findBestModel,
+    unloadModels,
+    pullModel,
     isQueueEnabled,
     setQueueEnabled,
     costTracker,

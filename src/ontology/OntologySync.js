@@ -10,9 +10,12 @@
  * SOTA v3.0 - Native Supabase graph support (no external graph DB required)
  */
 
+const { logger } = require('../logger');
 const { getOntologyManager } = require('./OntologyManager');
 const { getSchemaExporter } = require('./SchemaExporter');
 const { getInferenceEngine } = require('./InferenceEngine');
+
+const log = logger.child({ module: 'ontology-sync' });
 
 class OntologySync {
     constructor(options = {}) {
@@ -59,17 +62,17 @@ class OntologySync {
      */
     async startListening() {
         if (!this.supabase) {
-            console.log('[OntologySync] No Supabase client configured');
+            log.warn({ event: 'ontology_sync_no_supabase' }, 'No Supabase client configured');
             return false;
         }
 
         if (this.isListening) {
-            console.log('[OntologySync] Already listening');
+            log.debug({ event: 'ontology_sync_already_listening' }, 'Already listening');
             return true;
         }
 
         try {
-            console.log('[OntologySync] Starting Supabase Realtime subscription...');
+            log.info({ event: 'ontology_sync_start_subscription' }, 'Starting Supabase Realtime subscription');
 
             // Subscribe to ontology_schema table changes
             this.subscription = this.supabase
@@ -86,24 +89,22 @@ class OntologySync {
                 .subscribe((status, err) => {
                     if (status === 'SUBSCRIBED') {
                         this.isListening = true;
-                        console.log('[OntologySync] Subscribed to ontology_schema changes');
+                        log.info({ event: 'ontology_sync_subscribed' }, 'Subscribed to ontology_schema changes');
                     } else if (status === 'CHANNEL_ERROR') {
-                        // This can happen temporarily during connection establishment
-                        // or if Realtime is not enabled for the table
-                        console.warn('[OntologySync] Channel error (will retry):', err?.message || 'unknown');
+                        log.warn({ event: 'ontology_sync_channel_error', reason: err?.message || 'unknown' }, 'Channel error (will retry)');
                         this.isListening = false;
                     } else if (status === 'TIMED_OUT') {
-                        console.warn('[OntologySync] Subscription timed out, will retry');
+                        log.warn({ event: 'ontology_sync_timed_out' }, 'Subscription timed out, will retry');
                         this.isListening = false;
                     } else if (status === 'CLOSED') {
-                        console.log('[OntologySync] Channel closed');
+                        log.debug({ event: 'ontology_sync_channel_closed' }, 'Channel closed');
                         this.isListening = false;
                     }
                 });
 
             return true;
         } catch (e) {
-            console.error('[OntologySync] Failed to start listening:', e.message);
+            log.error({ event: 'ontology_sync_start_listening_error', reason: e.message }, 'Failed to start listening');
             return false;
         }
     }
@@ -116,7 +117,7 @@ class OntologySync {
             await this.supabase.removeChannel(this.subscription);
             this.subscription = null;
             this.isListening = false;
-            console.log('[OntologySync] Stopped listening');
+            log.debug({ event: 'ontology_sync_stopped' }, 'Stopped listening');
         }
     }
 
@@ -127,7 +128,7 @@ class OntologySync {
     _handleChange(payload) {
         const { eventType, new: newRecord, old: oldRecord } = payload;
         
-        console.log(`[OntologySync] Change detected: ${eventType} on ${newRecord?.schema_type || oldRecord?.schema_type}/${newRecord?.schema_name || oldRecord?.schema_name}`);
+        log.debug({ event: 'ontology_sync_change', eventType, schemaType: newRecord?.schema_type || oldRecord?.schema_type, schemaName: newRecord?.schema_name || oldRecord?.schema_name }, 'Change detected');
 
         // Add to pending changes
         this._pendingChanges.push({
@@ -168,7 +169,7 @@ class OntologySync {
         const changes = [...this._pendingChanges];
         this._pendingChanges = [];
         
-        console.log(`[OntologySync] Processing ${changes.length} pending changes`);
+        log.debug({ event: 'ontology_sync_processing', count: changes.length }, 'Processing pending changes');
         
         this.syncInProgress = true;
 
@@ -182,9 +183,9 @@ class OntologySync {
                 const syncResult = await this.schemaExporter.syncToGraph();
                 
                 if (syncResult.ok) {
-                    console.log('[OntologySync] Graph sync complete:', syncResult.results);
+                    log.debug({ event: 'ontology_sync_graph_complete', results: syncResult.results }, 'Graph sync complete');
                 } else {
-                    console.error('[OntologySync] Graph sync failed:', syncResult.error);
+                    log.error({ event: 'ontology_sync_graph_failed', reason: syncResult.error }, 'Graph sync failed');
                     this.syncErrors.push({ error: syncResult.error, at: new Date().toISOString() });
                 }
             }
@@ -203,7 +204,7 @@ class OntologySync {
             });
 
         } catch (e) {
-            console.error('[OntologySync] Error processing changes:', e.message);
+            log.error({ event: 'ontology_sync_process_error', reason: e.message }, 'Error processing changes');
             this.syncErrors.push({ error: e.message, at: new Date().toISOString() });
             this.onSyncError(e);
         } finally {
@@ -217,7 +218,7 @@ class OntologySync {
      * @returns {Promise<{ok: boolean, results?: object, error?: string}>}
      */
     async forceSync() {
-        console.log('[OntologySync] Forcing full sync...');
+        log.info({ event: 'ontology_sync_force_full' }, 'Forcing full sync');
         
         if (this.syncInProgress) {
             return { ok: false, error: 'Sync already in progress' };
@@ -304,7 +305,7 @@ class OntologySync {
                         payload: change
                     });
             } catch (e) {
-                console.log('[OntologySync] Could not broadcast change:', e.message);
+                log.warn({ event: 'ontology_sync_broadcast_error', reason: e.message }, 'Could not broadcast change');
             }
         }
     }

@@ -384,6 +384,8 @@
   font-size: 12px;
   font-weight: 600;
   flex-shrink: 0;
+  background: color-mix(in srgb, var(--event-color, #888) 12.5%, transparent);
+  color: var(--event-color, #888);
 }
 
 /* Body */
@@ -410,6 +412,8 @@
   border-radius: 10px;
   font-size: 10px;
   font-weight: 500;
+  background: color-mix(in srgb, var(--event-color, #888) 12.5%, transparent);
+  color: var(--event-color, #888);
 }
 
 .event-type-badge .type-icon {

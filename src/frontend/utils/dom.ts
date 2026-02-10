@@ -133,27 +133,36 @@ export function setHTML(element: HTMLElement, html: string): void {
 }
 
 /**
- * Show element
+ * Show element. Uses class 'hidden' when display is 'block'; otherwise sets style.display.
  */
 export function show(element: HTMLElement, display = 'block'): void {
-  element.style.display = display;
+  element.classList.remove('hidden');
+  if (display === 'block') {
+    element.style.removeProperty('display');
+  } else {
+    element.style.display = display;
+  }
 }
 
 /**
- * Hide element
+ * Hide element using class 'hidden' (display: none).
  */
 export function hide(element: HTMLElement): void {
-  element.style.display = 'none';
+  element.classList.add('hidden');
 }
 
 /**
- * Toggle element visibility
+ * Toggle element visibility. Uses class 'hidden' when display is 'block'.
  */
 export function toggle(element: HTMLElement, visible?: boolean, display = 'block'): void {
   if (visible === undefined) {
-    visible = element.style.display === 'none';
+    visible = element.classList.contains('hidden');
   }
-  element.style.display = visible ? display : 'none';
+  if (visible) {
+    show(element, display);
+  } else {
+    hide(element);
+  }
 }
 
 /**

@@ -3,6 +3,10 @@
  * Handles sending transactional emails
  */
 
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'email' });
+
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const RESEND_API_URL = 'https://api.resend.com/emails';
 
@@ -21,7 +25,7 @@ function isConfigured() {
  */
 async function sendEmail({ to, subject, html, text, from = DEFAULT_FROM, replyTo }) {
     if (!isConfigured()) {
-        console.warn('[Email] Resend not configured - email not sent');
+        log.warn({ event: 'email_not_configured' }, 'Resend not configured - email not sent');
         return { success: false, error: 'Email service not configured' };
     }
 
@@ -45,14 +49,14 @@ async function sendEmail({ to, subject, html, text, from = DEFAULT_FROM, replyTo
         const data = await response.json();
 
         if (!response.ok) {
-            console.error('[Email] Resend error:', data);
+            log.warn({ event: 'email_resend_error', data }, 'Resend error');
             return { success: false, error: data.message || 'Failed to send email' };
         }
 
-        console.log('[Email] Sent successfully:', data.id);
+        log.debug({ event: 'email_sent', id: data.id }, 'Sent successfully');
         return { success: true, id: data.id };
     } catch (error) {
-        console.error('[Email] Error:', error.message);
+        log.warn({ event: 'email_error', reason: error.message }, 'Error');
         return { success: false, error: error.message };
     }
 }

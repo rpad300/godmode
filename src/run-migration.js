@@ -1,13 +1,16 @@
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config({ path: './.env' });
 
+const { logger } = require('./logger');
+const log = logger.child({ module: 'run-migration' });
+
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
 async function runMigration() {
-  console.log('Adding requester_role columns...');
+  log.info({ event: 'run_migration_start' }, 'Adding requester_role columns...');
   
   // Run ALTER TABLE statements
   const { error: error1 } = await supabase.rpc('exec_sql', {
@@ -15,7 +18,7 @@ async function runMigration() {
   });
   
   if (error1) {
-    console.log('Error 1 (may be expected if column exists):', error1.message);
+    log.debug({ event: 'run_migration_alter_1', message: error1.message }, 'Error 1 (may be expected if column exists)');
   }
   
   const { error: error2 } = await supabase.rpc('exec_sql', {
@@ -23,7 +26,7 @@ async function runMigration() {
   });
   
   if (error2) {
-    console.log('Error 2 (may be expected if column exists):', error2.message);
+    log.debug({ event: 'run_migration_alter_2', message: error2.message }, 'Error 2 (may be expected if column exists)');
   }
   
   // Test if columns exist by querying
@@ -33,11 +36,10 @@ async function runMigration() {
     .limit(1);
   
   if (testError) {
-    console.log('Columns may not exist yet:', testError.message);
-    console.log('Please run migration 036 manually in Supabase dashboard');
+    log.warn({ event: 'run_migration_columns_missing', message: testError.message }, 'Columns may not exist yet - run migration 036 manually in Supabase dashboard');
   } else {
-    console.log('Columns exist! Sample:', data);
+    log.info({ event: 'run_migration_columns_ok', sample: data }, 'Columns exist');
   }
 }
 
-runMigration().catch(console.error);
+runMigration().catch(err => log.error({ event: 'run_migration_error', err }, 'Migration failed'));

@@ -5,6 +5,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'retention-policy' });
 
 class RetentionPolicy {
     constructor(options = {}) {
@@ -81,7 +84,7 @@ class RetentionPolicy {
             }
             fs.writeFileSync(this.policyFile, JSON.stringify(this.policies, null, 2));
         } catch (e) {
-            console.log(`[RetentionPolicy] Save warning: ${e.message}`);
+            log.warn({ event: 'retention_policy_save_warning', reason: e.message }, 'Save warning');
         }
     }
 
@@ -91,7 +94,7 @@ class RetentionPolicy {
     setEnabled(enabled) {
         this.policies.enabled = enabled;
         this.savePolicies();
-        console.log(`[RetentionPolicy] Policies ${enabled ? 'enabled' : 'disabled'}`);
+        log.debug({ event: 'retention_policy_toggle', enabled }, 'Policies enabled/disabled');
     }
 
     /**
@@ -161,7 +164,7 @@ class RetentionPolicy {
             this.executionLog = this.executionLog.slice(0, 50);
         }
 
-        console.log(`[RetentionPolicy] Executed ${results.policyResults.length} policies`);
+        log.debug({ event: 'retention_policy_executed', count: results.policyResults.length }, 'Executed policies');
         return results;
     }
 

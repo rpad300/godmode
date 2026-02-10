@@ -3,9 +3,12 @@
  * Periodically reprocesses quarantined transcripts to check if speakers can now be identified
  */
 
+const { logger } = require('../logger');
 const { getAdminClient } = require('../supabase/client');
 const { processTranscript } = require('./TranscriptProcessor');
 const { SpeakerMatcher, hasUnidentifiedSpeakers } = require('./SpeakerMatcher');
+
+const log = logger.child({ module: 'quarantine-worker' });
 
 // Default configuration
 const DEFAULT_CONFIG = {
@@ -45,7 +48,7 @@ async function getQuarantinedTranscripts(options = {}) {
         .limit(batchSize);
 
     if (error) {
-        console.error('[QuarantineWorker] Error fetching:', error);
+        log.error({ event: 'quarantine_worker_fetch_failed', err: error }, 'Error fetching');
         return [];
     }
 
@@ -102,7 +105,7 @@ async function canProcessNow(transcript) {
 async function processQuarantinedTranscript(transcript) {
     const supabase = getAdminClient();
     
-    console.log(`[QuarantineWorker] Processing: ${transcript.id}`);
+    log.debug({ event: 'quarantine_worker_processing', transcriptId: transcript.id }, 'Processing');
 
     try {
         // Update last retry timestamp
@@ -118,7 +121,7 @@ async function processQuarantinedTranscript(transcript) {
         const canProcess = await canProcessNow(transcript);
 
         if (!canProcess) {
-            console.log(`[QuarantineWorker] Still cannot process: ${transcript.id}`);
+            log.debug({ event: 'quarantine_worker_skip', transcriptId: transcript.id }, 'Still cannot process');
             return { success: false, reason: 'Still cannot process' };
         }
 
@@ -126,15 +129,15 @@ async function processQuarantinedTranscript(transcript) {
         const result = await processTranscript(transcript.id, { forceReprocess: true });
 
         if (result.success) {
-            console.log(`[QuarantineWorker] Successfully processed: ${transcript.id}`);
+            log.info({ event: 'quarantine_worker_processed', transcriptId: transcript.id }, 'Successfully processed');
             return { success: true, documentId: result.documentId };
         } else {
-            console.log(`[QuarantineWorker] Failed to process: ${transcript.id} - ${result.error}`);
+            log.warn({ event: 'quarantine_worker_failed', transcriptId: transcript.id, error: result.error }, 'Failed to process');
             return { success: false, reason: result.error };
         }
 
     } catch (error) {
-        console.error(`[QuarantineWorker] Error processing ${transcript.id}:`, error);
+        log.error({ event: 'quarantine_worker_error', transcriptId: transcript.id, err: error }, 'Error processing');
         return { success: false, reason: error.message };
     }
 }
@@ -144,7 +147,7 @@ async function processQuarantinedTranscript(transcript) {
  */
 async function runCycle(options = {}) {
     if (isRunning) {
-        console.log('[QuarantineWorker] Already running, skipping cycle');
+        log.debug({ event: 'quarantine_worker_skip_cycle' }, 'Already running, skipping cycle');
         return { skipped: true };
     }
 
@@ -158,10 +161,10 @@ async function runCycle(options = {}) {
     };
 
     try {
-        console.log('[QuarantineWorker] Starting cycle...');
+        log.info({ event: 'quarantine_worker_cycle_start' }, 'Starting cycle');
 
         const transcripts = await getQuarantinedTranscripts(options);
-        console.log(`[QuarantineWorker] Found ${transcripts.length} transcripts to retry`);
+        log.debug({ event: 'quarantine_worker_found', count: transcripts.length }, 'Found transcripts to retry');
 
         for (const transcript of transcripts) {
             results.processed++;
@@ -181,12 +184,12 @@ async function runCycle(options = {}) {
         }
 
         const duration = Date.now() - startTime;
-        console.log(`[QuarantineWorker] Cycle complete in ${duration}ms:`, results);
+        log.info({ event: 'quarantine_worker_cycle_complete', durationMs: duration, ...results }, 'Cycle complete');
 
         return results;
 
     } catch (error) {
-        console.error('[QuarantineWorker] Cycle error:', error);
+        log.error({ event: 'quarantine_worker_cycle_error', err: error }, 'Cycle error');
         return { error: error.message };
     } finally {
         isRunning = false;
@@ -200,18 +203,18 @@ function start(options = {}) {
     const config = { ...DEFAULT_CONFIG, ...options };
 
     if (!config.enabled) {
-        console.log('[QuarantineWorker] Disabled, not starting');
+        log.debug({ event: 'quarantine_worker_disabled' }, 'Disabled, not starting');
         return;
     }
 
     if (intervalId) {
-        console.log('[QuarantineWorker] Already started');
+        log.debug({ event: 'quarantine_worker_already_started' }, 'Already started');
         return;
     }
 
     const intervalMs = config.retryIntervalHours * 60 * 60 * 1000;
 
-    console.log(`[QuarantineWorker] Starting with interval: ${config.retryIntervalHours}h`);
+    log.info({ event: 'quarantine_worker_started', intervalHours: config.retryIntervalHours }, 'Starting with interval');
 
     // Run immediately on start
     runCycle(config);
@@ -227,7 +230,7 @@ function stop() {
     if (intervalId) {
         clearInterval(intervalId);
         intervalId = null;
-        console.log('[QuarantineWorker] Stopped');
+        log.info({ event: 'quarantine_worker_stopped' }, 'Stopped');
     }
 }
 

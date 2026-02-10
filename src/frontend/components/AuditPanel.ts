@@ -4,7 +4,7 @@
  */
 
 import { createElement, on } from '../utils/dom';
-import { http } from '../services/api';
+import { http, fetchWithProject } from '../services/api';
 import { toast } from '../services/toast';
 import { formatRelativeTime } from '../utils/format';
 
@@ -407,7 +407,7 @@ function showExportWizard(props: AuditPanelProps): void {
         if (toDate) params.set('to_date', toDate);
         include.forEach(i => params.append('include', i));
 
-        const response = await fetch(`/api/audit/export?${params}`);
+        const response = await fetchWithProject(`/api/audit/export?${params}`);
         if (!response.ok) throw new Error('Export failed');
 
         const blob = await response.blob();

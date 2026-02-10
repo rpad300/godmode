@@ -5,10 +5,13 @@
  * Includes caching for improved performance
  */
 
+const { logger } = require('../logger');
 const llm = require('../llm');
 const { getOntologyManager, getRelationInference, getEmbeddingEnricher } = require('../ontology');
 const { getQueryCache, getSyncTracker } = require('../utils');
 const { getCypherGenerator } = require('./CypherGenerator');
+
+const log = logger.child({ module: 'graphrag-engine' });
 
 class GraphRAGEngine {
     constructor(options = {}) {
@@ -29,7 +32,7 @@ class GraphRAGEngine {
         this.llmModel = options.llmModel || null;
         
         if (!this.llmProvider) {
-            console.warn('[GraphRAGEngine] No LLM provider specified - should be passed from admin config');
+            log.warn({ event: 'graphrag_no_llm' }, 'No LLM provider specified - should be passed from admin config');
         }
         
         // Configuration from app config
@@ -92,7 +95,7 @@ class GraphRAGEngine {
         // 1. Classify query type with ontology analysis
         const queryAnalysis = this.classifyQuery(userQuery);
         const queryType = queryAnalysis.type;
-        console.log(`[GraphRAG] Query type: ${queryType}, entity hints: ${queryAnalysis.entityHints.length}, relation hints: ${queryAnalysis.relationHints.length}`);
+        log.debug({ event: 'graphrag_query_type', queryType, entityHints: queryAnalysis.entityHints.length, relationHints: queryAnalysis.relationHints.length }, 'Query type');
         
         // 2. Execute appropriate search strategy
         let results = [];
@@ -120,7 +123,7 @@ class GraphRAGEngine {
                     
                     if (generated.cypher && generated.confidence >= 0.3) {
                         aiGeneratedCypher = generated;
-                        console.log(`[GraphRAG] AI generated Cypher (confidence: ${generated.confidence}): ${generated.cypher.substring(0, 100)}...`);
+                        log.debug({ event: 'graphrag_cypher_generated', confidence: generated.confidence, cypherPreview: generated.cypher.substring(0, 100) }, 'AI generated Cypher');
                         
                         const cypherResult = await this.graphProvider.query(generated.cypher);
                         if (cypherResult.ok && cypherResult.results?.length > 0) {
@@ -131,11 +134,11 @@ class GraphRAGEngine {
                                 source: 'ai_cypher',
                                 confidence: generated.confidence
                             }));
-                            console.log(`[GraphRAG] AI Cypher returned ${results.length} results`);
+                            log.debug({ event: 'graphrag_cypher_results', count: results.length }, 'AI Cypher returned results');
                         }
                     }
                 } catch (error) {
-                    console.log('[GraphRAG] AI Cypher generation failed:', error.message);
+                    log.warn({ event: 'graphrag_cypher_failed', reason: error.message }, 'AI Cypher generation failed');
                 }
             }
             
@@ -153,11 +156,11 @@ class GraphRAGEngine {
                         }));
                     }
                 } catch (error) {
-                    console.log('[GraphRAG] Ontology pattern query failed:', error.message);
+                    log.warn({ event: 'graphrag_ontology_pattern_failed', reason: error.message }, 'Ontology pattern query failed');
                 }
             }
         } else {
-            console.log('[GraphRAG] Graph provider not available, using fallback search');
+            log.debug({ event: 'graphrag_fallback_search' }, 'Graph provider not available, using fallback search');
         }
         
         // ============ FALLBACK SEARCH ============
@@ -177,13 +180,13 @@ class GraphRAGEngine {
             }
         }
         
-        console.log(`[GraphRAG] Found ${results.length} relevant items`);
+        log.debug({ event: 'graphrag_found_items', count: results.length }, 'Found relevant items');
         
         // 3. Generate response using LLM
         const response = await this.generateResponse(userQuery, results, options);
         
         const latencyMs = Date.now() - startTime;
-        console.log(`[GraphRAG] Total latency: ${latencyMs}ms`);
+        log.debug({ event: 'graphrag_latency', latencyMs }, 'Total latency');
         
         const result = {
             answer: response.answer,
@@ -298,7 +301,7 @@ class GraphRAGEngine {
             if (patternMatch) {
                 result.matchedPattern = patternMatch;
                 result.type = 'structural'; // Ontology patterns are typically structural
-                console.log(`[GraphRAG] Matched ontology pattern: ${patternMatch.patternName}`);
+                log.debug({ event: 'graphrag_pattern_matched', patternName: patternMatch.patternName }, 'Matched ontology pattern');
             }
             
             // Get entity and relation hints from ontology
@@ -419,7 +422,7 @@ class GraphRAGEngine {
                         }
                     }
                 } catch (error) {
-                    console.log(`[GraphRAG] Error searching for ${targetType}:`, error.message);
+                    log.warn({ event: 'graphrag_search_error', targetType, reason: error.message }, 'Error searching');
                 }
                 return null;
             });
@@ -543,7 +546,7 @@ class GraphRAGEngine {
         let enrichedQuery = query;
         if (this.useOntology && this.embeddingEnricher) {
             enrichedQuery = this.embeddingEnricher.enrichQuery(query, queryAnalysis);
-            console.log(`[GraphRAG] Enriched query for semantic search`);
+            log.debug({ event: 'graphrag_enriched_query' }, 'Enriched query for semantic search');
         }
         
         if (!this.storage) {
@@ -557,7 +560,7 @@ class GraphRAGEngine {
         if (isSupabaseMode && this.storage.searchWithEmbedding) {
             // ==================== SUPABASE VECTOR SEARCH ====================
             // Use Supabase match_embeddings RPC for vector search
-            console.log(`[GraphRAG] Using Supabase vector search`);
+            log.debug({ event: 'graphrag_supabase_vector' }, 'Using Supabase vector search');
             
             try {
                 // Generate query embedding
@@ -588,10 +591,10 @@ class GraphRAGEngine {
                         });
                     }
                     
-                    console.log(`[GraphRAG] Supabase vector search returned ${results.length} results`);
+                    log.debug({ event: 'graphrag_vector_results', count: results.length }, 'Supabase vector search returned results');
                 }
             } catch (e) {
-                console.warn(`[GraphRAG] Supabase vector search error: ${e.message}, falling back to keyword`);
+                log.warn({ event: 'graphrag_vector_error', reason: e.message }, 'Supabase vector search error, falling back to keyword');
             }
         } else if (embeddingsData && embeddingsData.embeddings?.length > 0) {
             // ==================== LOCAL EMBEDDINGS (JSON) ====================
@@ -605,16 +608,13 @@ class GraphRAGEngine {
             
             if (embResult.success && embResult.embeddings?.[0]) {
                 const queryEmbedding = embResult.embeddings[0];
-                
-                // Find similar items in local embeddings
-                const ollamaClient = require('../ollama');
-                const client = new ollamaClient();
-                
+                const { cosineSimilarity } = require('../utils/vectorSimilarity');
+
                 const scored = embeddingsData.embeddings
                     .filter(item => item.embedding && item.embedding.length > 0)
                     .map(item => ({
                         ...item,
-                        similarity: client.cosineSimilarity(queryEmbedding, item.embedding)
+                        similarity: cosineSimilarity(queryEmbedding, item.embedding)
                     }))
                     .sort((a, b) => b.similarity - a.similarity)
                     .slice(0, 10);
@@ -813,7 +813,7 @@ ${isPortuguese ? 'Responda de forma completa e estruturada:' : 'Answer completel
         });
         
         if (!llmResult.success) {
-            console.error('[GraphRAG] LLM error:', llmResult.error);
+            log.warn({ event: 'graphrag_llm_error', reason: llmResult.error }, 'LLM error');
             return {
                 answer: `Erro ao gerar resposta: ${llmResult.error}`,
                 sources: []
@@ -880,7 +880,7 @@ ${isPortuguese ? 'Responda de forma completa e estruturada:' : 'Answer completel
                     }
                 }
             } catch (error) {
-                console.log('[GraphRAG] Ontology extraction failed:', error.message);
+                log.warn({ event: 'graphrag_ontology_extraction_failed', reason: error.message }, 'Ontology extraction failed');
             }
         }
         
@@ -960,14 +960,14 @@ ${isPortuguese ? 'Responda de forma completa e estruturada:' : 'Answer completel
         const synced = { nodes: 0, relationships: 0, inferred: 0, skipped: 0 };
         const errors = [];
         
-        console.log(`[GraphRAG] Starting ${incremental ? 'incremental' : 'full'} sync to graph database...`);
+        log.debug({ event: 'graphrag_sync_start', incremental }, 'Starting sync to graph database');
         
         // Check if provider supports batch operations
         const supportsBatch = typeof this.graphProvider.createNodesBatch === 'function';
         
         if (supportsBatch) {
             // ===== OPTIMIZED BATCH SYNC =====
-            console.log('[GraphRAG] Using batch operations for faster sync');
+            log.debug({ event: 'graphrag_batch_sync' }, 'Using batch operations for faster sync');
             
             // Prepare all nodes by type
             const nodesByType = {
@@ -1213,7 +1213,7 @@ ${isPortuguese ? 'Responda de forma completa e estruturada:' : 'Answer completel
                 if (this.useOntology) {
                     const validation = this.ontology.validateRelation(relType, 'Person', 'Person', {});
                     if (!validation.valid) {
-                        console.log(`[GraphRAG] Relationship ${relType} validation warnings:`, validation.errors);
+                        log.debug({ event: 'graphrag_validation_warnings', relType, errors: validation.errors }, 'Relationship validation warnings');
                     }
                 }
                 
@@ -1229,7 +1229,7 @@ ${isPortuguese ? 'Responda de forma completa e estruturada:' : 'Answer completel
         }
         
         // Auto-create relationships based on data patterns
-        console.log('[GraphRAG] Creating relationships from data patterns...');
+        log.debug({ event: 'graphrag_creating_relationships' }, 'Creating relationships from data patterns');
         
         // 1. People in same organization -> WORKS_WITH
         const people = this.storage.knowledge.people || [];
@@ -1317,15 +1317,15 @@ ${isPortuguese ? 'Responda de forma completa e estruturada:' : 'Answer completel
         
         // Run ontology inference rules if enabled
         if (this.useOntology && this.relationInference) {
-            console.log('[GraphRAG] Running ontology inference rules...');
+            log.debug({ event: 'graphrag_inference_start' }, 'Running ontology inference rules');
             const inferenceResult = await this.relationInference.runInferenceRules(this.graphProvider);
             synced.inferred = inferenceResult.relationshipsCreated;
-            console.log(`[GraphRAG] Inference complete: ${inferenceResult.rulesApplied} rules applied, ${inferenceResult.relationshipsCreated} relationships inferred`);
+            log.debug({ event: 'graphrag_inference_complete', rulesApplied: inferenceResult.rulesApplied, relationshipsCreated: inferenceResult.relationshipsCreated }, 'Inference complete');
         }
         
         // Create indexes if requested
         if (createIndexes && typeof this.graphProvider.createOntologyIndexes === 'function') {
-            console.log('[GraphRAG] Creating ontology indexes...');
+            log.debug({ event: 'graphrag_creating_indexes' }, 'Creating ontology indexes');
             const indexResult = await this.graphProvider.createOntologyIndexes();
             synced.indexes = indexResult.created;
         }
@@ -1335,7 +1335,7 @@ ${isPortuguese ? 'Responda de forma completa e estruturada:' : 'Answer completel
             syncTracker.markSyncComplete();
         }
         
-        console.log(`[GraphRAG] Sync complete: ${synced.nodes} nodes, ${synced.relationships} relationships, ${synced.inferred} inferred, ${synced.skipped} skipped, ${errors.length} errors`);
+        log.debug({ event: 'graphrag_sync_complete', nodes: synced.nodes, relationships: synced.relationships, inferred: synced.inferred, skipped: synced.skipped, errors: errors.length }, 'Sync complete');
         
         return { ok: errors.length === 0, synced, errors };
     }
@@ -1375,7 +1375,7 @@ ${isPortuguese ? 'Responda de forma completa e estruturada:' : 'Answer completel
         const embeddings = [];
         const errors = [];
         
-        console.log('[GraphRAG] Generating enriched embeddings with ontology...');
+        log.debug({ event: 'graphrag_embeddings_start' }, 'Generating enriched embeddings with ontology');
         
         // Generate embeddings for each entity type
         const entities = this.getKnownEntities();
@@ -1426,7 +1426,7 @@ ${isPortuguese ? 'Responda de forma completa e estruturada:' : 'Answer completel
             });
         }
         
-        console.log(`[GraphRAG] Generated ${embeddings.length} enriched embeddings, ${errors.length} errors`);
+        log.debug({ event: 'graphrag_embeddings_complete', count: embeddings.length, errors: errors.length }, 'Generated enriched embeddings');
         
         return { ok: errors.length === 0, count: embeddings.length, errors };
     }
@@ -1495,7 +1495,7 @@ ${isPortuguese ? 'Responda de forma completa e estruturada:' : 'Answer completel
                 latencyMs: Date.now() - startTime
             };
         } catch (error) {
-            console.error('[GraphRAG] Cross-project query error:', error);
+            log.warn({ event: 'graphrag_cross_project_error', reason: error?.message }, 'Cross-project query error');
             return { ok: false, error: error.message };
         }
     }

@@ -4,6 +4,8 @@
  */
 
 const { parseUrl, parseBody } = require('../../server/request');
+const { getLogger } = require('../../server/requestContext');
+const { logError } = require('../../logger');
 const { jsonResponse } = require('../../server/response');
 
 /**
@@ -13,6 +15,7 @@ const { jsonResponse } = require('../../server/response');
  */
 async function handleContacts(ctx) {
     const { req, res, pathname, storage, llm } = ctx;
+    const log = getLogger().child({ module: 'contacts' });
     
     // Quick check - if not a contacts route, return false immediately
     if (!pathname.startsWith('/api/contacts')) {
@@ -33,8 +36,7 @@ async function handleContacts(ctx) {
         try {
             const result = await storage.addContact(body);
             const contactId = result?.id || result;
-            console.log(`[Contacts] Added contact: ${body.name} (${contactId})`);
-            
+            log.debug({ event: 'contacts_added', name: body.name, contactId }, 'Added contact');
             // Sync with FalkorDB
             let graphSynced = false;
             try {
@@ -46,7 +48,7 @@ async function handleContacts(ctx) {
                     graphSynced = true;
                 }
             } catch (syncErr) {
-                console.log(`[Contacts] Graph sync warning: ${syncErr.message}`);
+                log.warn({ event: 'contacts_graph_sync_warning', reason: syncErr.message }, 'Graph sync warning');
             }
             
             jsonResponse(res, { 
@@ -171,7 +173,7 @@ async function handleContacts(ctx) {
                     try {
                         await storage.removeTeamMember(oldTeamId, contactId);
                     } catch (e) {
-                        console.log(`[Contacts] Could not remove from old team: ${e.message}`);
+                        log.debug({ event: 'contacts_team_remove_failed', reason: e.message }, 'Could not remove from old team');
                     }
                 }
                 // Add to new team
@@ -179,11 +181,10 @@ async function handleContacts(ctx) {
                     try {
                         await storage.addTeamMember(newTeamId, contactId);
                     } catch (e) {
-                        console.log(`[Contacts] Could not add to new team: ${e.message}`);
+                        log.debug({ event: 'contacts_team_add_failed', reason: e.message }, 'Could not add to new team');
                     }
                 }
             }
-            
             // Sync with FalkorDB
             let graphSynced = false;
             try {
@@ -226,7 +227,7 @@ async function handleContacts(ctx) {
                     graphSynced = true;
                 }
             } catch (syncErr) {
-                console.log(`[Contacts] Graph sync warning: ${syncErr.message}`);
+                log.warn({ event: 'contacts_graph_sync_warning', reason: syncErr.message }, 'Graph sync warning');
             }
             
             jsonResponse(res, { ok: true, message: 'Contact updated', graphSynced });
@@ -259,10 +260,10 @@ async function handleContacts(ctx) {
                 const graphSync = getGraphSync({ graphProvider: storage.getGraphProvider() });
                 await graphSync.onContactDeleted(contactId, contact?.name, contact?.email);
             } catch (syncErr) {
-                console.log(`[Contacts] Graph sync warning: ${syncErr.message}`);
+                log.warn({ event: 'contacts_graph_sync_warning', reason: syncErr.message }, 'Graph sync warning');
             }
             
-            console.log(`[Contacts] Deleted contact: ${contactId}`);
+            log.debug({ event: 'contacts_deleted', contactId }, 'Deleted contact');
             jsonResponse(res, { ok: true, message: 'Contact deleted', graphSynced: true });
         } catch (error) {
             jsonResponse(res, { ok: false, error: error.message }, 500);
@@ -328,7 +329,7 @@ async function handleContacts(ctx) {
     if (pathname === '/api/contacts/link-participant' && req.method === 'POST') {
         const body = await parseBody(req);
         const projectId = body?.project_id || body?.projectId || req.headers['x-project-id'];
-        console.log(`[Contacts] link-participant: "${body?.participantName}" -> ${body?.contactId} (project: ${projectId})`);
+        log.debug({ event: 'contacts_link_participant', participantName: body?.participantName, contactId: body?.contactId, projectId }, 'link-participant');
         if (projectId && storage._supabase) storage._supabase.setProject(projectId);
         
         if (!body.participantName || !body.contactId) {
@@ -354,7 +355,7 @@ async function handleContacts(ctx) {
                         );
                     }
                 } catch (syncErr) {
-                    console.log(`[Contacts] Graph sync warning: ${syncErr.message}`);
+                    log.warn({ event: 'contacts_graph_sync_warning', reason: syncErr.message }, 'Graph sync warning');
                 }
             }
             
@@ -393,7 +394,7 @@ async function handleContacts(ctx) {
                         );
                     }
                 } catch (syncErr) {
-                    console.log(`[Contacts] Graph sync warning: ${syncErr.message}`);
+                    log.warn({ event: 'contacts_graph_sync_warning', reason: syncErr.message }, 'Graph sync warning');
                 }
             }
             
@@ -435,7 +436,7 @@ async function handleContacts(ctx) {
             const duplicates = await storage.findDuplicateContacts();
             jsonResponse(res, { ok: true, duplicates, groups: duplicates.length });
         } catch (error) {
-            console.error('[Contacts] Find duplicates error:', error);
+            log.warn({ event: 'contacts_find_duplicates_error', reason: error?.message }, 'Find duplicates error');
             jsonResponse(res, { ok: false, error: error.message }, 500);
         }
         return true;
@@ -448,7 +449,7 @@ async function handleContacts(ctx) {
             if (projectId && storage._supabase) storage._supabase.setProject(projectId);
             
             const result = storage.syncPeopleToContacts();
-            console.log(`[Contacts] Synced ${result.added} people to contacts`);
+            log.debug({ event: 'contacts_synced_people', added: result.added }, 'Synced people to contacts');
             jsonResponse(res, { ok: true, ...result });
         } catch (error) {
             jsonResponse(res, { ok: false, error: error.message }, 500);
@@ -477,7 +478,7 @@ async function handleContacts(ctx) {
             }
             jsonResponse(res, { ok: true, mergedId });
         } catch (error) {
-            console.error('[Contacts] Merge error:', error);
+            logError(error, { event: 'contacts_merge_error' });
             jsonResponse(res, { ok: false, error: error.message }, 500);
         }
         return true;
@@ -623,7 +624,7 @@ async function handleContacts(ctx) {
                     );
                 }
             } catch (syncErr) {
-                console.log(`[Contacts] Graph sync relationship warning: ${syncErr.message}`);
+                log.warn({ event: 'contacts_graph_sync_relationship_warning', reason: syncErr.message }, 'Graph sync relationship warning');
             }
             
             jsonResponse(res, { ok: true, graphSynced: true });
@@ -679,10 +680,9 @@ async function handleContacts(ctx) {
                         { contactId, teamId: body.teamId }
                     );
                 } catch (e) {
-                    console.log(`[Contacts] Graph sync warning: ${e.message}`);
+                    log.warn({ event: 'contacts_graph_sync_warning', reason: e.message }, 'Graph sync warning');
                 }
             }
-            
             jsonResponse(res, { ok: true });
         } catch (error) {
             jsonResponse(res, { ok: false, error: error.message }, 500);
@@ -711,7 +711,7 @@ async function handleContacts(ctx) {
                         { contactId, teamId }
                     );
                 } catch (e) {
-                    console.log(`[Contacts] Graph sync warning: ${e.message}`);
+                    log.warn({ event: 'contacts_graph_sync_warning', reason: e.message }, 'Graph sync warning');
                 }
             }
             
@@ -741,7 +741,7 @@ async function handleContacts(ctx) {
                 .eq('contact_id', contactId);
 
             if (error) {
-                console.warn('[Contacts] Error fetching projects:', error.message);
+                log.warn({ event: 'contacts_projects_fetch_error', reason: error.message }, 'Error fetching projects');
                 jsonResponse(res, { ok: true, projects: [] });
                 return true;
             }
@@ -755,7 +755,7 @@ async function handleContacts(ctx) {
 
             jsonResponse(res, { ok: true, projects });
         } catch (error) {
-            console.error('[Contacts] Get projects error:', error);
+            log.warn({ event: 'contacts_get_projects_error', reason: error?.message }, 'Get projects error');
             jsonResponse(res, { ok: true, projects: [] });
         }
         return true;
@@ -777,14 +777,14 @@ async function handleContacts(ctx) {
                 .limit(50);
 
             if (error) {
-                console.warn('[Contacts] Error fetching activity:', error.message);
+                log.warn({ event: 'contacts_activity_fetch_error', reason: error.message }, 'Error fetching activity');
                 jsonResponse(res, { ok: true, activities: [] });
                 return true;
             }
 
             jsonResponse(res, { ok: true, activities: activities || [] });
         } catch (error) {
-            console.error('[Contacts] Get activity error:', error);
+            log.warn({ event: 'contacts_get_activity_error', reason: error?.message }, 'Get activity error');
             jsonResponse(res, { ok: true, activities: [] });
         }
         return true;
@@ -808,7 +808,7 @@ async function handleContacts(ctx) {
                 .eq('contact_id', contactId);
             
             if (fetchError) {
-                console.warn('[Contacts] Error fetching current projects:', fetchError.message);
+                log.warn({ event: 'contacts_current_projects_error', reason: fetchError.message }, 'Error fetching current projects');
             }
             
             const currentIds = new Set((currentProjects || []).map(p => p.project_id));
@@ -829,7 +829,7 @@ async function handleContacts(ctx) {
                     .in('project_id', toRemove);
                 
                 if (deleteError) {
-                    console.warn('[Contacts] Error removing projects:', deleteError.message);
+                    log.warn({ event: 'contacts_remove_projects_error', reason: deleteError.message }, 'Error removing projects');
                 }
             }
             
@@ -846,14 +846,14 @@ async function handleContacts(ctx) {
                     .insert(inserts);
                 
                 if (insertError) {
-                    console.warn('[Contacts] Error adding projects:', insertError.message);
+                    log.warn({ event: 'contacts_add_projects_error', reason: insertError.message }, 'Error adding projects');
                 }
             }
             
-            console.log(`[Contacts] Synced projects for contact ${contactId}: removed ${toRemove.length}, added ${toAdd.length}`);
+            log.debug({ event: 'contacts_sync_projects', contactId, removed: toRemove.length, added: toAdd.length }, 'Synced projects for contact');
             jsonResponse(res, { ok: true, removed: toRemove.length, added: toAdd.length });
         } catch (error) {
-            console.error('[Contacts] Sync projects error:', error);
+            log.warn({ event: 'contacts_sync_projects_error', reason: error?.message }, 'Sync projects error');
             jsonResponse(res, { ok: false, error: error.message }, 500);
         }
         return true;
@@ -938,7 +938,22 @@ DEPARTMENT_SUGGESTION: <suggested department if unknown>
 TAGS_SUGGESTION: <comma-separated suggested tags>
 NOTES_SUGGESTION: <additional notes to add>`;
 
-            const aiResponse = await llm.generateText(prompt);
+            const llmConfig = require('../../llm/config');
+            const textCfg = llmConfig.getTextConfig(config);
+            if (!textCfg?.provider || !textCfg?.model) {
+                jsonResponse(res, { ok: false, error: 'No LLM configured. Set Text provider and model in Settings > LLM.' }, 400);
+                return true;
+            }
+            const result = await llm.generateText({
+                provider: textCfg.provider,
+                providerConfig: textCfg.providerConfig || {},
+                model: textCfg.model,
+                prompt,
+                temperature: 0.3,
+                maxTokens: 1024,
+                context: 'contacts'
+            });
+            const aiResponse = result.success ? (result.text || '') : '';
             
             // Parse suggestions
             const suggestions = {};

@@ -611,7 +611,7 @@ export function showDocumentPreviewModal(props: DocumentPreviewProps): void {
     
     <div class="preview-tabs">
       <button class="preview-tab active" data-tab="preview">Preview</button>
-      <button class="preview-tab" data-tab="entities" id="entities-tab" style="display:none">
+      <button class="preview-tab hidden" data-tab="entities" id="entities-tab">
         Entities
         <span class="preview-tab-badge" id="entities-count">0</span>
       </button>
@@ -619,7 +619,7 @@ export function showDocumentPreviewModal(props: DocumentPreviewProps): void {
         AI Analysis
         <span class="preview-tab-badge" id="analysis-count">0</span>
       </button>
-      <button class="preview-tab" data-tab="notes" id="notes-tab" style="display:none">
+      <button class="preview-tab hidden" data-tab="notes" id="notes-tab">
         Meeting Notes
       </button>
       <button class="preview-tab" data-tab="versions">
@@ -633,7 +633,7 @@ export function showDocumentPreviewModal(props: DocumentPreviewProps): void {
     <div class="preview-content">
       <!-- Preview Tab -->
       <div class="preview-section active" data-section="preview">
-        <div class="summary-card" id="summary-card" style="${doc.summary ? '' : 'display:none'}">
+        <div class="summary-card${doc.summary ? '' : ' hidden'}" id="summary-card">
             <h4>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <circle cx="12" cy="12" r="10"/>
@@ -696,7 +696,7 @@ export function showDocumentPreviewModal(props: DocumentPreviewProps): void {
           </div>
         ` : ''}
         
-        <h4 style="margin: 24px 0 12px 0; font-size: 14px;">Content Preview</h4>
+        <h4 class="document-preview-content-heading">Content Preview</h4>
         <div class="content-preview" id="content-preview">
           <div class="content-loading">Loading content...</div>
         </div>
@@ -718,7 +718,7 @@ export function showDocumentPreviewModal(props: DocumentPreviewProps): void {
       
       <!-- Versions Tab -->
       <div class="preview-section" data-section="versions">
-        <div style="display: flex; justify-content: flex-end; margin-bottom: 16px;">
+        <div class="document-preview-actions-row">
           <button class="btn btn-primary" id="upload-version-btn">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -750,11 +750,11 @@ export function showDocumentPreviewModal(props: DocumentPreviewProps): void {
       <!-- Share Tab -->
       <div class="preview-section" data-section="share">
         <div class="share-panel">
-          <h4 style="margin: 0 0 16px 0;">Create Share Link</h4>
+          <h4 class="document-preview-share-heading">Create Share Link</h4>
           <div class="share-link-container">
             <input type="text" class="share-link-input" id="share-link-input" placeholder="Generate a link to share..." readonly>
             <button class="btn btn-primary" id="generate-link-btn">Generate</button>
-            <button class="btn btn-secondary" id="copy-link-btn" style="display: none;">Copy</button>
+            <button class="btn btn-secondary hidden" id="copy-link-btn">Copy</button>
           </div>
           <div class="share-options">
             <div class="share-option">
@@ -783,7 +783,7 @@ export function showDocumentPreviewModal(props: DocumentPreviewProps): void {
             </div>
           </div>
         </div>
-        <div id="active-shares" style="margin-top: 20px;"></div>
+        <div class="document-preview-active-shares" id="active-shares"></div>
       </div>
     </div>
   `;
@@ -820,55 +820,16 @@ export function showDocumentPreviewModal(props: DocumentPreviewProps): void {
   // Create overlay
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay document-preview-overlay';
-  overlay.style.cssText = `
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(4px);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-    animation: fadeIn 0.2s ease-out;
-  `;
 
-  // Create modal container
   const modalContainer = document.createElement('div');
-  modalContainer.className = 'modal-container';
-  modalContainer.style.cssText = `
-    background: var(--bg-primary);
-    border-radius: 16px;
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-    max-height: 90vh;
-    overflow: hidden;
-    animation: slideUp 0.3s ease-out;
-  `;
+  modalContainer.className = 'modal-container document-preview-modal-container';
 
-  // Add close button
   const closeBtn = document.createElement('button');
+  closeBtn.className = 'document-preview-close-btn';
   closeBtn.innerHTML = '×';
-  closeBtn.style.cssText = `
-    position: absolute;
-    top: 16px;
-    right: 16px;
-    width: 32px;
-    height: 32px;
-    border: none;
-    background: rgba(0, 0, 0, 0.1);
-    border-radius: 50%;
-    font-size: 20px;
-    cursor: pointer;
-    z-index: 10;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  `;
   closeBtn.onclick = () => closePreviewModal(overlay, props.onClose);
-  
-  content.style.position = 'relative';
+
+  content.classList.add('position-relative');
   content.appendChild(closeBtn);
   modalContainer.appendChild(content);
   overlay.appendChild(modalContainer);
@@ -932,7 +893,7 @@ async function loadContentPreview(container: HTMLElement, docId: string): Promis
     
     if (content) {
       const truncated = content.length > 5000;
-      contentEl.innerHTML = `<pre style="white-space: pre-wrap; font-family: inherit; margin: 0;">${escapeHtml(content.substring(0, 5000))}${truncated ? '\n\n... (truncated)' : ''}</pre>`;
+      contentEl.innerHTML = `<pre class="conv-notes-pre">${escapeHtml(content.substring(0, 5000))}${truncated ? '\n\n... (truncated)' : ''}</pre>`;
     } else {
       contentEl.innerHTML = '<div class="content-empty">No content extracted</div>';
     }
@@ -1000,7 +961,7 @@ async function loadEntities(container: HTMLElement, docId: string): Promise<void
     }
     
     // Show tab
-    if (entitiesTab) entitiesTab.style.display = '';
+    if (entitiesTab) entitiesTab.classList.remove('hidden');
     if (entitiesCount) entitiesCount.textContent = String(totalItems);
     
     // Build HTML
@@ -1635,7 +1596,7 @@ async function loadAnalysisHistory(container: HTMLElement, docId: string): Promi
             <span>${(a.input_tokens || 0) + (a.output_tokens || 0)} tokens</span>
             ${a.cost ? `<span>$${a.cost.toFixed(4)}</span>` : ''}
           </div>
-          <div class="analysis-timestamp" style="font-size: 12px; color: var(--text-tertiary, #666); margin-top: 4px;">
+          <div class="analysis-timestamp">
             ${formatDateTime(a.created_at)} (${formatRelativeTime(a.created_at)})
           </div>
         </div>
@@ -1701,20 +1662,7 @@ async function showAnalysisDetail(container: HTMLElement, analysis: AIAnalysis):
   // Create overlay
   const overlay = document.createElement('div');
   overlay.className = 'analysis-detail-overlay';
-  overlay.style.cssText = `
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.7);
-    z-index: 10001;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 20px;
-  `;
-  
+
   // Format the result JSON nicely
   const resultJson = fullResult 
     ? JSON.stringify(fullResult, null, 2) 
@@ -1780,54 +1728,33 @@ async function showAnalysisDetail(container: HTMLElement, analysis: AIAnalysis):
   
   // Build people section HTML with separate linked and unlinked sections
   const peopleSectionHtml = peopleDetected.length > 0 ? `
-    <div style="margin-bottom: 20px;">
-      <h4 style="color: var(--text-primary, #fff); margin: 0 0 12px 0; font-size: 14px; display: flex; align-items: center; gap: 8px;">
-        <span style="font-size: 16px;">👥</span> People Detected
-        <span style="font-size: 11px; background: rgba(99, 102, 241, 0.2); color: var(--accent-color, #6366f1); padding: 2px 8px; border-radius: 10px;">${peopleDetected.length}</span>
-        ${linkedPeople.length > 0 ? `<span style="font-size: 11px; background: rgba(16, 185, 129, 0.2); color: #10b981; padding: 2px 8px; border-radius: 10px;">✓ ${linkedPeople.length} linked</span>` : ''}
+    <div class="analysis-people-section">
+      <h4 class="analysis-people-title">
+        <span class="analysis-people-title-emoji">👥</span> People Detected
+        <span class="analysis-people-badge">${peopleDetected.length}</span>
+        ${linkedPeople.length > 0 ? `<span class="analysis-people-badge analysis-people-badge-linked">✓ ${linkedPeople.length} linked</span>` : ''}
       </h4>
       
       ${linkedPeople.length > 0 ? `
-        <div style="margin-bottom: 16px;">
-          <div style="font-size: 11px; color: var(--text-tertiary, #666); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Linked to Contacts</div>
-          <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+        <div class="analysis-people-linked-wrap">
+          <div class="analysis-people-section-label">Linked to Contacts</div>
+          <div class="analysis-people-chips">
             ${linkedPeople.map(p => `
-              <div class="person-chip linked" data-name="${escapeHtml(p.name)}" data-contact-id="${escapeHtml(p.contact_id || '')}" data-contact-name="${escapeHtml(p.contact_name || '')}" style="
-                display: flex;
-                align-items: center;
-                gap: 10px;
-                padding: 8px 14px;
-                background: rgba(16, 185, 129, 0.1);
-                border: 1px solid rgba(16, 185, 129, 0.3);
-                border-radius: 20px;
-                cursor: pointer;
-                transition: all 0.15s ease;
-              ">
+              <div class="person-chip linked entity-chip entity-chip-linked" data-name="${escapeHtml(p.name)}" data-contact-id="${escapeHtml(p.contact_id || '')}" data-contact-name="${escapeHtml(p.contact_name || '')}">
                 ${p.contact_avatar ? `
-                  <img src="${escapeHtml(p.contact_avatar)}" alt="" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover;">
+                  <img class="entity-chip-avatar" src="${escapeHtml(p.contact_avatar)}" alt="">
                 ` : `
-                  <div style="
-                    width: 32px;
-                    height: 32px;
-                    border-radius: 50%;
-                    background: linear-gradient(135deg, #10b981, #059669);
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    color: white;
-                    font-size: 12px;
-                    font-weight: 600;
-                  ">${(p.contact_name || p.name || '?').split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()}</div>
+                  <div class="entity-chip-avatar-placeholder">${(p.contact_name || p.name || '?').split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()}</div>
                 `}
-                <div style="flex: 1; min-width: 0;">
-                  <div style="color: var(--text-primary, #fff); font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 6px;">
-                    ${escapeHtml(p.name)}
-                    <svg style="width: 14px; height: 14px; color: #10b981; flex-shrink: 0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <div class="entity-chip-body">
+                  <div class="entity-chip-linked-row">
+                    <span class="entity-chip-name">${escapeHtml(p.name)}</span>
+                    <svg class="entity-chip-linked-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                       <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
                       <polyline points="22 4 12 14.01 9 11.01"/>
                     </svg>
                   </div>
-                  <div style="color: var(--text-tertiary, #666); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                  <div class="entity-chip-meta entity-chip-meta-ellipsis">
                     → ${escapeHtml(p.contact_name || 'Contact')}${p.contact_role ? ` • ${escapeHtml(p.contact_role)}` : ''}
                   </div>
                 </div>
@@ -1839,37 +1766,16 @@ async function showAnalysisDetail(container: HTMLElement, analysis: AIAnalysis):
       
       ${unlinkedPeople.length > 0 ? `
         <div>
-          <div style="font-size: 11px; color: var(--text-tertiary, #666); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">
+          <div class="analysis-people-section-label">
             ${linkedPeople.length > 0 ? 'Not Yet Linked' : 'Click to Link or Create Contact'}
           </div>
-          <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+          <div class="analysis-people-chips">
             ${unlinkedPeople.map(p => `
-              <div class="person-chip unlinked" data-name="${escapeHtml(p.name)}" data-role="${escapeHtml(p.role || '')}" data-org="${escapeHtml(p.organization || '')}" style="
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                padding: 8px 12px;
-                background: var(--bg-secondary, #252542);
-                border: 1px dashed var(--border-color, #444);
-                border-radius: 20px;
-                cursor: pointer;
-                transition: all 0.15s ease;
-              ">
-                <div style="
-                  width: 28px;
-                  height: 28px;
-                  border-radius: 50%;
-                  background: linear-gradient(135deg, var(--accent-color, #6366f1), #8b5cf6);
-                  display: flex;
-                  align-items: center;
-                  justify-content: center;
-                  color: white;
-                  font-size: 11px;
-                  font-weight: 600;
-                ">${(p.name || '?').split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()}</div>
-                <div>
-                  <div style="color: var(--text-primary, #fff); font-size: 13px; font-weight: 500;">${escapeHtml(p.name)}</div>
-                  ${p.role || p.organization ? `<div style="color: var(--text-tertiary, #666); font-size: 11px;">${p.role || ''}${p.role && p.organization ? ' • ' : ''}${p.organization || ''}</div>` : ''}
+              <div class="person-chip unlinked entity-chip entity-chip-unlinked" data-name="${escapeHtml(p.name)}" data-role="${escapeHtml(p.role || '')}" data-org="${escapeHtml(p.organization || '')}">
+                <div class="entity-chip-avatar-placeholder">${(p.name || '?').split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()}</div>
+                <div class="entity-chip-body">
+                  <div class="entity-chip-name">${escapeHtml(p.name)}</div>
+                  ${p.role || p.organization ? `<div class="entity-chip-meta">${p.role || ''}${p.role && p.organization ? ' • ' : ''}${p.organization || ''}</div>` : ''}
                 </div>
               </div>
             `).join('')}
@@ -1877,7 +1783,7 @@ async function showAnalysisDetail(container: HTMLElement, analysis: AIAnalysis):
         </div>
       ` : ''}
       
-      <p style="color: var(--text-tertiary, #666); font-size: 12px; margin: 12px 0 0 0;">
+      <p class="analysis-people-hint">
         💡 Click on any person to ${linkedPeople.length > 0 ? 'view/change the link' : 'link them to a contact or create a new one'}
       </p>
     </div>
@@ -1885,56 +1791,46 @@ async function showAnalysisDetail(container: HTMLElement, analysis: AIAnalysis):
   
   const content = document.createElement('div');
   content.className = 'analysis-detail-content';
-  content.style.cssText = `
-    background: var(--bg-primary, #1a1a2e);
-    border-radius: 12px;
-    max-width: 900px;
-    width: 100%;
-    max-height: 80vh;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-  `;
-  
+
   content.innerHTML = `
-    <div style="padding: 20px; border-bottom: 1px solid var(--border-color, #333); display: flex; justify-content: space-between; align-items: center;">
+    <div class="analysis-detail-header">
       <div>
-        <h3 style="margin: 0; color: var(--text-primary, #fff);">${capitalizeFirst(analysis.analysis_type)} Analysis</h3>
-        <p style="margin: 4px 0 0; color: var(--text-secondary, #888); font-size: 13px;">
+        <h3 class="analysis-detail-title">${capitalizeFirst(analysis.analysis_type)} Analysis</h3>
+        <p class="analysis-detail-meta">
           ${analysis.provider}/${analysis.model} • ${analysis.entities_extracted || 0} entities • ${formatRelativeTime(analysis.created_at)}
         </p>
       </div>
-      <button class="close-analysis-btn" style="background: none; border: none; color: var(--text-secondary, #888); cursor: pointer; font-size: 24px;">&times;</button>
+      <button type="button" class="close-analysis-btn analysis-detail-close-btn">&times;</button>
     </div>
     ${summary ? `
-      <div style="padding: 16px 20px; background: var(--bg-secondary, #252542); border-bottom: 1px solid var(--border-color, #333);">
-        <strong style="color: var(--text-primary, #fff);">Summary:</strong>
-        <p style="margin: 8px 0 0; color: var(--text-secondary, #ccc);">${escapeHtml(summary)}</p>
+      <div class="analysis-detail-summary-block">
+        <strong class="analysis-detail-summary-label">Summary:</strong>
+        <p class="analysis-detail-summary-text">${escapeHtml(summary)}</p>
       </div>
     ` : ''}
-    <div style="padding: 20px; overflow-y: auto; flex: 1;">
-      <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px;">
-        <div style="background: var(--bg-secondary, #252542); padding: 12px; border-radius: 8px; text-align: center;">
-          <div style="font-size: 24px; font-weight: bold; color: var(--accent-color, #6366f1);">${analysis.entities_extracted || 0}</div>
-          <div style="font-size: 12px; color: var(--text-secondary, #888);">Entities</div>
+    <div class="analysis-detail-body">
+      <div class="analysis-detail-stats">
+        <div class="analysis-detail-stat">
+          <div class="analysis-detail-stat-value">${analysis.entities_extracted || 0}</div>
+          <div class="analysis-detail-stat-label">Entities</div>
         </div>
-        <div style="background: var(--bg-secondary, #252542); padding: 12px; border-radius: 8px; text-align: center;">
-          <div style="font-size: 24px; font-weight: bold; color: var(--accent-color, #6366f1);">${analysis.input_tokens || 0}</div>
-          <div style="font-size: 12px; color: var(--text-secondary, #888);">Input Tokens</div>
+        <div class="analysis-detail-stat">
+          <div class="analysis-detail-stat-value">${analysis.input_tokens || 0}</div>
+          <div class="analysis-detail-stat-label">Input Tokens</div>
         </div>
-        <div style="background: var(--bg-secondary, #252542); padding: 12px; border-radius: 8px; text-align: center;">
-          <div style="font-size: 24px; font-weight: bold; color: var(--accent-color, #6366f1);">${analysis.output_tokens || 0}</div>
-          <div style="font-size: 12px; color: var(--text-secondary, #888);">Output Tokens</div>
+        <div class="analysis-detail-stat">
+          <div class="analysis-detail-stat-value">${analysis.output_tokens || 0}</div>
+          <div class="analysis-detail-stat-label">Output Tokens</div>
         </div>
-        <div style="background: var(--bg-secondary, #252542); padding: 12px; border-radius: 8px; text-align: center;">
-          <div style="font-size: 24px; font-weight: bold; color: var(--accent-color, #6366f1);">${analysis.latency_ms ? `${(analysis.latency_ms / 1000).toFixed(1)}s` : '-'}</div>
-          <div style="font-size: 12px; color: var(--text-secondary, #888);">Latency</div>
+        <div class="analysis-detail-stat">
+          <div class="analysis-detail-stat-value">${analysis.latency_ms ? `${(analysis.latency_ms / 1000).toFixed(1)}s` : '-'}</div>
+          <div class="analysis-detail-stat-label">Latency</div>
         </div>
       </div>
       ${peopleSectionHtml}
-      <details style="margin-top: 16px;">
-        <summary style="cursor: pointer; color: var(--text-primary, #fff); font-weight: 500; padding: 8px 0;">Raw Result JSON</summary>
-        <pre style="background: var(--bg-tertiary, #1e1e3f); padding: 16px; border-radius: 8px; overflow-x: auto; font-size: 12px; color: var(--text-secondary, #ccc); max-height: 400px; overflow-y: auto;">${escapeHtml(resultJson)}</pre>
+      <details class="analysis-detail-raw-wrap">
+        <summary class="analysis-detail-raw-summary">Raw Result JSON</summary>
+        <pre class="analysis-detail-raw-pre">${escapeHtml(resultJson)}</pre>
       </details>
     </div>
   `;
@@ -1957,8 +1853,6 @@ async function showAnalysisDetail(container: HTMLElement, analysis: AIAnalysis):
   
   content.querySelectorAll('.person-chip').forEach(chip => {
     const el = chip as HTMLElement;
-    const isLinked = el.classList.contains('linked');
-    
     chip.addEventListener('click', async (e) => {
       e.stopPropagation();
       const personName = el.dataset.name || '';
@@ -1970,27 +1864,7 @@ async function showAnalysisDetail(container: HTMLElement, analysis: AIAnalysis):
       await showPersonLinkMenu(el, personName, personRole, personOrg, projectId, currentContactId, currentContactName);
     });
     
-    // Hover effect - different for linked/unlinked
-    el.addEventListener('mouseenter', () => {
-      if (isLinked) {
-        el.style.background = 'rgba(16, 185, 129, 0.2)';
-        el.style.borderColor = 'rgba(16, 185, 129, 0.5)';
-      } else {
-        el.style.background = 'var(--bg-tertiary, #1e1e3f)';
-        el.style.borderColor = 'var(--accent-color, #6366f1)';
-      }
-      el.style.transform = 'translateY(-1px)';
-    });
-    el.addEventListener('mouseleave', () => {
-      if (isLinked) {
-        el.style.background = 'rgba(16, 185, 129, 0.1)';
-        el.style.borderColor = 'rgba(16, 185, 129, 0.3)';
-      } else {
-        el.style.background = 'var(--bg-secondary, #252542)';
-        el.style.borderColor = 'var(--border-color, #444)';
-      }
-      el.style.transform = 'translateY(0)';
-    });
+    /* Hover is handled via .entity-chip-linked:hover and .entity-chip-unlinked:hover in modals.css */
   });
 }
 
@@ -2294,7 +2168,7 @@ async function showPersonLinkMenu(
                data-contact-avatar="${escapeHtml(avatar)}"
                data-contact-role="${escapeHtml(role)}">
             ${avatar ? `
-              <img src="${escapeHtml(avatar)}" alt="" class="person-link-menu-avatar" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover;">
+              <img src="${escapeHtml(avatar)}" alt="" class="person-link-menu-avatar person-link-menu-avatar-img">
             ` : `
               <div class="person-link-menu-avatar">${initials}</div>
             `}
@@ -2444,38 +2318,15 @@ function updateChipToUnlinked(
   const initials = (personName || '?').split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase();
   
   chipEl.classList.remove('linked');
-  chipEl.classList.add('unlinked');
+  chipEl.classList.add('unlinked', 'entity-chip', 'entity-chip-unlinked');
   delete chipEl.dataset.contactId;
   delete chipEl.dataset.contactName;
-  
-  chipEl.style.cssText = `
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
-    background: var(--bg-secondary, #252542);
-    border: 1px dashed var(--border-color, #444);
-    border-radius: 20px;
-    cursor: pointer;
-    transition: all 0.15s ease;
-  `;
-  
+
   chipEl.innerHTML = `
-    <div style="
-      width: 28px;
-      height: 28px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, var(--accent-color, #6366f1), #8b5cf6);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: white;
-      font-size: 11px;
-      font-weight: 600;
-    ">${initials}</div>
-    <div>
-      <div style="color: var(--text-primary, #fff); font-size: 13px; font-weight: 500;">${escapeHtml(personName)}</div>
-      ${personRole || personOrg ? `<div style="color: var(--text-tertiary, #666); font-size: 11px;">${personRole || ''}${personRole && personOrg ? ' • ' : ''}${personOrg || ''}</div>` : ''}
+    <div class="entity-chip-avatar-placeholder">${initials}</div>
+    <div class="entity-chip-body">
+      <div class="entity-chip-name">${escapeHtml(personName)}</div>
+      ${personRole || personOrg ? `<div class="entity-chip-meta">${personRole || ''}${personRole && personOrg ? ' • ' : ''}${personOrg || ''}</div>` : ''}
     </div>
   `;
 }
@@ -2494,49 +2345,26 @@ function updateChipToLinked(
 ): void {
   const initials = (contactName || personName || '?').split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase();
   
-  chipEl.classList.remove('unlinked');
-  chipEl.classList.add('linked');
+  chipEl.classList.remove('entity-chip-unlinked');
+  chipEl.classList.add('linked', 'entity-chip', 'entity-chip-linked');
   chipEl.dataset.contactId = contactId;
   chipEl.dataset.contactName = contactName;
-  
-  chipEl.style.cssText = `
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 14px;
-    background: rgba(16, 185, 129, 0.1);
-    border: 1px solid rgba(16, 185, 129, 0.3);
-    border-radius: 20px;
-    cursor: pointer;
-    transition: all 0.15s ease;
-  `;
-  
+
   chipEl.innerHTML = `
     ${contactAvatar ? `
-      <img src="${escapeHtml(contactAvatar)}" alt="" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover;">
+      <img class="entity-chip-avatar" src="${escapeHtml(contactAvatar)}" alt="">
     ` : `
-      <div style="
-        width: 32px;
-        height: 32px;
-        border-radius: 50%;
-        background: linear-gradient(135deg, #10b981, #059669);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: white;
-        font-size: 12px;
-        font-weight: 600;
-      ">${initials}</div>
+      <div class="entity-chip-avatar-placeholder">${initials}</div>
     `}
-    <div style="flex: 1; min-width: 0;">
-      <div style="color: var(--text-primary, #fff); font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 6px;">
-        ${escapeHtml(personName)}
-        <svg style="width: 14px; height: 14px; color: #10b981; flex-shrink: 0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+    <div class="entity-chip-body">
+      <div class="entity-chip-linked-row">
+        <span class="entity-chip-name">${escapeHtml(personName)}</span>
+        <svg class="entity-chip-linked-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
           <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
           <polyline points="22 4 12 14.01 9 11.01"/>
         </svg>
       </div>
-      <div style="color: var(--text-tertiary, #666); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+      <div class="entity-chip-meta entity-chip-meta-ellipsis">
         → ${escapeHtml(contactName)}${contactRole ? ` • ${escapeHtml(contactRole)}` : ''}
       </div>
     </div>
@@ -2583,7 +2411,7 @@ async function loadVersions(container: HTMLElement, docId: string): Promise<void
             </div>
           ` : ''}
         </div>
-        <div class="version-actions" style="display: flex; gap: 8px;">
+        <div class="version-actions version-actions-row">
           <button class="btn btn-sm view-version-btn">View</button>
           ${!v.is_current ? '<button class="btn btn-sm restore-version-btn">Restore</button>' : ''}
           ${v.version_number > 1 ? '<button class="btn btn-sm diff-version-btn">Diff</button>' : ''}
@@ -2642,12 +2470,12 @@ async function loadMeetingNotes(container: HTMLElement, docId: string): Promise<
     
     if (!hasNotes) {
       // Hide notes tab if no notes
-      if (notesTab) notesTab.style.display = 'none';
+      if (notesTab) notesTab.classList.add('hidden');
       return;
     }
     
     // Show notes tab
-    if (notesTab) notesTab.style.display = '';
+    if (notesTab) notesTab.classList.remove('hidden');
     
     // Render notes
     const notesText = extraction?.notes_rendered_text || '';
@@ -2733,14 +2561,14 @@ async function loadMeetingNotes(container: HTMLElement, docId: string): Promise<
       
       notesContainer.innerHTML = `
         <div class="notes-structured">
-          ${keyPoints ? `<div class="notes-section"><h4>Key Points</h4><pre style="white-space: pre-wrap;">${escapeHtml(keyPoints)}</pre></div>` : ''}
-          ${outline ? `<div class="notes-section"><h4>Outline</h4><pre style="white-space: pre-wrap;">${escapeHtml(outline)}</pre></div>` : ''}
+          ${keyPoints ? `<div class="notes-section"><h4>Key Points</h4><pre class="conv-notes-pre">${escapeHtml(keyPoints)}</pre></div>` : ''}
+          ${outline ? `<div class="notes-section"><h4>Outline</h4><pre class="conv-notes-pre">${escapeHtml(outline)}</pre></div>` : ''}
         </div>
       `;
     }
   } catch {
     notesContainer.innerHTML = '<div class="empty-section">Meeting notes not available</div>';
-    if (notesTab) notesTab.style.display = 'none';
+    if (notesTab) notesTab.classList.add('hidden');
   }
 }
 
@@ -2814,7 +2642,7 @@ function renderNotesAsHtml(text: string): string {
   
   // If no structured content found, fallback to pre
   if (!html.includes('notes-topic')) {
-    return `<pre style="white-space: pre-wrap; font-family: inherit; margin: 0; line-height: 1.6;">${escapeHtml(text)}</pre>`;
+    return `<pre class="conv-notes-pre">${escapeHtml(text)}</pre>`;
   }
   
   return html;
@@ -2884,10 +2712,10 @@ async function refreshModalContent(container: HTMLElement, docId: string): Promi
     const summaryEl = container.querySelector('#doc-summary');
     if (summaryCard && summaryEl) {
       if (updatedDoc.summary) {
-        summaryCard.style.display = '';
+        summaryCard.classList.remove('hidden');
         summaryEl.textContent = updatedDoc.summary;
       } else {
-        summaryCard.style.display = 'none';
+        summaryCard.classList.add('hidden');
       }
     }
     
@@ -3053,10 +2881,9 @@ async function uploadNewVersion(doc: Document, container: HTMLElement, onUpdate?
     
     try {
       toast.info('Uploading new version...');
-      await fetch(`/api/documents/${doc.id}/versions`, {
+      await fetchWithProject(`/api/documents/${doc.id}/versions`, {
         method: 'POST',
         body: formData,
-        credentials: 'include'
       });
       toast.success('New version uploaded');
       loadVersions(container, doc.id);
@@ -3086,8 +2913,8 @@ async function generateShareLink(container: HTMLElement, doc: Document): Promise
     const input = container.querySelector('#share-link-input') as HTMLInputElement;
     input.value = response.data.url;
     
-    (container.querySelector('#generate-link-btn') as HTMLElement).style.display = 'none';
-    (container.querySelector('#copy-link-btn') as HTMLElement).style.display = 'block';
+    (container.querySelector('#generate-link-btn') as HTMLElement)?.classList.add('hidden');
+    (container.querySelector('#copy-link-btn') as HTMLElement)?.classList.remove('hidden');
     
     toast.success('Share link generated');
   } catch {

@@ -431,7 +431,7 @@ async function showGenerateForTeamDialog(panel: HTMLElement, props: QuestionsPan
   modal.id = 'generate-ai-modal';
   modal.innerHTML = `
     <div class="modal-backdrop"></div>
-    <div class="modal-container modal-sota" style="position: relative;">
+    <div class="modal-container modal-sota modal-sota-relative">
       <!-- Header -->
       <div class="sota-header header-primary">
         <div class="header-row">
@@ -482,7 +482,7 @@ async function showGenerateForTeamDialog(panel: HTMLElement, props: QuestionsPan
         </div>
 
         <!-- Section: Configuration (hidden until role selected) -->
-        <div class="sota-section" id="config-section" style="display: none;">
+        <div class="sota-section hidden" id="config-section">
           <div id="selected-badge"></div>
           
           <div class="config-row">
@@ -507,7 +507,7 @@ async function showGenerateForTeamDialog(panel: HTMLElement, props: QuestionsPan
             <span>Skip duplicate questions</span>
           </label>
 
-          <button class="sota-btn-primary" id="btn-generate" style="margin-top: 20px;">
+          <button class="sota-btn-primary sota-btn-mt" id="btn-generate">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
             </svg>
@@ -517,7 +517,7 @@ async function showGenerateForTeamDialog(panel: HTMLElement, props: QuestionsPan
       </div>
 
       <!-- Overlay for generation -->
-      <div class="sota-overlay" id="gen-overlay" style="display: none;">
+      <div class="sota-overlay hidden" id="gen-overlay">
         <div id="gen-content">
           <div class="overlay-spinner"></div>
           <h4 class="overlay-title">Generating questions...</h4>
@@ -569,7 +569,7 @@ async function showGenerateForTeamDialog(panel: HTMLElement, props: QuestionsPan
   // Load roles based on source
   const loadRoles = async (source: 'team' | 'contacts') => {
     rolesGrid.innerHTML = '<div class="sota-loading"><div class="spinner-ring"></div><p>Loading roles...</p></div>';
-    configSection.style.display = 'none';
+    configSection.classList.add('hidden');
     selectedRole = null;
 
     try {
@@ -604,7 +604,7 @@ async function showGenerateForTeamDialog(panel: HTMLElement, props: QuestionsPan
 
       if (roles.length === 0) {
         rolesGrid.innerHTML = `
-          <div class="sota-empty" style="grid-column: 1 / -1;">
+          <div class="sota-empty sota-empty-full">
             <div class="empty-icon">${source === 'team' ? '👥' : '📇'}</div>
             <h4>No ${source === 'team' ? 'Team Members' : 'Contacts'} with Roles</h4>
             <p>${source === 'team' 
@@ -623,9 +623,9 @@ async function showGenerateForTeamDialog(panel: HTMLElement, props: QuestionsPan
             ${r.members.slice(0, 3).map(m => `
               <div class="mini-avatar" title="${escapeHtml(m.name)}">
                 ${m.photoUrl 
-                  ? `<img src="${m.photoUrl}" alt="" onerror="this.style.display='none';this.nextSibling.style.display='flex'">`
+                  ? `<img src="${m.photoUrl}" alt="" class="mini-avatar-img" onerror="this.classList.add('hidden');this.nextElementSibling.classList.remove('hidden')">`
                   : ''}
-                <span style="${m.photoUrl ? 'display:none' : ''}">${getInitials(m.name)}</span>
+                <span class="avatar-fallback${m.photoUrl ? ' hidden' : ''}">${getInitials(m.name)}</span>
               </div>
             `).join('')}
             ${r.members.length > 3 ? `<div class="mini-avatar more">+${r.members.length - 3}</div>` : ''}
@@ -649,11 +649,11 @@ async function showGenerateForTeamDialog(panel: HTMLElement, props: QuestionsPan
 
     } catch (err) {
       rolesGrid.innerHTML = `
-        <div class="sota-empty" style="grid-column: 1 / -1;">
+        <div class="sota-empty sota-empty-full">
           <div class="empty-icon">⚠️</div>
           <h4>Failed to Load</h4>
           <p>Could not fetch roles. Please try again.</p>
-          <button class="sota-btn-primary" style="max-width: 200px; margin: 16px auto 0;" id="retry-load">Retry</button>
+          <button class="sota-btn-primary sota-btn-retry" id="retry-load">Retry</button>
         </div>
       `;
       modal.querySelector('#retry-load')?.addEventListener('click', () => loadRoles(source));
@@ -664,7 +664,7 @@ async function showGenerateForTeamDialog(panel: HTMLElement, props: QuestionsPan
   const showConfig = () => {
     if (!selectedRole) return;
     
-    configSection.style.display = 'block';
+    configSection.classList.remove('hidden');
     selectedBadge.innerHTML = `
       <div class="selected-badge">
         <span class="badge-icon">${getRoleIcon(selectedRole.role)}</span>
@@ -678,7 +678,7 @@ async function showGenerateForTeamDialog(panel: HTMLElement, props: QuestionsPan
 
     modal.querySelector('#clear-selection')?.addEventListener('click', () => {
       selectedRole = null;
-      configSection.style.display = 'none';
+      configSection.classList.add('hidden');
       rolesGrid.querySelectorAll('.sota-card').forEach(c => c.classList.remove('selected'));
     });
   };
@@ -687,7 +687,7 @@ async function showGenerateForTeamDialog(panel: HTMLElement, props: QuestionsPan
   const generateQuestions = async () => {
     if (!selectedRole) return;
 
-    genOverlay.style.display = 'flex';
+    genOverlay.classList.remove('hidden');
 
     try {
       const res = await http.post<{
@@ -717,11 +717,11 @@ async function showGenerateForTeamDialog(panel: HTMLElement, props: QuestionsPan
               <span class="result-text">${escapeHtml(item.content.length > 70 ? item.content.substring(0, 70) + '...' : item.content)}</span>
             </div>
           `).join('')}
-          ${q.length > 5 ? `<p style="text-align: center; color: var(--text-muted); margin-top: 8px; font-size: 12px;">+ ${q.length - 5} more questions</p>` : ''}
+          ${q.length > 5 ? `<p class="sota-more-hint">+ ${q.length - 5} more questions</p>` : ''}
         </div>
-        <p style="text-align: center; color: var(--text-secondary); font-size: 12px; margin-top: 12px;">
+        <p class="sota-questions-footer">
           📋 Questions from <strong>${selectedRole?.role}</strong> perspective<br>
-          <span style="color: var(--text-muted);">Use AI Suggest on each question to find who should answer</span>
+          <span class="sota-questions-footer-muted">Use AI Suggest on each question to find who should answer</span>
         </p>
         <button class="sota-btn-primary" id="btn-done">Done</button>
       `;
@@ -737,7 +737,7 @@ async function showGenerateForTeamDialog(panel: HTMLElement, props: QuestionsPan
           <div class="error-icon">✗</div>
           <h4>Generation Failed</h4>
           <p>Something went wrong. Please try again.</p>
-          <button class="sota-btn-primary" id="retry-gen" style="max-width: 200px; margin: 20px auto 0;">Retry</button>
+          <button class="sota-btn-primary sota-btn-retry sota-btn-retry-mt" id="retry-gen">Retry</button>
         </div>
       `;
       modal.querySelector('#retry-gen')?.addEventListener('click', generateQuestions);

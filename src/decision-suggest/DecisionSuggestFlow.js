@@ -4,30 +4,12 @@
  * using the app's configured AI. Prompt is loaded from Supabase (system_prompts key: decision_suggest).
  */
 
+const { logger } = require('../logger');
 const llm = require('../llm');
+
+const log = logger.child({ module: 'decision-suggest' });
 const llmConfig = require('../llm/config');
 const promptsService = require('../supabase/prompts');
-
-function getSuggestLLMConfig(config) {
-    const overrides = { model: config?.ollama?.reasoningModel || config?.llm?.models?.reasoning };
-    let textCfg = llmConfig.getTextConfig(config, overrides);
-    if (textCfg.provider && textCfg.model) {
-        textCfg.providerConfig = textCfg.providerConfig || config?.llm?.providers?.[textCfg.provider] || {};
-        return textCfg;
-    }
-    if (config?.ollama?.model || config?.ollama?.reasoningModel) {
-        return {
-            provider: 'ollama',
-            model: config.ollama.reasoningModel || config.ollama.model,
-            providerConfig: {
-                host: config.ollama.host || '127.0.0.1',
-                port: config.ollama.port || 11434,
-                ...(config.llm?.providers?.ollama || {})
-            }
-        };
-    }
-    return null;
-}
 
 /**
  * Run decision suggest: given content (and optional existing rationale), return
@@ -45,7 +27,7 @@ async function runDecisionSuggest(config, options = {}) {
         return { error: 'Content is required' };
     }
 
-    const llmCfg = getSuggestLLMConfig(config);
+    const llmCfg = llmConfig.getTextConfigForReasoning(config);
     if (!llmCfg?.provider || !llmCfg?.model) {
         return { error: 'No AI/LLM configured' };
     }
@@ -71,7 +53,7 @@ async function runDecisionSuggest(config, options = {}) {
             context: 'decision-suggest'
         });
     } catch (e) {
-        console.warn('[DecisionSuggestFlow] LLM error:', e.message);
+        log.warn({ event: 'decision_suggest_llm_error', reason: e.message }, 'LLM error');
         return { error: e.message || 'AI request failed' };
     }
 

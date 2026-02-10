@@ -7,6 +7,28 @@
 // RATE LIMITING
 // ============================================
 const rateLimitStore = new Map();
+const RATE_LIMIT_STORE_MAX_SIZE = 50000; // Cap memory; evict oldest when exceeded
+
+/**
+ * Evict oldest entries (by resetAt) until store is under cap
+ */
+function evictRateLimitStoreIfNeeded() {
+    if (rateLimitStore.size <= RATE_LIMIT_STORE_MAX_SIZE) return;
+    const now = Date.now();
+    const entries = Array.from(rateLimitStore.entries())
+        .filter(([, r]) => now > r.resetAt + 60000)
+        .sort((a, b) => a[1].resetAt - b[1].resetAt);
+    let deleted = 0;
+    for (const [key] of entries) {
+        if (rateLimitStore.size <= RATE_LIMIT_STORE_MAX_SIZE) break;
+        rateLimitStore.delete(key);
+        deleted++;
+    }
+    if (deleted > 0 && rateLimitStore.size > RATE_LIMIT_STORE_MAX_SIZE) {
+        const keys = Array.from(rateLimitStore.keys()).slice(0, rateLimitStore.size - RATE_LIMIT_STORE_MAX_SIZE);
+        keys.forEach(k => rateLimitStore.delete(k));
+    }
+}
 
 /**
  * Simple in-memory rate limiter
@@ -16,24 +38,24 @@ const rateLimitStore = new Map();
  * @returns {boolean} - true if request should be allowed
  */
 function checkRateLimit(key, maxRequests = 10, windowMs = 60000) {
+    evictRateLimitStoreIfNeeded();
     const now = Date.now();
     const record = rateLimitStore.get(key);
-    
+
     if (!record) {
         rateLimitStore.set(key, { count: 1, resetAt: now + windowMs });
         return true;
     }
-    
+
     if (now > record.resetAt) {
-        // Window expired, reset
         rateLimitStore.set(key, { count: 1, resetAt: now + windowMs });
         return true;
     }
-    
+
     if (record.count >= maxRequests) {
-        return false; // Rate limited
+        return false;
     }
-    
+
     record.count++;
     return true;
 }

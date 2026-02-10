@@ -12,7 +12,10 @@
  * SOTA v3.0 - Native Supabase graph support (no Cypher dependency)
  */
 
+const { logger } = require('../logger');
 const { getOntologyManager } = require('./OntologyManager');
+
+const log = logger.child({ module: 'ontology-extractor' });
 
 // Attribute type mapping (similar to GraphRAG-SDK)
 const ATTRIBUTE_TYPES = {
@@ -209,7 +212,7 @@ class OntologyExtractor {
                         };
                         stats.entityTypesFound++;
                     } catch (e) {
-                        console.warn(`[OntologyExtractor] Failed to extract attributes for ${label}:`, e.message);
+                        log.warn({ event: 'ontology_extractor_attributes_failed', label, reason: e.message }, 'Failed to extract attributes');
                     }
                 }
 
@@ -264,12 +267,12 @@ class OntologyExtractor {
                             stats.relationTypesFound++;
                         }
                     } catch (e) {
-                        console.warn(`[OntologyExtractor] Failed to extract relation ${relType}:`, e.message);
+                        log.warn({ event: 'ontology_extractor_relation_failed', relType, reason: e.message }, 'Failed to extract relation');
                     }
                 }
             }
 
-            console.log(`[OntologyExtractor] Extracted: ${stats.entityTypesFound} entity types, ${stats.relationTypesFound} relation types`);
+            log.info({ event: 'ontology_extractor_done', entityTypes: stats.entityTypesFound, relationTypes: stats.relationTypesFound }, 'Extracted');
 
             return {
                 ok: true,
@@ -278,7 +281,7 @@ class OntologyExtractor {
             };
 
         } catch (error) {
-            console.error('[OntologyExtractor] Extraction failed:', error.message);
+            log.error({ event: 'ontology_extractor_failed', reason: error.message }, 'Extraction failed');
             return { ok: false, error: error.message };
         }
     }
@@ -603,7 +606,7 @@ class OntologyExtractor {
             }
         }
 
-        console.log(`[OntologyExtractor] Merged: ${changes.length} changes`);
+        log.debug({ event: 'ontology_extractor_merged', changes: changes.length }, 'Merged');
 
         return { merged, changes };
     }
@@ -643,7 +646,7 @@ class OntologyExtractor {
             }
         }
 
-        console.log(`[OntologyExtractor] Discarded ${discarded.length} entities without relations`);
+        log.debug({ event: 'ontology_extractor_discarded_entities', discarded: discarded.length }, 'Discarded entities without relations');
 
         return { cleaned, discarded };
     }
@@ -676,7 +679,7 @@ class OntologyExtractor {
             }
         }
 
-        console.log(`[OntologyExtractor] Discarded ${discarded.length} relations without valid entities`);
+        log.debug({ event: 'ontology_extractor_discarded_relations', discarded: discarded.length }, 'Discarded relations without valid entities');
 
         return { cleaned, discarded };
     }

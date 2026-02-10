@@ -9,6 +9,7 @@
 @import './variables.css';
 @import './base.css';
 @import './layout.css';
+@import './utilities.css';
 
 /* ==================== Components ==================== */
 @import './components/animations.css';
@@ -27,6 +28,7 @@
 @import './components/tooltips.css';
 @import './components/sot.css';
 @import './components/auth.css';
+@import './components/auth-blocker.css';
 @import './components/project-selector.css';
 @import './components/dashboard.css';
 @import './components/sot-panels.css';
@@ -51,6 +53,7 @@
 @import './components/history.css';
 @import './components/timeline-sota.css';
 @import './components/team-analysis.css';
+@import './components/projects-page.css';
 
 /* ==================== Themes ==================== */
 /* Theme variables are already in variables.css via [data-theme] selectors */

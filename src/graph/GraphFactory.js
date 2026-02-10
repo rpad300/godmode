@@ -3,7 +3,10 @@
  * Creates and manages graph database provider instances
  */
 
+const { logger } = require('../logger');
 const GraphProvider = require('./GraphProvider');
+
+const log = logger.child({ module: 'graph-factory' });
 
 // Provider registry - Supabase is the default and recommended provider
 const PROVIDERS = {
@@ -77,7 +80,7 @@ function clearCache() {
     for (const provider of providerCache.values()) {
         if (provider.connected) {
             provider.disconnect().catch(err => {
-                console.error('Error disconnecting provider:', err);
+                log.warn({ event: 'graph_factory_disconnect_error', reason: err?.message }, 'Error disconnecting provider');
             });
         }
     }
@@ -131,7 +134,7 @@ async function createFromConfig(appConfig, supabaseClient = null) {
     const graphConfig = appConfig?.graph;
     
     if (!graphConfig?.enabled) {
-        console.log('[GraphFactory] Graph database disabled');
+        log.debug({ event: 'graph_factory_disabled' }, 'Graph database disabled');
         return null;
     }
     
@@ -139,7 +142,7 @@ async function createFromConfig(appConfig, supabaseClient = null) {
     const providerId = 'supabase';
     const providerConfig = graphConfig[providerId] || graphConfig || {};
     
-    console.log('[GraphFactory] Creating Supabase graph provider...');
+    log.debug({ event: 'graph_factory_creating' }, 'Creating Supabase graph provider');
     
     const provider = createProvider(providerId, {
         ...providerConfig,
@@ -150,11 +153,11 @@ async function createFromConfig(appConfig, supabaseClient = null) {
     const connectResult = await provider.connect();
     
     if (!connectResult.ok) {
-        console.error('[GraphFactory] Failed to connect:', connectResult.error);
+        log.warn({ event: 'graph_factory_connect_failed', reason: connectResult.error }, 'Failed to connect');
         return null;
     }
     
-    console.log('[GraphFactory] Connected to Supabase graph successfully');
+    log.debug({ event: 'graph_factory_connected' }, 'Connected to Supabase graph successfully');
     return provider;
 }
 

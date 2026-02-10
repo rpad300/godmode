@@ -7,16 +7,18 @@
  * - POST /api/config - Update configuration
  */
 const { parseBody } = require('../../server/request');
+const { getLogger } = require('../../server/requestContext');
 const { jsonResponse } = require('../../server/response');
+const { invalidateConfigCache } = require('../../middleware/cache');
 
 async function handleConfig(ctx) {
-    const { req, res, pathname, config, saveConfig, processor, ollama, llm, getLLMConfigForFrontend } = ctx;
+    const { req, res, pathname, config, saveConfig, processor, llm, getLLMConfigForFrontend } = ctx;
     
     // Check if this is a config route
+    const log = getLogger().child({ module: 'config' });
     if (pathname !== '/api/config') {
         return false;
     }
-    
     // GET /api/config - Get current configuration
     if (req.method === 'GET') {
         jsonResponse(res, {
@@ -37,12 +39,13 @@ async function handleConfig(ctx) {
         if (body.pdfToImages !== undefined) config.pdfToImages = body.pdfToImages;
         if (body.ollama) {
             config.ollama = { ...config.ollama, ...body.ollama };
-            ollama.configure(config.ollama.host, config.ollama.port);
-            // Sync to llm.providers.ollama
+            config.llm.providers = config.llm.providers || {};
             config.llm.providers.ollama = {
+                ...config.llm.providers.ollama,
                 host: config.ollama.host,
                 port: config.ollama.port
             };
+            llm.clearCache();
         }
         
         // Handle LLM config updates
@@ -62,7 +65,7 @@ async function handleConfig(ctx) {
             // Update per-task provider/model config
             if (body.llm.perTask) {
                 config.llm.perTask = { ...config.llm.perTask, ...body.llm.perTask };
-                console.log('[Config] Saved perTask:', config.llm.perTask);
+                log.debug({ event: 'config_saved_per_task', perTask: config.llm.perTask }, 'Saved perTask');
             }
             // Update provider-specific configs (API keys, base URLs, etc.)
             if (body.llm.providers) {
@@ -82,7 +85,7 @@ async function handleConfig(ctx) {
                         if (providerConfig.manualModels !== undefined) {
                             config.llm.providers[pid].manualModels = providerConfig.manualModels;
                         }
-                        // For ollama, update host/port
+                        // For ollama, update host/port and clear LLM cache
                         if (pid === 'ollama') {
                             if (providerConfig.host !== undefined) {
                                 config.llm.providers.ollama.host = providerConfig.host;
@@ -92,7 +95,7 @@ async function handleConfig(ctx) {
                                 config.llm.providers.ollama.port = providerConfig.port;
                                 config.ollama.port = providerConfig.port;
                             }
-                            ollama.configure(config.ollama.host, config.ollama.port);
+                            llm.clearCache();
                         }
                     }
                 }
@@ -104,6 +107,7 @@ async function handleConfig(ctx) {
         // Update processor config
         processor.updateConfig(config);
         saveConfig(config);
+        invalidateConfigCache();
         jsonResponse(res, { success: true, config: {
             ...config,
             llm: getLLMConfigForFrontend(config.llm)

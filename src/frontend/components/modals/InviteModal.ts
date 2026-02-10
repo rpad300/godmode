@@ -248,7 +248,7 @@ export function showInviteModal(props: InviteModalProps): void {
             <option value="write" selected>Member - Can view and edit data</option>
             <option value="admin">Admin - Can manage team and settings</option>
           </select>
-          <div class="form-hint" style="margin-top: 4px;">You can assign a project role after they join.</div>
+          <div class="form-hint invite-form-hint">You can assign a project role after they join.</div>
         </div>
         
         <div class="form-group">
@@ -276,9 +276,9 @@ export function showInviteModal(props: InviteModalProps): void {
         </select>
       </div>
       
-      <div class="add-options" style="display: flex; gap: 12px; margin-top: 16px;">
-        <button type="button" id="btn-add-direct" class="btn btn-primary" style="flex: 1;">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px;">
+      <div class="add-options">
+        <button type="button" id="btn-add-direct" class="btn btn-primary invite-btn-flex">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="invite-btn-icon">
             <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
             <circle cx="8.5" cy="7" r="4"/>
             <line x1="20" y1="8" x2="20" y2="14"/>
@@ -286,15 +286,15 @@ export function showInviteModal(props: InviteModalProps): void {
           </svg>
           Add to Team
         </button>
-        <button type="button" id="btn-send-invite" class="btn btn-secondary" style="flex: 1;">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px;">
+        <button type="button" id="btn-send-invite" class="btn btn-secondary invite-btn-flex">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="invite-btn-icon">
             <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
             <polyline points="22,6 12,13 2,6"/>
           </svg>
           Send Invitation
         </button>
       </div>
-      <div class="form-hint" style="margin-top: 8px; font-size: 12px; color: var(--text-secondary);">
+      <div class="form-hint invite-form-hint-sm">
         <strong>Add to Team:</strong> Adds contact as team member directly (no email sent)<br>
         <strong>Send Invitation:</strong> Sends an email invitation to join
       </div>
@@ -302,11 +302,11 @@ export function showInviteModal(props: InviteModalProps): void {
       <div class="email-status" id="email-status-contact"></div>
     </div>
     
-    <div class="invite-link-section" style="margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-color, #e2e8f0);">
-      <h4 style="margin: 0 0 8px; font-size: 13px; color: var(--text-secondary, #64748b);">Or share invite link</h4>
-      <div class="input-group" style="display: flex; gap: 8px;">
+    <div class="invite-link-section">
+      <h4 class="invite-link-title">Or share invite link</h4>
+      <div class="input-group invite-input-group">
         <input type="text" id="invite-link" readonly 
-               value="Generating link..." class="form-control" style="flex: 1;">
+               value="Generating link..." class="form-control invite-link-input">
         <button type="button" id="btn-copy-link" class="btn btn-secondary">Copy</button>
       </div>
     </div>
@@ -421,7 +421,7 @@ export function showInviteModal(props: InviteModalProps): void {
         } finally {
           btnAddDirect.disabled = false;
           btnAddDirect.innerHTML = `
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="invite-btn-icon">
               <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
               <circle cx="8.5" cy="7" r="4"/>
               <line x1="20" y1="8" x2="20" y2="14"/>
@@ -470,7 +470,7 @@ export function showInviteModal(props: InviteModalProps): void {
         } finally {
           btnSendInvite.disabled = false;
           btnSendInvite.innerHTML = `
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="invite-btn-icon">
               <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
               <polyline points="22,6 12,13 2,6"/>
             </svg>
@@ -609,7 +609,7 @@ async function loadContacts(container: HTMLElement, projectId: string, onSelect:
             ? 'All contacts are already team members.' 
             : 'No contacts found.'}
           <br>
-          <small style="opacity: 0.7;">Add contacts in the Contacts panel.</small>
+          <small class="invite-no-contacts-hint">Add contacts in the Contacts panel.</small>
         </div>
       `;
       return;
@@ -630,7 +630,7 @@ async function loadContacts(container: HTMLElement, projectId: string, onSelect:
           </div>
           <div class="contact-info">
             <div class="contact-name">${escapeHtml(contact.name)}</div>
-            <div class="contact-email">${escapeHtml(subtitle)}${!hasEmail ? ' <span style="color: #f59e0b; font-size: 10px;">(no email)</span>' : ''}</div>
+            <div class="contact-email">${escapeHtml(subtitle)}${!hasEmail ? ' <span class="contact-no-email">(no email)</span>' : ''}</div>
           </div>
         </label>
       `;

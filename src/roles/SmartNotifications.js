@@ -5,6 +5,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'smart-notifications' });
 
 // Role-based notification rules
 const DEFAULT_RULES = {
@@ -70,7 +73,7 @@ class SmartNotifications {
                 return JSON.parse(fs.readFileSync(this.configFile, 'utf8'));
             }
         } catch (e) {
-            console.error('[SmartNotifications] Load error:', e.message);
+            log.error({ event: 'smart_notifications_load_failed', message: e.message }, 'Load error');
         }
         return {
             rules: { ...DEFAULT_RULES },
@@ -85,7 +88,7 @@ class SmartNotifications {
             fs.mkdirSync(this.dataDir, { recursive: true });
             fs.writeFileSync(this.configFile, JSON.stringify(this.config, null, 2));
         } catch (e) {
-            console.error('[SmartNotifications] Save error:', e.message);
+            log.error({ event: 'smart_notifications_save_failed', message: e.message }, 'Save error');
         }
     }
 
@@ -294,7 +297,7 @@ class SmartNotifications {
             try {
                 callback(notification);
             } catch (e) {
-                console.error(`[SmartNotifications] Subscriber ${id} error:`, e.message);
+                log.error({ event: 'smart_notifications_subscriber_error', subscriberId: id, message: e.message }, 'Subscriber error');
             }
         });
     }

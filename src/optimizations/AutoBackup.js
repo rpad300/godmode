@@ -8,6 +8,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'auto-backup' });
 // Try to load Supabase - may fail due to project folder name conflict
 let getStorage = null;
 try {
@@ -112,12 +115,12 @@ class AutoBackup {
 
             results.success = true;
             results.path = backupPath;
-            console.log(`[AutoBackup] Created backup: ${backupName}`);
+            log.info({ event: 'auto_backup_created', backupName }, 'Created backup');
 
         } catch (e) {
             results.success = false;
             results.error = e.message;
-            console.log(`[AutoBackup] Backup failed: ${e.message}`);
+            log.error({ event: 'auto_backup_failed', reason: e.message }, 'Backup failed');
         }
 
         return results;
@@ -180,7 +183,7 @@ class AutoBackup {
                 stats
             };
         } catch (e) {
-            console.warn('[AutoBackup] Knowledge backup failed:', e.message);
+            log.warn({ event: 'auto_backup_knowledge_failed', reason: e.message }, 'Knowledge backup failed');
             return null;
         }
     }
@@ -202,7 +205,7 @@ class AutoBackup {
             
             return config;
         } catch (e) {
-            console.log('[AutoBackup] Config backup failed:', e.message);
+            log.warn({ event: 'auto_backup_config_failed', reason: e.message }, 'Config backup failed');
             return null;
         }
     }
@@ -231,14 +234,28 @@ class AutoBackup {
             if (fs.existsSync(kbFile)) {
                 const kb = JSON.parse(fs.readFileSync(kbFile, 'utf-8'));
                 
-                // Restore facts
-                if (kb.knowledge?.facts) {
-                    for (const fact of kb.knowledge.facts) {
-                        try {
-                            await storage.addFact(fact, true); // skipDedup
-                        } catch (e) {
-                            results.warnings.push(`Fact: ${e.message}`);
+                // Restore facts (batch when available)
+                if (kb.knowledge?.facts?.length > 0) {
+                    const factsToAdd = kb.knowledge.facts
+                        .filter(f => f && (f.content || '').trim().length >= 10)
+                        .map(f => ({
+                            content: f.content,
+                            category: f.category,
+                            confidence: f.confidence,
+                            source_document_id: f.source_document_id,
+                            document_id: f.document_id,
+                            source_file: f.source_file
+                        }));
+                    try {
+                        if (factsToAdd.length > 0 && typeof storage.addFacts === 'function') {
+                            await storage.addFacts(factsToAdd, { skipDedup: true });
+                        } else {
+                            for (const fact of factsToAdd) {
+                                await storage.addFact(fact, true);
+                            }
                         }
+                    } catch (e) {
+                        results.warnings.push(`Facts: ${e.message}`);
                     }
                 }
                 
@@ -276,7 +293,7 @@ class AutoBackup {
             }
 
             results.success = true;
-            console.log(`[AutoBackup] Restored backup: ${backupName}`);
+            log.info({ event: 'auto_backup_restored', backupName }, 'Restored backup');
 
         } catch (e) {
             results.success = false;
@@ -359,7 +376,7 @@ class AutoBackup {
                 fs.rmSync(backupPath, { recursive: true });
                 removed++;
             } catch (e) {
-                console.log(`[AutoBackup] Failed to remove ${backup.name}: ${e.message}`);
+                log.warn({ event: 'auto_backup_remove_failed', backupName: backup.name, reason: e.message }, 'Failed to remove backup');
             }
         }
 
@@ -370,7 +387,7 @@ class AutoBackup {
      * Start auto backup
      */
     startAutoBackup() {
-        console.log(`[AutoBackup] Starting auto backup every ${this.autoBackupInterval / 1000 / 60 / 60} hours`);
+        log.info({ event: 'auto_backup_start', intervalHours: this.autoBackupInterval / 1000 / 60 / 60 }, 'Starting auto backup');
         
         this.intervalId = setInterval(async () => {
             await this.createBackup();

@@ -3,7 +3,10 @@
  * Named Entity Recognition for Portuguese and English
  */
 
+const { logger } = require('../logger');
 const llm = require('../llm');
+
+const log = logger.child({ module: 'multi-language-ner' });
 
 class MultiLanguageNER {
     constructor(options = {}) {
@@ -207,7 +210,7 @@ Be precise and extract only clearly mentioned entities.`;
                 return this.parseLLMResponse(result.text);
             }
         } catch (e) {
-            console.log('[MultiLanguageNER] LLM extraction failed:', e.message);
+            log.warn({ event: 'multi_language_ner_llm_failed', message: e.message }, 'LLM extraction failed');
         }
 
         return [];
@@ -227,7 +230,7 @@ Be precise and extract only clearly mentioned entities.`;
                 }));
             }
         } catch (e) {
-            console.log('[MultiLanguageNER] Parse error');
+            log.warn({ event: 'multi_language_ner_parse_error' }, 'Parse error');
         }
         return [];
     }

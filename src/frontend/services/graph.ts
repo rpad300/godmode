@@ -3,7 +3,7 @@
  * Handles knowledge graph, visualization, GraphRAG, analytics, and Supabase persistence
  */
 
-import { http } from './api';
+import { http, fetchWithProject } from './api';
 
 // ============================================
 // TYPES - Graph Data
@@ -1199,7 +1199,7 @@ export function streamGraphRAGQuery(
 ): () => void {
   const controller = new AbortController();
   
-  fetch('/api/graphrag/stream', {
+  fetchWithProject('/api/graphrag/stream', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ query }),

@@ -5,6 +5,14 @@
  */
 
 const { spawn } = require('child_process');
+
+// Require Node 14+ (nullish coalescing ?? and optional chaining used in src/supabase)
+const major = parseInt(process.versions.node.split('.')[0], 10);
+if (major < 14) {
+    console.error('[Launcher] GodMode requires Node.js 14 or newer. Current:', process.version);
+    console.error('[Launcher] Upgrade from https://nodejs.org/ or use nvm/fnm.');
+    process.exit(1);
+}
 const path = require('path');
 
 const PORT = process.env.PORT || 3005;

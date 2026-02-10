@@ -10,8 +10,11 @@
  * SOTA v3.0 - Native Supabase graph support (no Cypher dependency)
  */
 
+const { logger } = require('../logger');
 const { getOntologyManager } = require('./OntologyManager');
 const llm = require('../llm');
+
+const log = logger.child({ module: 'relation-inference' });
 
 class RelationInference {
     constructor(options = {}) {
@@ -50,7 +53,7 @@ class RelationInference {
                 const llmResults = await this.extractWithLLM(text, context);
                 return this.mergeResults(heuristicResults, llmResults);
             } catch (error) {
-                console.error('[RelationInference] LLM extraction failed:', error.message);
+                log.error({ event: 'relation_inference_llm_extraction_failed', reason: error.message }, 'LLM extraction failed');
                 return heuristicResults;
             }
         }
@@ -188,7 +191,7 @@ Respond with this JSON structure:
             const model = this.llmConfig.perTask?.text?.model || this.llmConfig.models?.text || this.llmConfig.model;
             
             if (!provider || !model) {
-                console.warn('[RelationInference] No LLM provider/model configured');
+                log.warn({ event: 'relation_inference_no_llm' }, 'No LLM provider/model configured');
                 return { entities: [], relationships: [] };
             }
             
@@ -205,7 +208,7 @@ Respond with this JSON structure:
             });
 
             if (!response.success) {
-                console.error('[RelationInference] LLM call failed:', response.error);
+                log.error({ event: 'relation_inference_llm_call_failed', reason: response.error }, 'LLM call failed');
                 return { entities: [], relationships: [] };
             }
 
@@ -217,7 +220,7 @@ Respond with this JSON structure:
 
             return { entities, relationships };
         } catch (error) {
-            console.error('[RelationInference] LLM extraction error:', error.message);
+            log.error({ event: 'relation_inference_llm_extraction_error', reason: error.message }, 'LLM extraction error');
             return { entities: [], relationships: [] };
         }
     }
@@ -492,7 +495,7 @@ Respond with this JSON structure:
                 }
                 return { rulesApplied: 0, relationshipsCreated: 0 };
             } catch (e) {
-                console.error('[RelationInference] Native inference failed:', e.message);
+                log.error({ event: 'relation_inference_native_inference_failed', reason: e.message }, 'Native inference failed');
                 return { rulesApplied: 0, relationshipsCreated: 0 };
             }
         }
@@ -504,7 +507,7 @@ Respond with this JSON structure:
 
         for (const rule of rules) {
             try {
-                console.log(`[RelationInference] Running rule: ${rule.name}`);
+                log.debug({ event: 'relation_inference_rule_run', ruleName: rule.name }, 'Running rule');
                 const result = await graphProvider.query(rule.cypher);
                 
                 if (result.ok) {
@@ -512,7 +515,7 @@ Respond with this JSON structure:
                     relationshipsCreated += result.stats?.relationshipsCreated || 0;
                 }
             } catch (error) {
-                console.error(`[RelationInference] Rule ${rule.name} failed:`, error.message);
+                log.error({ event: 'relation_inference_rule_failed', ruleName: rule.name, reason: error.message }, 'Rule failed');
             }
         }
 

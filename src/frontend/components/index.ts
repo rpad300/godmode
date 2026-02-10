@@ -76,6 +76,7 @@ export {
   closeAuthModal,
   // Project
   showProjectModal,
+  showCompaniesModal,
   // Data
   showContactModal,
   showQuestionModal,

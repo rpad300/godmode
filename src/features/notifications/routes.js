@@ -56,8 +56,12 @@ async function handleNotifications(ctx) {
     
     // GET /api/notifications/count - Get unread count
     if (pathname === '/api/notifications/count' && req.method === 'GET') {
-        // Return 0 if not configured or not authenticated (graceful fallback)
+        // Return 0 if not configured, no notifications API, or not authenticated (graceful fallback)
         if (!supabase || !supabase.isConfigured()) {
+            jsonResponse(res, { count: 0 });
+            return true;
+        }
+        if (!supabase.notifications || typeof supabase.notifications.getUnreadCount !== 'function') {
             jsonResponse(res, { count: 0 });
             return true;
         }
@@ -71,13 +75,16 @@ async function handleNotifications(ctx) {
             return true;
         }
         
-        const parsedUrl = parseUrl(req.url);
-        const result = await supabase.notifications.getUnreadCount(userResult.user.id, parsedUrl.query.project_id);
-        
-        if (result.success) {
-            jsonResponse(res, { count: result.count });
-        } else {
-            jsonResponse(res, { error: result.error }, 400);
+        try {
+            const parsedUrl = parseUrl(req.url);
+            const result = await supabase.notifications.getUnreadCount(userResult.user.id, parsedUrl.query.project_id);
+            if (result.success) {
+                jsonResponse(res, { count: result.count });
+            } else {
+                jsonResponse(res, { count: 0 });
+            }
+        } catch (err) {
+            jsonResponse(res, { count: 0 });
         }
         return true;
     }

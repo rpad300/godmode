@@ -3,7 +3,10 @@
  * Handles Supabase Realtime subscriptions for live updates
  */
 
+const { logger } = require('../logger');
 const { getClient } = require('./client');
+
+const log = logger.child({ module: 'realtime' });
 
 // Active subscriptions
 const subscriptions = new Map();
@@ -17,7 +20,7 @@ const handlers = new Map();
 function subscribeToProject(projectId, callbacks = {}) {
     const supabase = getClient();
     if (!supabase) {
-        console.warn('[Realtime] Supabase not configured');
+        log.warn({ event: 'realtime_not_configured' }, 'Supabase not configured');
         return null;
     }
 
@@ -40,7 +43,7 @@ function subscribeToProject(projectId, callbacks = {}) {
             filter: `project_id=eq.${projectId}`
         },
         (payload) => {
-            console.log('[Realtime] Activity:', payload.eventType);
+            log.debug({ event: 'realtime_activity', eventType: payload.eventType }, 'Activity');
             if (callbacks.onActivity) callbacks.onActivity(payload);
             emitEvent('activity', { projectId, payload });
         }
@@ -56,7 +59,7 @@ function subscribeToProject(projectId, callbacks = {}) {
             filter: `project_id=eq.${projectId}`
         },
         (payload) => {
-            console.log('[Realtime] Comment:', payload.eventType);
+            log.debug({ event: 'realtime_comment', eventType: payload.eventType }, 'Comment');
             if (callbacks.onComment) callbacks.onComment(payload);
             emitEvent('comment', { projectId, payload });
         }
@@ -72,7 +75,7 @@ function subscribeToProject(projectId, callbacks = {}) {
             filter: `project_id=eq.${projectId}`
         },
         (payload) => {
-            console.log('[Realtime] Member:', payload.eventType);
+            log.debug({ event: 'realtime_member', eventType: payload.eventType }, 'Member');
             if (callbacks.onMember) callbacks.onMember(payload);
             emitEvent('member', { projectId, payload });
         }
@@ -95,7 +98,7 @@ function subscribeToProject(projectId, callbacks = {}) {
 
     // Subscribe
     channel.subscribe((status) => {
-        console.log(`[Realtime] Channel ${channelName}: ${status}`);
+        log.debug({ event: 'realtime_channel_status', channelName, status }, 'Channel status');
         if (callbacks.onStatus) callbacks.onStatus(status);
     });
 
@@ -127,7 +130,7 @@ function subscribeToNotifications(userId, callback) {
             filter: `user_id=eq.${userId}`
         },
         (payload) => {
-            console.log('[Realtime] New notification');
+            log.debug({ event: 'realtime_notification' }, 'New notification');
             if (callback) callback(payload.new);
             emitEvent('notification', { userId, notification: payload.new });
         }
@@ -161,19 +164,19 @@ function subscribeToPresence(projectId, callbacks = {}) {
 
     channel.on('presence', { event: 'sync' }, () => {
         const state = channel.presenceState();
-        console.log('[Realtime] Presence sync:', Object.keys(state).length, 'users');
+        log.debug({ event: 'realtime_presence_sync', userCount: Object.keys(state).length }, 'Presence sync');
         if (callbacks.onSync) callbacks.onSync(state);
         emitEvent('presence_sync', { projectId, state });
     });
 
     channel.on('presence', { event: 'join' }, ({ key, newPresences }) => {
-        console.log('[Realtime] User joined:', key);
+        log.debug({ event: 'realtime_presence_join', userId: key }, 'User joined');
         if (callbacks.onJoin) callbacks.onJoin(key, newPresences);
         emitEvent('presence_join', { projectId, userId: key, presences: newPresences });
     });
 
     channel.on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
-        console.log('[Realtime] User left:', key);
+        log.debug({ event: 'realtime_presence_leave', userId: key }, 'User left');
         if (callbacks.onLeave) callbacks.onLeave(key, leftPresences);
         emitEvent('presence_leave', { projectId, userId: key, presences: leftPresences });
     });
@@ -191,7 +194,7 @@ async function trackPresence(projectId, userId, metadata = {}) {
     const channel = subscriptions.get(channelName);
     
     if (!channel) {
-        console.warn('[Realtime] No presence channel for project');
+        log.warn({ event: 'realtime_no_presence_channel', projectId }, 'No presence channel for project');
         return false;
     }
 
@@ -203,7 +206,7 @@ async function trackPresence(projectId, userId, metadata = {}) {
         });
         return true;
     } catch (error) {
-        console.error('[Realtime] Track presence error:', error);
+        log.error({ event: 'realtime_track_presence_error', reason: error?.message }, 'Track presence error');
         return false;
     }
 }
@@ -269,7 +272,7 @@ function emitEvent(event, data) {
         try {
             handler(data);
         } catch (error) {
-            console.error(`[Realtime] Handler error for ${event}:`, error);
+            log.error({ event: 'realtime_handler_error', eventName: event, reason: error?.message }, 'Handler error');
         }
     }
 }
@@ -290,7 +293,7 @@ async function broadcast(channelName, event, payload) {
         });
         return true;
     } catch (error) {
-        console.error('[Realtime] Broadcast error:', error);
+        log.error({ event: 'realtime_broadcast_error', reason: error?.message }, 'Broadcast error');
         return false;
     }
 }

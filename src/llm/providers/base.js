@@ -4,6 +4,7 @@
  */
 
 const httpClient = require('../httpClient');
+const { logger: rootLogger } = require('../../logger');
 
 class BaseLLMProvider {
     constructor(config = {}) {
@@ -204,11 +205,8 @@ class BaseLLMProvider {
      * Log LLM operation for observability
      */
     log(operation, details = {}) {
-        const timestamp = new Date().toISOString();
-        console.log(`[LLM:${this.name}] ${operation}`, {
-            timestamp,
-            ...details
-        });
+        const log = rootLogger.child({ module: 'llm-provider', provider: this.name });
+        log.debug({ event: 'llm_operation', operation, ...details }, `${this.name}: ${operation}`);
     }
 
     /**

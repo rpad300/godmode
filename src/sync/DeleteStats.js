@@ -5,12 +5,16 @@
  * Refactored to use Supabase instead of local JSON files
  */
 
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'delete-stats' });
+
 // Try to load Supabase - may fail due to project folder name conflict
 let getStorage = null;
 try {
     getStorage = require('../supabase/storageHelper').getStorage;
 } catch (e) {
-    console.warn('[DeleteStats] Supabase not available, using in-memory tracking only');
+    log.warn({ event: 'delete_stats_supabase_unavailable' }, 'Supabase not available, using in-memory tracking only');
 }
 
 class DeleteStats {
@@ -121,7 +125,7 @@ class DeleteStats {
                 lastRefresh: Date.now()
             };
         } catch (e) {
-            console.warn('[DeleteStats] Could not refresh cache:', e.message);
+            log.warn({ event: 'delete_stats_refresh_error', reason: e.message }, 'Could not refresh cache');
         }
     }
 
@@ -177,7 +181,7 @@ class DeleteStats {
             else if (options.graphAttempted) this._sessionStats.graphSyncFailed++;
             
         } catch (e) {
-            console.warn('[DeleteStats] Could not record delete:', e.message);
+            log.warn({ event: 'delete_stats_record_delete_error', reason: e.message }, 'Could not record delete');
             this._sessionStats.totalDeletes++;
         }
     }
@@ -217,7 +221,7 @@ class DeleteStats {
             this._sessionStats.totalRestores++;
             
         } catch (e) {
-            console.warn('[DeleteStats] Could not record restore:', e.message);
+            log.warn({ event: 'delete_stats_record_restore_error', reason: e.message }, 'Could not record restore');
             this._sessionStats.totalRestores++;
         }
     }
@@ -250,7 +254,7 @@ class DeleteStats {
             this._sessionStats.totalPurges += count;
             
         } catch (e) {
-            console.warn('[DeleteStats] Could not record purge:', e.message);
+            log.warn({ event: 'delete_stats_record_purge_error', reason: e.message }, 'Could not record purge');
             this._sessionStats.totalPurges += count;
         }
     }

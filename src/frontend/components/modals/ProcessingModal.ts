@@ -72,7 +72,7 @@ function renderContent(container: HTMLElement): void {
     </div>
     <div class="processing-overall">
       <div class="progress-bar">
-        <div class="progress-fill" style="width: ${calculateOverallProgress()}%"></div>
+        <div class="progress-fill" style="--progress: ${calculateOverallProgress()}"></div>
       </div>
       <div class="progress-text">${calculateOverallProgress()}% complete</div>
     </div>
@@ -101,7 +101,7 @@ function renderStep(step: ProcessingStep): string {
         ${step.status === 'running' && step.progress !== undefined ? `
           <div class="step-progress">
             <div class="progress-bar small">
-              <div class="progress-fill" style="width: ${step.progress}%"></div>
+              <div class="progress-fill" style="--progress: ${step.progress}"></div>
             </div>
           </div>
         ` : ''}

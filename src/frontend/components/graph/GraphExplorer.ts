@@ -14,6 +14,7 @@
 import { createElement, on } from '../../utils/dom';
 import { graphService, GraphNode, GraphStats } from '../../services/graph';
 import { toast } from '../../services/toast';
+import { fetchWithProject } from '../../services/api';
 
 export interface GraphExplorerProps {
   onNodeSelect?: (node: GraphNode) => void;
@@ -147,7 +148,7 @@ export function createGraphExplorer(props: GraphExplorerProps = {}): HTMLElement
             <rect x="14" y="14" width="7" height="7"/>
             <rect x="3" y="14" width="7" height="7"/>
           </svg>
-          <span id="renderer-label" style="font-size: 10px; margin-left: 4px;">FalkorDB</span>
+          <span id="renderer-label" class="graph-renderer-label">FalkorDB</span>
         </button>
         <button class="graph-action-btn" id="btn-fullscreen" title="Fullscreen">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -516,7 +517,7 @@ function renderEntityTypeFilters(
   el.innerHTML = entityTypes.map(type => `
     <label class="entity-filter-item">
       <input type="checkbox" checked data-type="${type.name}">
-      <span class="entity-filter-color" style="background: ${type.color || '#6366f1'}"></span>
+      <span class="entity-filter-color" style="--entity-color: ${type.color || '#6366f1'}"></span>
       <span class="entity-filter-label">${type.label || type.name}</span>
     </label>
   `).join('');
@@ -564,7 +565,7 @@ function renderCommunityFilters(
     ${communities.slice(0, 8).map((c, i) => `
       <label class="community-filter-item">
         <input type="radio" name="community" value="${c.id}">
-        <span class="community-filter-color" style="background: ${colors[i % colors.length]}"></span>
+        <span class="community-filter-color" style="--community-color: ${colors[i % colors.length]}"></span>
         <span class="community-filter-label">${c.hub?.name || `Community ${c.id + 1}`} (${c.size})</span>
       </label>
     `).join('')}
@@ -768,12 +769,12 @@ function updateNodeDetails(container: HTMLElement, node: GraphNode): void {
     <div class="node-details">
       <div class="node-details-header">
         ${avatarUrl
-          ? `<img class="node-avatar-large" src="${avatarUrl}" alt="" onerror="this.style.display='none'">`
-          : `<div class="node-avatar-large node-avatar-placeholder" style="background: ${getTypeColor(node.type)}">${(node.label || node.name || '?').charAt(0).toUpperCase()}</div>`
+          ? `<img class="node-avatar-large" src="${avatarUrl}" alt="" onerror="this.classList.add('gm-none')">`
+          : `<div class="node-avatar-large node-avatar-placeholder" style="--type-color: ${getTypeColor(node.type)}">${(node.label || node.name || '?').charAt(0).toUpperCase()}</div>`
         }
         <div class="node-header-info">
           <h3 class="node-name">${escapeHtml(node.label || node.name || node.id)}</h3>
-          <span class="node-type-badge" style="background: ${getTypeColor(node.type)}">${node.type}</span>
+          <span class="node-type-badge" style="--type-color: ${getTypeColor(node.type)}">${node.type}</span>
         </div>
         <button class="btn-icon node-bookmark-btn" title="Bookmark">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -938,7 +939,7 @@ function toggleCommandPalette(container: HTMLElement, state: GraphExplorerState)
 async function syncGraph(container: HTMLElement): Promise<void> {
   toast.info('Syncing data to graph...');
   try {
-    await fetch('/api/graph/sync', { method: 'POST' });
+    await fetchWithProject('/api/graph/sync', { method: 'POST' });
     toast.success('Graph synced successfully');
     // Reload data
     const stats = await graphService.getStats();

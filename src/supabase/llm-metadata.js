@@ -6,7 +6,10 @@
  * operations for LLM model metadata sync and cost calculations without user context.
  */
 
+const { logger } = require('../logger');
 const { getAdminClient } = require('./client');
+
+const log = logger.child({ module: 'llm-metadata' });
 
 /**
  * Get model metadata from database
@@ -40,7 +43,7 @@ async function getModelMetadata(provider, modelId) {
         
         return data;
     } catch (error) {
-        console.warn('[LLMMetadata] Error getting model metadata:', error.message);
+        log.warn({ event: 'llm_metadata_get_error', reason: error.message }, 'Error getting model metadata');
         return null;
     }
 }
@@ -63,7 +66,7 @@ async function getModelsForProvider(provider) {
         if (error) throw error;
         return data || [];
     } catch (error) {
-        console.warn('[LLMMetadata] Error getting models for provider:', error.message);
+        log.warn({ event: 'llm_metadata_models_error', reason: error.message }, 'Error getting models for provider');
         return [];
     }
 }
@@ -100,7 +103,7 @@ async function calculateCost(provider, modelId, inputTokens, outputTokens) {
         if (error) throw error;
         return data || 0;
     } catch (error) {
-        console.warn('[LLMMetadata] Error calculating cost:', error.message);
+        log.warn({ event: 'llm_metadata_cost_error', reason: error.message }, 'Error calculating cost');
         return 0;
     }
 }
@@ -135,7 +138,7 @@ async function upsertModelMetadata(metadata) {
         if (error) throw error;
         return { success: true, id: data };
     } catch (error) {
-        console.warn('[LLMMetadata] Error upserting metadata:', error.message);
+        log.warn({ event: 'llm_metadata_upsert_error', reason: error.message }, 'Error upserting metadata');
         return { success: false, error: error.message };
     }
 }
@@ -174,7 +177,7 @@ async function getSyncStatus() {
         if (error) throw error;
         return data || [];
     } catch (error) {
-        console.warn('[LLMMetadata] Error getting sync status:', error.message);
+        log.warn({ event: 'llm_metadata_sync_status_error', reason: error.message }, 'Error getting sync status');
         return [];
     }
 }
@@ -193,7 +196,7 @@ async function markProviderModelsInactive(provider) {
             .eq('provider', provider)
             .eq('source', 'api'); // Only mark API-synced models
     } catch (error) {
-        console.warn('[LLMMetadata] Error marking models inactive:', error.message);
+        log.warn({ event: 'llm_metadata_ Error marking models inactive:', error.message);
     }
 }
 
@@ -228,7 +231,7 @@ async function getAllPricing() {
         
         return pricing;
     } catch (error) {
-        console.warn('[LLMMetadata] Error getting pricing:', error.message);
+        log.warn({ event: 'llm_metadata_pricing_error', reason: error.message }, 'Error getting pricing');
         return {};
     }
 }

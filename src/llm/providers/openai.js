@@ -4,6 +4,8 @@
  */
 
 const BaseLLMProvider = require('./base');
+const { logger: rootLogger } = require('../../logger');
+const log = rootLogger.child({ module: 'llm-provider', provider: 'openai' });
 
 class OpenAIProvider extends BaseLLMProvider {
     constructor(config = {}) {
@@ -173,10 +175,8 @@ class OpenAIProvider extends BaseLLMProvider {
             body.response_format = { type: 'json_object' };
         }
 
-        // Use retry logic for transient failures
         const promptSize = messages.reduce((sum, m) => sum + (m.content?.length || 0), 0);
-        console.log(`[OpenAI] Sending request: model=${model}, promptSize=${promptSize} chars, maxTokens=${maxTokens}, timeout=${this.timeout}ms`);
-        
+        log.debug({ event: 'openai_request', model, promptSize, maxTokens, timeout: this.timeout }, 'Sending request');
         try {
             return await this.withRetry(async () => {
                 const response = await this.fetchWithTimeout(
@@ -202,49 +202,26 @@ class OpenAIProvider extends BaseLLMProvider {
 
                 const choice = response.data?.choices?.[0];
                 const usage = response.data?.usage;
-                
-                // Log raw response for debugging
-                console.log(`[OpenAI] Response received: status=${response.status}, finishReason=${choice?.finish_reason}`);
-                
-                // Support multiple response formats (gpt-5.x may use different structure)
+                log.debug({ event: 'openai_response', status: response.status, finishReason: choice?.finish_reason }, 'Response received');
                 let textContent = '';
-                
-                // Standard OpenAI chat completion format
                 if (choice?.message?.content !== null && choice?.message?.content !== undefined) {
                     textContent = String(choice.message.content);
-                    console.log(`[OpenAI] Got content from message.content (${textContent.length} chars)`);
                 }
-                
-                // Check for reasoning/thinking tokens in newer models (o1, o3, gpt-5.x)
                 if (!textContent && choice?.message?.reasoning_content) {
                     textContent = String(choice.message.reasoning_content);
-                    console.log(`[OpenAI] Using reasoning_content (${textContent.length} chars)`);
                 }
-                
-                // Check for output field (some newer models)
                 if (!textContent && choice?.message?.output) {
                     textContent = String(choice.message.output);
-                    console.log(`[OpenAI] Using message.output (${textContent.length} chars)`);
                 }
-                
-                // Check for text field directly on choice (legacy completions format)
                 if (!textContent && choice?.text) {
                     textContent = String(choice.text);
-                    console.log(`[OpenAI] Using choice.text (${textContent.length} chars)`);
                 }
-                
-                // Check for delta (streaming responses that were aggregated)
                 if (!textContent && choice?.delta?.content) {
                     textContent = String(choice.delta.content);
-                    console.log(`[OpenAI] Using delta.content (${textContent.length} chars)`);
                 }
-                
-                // Debug: log if text is empty but tokens were used
                 if (!textContent && usage?.completion_tokens > 0) {
-                    console.log(`[OpenAI] WARNING: Empty text but ${usage.completion_tokens} completion tokens used!`);
-                    console.log(`[OpenAI] Full response:`, JSON.stringify(response.data, null, 2).substring(0, 3000));
+                    log.warn({ event: 'openai_empty_text', completionTokens: usage.completion_tokens }, 'Empty text but completion tokens used');
                 }
-
                 return {
                     success: true,
                     text: textContent,

@@ -4,7 +4,10 @@
  * Uses intelligent chunking and incremental analysis for efficiency
  */
 
+const { logger } = require('../logger');
 const { getSupabaseClient } = require('../supabase/client');
+
+const log = logger.child({ module: 'team-analyzer' });
 const { generateText } = require('../llm');
 const { getPrompt } = require('../supabase/prompts');
 const llmConfig = require('../llm/config');
@@ -19,26 +22,20 @@ class TeamAnalyzer {
     }
 
     /**
-     * Get LLM configuration from app config
-     * Uses the same pattern as processor.js - no hardcoded fallbacks
-     * @returns {{ provider: string, model: string, providerConfig: object }}
+     * Get LLM configuration from app config (centralized via llm/config).
+     * @returns {{ provider: string, model: string, providerConfig: object } | null}
      */
     getLLMConfig() {
-        // Get from perTask config (Admin Panel settings)
-        const provider = this.config?.llm?.perTask?.text?.provider || 
-                        this.config?.llm?.provider;
-        const model = this.config?.llm?.perTask?.text?.model || 
-                     this.config?.llm?.models?.text;
-        const providerConfig = this.config?.llm?.providers?.[provider] || {};
-        
-        if (!provider) {
-            console.warn('[TeamAnalyzer] No text provider configured in admin settings');
+        const textCfg = llmConfig.getTextConfig(this.config);
+        if (!textCfg?.provider || !textCfg?.model) {
+            log.warn({ event: 'team_analyzer_no_llm' }, 'No text provider/model configured in Settings > LLM');
+            return null;
         }
-        if (!model) {
-            console.warn('[TeamAnalyzer] No text model configured in admin settings');
-        }
-        
-        return { provider, model, providerConfig };
+        return {
+            provider: textCfg.provider,
+            model: textCfg.model,
+            providerConfig: textCfg.providerConfig || {}
+        };
     }
 
     /**
@@ -121,12 +118,12 @@ class TeamAnalyzer {
         const newTranscriptIds = transcriptIds.filter(id => !existingTranscriptIds.includes(id));
         
         if (existingProfile && !forceReanalysis && newTranscriptIds.length === 0) {
-            console.log(`[TeamAnalyzer] Profile for ${person.name} is up to date`);
+            log.debug({ event: 'team_analyzer_profile_up_to_date', personName: person.name }, 'Profile is up to date');
             return existingProfile;
         }
 
         // INTELLIGENT CHUNKING: Extract interventions for this person
-        console.log(`[TeamAnalyzer] Extracting interventions for ${person.name} from ${transcripts.length} transcripts...`);
+        log.debug({ event: 'team_analyzer_extracting', personName: person.name, transcriptCount: transcripts.length }, 'Extracting interventions');
         const allInterventions = await this.interventionExtractor.extractAllForPerson(
             projectId,
             personId,
@@ -139,7 +136,7 @@ class TeamAnalyzer {
         const totalInterventions = allInterventions.reduce((sum, t) => sum + (t.interventionCount || 0), 0);
         const totalWords = allInterventions.reduce((sum, t) => sum + (t.totalWordCount || 0), 0);
         
-        console.log(`[TeamAnalyzer] Extracted ${totalInterventions} interventions (${totalWords} words) for ${person.name}`);
+        log.debug({ event: 'team_analyzer_extracted', personName: person.name, totalInterventions, totalWords }, 'Extracted interventions');
 
         // Get existing evidence
         const existingEvidence = await this.getExistingEvidence(projectId, existingProfile?.id);
@@ -156,7 +153,7 @@ class TeamAnalyzer {
 
         if (shouldUseIncremental) {
             // INCREMENTAL ANALYSIS: Only analyze new transcripts
-            console.log(`[TeamAnalyzer] Running incremental analysis for ${person.name} (${newTranscriptIds.length} new transcripts)...`);
+            log.debug({ event: 'team_analyzer_incremental', personName: person.name, newCount: newTranscriptIds.length }, 'Running incremental analysis');
             
             const newInterventions = allInterventions.filter(t => newTranscriptIds.includes(t.documentId));
             profileData = await this.runIncrementalAnalysis(
@@ -172,7 +169,7 @@ class TeamAnalyzer {
             profileData = this.mergeIncrementalResults(existingProfile.profile_data, profileData);
         } else {
             // FULL ANALYSIS: Analyze all interventions
-            console.log(`[TeamAnalyzer] Running full analysis for ${person.name}...`);
+            log.debug({ event: 'team_analyzer_full', personName: person.name }, 'Running full analysis');
             
             profileData = await this.runFullAnalysis(
                 allInterventions,
@@ -231,7 +228,7 @@ class TeamAnalyzer {
         // Extract and save behavioral relationships
         await this.extractBehavioralRelationships(projectId, personId, profileData, transcripts);
 
-        console.log(`[TeamAnalyzer] Profile for ${person.name} saved successfully (${analysisType} analysis)`);
+        log.info({ event: 'team_analyzer_profile_saved', personName: person.name, analysisType }, 'Profile saved successfully');
         return savedProfile;
     }
 
@@ -243,7 +240,7 @@ class TeamAnalyzer {
         const allIntervs = allInterventions.flatMap(t => t.interventions || []);
         const formatted = this.interventionExtractor.formatForPrompt(allIntervs, { maxTokens: 12000 });
         
-        console.log(`[TeamAnalyzer] Formatted ${formatted.includedCount}/${formatted.totalCount} interventions (~${formatted.estimatedTokens} tokens)`);
+        log.debug({ event: 'team_analyzer_formatted', includedCount: formatted.includedCount, totalCount: formatted.totalCount, estimatedTokens: formatted.estimatedTokens }, 'Formatted interventions');
 
         // Build prompt
         const prompt = await this.buildBehavioralPrompt(
@@ -254,8 +251,9 @@ class TeamAnalyzer {
             existingProfile
         );
 
-        // Call LLM (include projectId for billing)
-        const { provider, model, providerConfig } = this.getLLMConfig();
+        const cfg = this.getLLMConfig();
+        if (!cfg) throw new Error('No LLM configured. Set Text provider and model in Settings > LLM.');
+        const { provider, model, providerConfig } = cfg;
         const response = await generateText({
             provider,
             model,
@@ -282,7 +280,7 @@ class TeamAnalyzer {
         const newIntervs = newInterventions.flatMap(t => t.interventions || []);
         const formatted = this.interventionExtractor.formatForPrompt(newIntervs, { maxTokens: 8000 });
         
-        console.log(`[TeamAnalyzer] Formatted ${formatted.includedCount} new interventions for incremental analysis`);
+        log.debug({ event: 'team_analyzer_incremental_formatted', includedCount: formatted.includedCount }, 'Formatted new interventions for incremental analysis');
 
         // Get incremental prompt template
         let template;
@@ -309,8 +307,9 @@ class TeamAnalyzer {
             .replace('{{NEW_INTERVENTIONS}}', formatted.formattedText)
             .replace('{{OBJECTIVE}}', objective);
 
-        // Call LLM (include projectId for billing)
-        const { provider, model, providerConfig } = this.getLLMConfig();
+        const cfg = this.getLLMConfig();
+        if (!cfg) throw new Error('No LLM configured. Set Text provider and model in Settings > LLM.');
+        const { provider, model, providerConfig } = cfg;
         const response = await generateText({
             provider,
             model,
@@ -464,9 +463,9 @@ class TeamAnalyzer {
                 .from('profile_evidence')
                 .insert(records);
             
-            console.log(`[TeamAnalyzer] Saved ${records.length} evidence pieces`);
+            log.debug({ event: 'team_analyzer_evidence_saved', count: records.length }, 'Saved evidence pieces');
         } catch (error) {
-            console.warn('[TeamAnalyzer] Failed to save evidence:', error.message);
+            log.warn({ event: 'team_analyzer_evidence_save_failed', reason: error.message }, 'Failed to save evidence');
         }
     }
 
@@ -560,7 +559,7 @@ Provide your analysis as JSON with:
                 const analysisDate = new Date(existingAnalysis.last_analysis_at);
                 
                 if (latestProfileUpdate <= analysisDate) {
-                    console.log('[TeamAnalyzer] Team analysis is up to date');
+                    log.debug({ event: 'team_analyzer_team_up_to_date' }, 'Team analysis is up to date');
                     return existingAnalysis;
                 }
             }
@@ -569,9 +568,10 @@ Provide your analysis as JSON with:
         // Build team analysis prompt
         const prompt = await this.buildTeamDynamicsPrompt(profiles);
 
-        // Call LLM (include projectId for billing)
-        console.log('[TeamAnalyzer] Analyzing team dynamics...');
-        const { provider, model, providerConfig } = this.getLLMConfig();
+        log.info({ event: 'team_analyzer_dynamics_start' }, 'Analyzing team dynamics');
+        const cfg = this.getLLMConfig();
+        if (!cfg) throw new Error('No LLM configured. Set Text provider and model in Settings > LLM.');
+        const { provider, model, providerConfig } = cfg;
         const response = await generateText({
             provider,
             model,
@@ -639,7 +639,7 @@ Provide your analysis as JSON with:
         // Sync behavioral relationships from team analysis
         await this.syncBehavioralRelationshipsFromTeamAnalysis(projectId, analysisData, profiles);
 
-        console.log('[TeamAnalyzer] Team dynamics analysis saved successfully');
+        log.info({ event: 'team_analyzer_dynamics_saved' }, 'Team dynamics analysis saved successfully');
         return savedAnalysis;
     }
 
@@ -650,7 +650,7 @@ Provide your analysis as JSON with:
      * @param {string[]} participantNames - Names of participants in the transcript
      */
     async updateProfilesFromTranscript(projectId, documentId, participantNames) {
-        console.log(`[TeamAnalyzer] Updating profiles from transcript ${documentId}`);
+        log.debug({ event: 'team_analyzer_updating_from_transcript', documentId }, 'Updating profiles from transcript');
 
         for (const name of participantNames) {
             try {
@@ -695,19 +695,19 @@ Provide your analysis as JSON with:
                         const existingTranscripts = profile.transcripts_analyzed || [];
                         if (!existingTranscripts.includes(documentId)) {
                             // Queue for re-analysis
-                            console.log(`[TeamAnalyzer] Queuing profile update for ${name}`);
+                            log.debug({ event: 'team_analyzer_queuing', name }, 'Queuing profile update');
                             await this.analyzePersonProfile(projectId, personId, {
                                 forceReanalysis: true
                             });
                         }
                     } else {
                         // Create new profile
-                        console.log(`[TeamAnalyzer] Creating new profile for ${name}`);
+                        log.debug({ event: 'team_analyzer_creating_profile', name }, 'Creating new profile');
                         await this.analyzePersonProfile(projectId, personId);
                     }
                 }
             } catch (error) {
-                console.error(`[TeamAnalyzer] Error updating profile for ${name}:`, error.message);
+                log.error({ event: 'team_analyzer_profile_update_error', name, reason: error.message }, 'Error updating profile');
             }
         }
     }
@@ -720,7 +720,7 @@ Provide your analysis as JSON with:
      * @returns {Promise<Object[]>} Array of transcripts
      */
     async getTranscriptsForPerson(projectId, personName, aliases = []) {
-        console.log(`[TeamAnalyzer] getTranscriptsForPerson: projectId=${projectId}, personName=${personName}, aliases=${aliases.join(', ') || 'none'}`);
+        log.debug({ event: 'team_analyzer_get_transcripts', projectId, personName, aliases: aliases.join(', ') || 'none' }, 'getTranscriptsForPerson');
         
         // Get all transcripts for the project (include filepath for fallback reading)
         const { data: documents, error } = await this.supabase
@@ -732,45 +732,51 @@ Provide your analysis as JSON with:
             .order('created_at', { ascending: true });
 
         if (error) {
-            console.error(`[TeamAnalyzer] Error fetching documents: ${error.message}`);
+            log.error({ event: 'team_analyzer_fetch_documents_error', reason: error.message }, 'Error fetching documents');
             throw new Error(`Failed to fetch transcripts: ${error.message}`);
         }
         
-        console.log(`[TeamAnalyzer] Found ${documents?.length || 0} transcripts in project`);
+        log.debug({ event: 'team_analyzer_transcripts_found', count: documents?.length || 0 }, 'Found transcripts in project');
         
         // Try to load content from file if not in DB
+        const drive = require('../integrations/googleDrive/drive');
         for (const doc of documents) {
             if (!doc.content && doc.filepath) {
                 try {
-                    const fs = require('fs');
-                    const path = require('path');
-                    
-                    // Try multiple possible paths
-                    const baseName = doc.filename.replace(/\.[^/.]+$/, ''); // Remove extension
-                    const possiblePaths = [
-                        doc.filepath,
-                        path.resolve(doc.filepath),
-                        // Content folder (markdown extracted content)
-                        path.join(process.cwd(), 'data', 'projects', projectId, 'content', baseName + '.md'),
-                        path.join(process.cwd(), 'data', 'projects', projectId, 'content', doc.filename),
-                        // Transcripts folder
-                        path.join(process.cwd(), 'data', 'projects', projectId, 'transcripts', doc.filename),
-                        path.join(process.cwd(), 'data', 'projects', projectId, 'newtranscripts', doc.filename),
-                        path.join(process.cwd(), 'data', 'newtranscripts', doc.filename)
-                    ];
-                    
-                    for (const fpath of possiblePaths) {
-                        if (fs.existsSync(fpath)) {
-                            doc.content = fs.readFileSync(fpath, 'utf-8');
-                            console.log(`[TeamAnalyzer] Loaded content from file: ${fpath} (${doc.content.length} chars)`);
-                            break;
+                    if (doc.filepath.startsWith('gdrive:')) {
+                        const fileId = doc.filepath.replace(/^gdrive:/, '').trim();
+                        const client = await drive.getDriveClientForRead(projectId);
+                        if (client && client.drive) {
+                            const buffer = await drive.downloadFile(client, fileId);
+                            doc.content = buffer.toString('utf-8');
+                            log.debug({ event: 'team_analyzer_loaded_gdrive', filename: doc.filename, length: doc.content.length }, 'Loaded content from Google Drive');
+                        }
+                    } else {
+                        const fs = require('fs');
+                        const path = require('path');
+                        const baseName = doc.filename.replace(/\.[^/.]+$/, '');
+                        const possiblePaths = [
+                            doc.filepath,
+                            path.resolve(doc.filepath),
+                            path.join(process.cwd(), 'data', 'projects', projectId, 'content', baseName + '.md'),
+                            path.join(process.cwd(), 'data', 'projects', projectId, 'content', doc.filename),
+                            path.join(process.cwd(), 'data', 'projects', projectId, 'transcripts', doc.filename),
+                            path.join(process.cwd(), 'data', 'projects', projectId, 'newtranscripts', doc.filename),
+                            path.join(process.cwd(), 'data', 'newtranscripts', doc.filename)
+                        ];
+                        for (const fpath of possiblePaths) {
+                            if (fs.existsSync(fpath)) {
+                                doc.content = fs.readFileSync(fpath, 'utf-8');
+                                log.debug({ event: 'team_analyzer_loaded_file', fpath, length: doc.content.length }, 'Loaded content from file');
+                                break;
+                            }
                         }
                     }
                 } catch (e) {
-                    console.warn(`[TeamAnalyzer] Could not load content from file: ${e.message}`);
+                    log.warn({ event: 'team_analyzer_load_file_failed', reason: e.message }, 'Could not load content from file');
                 }
             }
-            console.log(`[TeamAnalyzer]   - ${doc.filename}: content=${doc.content?.length || 0} chars, people=${doc.extraction_result?.people?.map(p=>p.name).join(', ') || 'none'}`);
+            log.debug({ event: 'team_analyzer_doc_info', filename: doc.filename, contentLength: doc.content?.length || 0, people: doc.extraction_result?.people?.map(p=>p.name).join(', ') || 'none' }, 'Document info');
         }
 
         // Filter transcripts where person appears
@@ -785,7 +791,7 @@ Provide your analysis as JSON with:
         }
         // Remove duplicates
         nameVariants = [...new Set(nameVariants)];
-        console.log(`[TeamAnalyzer] Searching for variants: ${nameVariants.join(', ')}`);
+        log.debug({ event: 'team_analyzer_name_variants', nameVariants }, 'Searching for variants');
 
         for (const doc of documents) {
             const content = doc.content || '';
@@ -858,11 +864,11 @@ Provide your analysis as JSON with:
             // getPrompt returns an object with prompt_template property
             template = promptObj?.prompt_template || null;
             if (!template) {
-                console.warn('[TeamAnalyzer] No team_behavioral_analysis prompt found, using fallback');
+                log.warn({ event: 'team_analyzer_no_prompt' }, 'No team_behavioral_analysis prompt found, using fallback');
                 template = this.getDefaultBehavioralPromptTemplate();
             }
         } catch (e) {
-            console.warn('[TeamAnalyzer] Error loading prompt:', e.message);
+            log.warn({ event: 'team_analyzer_prompt_load_error', reason: e.message }, 'Error loading prompt');
             // Fallback to basic template
             template = this.getDefaultBehavioralPromptTemplate();
         }
@@ -1050,7 +1056,7 @@ Provide your analysis as JSON with:
             return nameToPersonId[normalized] || null;
         };
 
-        console.log('[TeamAnalyzer] Name mapping for relationships:', Object.keys(nameToPersonId));
+        log.debug({ event: 'team_analyzer_name_mapping', keys: Object.keys(nameToPersonId) }, 'Name mapping for relationships');
 
         // Sync influence relationships
         for (const influence of analysisData.influence_map || []) {
@@ -1062,7 +1068,7 @@ Provide your analysis as JSON with:
                     strength: influence.strength || 0.5,
                     evidence: [{ description: influence.evidence }]
                 });
-                console.log(`[TeamAnalyzer] Created influence: ${influence.from_person} -> ${influence.to_person}`);
+                log.debug({ event: 'team_analyzer_influence_created', from: influence.from_person, to: influence.to_person }, 'Created influence');
             }
         }
 
@@ -1084,7 +1090,7 @@ Provide your analysis as JSON with:
                             strength: alliance.strength || 0.5,
                             evidence: [{ description: alliance.evidence }]
                         });
-                        console.log(`[TeamAnalyzer] Created alliance: ${members[i]} <-> ${members[j]}`);
+                        log.debug({ event: 'team_analyzer_alliance_created', member1: members[i], member2: members[j] }, 'Created alliance');
                     }
                 }
             }
@@ -1107,7 +1113,7 @@ Provide your analysis as JSON with:
                         strength: tension.level === 'high' ? 0.9 : tension.level === 'medium' ? 0.6 : 0.3,
                         evidence: [{ description: tension.evidence, triggers: tension.triggers }]
                     });
-                    console.log(`[TeamAnalyzer] Created tension: ${between[0]} <-> ${between[1]}`);
+                    log.debug({ event: 'team_analyzer_tension_created', between1: between[0], between2: between[1] }, 'Created tension');
                 }
             }
         }

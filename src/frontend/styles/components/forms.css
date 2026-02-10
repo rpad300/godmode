@@ -105,6 +105,9 @@
   font-size: var(--font-size-xs);
   margin-top: var(--space-xs);
 }
+.form-hint-mb {
+  margin-bottom: 16px;
+}
 
 /* ==================== Input with Icon ==================== */
 .input-with-icon {
@@ -229,4 +232,37 @@
 
 .contact-projects-list .error {
   color: var(--danger);
+}
+
+/* Role editor (RolesPanel) */
+.empty-state-hint {
+  font-size: 13px;
+  opacity: 0.7;
+}
+
+.role-color-dot {
+  background: var(--role-color, #e11d48);
+}
+
+.role-color-badge {
+  background: var(--role-color, #e94560);
+}
+
+.form-row .role-form-flex-2 { flex: 2; }
+.form-row .role-form-flex-1 { flex: 1; }
+.role-form-w-80 { width: 80px; }
+.role-color-input {
+  height: 42px;
+  padding: 4px;
+}
+.role-form-hint-ai {
+  margin: 0;
+  padding-top: 10px;
+}
+
+.action-generate-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
 }

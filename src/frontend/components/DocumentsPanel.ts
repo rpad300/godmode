@@ -1064,7 +1064,7 @@ function createDocumentCard(doc: Document, index = 0): string {
           ${factsCount > 0 ? `<span class="doc-entity-item facts"><span class="icon" aria-hidden="true">📋</span> ${factsCount} facts</span>` : ''}
           ${decisionsCount > 0 ? `<span class="doc-entity-item decisions"><span class="icon" aria-hidden="true">✓</span> ${decisionsCount}</span>` : ''}
           ${risksCount > 0 ? `<span class="doc-entity-item risks"><span class="icon" aria-hidden="true">⚠</span> ${risksCount}</span>` : ''}
-          ${factsCount === 0 && decisionsCount === 0 && risksCount === 0 ? '<span class="doc-entity-item" style="color: var(--text-tertiary);">No entities</span>' : ''}
+          ${factsCount === 0 && decisionsCount === 0 && risksCount === 0 ? '<span class="doc-entity-item text-muted">No entities</span>' : ''}
         </div>
         <div class="doc-actions-minimal">
           <button class="doc-action-btn favorite ${(doc as any).is_favorite ? 'active' : ''}" 
@@ -1128,32 +1128,8 @@ function showLoadingOverlay(panel: HTMLElement, message: string): HTMLElement {
       <div class="bulk-loading-progress" id="bulk-progress"></div>
     </div>
   `;
-  overlay.style.cssText = `
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(var(--bg-rgb, 255, 255, 255), 0.9);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 100;
-    backdrop-filter: blur(2px);
-  `;
   const content = overlay.querySelector('.bulk-loading-content') as HTMLElement;
-  content.style.cssText = 'text-align: center;';
-  const spinner = overlay.querySelector('.bulk-loading-spinner') as HTMLElement;
-  spinner.style.cssText = `
-    width: 40px;
-    height: 40px;
-    border: 3px solid var(--border-color);
-    border-top-color: var(--primary);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-    margin: 0 auto 16px;
-  `;
-  panel.style.position = 'relative';
+  panel.classList.add('position-relative');
   panel.appendChild(overlay);
   return overlay;
 }

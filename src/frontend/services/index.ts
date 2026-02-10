@@ -9,7 +9,7 @@ export type { ThemeMode, EffectiveTheme } from './theme';
 export { toast, showToast } from './toast';
 export type { ToastType } from './toast';
 
-export { api, http, configureApi, ApiError, addRequestInterceptor, addResponseInterceptor } from './api';
+export { api, http, configureApi, ApiError, addRequestInterceptor, addResponseInterceptor, getProjectHeaders, fetchWithProject, setProjectIdGetter } from './api';
 export type { ApiResponse, ApiError as ApiErrorType } from './api';
 
 export { storage } from './storage';
@@ -36,6 +36,25 @@ export type {
   UpdateProjectRequest,
   ProjectStats,
 } from './projects';
+
+export {
+  listCompanies,
+  getCompany,
+  createCompany,
+  updateCompany,
+  deleteCompany,
+  analyzeCompany,
+  getTemplate,
+  updateTemplate,
+  generateTemplate,
+} from './companies';
+export type {
+  Company,
+  BrandAssets,
+  CreateCompanyRequest,
+  UpdateCompanyRequest,
+  TemplateType,
+} from './companies';
 
 export { dashboardService } from './dashboard';
 export type {

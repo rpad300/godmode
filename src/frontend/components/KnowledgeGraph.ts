@@ -72,11 +72,11 @@ export function createKnowledgeGraph(props: KnowledgeGraphProps = {}): HTMLEleme
         <button class="btn btn-sm" id="graph-fit">Fit</button>
       </div>
     </div>
-    <div class="graph-container" id="graph-container" style="height: ${height}px;">
+    <div class="graph-container" id="graph-container" style="--graph-height: ${height}px;">
       <div class="graph-loading">Loading graph...</div>
     </div>
     <div class="graph-stats" id="graph-stats"></div>
-    <div class="node-details" id="node-details" style="display: none;"></div>
+    <div class="node-details hidden" id="node-details"></div>
   `;
 
   // Initialize graph
@@ -286,14 +286,14 @@ function showNodeDetails(container: HTMLElement, node?: GraphNode): void {
   const detailsContainer = container.querySelector('#node-details') as HTMLElement;
   
   if (!node) {
-    detailsContainer.style.display = 'none';
+    detailsContainer.classList.add('hidden');
     return;
   }
 
-  detailsContainer.style.display = 'block';
+  detailsContainer.classList.remove('hidden');
   detailsContainer.innerHTML = `
     <div class="details-header">
-      <span class="node-type" style="background: ${NODE_COLORS[node.type] || NODE_COLORS.default}">${node.type}</span>
+      <span class="node-type" style="--type-color: ${NODE_COLORS[node.type] || NODE_COLORS.default}">${node.type}</span>
       <span class="node-label">${escapeHtml(node.label || node.name || node.id)}</span>
       <button class="btn-icon close-details">×</button>
     </div>
@@ -312,7 +312,7 @@ function showNodeDetails(container: HTMLElement, node?: GraphNode): void {
   const closeBtn = detailsContainer.querySelector('.close-details');
   if (closeBtn) {
     on(closeBtn as HTMLElement, 'click', () => {
-      detailsContainer.style.display = 'none';
+      detailsContainer.classList.add('hidden');
     });
   }
 }

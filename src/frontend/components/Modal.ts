@@ -102,9 +102,8 @@ export function openModal(id: string): void {
     return;
   }
 
-  modal.style.display = 'flex';
   addClass(modal, 'open');
-  document.body.style.overflow = 'hidden';
+  document.body.classList.add('modal-open');
 
   // Update UI store
   uiStore.openModal(id);
@@ -124,8 +123,7 @@ export function closeModal(id: string): void {
   if (!modal) return;
 
   removeClass(modal, 'open');
-  modal.style.display = 'none';
-  document.body.style.overflow = '';
+  document.body.classList.remove('modal-open');
 
   // Update UI store
   uiStore.closeModal();
@@ -299,7 +297,7 @@ export function prompt(
     const content = createElement('div', { className: 'prompt-content' });
     content.innerHTML = `
       <p>${message}</p>
-      <input type="text" class="prompt-input" placeholder="${placeholder}" value="${defaultValue}" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; margin-top: 8px;">
+      <input type="text" class="prompt-input gm-w-full gm-p-2 gm-mt-2" placeholder="${placeholder}" value="${defaultValue}">
     `;
 
     const footer = createElement('div', { className: 'modal-footer' });

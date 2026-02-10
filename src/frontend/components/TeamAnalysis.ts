@@ -413,7 +413,7 @@ export function createTeamAnalysis(): HTMLElement {
         <div id="team-analysis-content">
             <div class="loading-state">
                 <div class="loading-spinner"></div>
-                <p style="margin-top: 16px; color: var(--text-secondary);">Loading team analysis...</p>
+                <p class="team-analysis-loading-state-text">Loading team analysis...</p>
             </div>
         </div>
     `;
@@ -485,22 +485,22 @@ async function showAnalyzeContactsModal(): Promise<void> {
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
     modal.innerHTML = `
-        <div class="modal" style="max-width: 600px; max-height: 80vh; display: flex; flex-direction: column;">
+        <div class="modal team-analysis-modal-box">
             <div class="modal-header">
                 <h2>Analyze Team Members</h2>
                 <button class="modal-close">&times;</button>
             </div>
-            <div class="modal-body" style="flex: 1; overflow-y: auto; padding: 20px;">
-                <p style="color: var(--text-secondary); margin-bottom: 16px;">
+            <div class="modal-body team-analysis-modal-body">
+                <p class="team-analysis-modal-intro">
                     Select team members to analyze. Members with existing profiles can be re-analyzed.
                 </p>
-                <div id="contacts-list-loading" style="text-align: center; padding: 40px;">
+                <div id="contacts-list-loading" class="team-analysis-contacts-loading">
                     <div class="loading-spinner"></div>
-                    <p style="margin-top: 16px; color: var(--text-secondary);">Loading contacts...</p>
+                    <p class="team-analysis-loading-text">Loading contacts...</p>
                 </div>
-                <div id="contacts-list" style="display: none;"></div>
+                <div id="contacts-list" class="hidden"></div>
             </div>
-            <div class="modal-footer" style="display: flex; gap: 12px; justify-content: flex-end; padding: 16px 20px; border-top: 1px solid var(--border-color);">
+            <div class="modal-footer team-analysis-modal-footer">
                 <button class="btn btn-secondary" id="modal-cancel-btn">Cancel</button>
                 <button class="btn btn-primary" id="modal-analyze-selected-btn" disabled>Analyze Selected (0)</button>
             </div>
@@ -528,12 +528,12 @@ async function showAnalyzeContactsModal(): Promise<void> {
         const loadingEl = modal.querySelector('#contacts-list-loading') as HTMLElement;
         const listEl = modal.querySelector('#contacts-list') as HTMLElement;
         
-        if (loadingEl) loadingEl.style.display = 'none';
-        if (listEl) listEl.style.display = 'block';
+        if (loadingEl) loadingEl.classList.add('hidden');
+        if (listEl) listEl.classList.remove('hidden');
 
         if (contacts.length === 0) {
             listEl.innerHTML = `
-                <div style="text-align: center; padding: 40px; color: var(--text-tertiary);">
+                <div class="team-analysis-contacts-empty">
                     <p>No contacts found. Add contacts to the project first.</p>
                 </div>
             `;
@@ -549,33 +549,30 @@ async function showAnalyzeContactsModal(): Promise<void> {
         });
 
         listEl.innerHTML = `
-            <div style="margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
-                <span style="font-size: 13px; color: var(--text-secondary);">
+            <div class="team-analysis-contacts-bar">
+                <span class="team-analysis-contacts-bar-text">
                     ${contacts.length} contacts • ${existingProfileIds.size} analyzed
                 </span>
-                <button class="btn btn-sm btn-secondary" id="select-unanalyzed-btn" style="font-size: 12px; padding: 4px 10px;">
+                <button type="button" class="btn btn-sm btn-secondary team-analysis-select-unanalyzed-btn" id="select-unanalyzed-btn">
                     Select Unanalyzed
                 </button>
             </div>
-            <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div class="team-analysis-contacts-list">
                 ${contacts.map((c: any) => {
                     const hasProfile = existingProfileIds.has(c.id);
                     const initials = (c.name || 'U').split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase();
                     return `
-                        <label class="contact-item" style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: var(--bg-secondary); border-radius: 10px; cursor: pointer; transition: all 0.15s; border: 2px solid transparent;" data-contact-id="${c.id}">
-                            <input type="checkbox" class="contact-checkbox" data-id="${c.id}" data-name="${c.name || 'Unknown'}" style="width: 18px; height: 18px; accent-color: var(--primary-color);">
+                        <label class="contact-item team-analysis-contact-item" data-contact-id="${c.id}">
+                            <input type="checkbox" class="contact-checkbox team-analysis-contact-checkbox" data-id="${c.id}" data-name="${c.name || 'Unknown'}">
                             ${(c.avatar_url || c.photo_url)
-                                ? `<img src="${c.avatar_url || c.photo_url}" alt="${c.name}" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover;">`
-                                : `<div style="width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg, #9b59b6 0%, #8e44ad 100%); display: flex; align-items: center; justify-content: center; color: white; font-weight: 600; font-size: 14px;">${initials}</div>`
+                                ? `<img src="${c.avatar_url || c.photo_url}" alt="${c.name}" class="team-analysis-contact-avatar">`
+                                : `<div class="team-analysis-contact-avatar-initials">${initials}</div>`
                             }
-                            <div style="flex: 1;">
-                                <div style="font-weight: 500; color: var(--text-primary);">${c.name || 'Unknown'}</div>
-                                <div style="font-size: 12px; color: var(--text-secondary);">${c.role || c.organization || 'No role'}</div>
+                            <div class="team-analysis-contact-info">
+                                <div class="team-analysis-contact-name">${c.name || 'Unknown'}</div>
+                                <div class="team-analysis-contact-role">${c.role || c.organization || 'No role'}</div>
                             </div>
-                            ${hasProfile 
-                                ? `<span style="font-size: 11px; padding: 4px 8px; background: var(--success-bg, rgba(39, 174, 96, 0.1)); color: var(--success, #27ae60); border-radius: 12px;">Analyzed</span>`
-                                : `<span style="font-size: 11px; padding: 4px 8px; background: var(--warning-bg, rgba(243, 156, 18, 0.1)); color: var(--warning, #f39c12); border-radius: 12px;">Not analyzed</span>`
-                            }
+                            <span class="team-analysis-contact-badge ${hasProfile ? 'team-analysis-contact-badge-analyzed' : 'team-analysis-contact-badge-not-analyzed'}">${hasProfile ? 'Analyzed' : 'Not analyzed'}</span>
                         </label>
                     `;
                 }).join('')}
@@ -600,10 +597,10 @@ async function showAnalyzeContactsModal(): Promise<void> {
                 if (id) {
                     if (input.checked) {
                         selectedIds.add(id);
-                        if (label) label.style.borderColor = 'var(--primary-color)';
+                        if (label) label.classList.add('selected');
                     } else {
                         selectedIds.delete(id);
-                        if (label) label.style.borderColor = 'transparent';
+                        if (label) label.classList.remove('selected');
                     }
                     updateButton();
                 }
@@ -619,7 +616,7 @@ async function showAnalyzeContactsModal(): Promise<void> {
                 if (id && !existingProfileIds.has(id)) {
                     input.checked = true;
                     selectedIds.add(id);
-                    if (label) label.style.borderColor = 'var(--primary-color)';
+                    if (label) label.classList.add('selected');
                 }
             });
             updateButton();
@@ -648,10 +645,10 @@ async function showAnalyzeContactsModal(): Promise<void> {
                     
                     // Mark as analyzed in the UI
                     const label = checkbox?.closest('.contact-item') as HTMLElement;
-                    const badge = label?.querySelector('span:last-child');
+                    const badge = label?.querySelector('.team-analysis-contact-badge');
                     if (badge) {
-                        badge.style.background = 'var(--success-bg, rgba(39, 174, 96, 0.1))';
-                        badge.style.color = 'var(--success, #27ae60)';
+                        badge.classList.remove('team-analysis-contact-badge-not-analyzed');
+                        badge.classList.add('team-analysis-contact-badge-analyzed');
                         badge.textContent = 'Analyzed';
                     }
                 } catch (error: any) {
@@ -677,7 +674,7 @@ async function showAnalyzeContactsModal(): Promise<void> {
         const loadingEl = modal.querySelector('#contacts-list-loading');
         if (loadingEl) {
             loadingEl.innerHTML = `
-                <p style="color: var(--error);">Failed to load contacts. Please try again.</p>
+                <p class="team-analysis-error-text">Failed to load contacts. Please try again.</p>
             `;
         }
     }
@@ -713,7 +710,7 @@ function renderContent(container: HTMLElement, state: any): void {
         contentEl.innerHTML = `
             <div class="loading-state">
                 <div class="loading-spinner"></div>
-                <p style="margin-top: 16px; color: var(--text-secondary);">Loading team analysis...</p>
+                <p class="team-analysis-loading-state-text">Loading team analysis...</p>
             </div>
         `;
         return;
@@ -723,7 +720,7 @@ function renderContent(container: HTMLElement, state: any): void {
         contentEl.innerHTML = `
             <div class="loading-state">
                 <div class="loading-spinner"></div>
-                <p style="margin-top: 16px; color: var(--text-secondary);">Analyzing... This may take a moment.</p>
+                <p class="team-analysis-loading-state-text">Analyzing... This may take a moment.</p>
             </div>
         `;
         return;
@@ -769,8 +766,8 @@ function renderProfiles(container: Element, state: any): void {
                 </svg>
                 <h3>No Profiles Yet</h3>
                 <p>Select a person to analyze, or process transcripts to build profiles automatically.</p>
-                <div id="people-list-container" style="margin-top: 20px; width: 100%; max-width: 500px;">
-                    <p style="color: var(--text-tertiary); font-size: 13px;">Loading people...</p>
+                <div id="people-list-container" class="team-analysis-people-container">
+                    <p class="team-analysis-people-loading">Loading people...</p>
                 </div>
             </div>
         `;
@@ -826,7 +823,7 @@ function renderProfileCard(profile: BehavioralProfile): string {
         <div class="profile-card" data-person-id="${contactId}">
             <div class="profile-header">
                 ${avatarUrl 
-                    ? `<img class="profile-avatar" src="${avatarUrl}" alt="${name}" style="width: 48px; height: 48px; border-radius: 50%; object-fit: cover;" />`
+                    ? `<img class="profile-avatar" src="${avatarUrl}" alt="${name}" />`
                     : `<div class="profile-avatar">${initials}</div>`
                 }
                 <div class="profile-info">
@@ -857,7 +854,7 @@ function renderProfileCard(profile: BehavioralProfile): string {
                     <div class="profile-style-value">${profile.communication_style}</div>
                 </div>
             ` : ''}
-            <button class="btn btn-secondary analyze-btn" data-person-id="${contactId}" style="width: 100%; margin-top: 12px;">
+            <button type="button" class="btn btn-secondary analyze-btn team-analysis-analyze-btn-full" data-person-id="${contactId}">
                 Re-analyze
             </button>
         </div>
@@ -918,7 +915,7 @@ function renderCommunicationSection(data: any): string {
                 </svg>
                 Communication Identity
             </h4>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+            <div class="team-analysis-comm-grid">
                 ${comm.dominant_style ? `<div><strong>Style:</strong> ${comm.dominant_style}</div>` : ''}
                 ${comm.intervention_rhythm ? `<div><strong>Rhythm:</strong> ${comm.intervention_rhythm}</div>` : ''}
                 ${comm.textual_body_language ? `<div><strong>Textual Cues:</strong> ${comm.textual_body_language}</div>` : ''}
@@ -944,8 +941,8 @@ function renderMotivationsSection(data: any): string {
                 Motivations & Priorities
             </h4>
             ${mot.values_most?.length ? `<div><strong>Values most:</strong> ${mot.values_most.join(', ')}</div>` : ''}
-            ${mot.avoids?.length ? `<div style="margin-top: 8px;"><strong>Avoids:</strong> ${mot.avoids.join(', ')}</div>` : ''}
-            <div style="margin-top: 8px; font-size: 12px; color: var(--text-tertiary);">
+            ${mot.avoids?.length ? `<div class="team-analysis-mot-avoids"><strong>Avoids:</strong> ${mot.avoids.join(', ')}</div>` : ''}
+            <div class="team-analysis-mot-confidence">
                 Confidence: ${mot.confidence || 'Not specified'}
             </div>
         </div>
@@ -972,7 +969,7 @@ function renderPressureSection(data: any): string {
                 ${behaviors.map((b: any) => `
                     <div class="evidence-item">
                         <strong>${b.situation}</strong>
-                        <p style="margin: 8px 0 0; color: var(--text-secondary);">${b.observed_behavior}</p>
+                        <p class="team-analysis-evidence-p">${b.observed_behavior}</p>
                         ${b.quote ? `<div class="evidence-quote">"${b.quote}"</div>` : ''}
                         ${b.timestamp ? `<div class="evidence-timestamp">${b.timestamp}</div>` : ''}
                     </div>
@@ -1004,7 +1001,7 @@ function renderInfluenceSection(data: any): string {
                 ${tactics.map((t: any) => `
                     <div class="evidence-item">
                         <strong>${t.objective}</strong>
-                        <p style="margin: 8px 0 0; color: var(--text-secondary);">${t.tactic}</p>
+                        <p class="team-analysis-evidence-p">${t.tactic}</p>
                         ${t.example ? `<div class="evidence-quote">${t.example}</div>` : ''}
                     </div>
                 `).join('')}
@@ -1024,9 +1021,9 @@ function renderVulnerabilitiesSection(data: any): string {
 
     if (vuln.defense_triggers?.length) {
         sections.push(`
-            <div style="margin-bottom: 16px;">
-                <strong style="color: #e74c3c;">Defense Triggers</strong>
-                <ul style="margin: 8px 0; padding-left: 20px;">
+            <div class="team-analysis-vuln-block">
+                <strong class="team-analysis-vuln-title-defense">Defense Triggers</strong>
+                <ul class="team-analysis-vuln-ul">
                     ${vuln.defense_triggers.map((t: any) => `<li>${t.trigger}</li>`).join('')}
                 </ul>
             </div>
@@ -1035,9 +1032,9 @@ function renderVulnerabilitiesSection(data: any): string {
 
     if (vuln.blind_spots?.length) {
         sections.push(`
-            <div style="margin-bottom: 16px;">
-                <strong style="color: #f39c12;">Blind Spots</strong>
-                <ul style="margin: 8px 0; padding-left: 20px;">
+            <div class="team-analysis-vuln-block">
+                <strong class="team-analysis-vuln-title-blind">Blind Spots</strong>
+                <ul class="team-analysis-vuln-ul">
                     ${vuln.blind_spots.map((b: any) => `<li>${b.description}</li>`).join('')}
                 </ul>
             </div>
@@ -1078,9 +1075,9 @@ function renderStrategySection(data: any): string {
                 Recommended Interaction Strategy
             </h4>
             ${strat.ideal_format ? `
-                <div style="margin-bottom: 12px;">
+                <div class="team-analysis-strat-block">
                     <strong>Ideal Format</strong>
-                    <div style="margin-top: 4px; color: var(--text-secondary);">
+                    <div class="team-analysis-strat-meta">
                         ${strat.ideal_format.channel ? `Channel: ${strat.ideal_format.channel}` : ''}
                         ${strat.ideal_format.structure ? ` | Structure: ${strat.ideal_format.structure}` : ''}
                         ${strat.ideal_format.timing ? ` | Timing: ${strat.ideal_format.timing}` : ''}
@@ -1088,17 +1085,17 @@ function renderStrategySection(data: any): string {
                 </div>
             ` : ''}
             ${strat.framing_that_works?.length ? `
-                <div style="margin-bottom: 12px;">
-                    <strong style="color: #27ae60;">What Works</strong>
-                    <ul style="margin: 8px 0; padding-left: 20px;">
+                <div class="team-analysis-strat-block">
+                    <strong class="team-analysis-strat-title-works">What Works</strong>
+                    <ul class="team-analysis-vuln-ul">
                         ${strat.framing_that_works.map((f: string) => `<li>${f}</li>`).join('')}
                     </ul>
                 </div>
             ` : ''}
             ${strat.what_to_avoid?.length ? `
-                <div>
-                    <strong style="color: #e74c3c;">What to Avoid</strong>
-                    <ul style="margin: 8px 0; padding-left: 20px;">
+                <div class="team-analysis-strat-block">
+                    <strong class="team-analysis-strat-title-avoid">What to Avoid</strong>
+                    <ul class="team-analysis-vuln-ul">
                         ${strat.what_to_avoid.map((a: string) => `<li>${a}</li>`).join('')}
                     </ul>
                 </div>
@@ -1128,7 +1125,7 @@ function renderWarningSection(data: any): string {
                 ${warnings.map((w: any) => `
                     <div class="evidence-item">
                         <strong>${w.signal}</strong>
-                        <p style="margin: 8px 0 0; color: var(--text-secondary);">Indicates: ${w.indicates}</p>
+                        <p class="team-analysis-warning-p">Indicates: ${w.indicates}</p>
                     </div>
                 `).join('')}
             </div>
@@ -1155,8 +1152,8 @@ function renderPowerSection(data: any): string {
                 ${power.map((p: any) => `
                     <div class="evidence-item">
                         <strong>${p.factor}</strong>
-                        <p style="margin: 8px 0 0; color: var(--text-secondary);">${p.assessment}</p>
-                        ${p.strategic_implication ? `<p style="margin: 8px 0 0; font-size: 12px; color: var(--primary-color);">→ ${p.strategic_implication}</p>` : ''}
+<p class="team-analysis-warning-p">${p.assessment}</p>
+                    ${p.strategic_implication ? `<p class="team-analysis-strategic-p">→ ${p.strategic_implication}</p>` : ''}
                     </div>
                 `).join('')}
             </div>
@@ -1175,7 +1172,7 @@ function renderEvidenceList(evidence: any[]): string {
             ${evidence.map(e => `
                 <div class="evidence-item">
                     ${e.quote ? `<div class="evidence-quote">"${e.quote}"</div>` : ''}
-                    ${e.observation ? `<p style="margin: 0; color: var(--text-secondary);">${e.observation}</p>` : ''}
+                    ${e.observation ? `<p class="team-analysis-observation-p">${e.observation}</p>` : ''}
                     ${e.timestamp ? `<div class="evidence-timestamp">${e.timestamp}</div>` : ''}
                 </div>
             `).join('')}
@@ -1372,7 +1369,7 @@ function renderInfluenceScoreboard(profiles: any[], resolveName: (name: string) 
                     <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
                 </svg>
                 <h3>Influence Scoreboard</h3>
-                <span class="section-badge" style="background: rgba(251, 191, 36, 0.15); color: #f59e0b;">
+                <span class="section-badge team-analysis-section-badge-amber">
                     ${sortedProfiles.length} members ranked
                 </span>
             </div>
@@ -2084,7 +2081,7 @@ function initializeNetwork(graphData: { nodes: any[]; edges: any[] }, profileLoo
     if (typeof vis === 'undefined') {
         console.error('[TeamAnalysis] vis.js library not loaded!');
         container.innerHTML = `
-            <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-secondary);">
+            <div class="team-analysis-empty-center">
                 Network visualization library not loaded
             </div>
         `;
@@ -2227,11 +2224,12 @@ function initializeNetwork(graphData: { nodes: any[]; edges: any[] }, profileLoo
     
     // Handle hover for cursor change
     networkInstance.on('hoverNode', () => {
-        container.style.cursor = 'pointer';
+        container.classList.add('gm-cursor-pointer');
+        container.classList.remove('gm-cursor-default');
     });
-    
     networkInstance.on('blurNode', () => {
-        container.style.cursor = 'default';
+        container.classList.remove('gm-cursor-pointer');
+        container.classList.add('gm-cursor-default');
     });
 }
 
@@ -2328,7 +2326,7 @@ async function loadPeopleForAnalysis(container: Element): Promise<void> {
         
         if (people.length === 0) {
             listContainer.innerHTML = `
-                <p style="color: var(--text-tertiary); font-size: 13px;">
+                <p class="team-analysis-people-loading">
                     No people found. Process some transcripts first to extract participants.
                 </p>
             `;
@@ -2336,22 +2334,21 @@ async function loadPeopleForAnalysis(container: Element): Promise<void> {
         }
 
         listContainer.innerHTML = `
-            <div style="text-align: left;">
-                <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 12px;">
+            <div class="gm-text-left">
+                <p class="team-analysis-intro-p">
                     Select a person to analyze (${people.length} available):
                 </p>
-                <div style="display: flex; flex-direction: column; gap: 8px; max-height: 300px; overflow-y: auto;">
+                <div class="team-analysis-people-list">
                     ${people.slice(0, 20).map((p: any) => `
-                        <button class="btn btn-secondary analyze-person-btn" 
-                                data-person-id="${p.id}" 
-                                data-person-name="${p.name || 'Unknown'}"
-                                style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px;">
-                            <span style="font-weight: 500;">${p.name || 'Unknown'}</span>
-                            <span style="font-size: 12px; color: var(--text-tertiary);">${p.role || p.organization || ''}</span>
+                        <button type="button" class="btn btn-secondary analyze-person-btn team-analysis-person-row"
+                                data-person-id="${p.id}"
+                                data-person-name="${p.name || 'Unknown'}">
+                            <span class="team-analysis-person-name">${p.name || 'Unknown'}</span>
+                            <span class="team-analysis-person-role">${p.role || p.organization || ''}</span>
                         </button>
                     `).join('')}
                 </div>
-                ${people.length > 20 ? `<p style="color: var(--text-tertiary); font-size: 12px; margin-top: 8px;">Showing first 20 of ${people.length} people</p>` : ''}
+                ${people.length > 20 ? `<p class="team-analysis-people-truncate">Showing first 20 of ${people.length} people</p>` : ''}
             </div>
         `;
 
@@ -2373,14 +2370,14 @@ async function loadPeopleForAnalysis(container: Element): Promise<void> {
                     } catch (error: any) {
                         toast.error(`Failed to analyze: ${error.message || 'Unknown error'}`);
                         (btn as HTMLButtonElement).disabled = false;
-                        (btn as HTMLButtonElement).innerHTML = `<span style="font-weight: 500;">${personName}</span>`;
+                        (btn as HTMLButtonElement).innerHTML = `<span class="team-analysis-btn-person-name">${personName}</span>`;
                     }
                 }
             });
         });
     } catch (error) {
         listContainer.innerHTML = `
-            <p style="color: var(--error); font-size: 13px;">
+            <p class="team-analysis-graph-error">
                 Failed to load people. Please try again.
             </p>
         `;

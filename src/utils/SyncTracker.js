@@ -10,6 +10,9 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'sync-tracker' });
 
 class SyncTracker {
     constructor(options = {}) {
@@ -33,7 +36,7 @@ class SyncTracker {
                 this.state = JSON.parse(data);
             }
         } catch (error) {
-            console.log('[SyncTracker] Could not load sync state:', error.message);
+            log.warn({ event: 'sync_tracker_load_failed', message: error.message }, 'Could not load sync state');
         }
     }
 
@@ -45,7 +48,7 @@ class SyncTracker {
             fs.mkdirSync(path.dirname(this.syncFile), { recursive: true });
             fs.writeFileSync(this.syncFile, JSON.stringify(this.state, null, 2));
         } catch (error) {
-            console.error('[SyncTracker] Could not save sync state:', error.message);
+            log.error({ event: 'sync_tracker_save_failed', message: error.message }, 'Could not save sync state');
         }
     }
 

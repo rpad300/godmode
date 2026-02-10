@@ -6,6 +6,9 @@
  */
 
 const crypto = require('crypto');
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'request-dedup' });
 
 class RequestDedup {
     constructor(options = {}) {
@@ -43,7 +46,7 @@ class RequestDedup {
         // Check if identical request is already pending
         if (this.pending.has(key)) {
             this.stats.deduplicated++;
-            console.log(`[Dedup] Request deduplicated (${this.stats.deduplicated} total)`);
+            log.debug({ event: 'request_dedup_hit', totalDeduplicated: this.stats.deduplicated }, 'Request deduplicated');
             return this.pending.get(key);
         }
 

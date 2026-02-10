@@ -105,7 +105,7 @@ function renderFallbackChart(container: HTMLElement, data: TrendHistory[], metri
       <div class="chart-legend">
         ${metrics.map(m => `
           <span class="legend-item">
-            <span class="legend-color" style="background: ${METRIC_COLORS[m]?.line || '#6366f1'}"></span>
+            <span class="legend-color" style="--legend-color: ${METRIC_COLORS[m]?.line || '#6366f1'}"></span>
             ${capitalize(m)}
           </span>
         `).join('')}
@@ -116,7 +116,7 @@ function renderFallbackChart(container: HTMLElement, data: TrendHistory[], metri
             ${metrics.map(m => {
               const value = (d as Record<string, number>)[m] || 0;
               const height = maxValue > 0 ? (value / maxValue) * 100 : 0;
-              return `<div class="bar" style="height: ${height}%; background: ${METRIC_COLORS[m]?.line || '#6366f1'}" title="${capitalize(m)}: ${value}"></div>`;
+              return `<div class="bar" style="--bar-height: ${height}; --bar-color: ${METRIC_COLORS[m]?.line || '#6366f1'}" title="${capitalize(m)}: ${value}"></div>`;
             }).join('')}
             <div class="bar-label">${formatDate(d.date)}</div>
           </div>

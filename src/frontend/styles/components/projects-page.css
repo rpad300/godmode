@@ -1,0 +1,70 @@
+/**
+ * Projects page (list + inline form)
+ */
+
+.projects-page-wrapper {
+  max-width: 900px;
+}
+
+.projects-page-list.hidden,
+.projects-page-form-container.hidden {
+  display: none !important;
+}
+
+.projects-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.project-list-item {
+  padding: var(--space-md) var(--space-lg);
+}
+
+.project-list-item-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.project-list-item-info {
+  min-width: 0;
+}
+
+.project-list-item-name {
+  margin: 0 0 var(--space-xs) 0;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.project-list-item-meta {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+.project-badge-default {
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--text-tertiary);
+  margin-left: var(--space-xs);
+}
+
+.project-current-badge {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.project-list-item-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.projects-page-form-container {
+  min-height: 200px;
+}

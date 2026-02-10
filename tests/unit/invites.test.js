@@ -5,11 +5,12 @@
 
 const crypto = require('crypto');
 
-// Mock the supabase client before requiring the module
+const mockGetAdminClient = jest.fn();
 jest.mock('../../src/supabase/client', () => ({
-    getAdminClient: jest.fn()
+    getAdminClient: (...args) => mockGetAdminClient(...args)
 }));
 
+const invites = require('../../src/supabase/invites');
 const { getAdminClient } = require('../../src/supabase/client');
 
 // Create a mock supabase client
@@ -30,21 +31,18 @@ const createMockSupabase = (overrides = {}) => ({
 });
 
 describe('Invites Module', () => {
-    let invites;
     let mockSupabase;
 
     beforeEach(() => {
-        jest.resetModules();
         mockSupabase = createMockSupabase();
-        getAdminClient.mockReturnValue(mockSupabase);
-        invites = require('../../src/supabase/invites');
+        mockGetAdminClient.mockReturnValue(mockSupabase);
     });
 
     describe('generateToken()', () => {
-        it('should generate a 64-character hex token', () => {
+        it('should generate a 32-character hex token (128-bit)', () => {
             const token = invites.generateToken();
             expect(typeof token).toBe('string');
-            expect(token.length).toBe(64);
+            expect(token.length).toBe(32);
             expect(/^[a-f0-9]+$/.test(token)).toBe(true);
         });
 
@@ -84,7 +82,7 @@ describe('Invites Module', () => {
 
     describe('createInvite()', () => {
         it('should return error when Supabase not configured', async () => {
-            getAdminClient.mockReturnValue(null);
+            mockGetAdminClient.mockReturnValue(null);
             
             const result = await invites.createInvite({
                 projectId: 'test-project',
@@ -93,7 +91,7 @@ describe('Invites Module', () => {
             });
             
             expect(result.success).toBe(false);
-            expect(result.error).toBe('Supabase not configured');
+            expect(result.error).toBe('Database not configured');
         });
 
         it('should create invite with correct expiration', async () => {
@@ -145,18 +143,18 @@ describe('Invites Module', () => {
 
             expect(result.success).toBe(true);
             expect(result.token).toBeDefined();
-            expect(result.token.length).toBe(64);
+            expect(result.token.length).toBe(32);
         });
     });
 
     describe('acceptInvite()', () => {
         it('should return error when Supabase not configured', async () => {
-            getAdminClient.mockReturnValue(null);
+            mockGetAdminClient.mockReturnValue(null);
             
             const result = await invites.acceptInvite('token', 'user-id', 'user@email.com');
             
             expect(result.success).toBe(false);
-            expect(result.error).toBe('Supabase not configured');
+            expect(result.error).toBe('Database not configured');
         });
 
         it('should return error for invalid token', async () => {
@@ -180,32 +178,30 @@ describe('Invites Module', () => {
 
     describe('revokeInvite()', () => {
         it('should return error when Supabase not configured', async () => {
-            getAdminClient.mockReturnValue(null);
+            mockGetAdminClient.mockReturnValue(null);
             
             const result = await invites.revokeInvite('invite-id');
             
             expect(result.success).toBe(false);
         });
 
-        it('should delete invite by ID', async () => {
-            const deleteMock = jest.fn().mockReturnThis();
-            const eqMock = jest.fn().mockResolvedValue({ error: null });
+        it('should revoke invite by ID (update status)', async () => {
+            const eqPendingMock = jest.fn().mockResolvedValue({ error: null });
+            const eqIdMock = jest.fn().mockReturnValue({ eq: eqPendingMock });
+            const updateMock = jest.fn().mockReturnValue({ eq: eqIdMock });
 
-            mockSupabase.from.mockReturnValue({
-                delete: deleteMock,
-                eq: eqMock
-            });
+            mockSupabase.from.mockReturnValue({ update: updateMock });
 
-            await invites.revokeInvite('invite-id');
+            const result = await invites.revokeInvite('invite-id');
 
-            expect(deleteMock).toHaveBeenCalled();
-            expect(eqMock).toHaveBeenCalledWith('id', 'invite-id');
+            expect(updateMock).toHaveBeenCalledWith(expect.objectContaining({ status: 'revoked' }));
+            expect(result.success).toBe(true);
         });
     });
 
     describe('listInvites()', () => {
         it('should return error when Supabase not configured', async () => {
-            getAdminClient.mockReturnValue(null);
+            mockGetAdminClient.mockReturnValue(null);
             
             const result = await invites.listInvites('project-id');
             

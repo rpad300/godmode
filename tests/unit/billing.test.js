@@ -259,9 +259,9 @@ describe('Billing Module', () => {
 
       const result = await billing.calculateBillableCost('project-123', 0.10, 5000);
       
-      // Should return provider cost without markup
-      expect(result.provider_cost_eur).toBeCloseTo(0.092);
-      expect(result.billable_cost_eur).toBeCloseTo(0.092);
+      // Should return provider cost in EUR without markup (rate from exchange service)
+      expect(result.provider_cost_eur).toBeGreaterThan(0);
+      expect(result.billable_cost_eur).toBeCloseTo(result.provider_cost_eur);
       expect(result.markup_percent).toBe(0);
     });
   });

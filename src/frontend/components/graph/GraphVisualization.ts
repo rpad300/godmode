@@ -156,7 +156,7 @@ export function createGraphVisualization(props: GraphVisualizationProps = {}): H
     </div>
     
     <div class="viz-canvas-wrapper">
-      <div class="viz-canvas" id="viz-canvas" style="height: ${height}px;">
+      <div class="viz-canvas" id="viz-canvas" style="--graph-height: ${height}px;">
         <div class="viz-loading">
           <div class="loading-spinner"></div>
           <p>Loading graph data...</p>
@@ -283,7 +283,7 @@ async function initVisualization(container: HTMLElement, props: GraphVisualizati
       if (syncBtn) {
         on(syncBtn as HTMLElement, 'click', async () => {
           toast.info('Syncing data...');
-          await fetch('/api/graph/sync', { method: 'POST' });
+          await fetchWithProject('/api/graph/sync', { method: 'POST' });
           toast.success('Sync complete. Reloading...');
           initVisualization(container, props);
         });
@@ -741,12 +741,12 @@ function showHoverCard(container: HTMLElement, node: GraphNode): void {
   card.innerHTML = `
     <div class="hover-card-content">
       ${avatarUrl 
-        ? `<img class="hover-avatar" src="${avatarUrl}" alt="" onerror="this.style.display='none'">`
-        : `<div class="hover-avatar hover-avatar-placeholder" style="background: ${TYPE_COLORS[node.type] || '#6b7280'}">${getInitials(node.label || node.name || '?')}</div>`
+        ? `<img class="hover-avatar" src="${avatarUrl}" alt="" onerror="this.classList.add('gm-none')">`
+        : `<div class="hover-avatar hover-avatar-placeholder" style="--type-color: ${TYPE_COLORS[node.type] || '#6b7280'}">${getInitials(node.label || node.name || '?')}</div>`
       }
       <div class="hover-info">
         <div class="hover-name">${escapeHtml(node.label || node.name || node.id)}</div>
-        <div class="hover-type" style="color: ${TYPE_COLORS[node.type] || '#6b7280'}">${node.type}</div>
+        <div class="hover-type" style="--type-color: ${TYPE_COLORS[node.type] || '#6b7280'}">${node.type}</div>
         ${role ? `<div class="hover-role">${escapeHtml(String(role))}</div>` : ''}
         ${org ? `<div class="hover-org">@ ${escapeHtml(String(org))}</div>` : ''}
       </div>
@@ -789,7 +789,7 @@ function renderLegend(container: HTMLElement, nodes: GraphNode[]): void {
     <div class="legend-items">
       ${sortedTypes.map(([type, count]) => `
         <div class="legend-item">
-          <span class="legend-color" style="background: ${TYPE_COLORS[type] || '#6b7280'}"></span>
+          <span class="legend-color" style="--legend-color: ${TYPE_COLORS[type] || '#6b7280'}"></span>
           <span class="legend-label">${type}</span>
           <span class="legend-count">${count}</span>
         </div>

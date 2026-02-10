@@ -6,14 +6,17 @@
  * This module loads templates from DB and renders them with context
  */
 
+const { logger } = require('../logger');
 const { getOntologyManager } = require('../ontology');
+
+const log = logger.child({ module: 'ontology-aware-prompts' });
 
 // Try to load from Supabase, fallback to hardcoded if not available
 let promptsService = null;
 try {
     promptsService = require('../supabase/prompts');
 } catch (e) {
-    console.log('[OntologyAwarePrompts] Supabase prompts not available, using defaults');
+    log.debug({ event: 'ontology_prompts_no_supabase' }, 'Supabase prompts not available, using defaults');
 }
 
 class OntologyAwarePrompts {
@@ -36,10 +39,10 @@ class OntologyAwarePrompts {
             if (promptsService) {
                 this.dbPrompts = await promptsService.getAllPrompts() || {};
                 this.promptsLoaded = true;
-                console.log(`[OntologyAwarePrompts] Loaded ${Object.keys(this.dbPrompts).length} prompts from DB`);
+                log.debug({ event: 'ontology_prompts_loaded', count: Object.keys(this.dbPrompts).length }, 'Loaded prompts from DB');
             }
         } catch (e) {
-            console.log('[OntologyAwarePrompts] Could not load from DB:', e.message);
+            log.warn({ event: 'ontology_prompts_load_error', reason: e.message }, 'Could not load from DB');
         }
     }
 
@@ -108,7 +111,7 @@ class OntologyAwarePrompts {
                 relationNames: Object.keys(relations)
             };
         } catch (e) {
-            console.log('[OntologyAwarePrompts] Could not load ontology:', e.message);
+            log.warn({ event: 'ontology_prompts_ontology_load_error', reason: e.message }, 'Could not load ontology');
             return this.getDefaultOntologyContext();
         }
     }

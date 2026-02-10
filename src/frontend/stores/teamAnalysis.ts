@@ -3,6 +3,8 @@
  * State management for behavioral profiles and team dynamics
  */
 
+import { fetchWithProject } from '../services/api';
+
 // Types
 export interface BehavioralProfile {
     id: string;
@@ -336,7 +338,7 @@ export async function loadProfiles(): Promise<void> {
     setError(null);
     
     try {
-        const response = await fetch('/api/team-analysis/profiles');
+        const response = await fetchWithProject('/api/team-analysis/profiles');
         const data = await response.json();
         
         if (data.ok) {
@@ -359,7 +361,7 @@ export async function loadProfile(personId: string): Promise<BehavioralProfile |
     setError(null);
     
     try {
-        const response = await fetch(`/api/team-analysis/profiles/${personId}`);
+        const response = await fetchWithProject(`/api/team-analysis/profiles/${personId}`);
         const data = await response.json();
         
         if (data.ok && data.profile) {
@@ -389,7 +391,7 @@ export async function analyzeProfile(personId: string, options: {
     setError(null);
     
     try {
-        const response = await fetch(`/api/team-analysis/profiles/${personId}/analyze`, {
+        const response = await fetchWithProject(`/api/team-analysis/profiles/${personId}/analyze`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(options)
@@ -428,7 +430,7 @@ export async function loadTeamAnalysis(): Promise<void> {
     
     try {
         console.log('[TeamAnalysisStore] Loading team analysis...');
-        const response = await fetch('/api/team-analysis/team');
+        const response = await fetchWithProject('/api/team-analysis/team');
         const data = await response.json();
         console.log('[TeamAnalysisStore] Team analysis response:', data);
         
@@ -455,7 +457,7 @@ export async function analyzeTeam(forceReanalysis: boolean = false): Promise<Tea
     setError(null);
     
     try {
-        const response = await fetch('/api/team-analysis/team/analyze', {
+        const response = await fetchWithProject('/api/team-analysis/team/analyze', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ forceReanalysis })
@@ -482,7 +484,7 @@ export async function analyzeTeam(forceReanalysis: boolean = false): Promise<Tea
  */
 export async function loadRelationships(): Promise<void> {
     try {
-        const response = await fetch('/api/team-analysis/relationships');
+        const response = await fetchWithProject('/api/team-analysis/relationships');
         const data = await response.json();
         
         if (data.ok) {
@@ -499,7 +501,7 @@ export async function loadRelationships(): Promise<void> {
 export async function loadGraphData(): Promise<void> {
     try {
         console.log('[TeamAnalysisStore] Loading graph data...');
-        const response = await fetch('/api/team-analysis/graph');
+        const response = await fetchWithProject('/api/team-analysis/graph');
         const data = await response.json();
         console.log('[TeamAnalysisStore] Graph data response:', data);
         

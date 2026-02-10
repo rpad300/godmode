@@ -4,6 +4,8 @@
  */
 
 const llm = require('./index');
+const { logger: rootLogger } = require('../logger');
+const log = rootLogger.child({ module: 'llm-streaming' });
 
 /**
  * Stream text generation via async generator
@@ -99,9 +101,7 @@ async function* generateTextStream(options) {
                 outputTokens: Math.ceil(fullText.length / 4)
             }
         };
-        
-        console.log(`[LLM] Stream complete: provider=${provider}, chunks=${totalChunks}, latency=${latency}ms`);
-        
+        log.debug({ event: 'llm_stream_complete', provider, totalChunks, latencyMs: latency }, 'Stream complete');
     } catch (error) {
         yield {
             type: 'error',
@@ -212,7 +212,7 @@ async function streamGraphRAGQuery(res, engine, query, options = {}) {
         writer.close();
         
     } catch (error) {
-        console.error('[Streaming] Error:', error);
+        log.warn({ event: 'streaming_error', reason: error?.message }, 'Streaming error');
         writer.error(error.message);
         res.end();
     }

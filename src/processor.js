@@ -4,18 +4,23 @@
  */
 
 const fs = require('fs');
+const fsp = require('fs').promises;
 const path = require('path');
 const crypto = require('crypto');
 const { execSync } = require('child_process');
 const llm = require('./llm');
+const llmConfig = require('./llm/config');
 const { getOntologyAwarePrompts } = require('./prompts');
+const { logger: rootLogger } = require('./logger');
+
+const log = rootLogger.child({ module: 'processor' });
 
 // Try to load prompts service for Supabase prompts
 let promptsService = null;
 try {
     promptsService = require('./supabase/prompts');
 } catch (e) {
-    console.log('[Processor] Supabase prompts service not available, using defaults');
+    log.debug({ event: 'processor_prompts_service_unavailable' }, 'Supabase prompts service not available, using defaults');
 }
 
 // Try to load validators
@@ -23,13 +28,12 @@ let validators = null;
 try {
     validators = require('./validators');
 } catch (e) {
-    console.log('[Processor] Validators not available');
+    log.debug({ event: 'processor_validators_unavailable' }, 'Validators not available');
 }
 
 class DocumentProcessor {
-    constructor(storage, ollama, config) {
+    constructor(storage, config) {
         this.storage = storage;
-        this.ollama = ollama; // Keep for backward compatibility
         this.config = config;
         this.processingState = {
             status: 'idle',
@@ -69,9 +73,9 @@ class DocumentProcessor {
         try {
             this.supabasePrompts = await promptsService.getAllPrompts() || {};
             this.promptsLoaded = true;
-            console.log(`[Processor] Loaded ${Object.keys(this.supabasePrompts).length} prompts from Supabase`);
+            log.debug({ event: 'processor_prompts_loaded', count: Object.keys(this.supabasePrompts).length }, 'Loaded prompts from Supabase');
         } catch (e) {
-            console.log('[Processor] Could not load prompts from Supabase:', e.message);
+            log.debug({ event: 'processor_prompts_load_failed', reason: e.message }, 'Could not load prompts from Supabase');
         }
     }
 
@@ -85,9 +89,9 @@ class DocumentProcessor {
         try {
             const projectId = this.config.projectId || null;
             this._contextVariables = await promptsService.buildContextVariables(projectId);
-            console.log('[Processor] Context variables loaded for entity resolution');
+            log.debug({ event: 'processor_context_variables_loaded' }, 'Context variables loaded for entity resolution');
         } catch (e) {
-            console.log('[Processor] Could not load context variables:', e.message);
+            log.debug({ event: 'processor_context_variables_failed', reason: e.message }, 'Could not load context variables');
             this._contextVariables = {};
         }
     }
@@ -152,10 +156,10 @@ class DocumentProcessor {
             result._validation = validation;
             
             if (!validation.valid) {
-                console.log('[Processor] Extraction validation errors:', validation.errors.slice(0, 3));
+                log.debug({ event: 'processor_validation_errors', errors: validation.errors.slice(0, 3) }, 'Extraction validation errors');
             }
             if (validation.warnings.length > 0) {
-                console.log('[Processor] Extraction validation warnings:', validation.warnings.slice(0, 2));
+                log.debug({ event: 'processor_validation_warnings', warnings: validation.warnings.slice(0, 2) }, 'Extraction validation warnings');
             }
         }
         
@@ -195,7 +199,7 @@ class DocumentProcessor {
                this.config.llm?.provider || 
                null;
         if (!provider) {
-            console.warn('[Processor] No LLM provider configured in admin settings');
+            log.warn({ event: 'processor_no_llm_provider' }, 'No LLM provider configured in admin settings');
         }
         return provider;
     }
@@ -235,7 +239,7 @@ class DocumentProcessor {
                this.config.llm?.provider || 
                null;
         if (!provider) {
-            console.warn('[Processor] No vision provider configured in admin settings');
+            log.warn({ event: 'processor_no_vision_provider' }, 'No vision provider configured in admin settings');
         }
         return provider;
     }
@@ -255,9 +259,11 @@ class DocumentProcessor {
      */
     async generateFileSummary(filename, extracted, factsCount, decisionsCount, risksCount, peopleCount) {
         try {
-            const provider = this.getLLMProvider();
-            const model = this.getTextModel();
-            const providerConfig = this.config.llm?.providers?.[provider] || {};
+            const textCfg = llmConfig.getTextConfig(this.config);
+            if (!textCfg?.provider || !textCfg?.model) return null;
+            const provider = textCfg.provider;
+            const model = textCfg.model;
+            const providerConfig = textCfg.providerConfig || {};
             
             // Build context from extracted data
             const factsSample = (extracted.facts || []).slice(0, 3).map(f => f.content).join('; ');
@@ -334,12 +340,12 @@ Respond ONLY in this JSON format:
                                 summary: (summaryMatch?.[1] || '').substring(0, 120)
                             };
                         }
-                        console.warn('Failed to parse summary JSON:', parseErr.message, 'Raw:', jsonStr.substring(0, 100));
+                        log.warn({ event: 'processor_summary_parse_failed', reason: parseErr.message, rawPrefix: jsonStr.substring(0, 100) }, 'Failed to parse summary JSON');
                     }
                 }
             }
         } catch (e) {
-            console.warn('Failed to generate file summary:', e.message);
+            log.warn({ event: 'processor_summary_generate_failed', reason: e.message }, 'Failed to generate file summary');
         }
         return null;
     }
@@ -352,13 +358,18 @@ Respond ONLY in this JSON format:
      * @returns {Promise<{success: boolean, response?: string, error?: string}>}
      */
     async llmGenerateText(model, prompt, options = {}) {
-        const provider = this.getLLMProvider();
-        const providerConfig = this.getProviderConfig();
+        const textCfg = llmConfig.getTextConfig(this.config);
+        if (!textCfg?.provider || !textCfg?.model) {
+            return { success: false, response: '', error: 'No LLM text provider/model configured.' };
+        }
+        const provider = textCfg.provider;
+        const providerConfig = textCfg.providerConfig || {};
+        const modelToUse = model || textCfg.model;
 
         const result = await llm.generateText({
             provider,
             providerConfig,
-            model,
+            model: modelToUse,
             prompt,
             temperature: options.temperature || 0.7,
             maxTokens: options.maxTokens || 4096,
@@ -384,42 +395,22 @@ Respond ONLY in this JSON format:
      * @returns {Promise<{success: boolean, response?: string, error?: string}>}
      */
     async llmGenerateVision(model, prompt, images, options = {}) {
-        const provider = this.getLLMProvider();
-        const providerConfig = this.getProviderConfig();
-
-        // Check if provider supports vision
-        if (!this.supportsVision()) {
-            // Fall back to Ollama for vision if current provider doesn't support it
-            console.log(`Provider ${provider} doesn't support vision, falling back to Ollama`);
-            const ollamaConfig = this.config.llm?.providers?.ollama || {
-                host: this.config.ollama?.host || '127.0.0.1',
-                port: this.config.ollama?.port || 11434
-            };
-            
-            const visionProvider = this.getVisionProvider();
-            const result = await llm.generateVision({
-                provider: visionProvider,
-                providerConfig: this.getProviderConfig(visionProvider) || ollamaConfig,
-                model: this.config.llm?.perTask?.vision?.model || this.config.llm?.models?.vision || model,
-                prompt,
-                images,
-                temperature: options.temperature || 0.7,
-                maxTokens: options.maxTokens || 4096
-            });
-
+        const visionCfg = llmConfig.getVisionConfig(this.config);
+        if (!visionCfg?.provider || !visionCfg?.model) {
             return {
-                success: result.success,
-                response: result.text,
-                error: result.error,
-                evalCount: result.usage?.outputTokens,
-                raw: result.raw
+                success: false,
+                response: '',
+                error: 'No vision provider/model configured. Set in Settings > LLM (Vision).'
             };
         }
+        const provider = visionCfg.provider;
+        const providerConfig = visionCfg.providerConfig || {};
+        const modelToUse = model || visionCfg.model;
 
         const result = await llm.generateVision({
             provider,
             providerConfig,
-            model,
+            model: modelToUse,
             prompt,
             images,
             temperature: options.temperature || 0.7,
@@ -436,22 +427,21 @@ Respond ONLY in this JSON format:
     }
 
     /**
-     * Check if a model name is a vision model (for Ollama)
+     * Check if a model name is a vision model (via centralized LLM layer)
      */
     isVisionModel(modelName) {
-        // Use ollama's check for backward compatibility
-        return this.ollama.isVisionModel(modelName);
+        const provider = this.getLLMProvider();
+        return llm.isVisionModel(provider, modelName);
     }
 
     /**
-     * Find the best model for a task (for Ollama)
+     * Find the best model for a task (via centralized LLM layer)
      */
     async findBestModel(taskType) {
-        // Use ollama for model discovery in Ollama mode
-        if (this.getLLMProvider() === 'ollama') {
-            return this.ollama.findBestModel(taskType);
-        }
-        // For other providers, return the configured model
+        const provider = this.getLLMProvider();
+        const providerConfig = this.getProviderConfig(provider);
+        const best = await llm.findBestModel(provider, taskType, providerConfig);
+        if (best) return best;
         if (taskType === 'vision') {
             return { model: this.getVisionModel(), type: 'vision' };
         }
@@ -526,46 +516,45 @@ Respond ONLY in this JSON format:
     }
 
     /**
-     * Scan input folders for pending files
+     * Scan input folders for pending files (async fs to avoid blocking event loop)
      */
-    scanPendingFiles() {
+    async scanPendingFiles() {
         const result = { newinfo: [], newtranscripts: [] };
         const newinfoDir = path.join(this.config.dataDir, 'newinfo');
         const transcriptsDir = path.join(this.config.dataDir, 'newtranscripts');
 
         try {
-            if (fs.existsSync(newinfoDir)) {
-                result.newinfo = fs.readdirSync(newinfoDir)
-                    .filter(f => !f.startsWith('.') && !f.endsWith('.meta.json'))
-                    .map(f => this.getFileInfo(path.join(newinfoDir, f)))
-                    .filter(f => f !== null); // Filter out null results (metadata files)
-            }
+            await fsp.access(newinfoDir);
+            const names = await fsp.readdir(newinfoDir);
+            const filtered = names.filter(f => !f.startsWith('.') && !f.endsWith('.meta.json'));
+            const infos = await Promise.all(filtered.map(f => this.getFileInfo(path.join(newinfoDir, f))));
+            result.newinfo = infos.filter(f => f !== null);
         } catch (e) { /* ignore */ }
 
         try {
-            if (fs.existsSync(transcriptsDir)) {
-                result.newtranscripts = fs.readdirSync(transcriptsDir)
-                    .filter(f => !f.startsWith('.') && !f.endsWith('.meta.json'))
-                    .map(f => this.getFileInfo(path.join(transcriptsDir, f)))
-                    .filter(f => f !== null); // Filter out null results (metadata files)
-            }
+            await fsp.access(transcriptsDir);
+            const names = await fsp.readdir(transcriptsDir);
+            const filtered = names.filter(f => !f.startsWith('.') && !f.endsWith('.meta.json'));
+            const infos = await Promise.all(filtered.map(f => this.getFileInfo(path.join(transcriptsDir, f))));
+            result.newtranscripts = infos.filter(f => f !== null);
         } catch (e) { /* ignore */ }
 
         return result;
     }
 
     /**
-     * Get file information including document date from metadata
+     * Get file information including document date from metadata (async fs)
      */
-    getFileInfo(filePath) {
-        const stats = fs.statSync(filePath);
+    async getFileInfo(filePath) {
         const filename = path.basename(filePath);
-        
-        // Skip metadata files
-        if (filename.endsWith('.meta.json')) {
+        if (filename.endsWith('.meta.json')) return null;
+
+        let stats;
+        try {
+            stats = await fsp.stat(filePath);
+        } catch (e) {
             return null;
         }
-        
         const info = {
             name: filename,
             path: filePath,
@@ -575,20 +564,17 @@ Respond ONLY in this JSON format:
             documentDate: null,
             documentTime: null
         };
-        
-        // Check for metadata file with document date
         const metaPath = filePath + '.meta.json';
-        if (fs.existsSync(metaPath)) {
-            try {
-                const metadata = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
-                info.documentDate = metadata.documentDate || null;
-                info.documentTime = metadata.documentTime || null;
-                console.log(`[Processor] Found metadata for ${filename}: date=${info.documentDate}`);
-            } catch (e) {
-                // Ignore metadata read errors
-            }
-        }
-        
+        try {
+            await fsp.access(metaPath);
+            const raw = await fsp.readFile(metaPath, 'utf8');
+            const metadata = JSON.parse(raw);
+            info.documentDate = metadata.documentDate || null;
+            info.documentTime = metadata.documentTime || null;
+            info.sprintId = metadata.sprintId || null;
+            info.actionId = metadata.actionId || null;
+            log.debug({ event: 'processor_metadata_found', filename, documentDate: info.documentDate }, 'Found metadata');
+        } catch (e) { /* ignore */ }
         return info;
     }
 
@@ -602,11 +588,10 @@ Respond ONLY in this JSON format:
         try {
             execSync('markitdown --version', { encoding: 'utf8', stdio: 'pipe' });
             this._markitdownAvailable = true;
-            console.log('MarkItDown: Available for document extraction');
+            log.debug({ event: 'processor_markitdown_available' }, 'MarkItDown available for document extraction');
         } catch (e) {
             this._markitdownAvailable = false;
-            console.log('MarkItDown: Not installed. Install with: pip install markitdown');
-            console.log('Falling back to pdf-parse for PDFs');
+            log.debug({ event: 'processor_markitdown_unavailable' }, 'MarkItDown not installed; falling back to pdf-parse for PDFs');
         }
         return this._markitdownAvailable;
     }
@@ -624,19 +609,18 @@ Respond ONLY in this JSON format:
 
         try {
             const filename = path.basename(filePath);
-            console.log(`MarkItDown: Extracting ${filename}...`);
+            log.debug({ event: 'processor_markitdown_extract', filename }, 'MarkItDown extracting');
 
-            // Run markitdown CLI
             const result = execSync(`markitdown "${filePath}"`, {
                 encoding: 'utf8',
                 maxBuffer: 50 * 1024 * 1024, // 50MB buffer
                 timeout: 120000 // 2 minute timeout
             });
 
-            console.log(`MarkItDown: Extracted ${result.length} characters from ${filename}`);
+            log.debug({ event: 'processor_markitdown_done', filename, chars: result.length }, 'MarkItDown extracted');
             return { success: true, content: result, method: 'markitdown' };
         } catch (e) {
-            console.log(`MarkItDown failed for ${path.basename(filePath)}: ${e.message}`);
+            log.warn({ event: 'processor_markitdown_failed', filename: path.basename(filePath), reason: e.message }, 'MarkItDown failed');
             return { success: false, error: e.message };
         }
     }
@@ -649,9 +633,9 @@ Respond ONLY in this JSON format:
         const ext = path.extname(filePath).toLowerCase();
         const filename = path.basename(filePath);
 
-        // Text-based files - read directly
+        // Text-based files - read directly (async to avoid blocking event loop)
         if (['.txt', '.md', '.json', '.csv', '.log'].includes(ext)) {
-            return fs.readFileSync(filePath, 'utf8');
+            return fsp.readFile(filePath, 'utf8');
         }
 
         // For PDFs, DOCX, XLSX, PPTX, HTML - try MarkItDown first
@@ -665,12 +649,12 @@ Respond ONLY in this JSON format:
             if (ext === '.pdf') {
                 try {
                     const pdfParse = require('pdf-parse');
-                    const dataBuffer = fs.readFileSync(filePath);
+                    const dataBuffer = await fsp.readFile(filePath);
                     const data = await pdfParse(dataBuffer);
-                    console.log(`pdf-parse fallback: ${data.numpages} pages, ${data.text.length} chars from ${filename}`);
+                    log.debug({ event: 'processor_pdf_parse_fallback', filename, pages: data.numpages, chars: data.text.length }, 'pdf-parse fallback');
                     return data.text;
                 } catch (e) {
-                    console.log(`pdf-parse also failed: ${e.message}`);
+                    log.warn({ event: 'processor_pdf_parse_failed', reason: e.message }, 'pdf-parse also failed');
                 }
             }
 
@@ -685,7 +669,7 @@ Respond ONLY in this JSON format:
 
         // Default: try to read as text
         try {
-            return fs.readFileSync(filePath, 'utf8');
+            return await fsp.readFile(filePath, 'utf8');
         } catch (e) {
             return `[Binary file: ${filename} - Could not read as text]`;
         }
@@ -860,8 +844,7 @@ Respond ONLY in this JSON format:
             return result;
         }
 
-        // Large document - process in chunks
-        console.log(`Processing ${filename} in ${chunks.length} chunks...`);
+        log.info({ event: 'processor_chunked_start', filename, chunks: chunks.length }, 'Processing in chunks');
         const chunkResults = [];
 
         for (const chunk of chunks) {
@@ -880,13 +863,11 @@ Respond ONLY in this JSON format:
             });
 
             if (result.success) {
-                // Debug: Log raw response
-                console.log(`Chunk ${chunk.index} response (first 500 chars):`, result.response?.substring(0, 500));
                 const parsed = this.parseAIResponse(result.response);
-                console.log(`Chunk ${chunk.index} parsed: facts=${parsed.facts?.length || 0}, decisions=${parsed.decisions?.length || 0}`);
+                log.debug({ event: 'processor_chunk_done', chunkIndex: chunk.index, facts: parsed.facts?.length || 0, decisions: parsed.decisions?.length || 0 }, 'Chunk parsed');
                 chunkResults.push(parsed);
             } else {
-                console.log(`Chunk ${chunk.index} failed:`, result.error);
+                log.warn({ event: 'processor_chunk_failed', chunkIndex: chunk.index, error: result.error }, 'Chunk failed');
             }
         }
 
@@ -932,15 +913,14 @@ IMPORTANT: Extract entities using the types above. Map relationships to the rela
 `;
             }
         } catch (e) {
-            console.log('[Processor] Could not load ontology context:', e.message);
+            log.debug({ event: 'processor_ontology_context_failed', reason: e.message }, 'Could not load ontology context');
         }
 
-        // TRY SUPABASE PROMPTS FIRST
         const promptKey = isTranscript ? 'transcript' : 'document';
         const supabaseTemplate = this.getSupabasePrompt(promptKey);
         
         if (supabaseTemplate) {
-            console.log(`[Processor] Using Supabase prompt for: ${promptKey}`);
+            log.debug({ event: 'processor_supabase_prompt_used', promptKey }, 'Using Supabase prompt');
             
             // Get v1.6 context variables if available
             const ctx = this._contextVariables || {};
@@ -1192,7 +1172,7 @@ Relation types: ${ontology.relationNames.join(', ')}`;
         const supabaseTemplate = this.getSupabasePrompt('vision');
         
         if (supabaseTemplate) {
-            console.log('[Processor] Using Supabase prompt for: vision');
+            log.debug({ event: 'processor_supabase_prompt_used', promptKey: 'vision' }, 'Using Supabase prompt for vision');
             const rendered = this.renderPromptTemplate(supabaseTemplate, {
                 FILENAME: filename,
                 ONTOLOGY_SECTION: ontologyContext
@@ -1597,23 +1577,22 @@ Output ONLY valid JSON:
                     const enriched = this.enrichExtractionMetadata(parsed);
                     return this.validateExtractionResult(enriched, validate, sourceType);
                 } catch (e) {
-                    console.log('Initial JSON parse failed, attempting sanitization...');
+                    log.debug({ event: 'processor_parse_sanitize_attempt' }, 'Initial JSON parse failed, attempting sanitization');
                     try {
                         jsonStr = this.sanitizeJSON(jsonStr);
                         const parsed = JSON.parse(jsonStr);
                         const enriched = this.enrichExtractionMetadata(parsed);
                         return this.validateExtractionResult(enriched, validate, sourceType);
                     } catch (e2) {
-                        console.log('Sanitization failed:', e2.message.substring(0, 100));
+                        log.debug({ event: 'processor_sanitize_failed', reason: e2.message.substring(0, 100) }, 'Sanitization failed');
                     }
                 }
             }
         } catch (e) {
-            console.error('Strategy 1 failed:', e.message);
+            log.warn({ event: 'processor_parse_strategy1_failed', reason: e.message }, 'Strategy 1 failed');
         }
 
-        // Strategy 2: Extract individual arrays using regex
-        console.log('Attempting array extraction strategy...');
+        log.debug({ event: 'processor_parse_strategy2' }, 'Attempting array extraction strategy');
         const result = {
             facts: [],
             questions: [],
@@ -1630,21 +1609,19 @@ Output ONLY valid JSON:
             const factsMatch = response.match(/"facts"\s*:\s*\[([\s\S]*?)\](?=\s*,|\s*\})/);
             if (factsMatch) {
                 result.facts = this.parseArrayContent(factsMatch[1], 'content');
-                console.log(`Extracted ${result.facts.length} facts via regex`);
+                log.debug({ event: 'processor_regex_facts', count: result.facts.length }, 'Extracted facts via regex');
             }
 
-            // Extract questions array
             const questionsMatch = response.match(/"questions"\s*:\s*\[([\s\S]*?)\](?=\s*,|\s*\})/);
             if (questionsMatch) {
                 result.questions = this.parseArrayContent(questionsMatch[1], 'content');
-                console.log(`Extracted ${result.questions.length} questions via regex`);
+                log.debug({ event: 'processor_regex_questions', count: result.questions.length }, 'Extracted questions via regex');
             }
 
-            // Extract decisions array
             const decisionsMatch = response.match(/"decisions"\s*:\s*\[([\s\S]*?)\](?=\s*,|\s*\})/);
             if (decisionsMatch) {
                 result.decisions = this.parseArrayContent(decisionsMatch[1], 'content');
-                console.log(`Extracted ${result.decisions.length} decisions via regex`);
+                log.debug({ event: 'processor_regex_decisions', count: result.decisions.length }, 'Extracted decisions via regex');
             }
 
             // Extract risks array
@@ -1667,15 +1644,14 @@ Output ONLY valid JSON:
 
             // If we got anything, return it
             if (result.facts.length > 0 || result.questions.length > 0 || result.decisions.length > 0) {
-                console.log(`Array extraction succeeded: ${result.facts.length} facts, ${result.questions.length} questions, ${result.decisions.length} decisions`);
+                log.debug({ event: 'processor_array_extraction_ok', facts: result.facts.length, questions: result.questions.length, decisions: result.decisions.length }, 'Array extraction succeeded');
                 return result;
             }
         } catch (e) {
-            console.error('Strategy 2 failed:', e.message);
+            log.warn({ event: 'processor_parse_strategy2_failed', reason: e.message }, 'Strategy 2 failed');
         }
 
-        // Strategy 3: Try to parse each object individually
-        console.log('Attempting individual object parsing...');
+        log.debug({ event: 'processor_parse_strategy3' }, 'Attempting individual object parsing');
         try {
             const objectMatches = response.match(/\{[^{}]*\}/g);
             if (objectMatches) {
@@ -1693,29 +1669,28 @@ Output ONLY valid JSON:
                 }
 
                 if (result.facts.length > 0 || result.questions.length > 0) {
-                    console.log(`Individual object parsing succeeded: ${result.facts.length} facts, ${result.questions.length} questions`);
+                    log.debug({ event: 'processor_individual_parsing_ok', facts: result.facts.length, questions: result.questions.length }, 'Individual object parsing succeeded');
                     return result;
                 }
             }
         } catch (e) {
-            console.error('Strategy 3 failed:', e.message);
+            log.warn({ event: 'processor_parse_strategy3_failed', reason: e.message }, 'Strategy 3 failed');
         }
 
-        // Strategy 4: Extract facts from natural language (when vision model returns thinking text)
-        console.log('Attempting natural language extraction (thinking text fallback)...');
+        log.debug({ event: 'processor_parse_strategy4' }, 'Attempting natural language extraction');
         try {
             const nlpFacts = this.extractFactsFromNaturalLanguage(response);
             if (nlpFacts.length > 0) {
-                console.log(`Natural language extraction succeeded: ${nlpFacts.length} facts`);
+                log.debug({ event: 'processor_nlp_extraction_ok', count: nlpFacts.length }, 'Natural language extraction succeeded');
                 result.facts = nlpFacts;
                 result.summary = 'Extracted from thinking text (non-JSON response)';
                 return result;
             }
         } catch (e) {
-            console.error('Strategy 4 (NLP) failed:', e.message);
+            log.warn({ event: 'processor_parse_strategy4_failed', reason: e.message }, 'Strategy 4 (NLP) failed');
         }
 
-        console.error('All parsing strategies failed');
+        log.warn({ event: 'processor_all_strategies_failed' }, 'All parsing strategies failed');
         return {
             facts: [],
             questions: [],
@@ -1888,10 +1863,10 @@ Output ONLY valid JSON:
                 pageNum++;
             }
 
-            console.log(`PDF converted: ${files.length} pages from ${path.basename(pdfPath)}`);
+            log.debug({ event: 'processor_pdf_converted', pages: files.length, filename: path.basename(pdfPath) }, 'PDF converted to images');
             return files;
         } catch (e) {
-            console.log('PDF to image conversion failed, falling back to text extraction:', e.message);
+            log.debug({ event: 'processor_pdf_to_image_failed', reason: e.message }, 'PDF to image failed, falling back to text');
             return null;
         }
     }
@@ -1944,7 +1919,7 @@ Output ONLY valid JSON:
 
         // Prevent race conditions: check if file is already being processed
         if (this.filesInProgress.has(filePath)) {
-            console.log(`File already being processed (skipping duplicate): ${filename}`);
+            log.debug({ event: 'processor_skip_duplicate', filename }, 'File already being processed, skipping');
             return {
                 success: true,
                 facts: 0,
@@ -1957,7 +1932,7 @@ Output ONLY valid JSON:
 
         // Check if file still exists (may have been archived by another process)
         if (!fs.existsSync(filePath)) {
-            console.log(`File no longer exists (already processed): ${filename}`);
+            log.debug({ event: 'processor_skip_file_not_found', filename }, 'File no longer exists');
             return {
                 success: true,
                 facts: 0,
@@ -1968,17 +1943,15 @@ Output ONLY valid JSON:
             };
         }
 
-        // Lock the file
         this.filesInProgress.add(filePath);
 
         try {
-            // Check if document was already processed (by MD5 hash, or filename + size)
             const fileSize = fs.statSync(filePath).size;
             const existingDoc = this.storage.checkDocumentExists(filename, fileSize, filePath);
 
             if (existingDoc.exists) {
                 const method = existingDoc.method === 'hash' ? 'content hash' : 'name+size';
-                console.log(`Document already processed (${method}): ${filename} - Skipping`);
+                log.debug({ event: 'processor_skip_duplicate_doc', filename, method }, 'Document already processed, skipping');
                 // Move file to archived if it exists
                 const archiveDir = isTranscript
                     ? path.join(this.config.dataDir, 'archived', 'meetings')
@@ -2015,28 +1988,25 @@ Output ONLY valid JSON:
             // For PDFs, always check if scanned (regardless of model selection)
             if (isPdf) {
                 pdfInfo = await this.isPdfScanned(filePath);
-                console.log(`PDF analysis: ${filename} | Pages: ${pdfInfo.pageCount} | Text: ${pdfInfo.textLength} chars | Scanned: ${pdfInfo.isScanned}`);
+                log.debug({ event: 'processor_pdf_analysis', filename, pages: pdfInfo.pageCount, textLength: pdfInfo.textLength, isScanned: pdfInfo.isScanned }, 'PDF analysis');
             }
 
-            // Determine which model to use based on content type
             const needsVision = isImage || (isPdf && pdfInfo?.isScanned);
-            console.log(`Model selection for ${filename}: needsVision=${needsVision}, visionModel="${visionModel}", textModel="${textModel}"`);
+            log.debug({ event: 'processor_model_selection', filename, needsVision, visionModel, textModel }, 'Model selection');
 
             if (needsVision) {
-                // Use configured vision model, or fall back to auto-detection
                 if (visionModel) {
                     selectedModel = visionModel;
                     modelType = 'vision';
-                    console.log(`Using configured vision model: ${visionModel} for ${filename}`);
+                    log.debug({ event: 'processor_vision_configured', filename, visionModel }, 'Using configured vision model');
                 } else {
-                    // Try to find a vision model automatically
                     const best = await this.findBestModel('vision');
                     if (best && best.type === 'vision') {
                         selectedModel = best.model;
                         modelType = 'vision';
-                        console.log(`Auto-selected vision model: ${selectedModel} for ${filename}`);
+                        log.debug({ event: 'processor_vision_auto', filename, selectedModel }, 'Auto-selected vision model');
                     } else {
-                        console.log(`WARNING: ${filename} needs vision but no vision model available. Using text model.`);
+                        log.warn({ event: 'processor_vision_unavailable', filename }, 'Needs vision but no vision model available, using text model');
                     }
                 }
             } else {
@@ -2044,13 +2014,13 @@ Output ONLY valid JSON:
                 if (textModel && textModel !== 'auto') {
                     selectedModel = textModel;
                     modelType = this.isVisionModel(textModel) ? 'vision' : 'text';
-                    console.log(`Using configured text model: ${textModel} for ${filename}`);
+                    log.debug({ event: 'processor_text_configured', filename, textModel }, 'Using configured text model');
                 } else {
                     const best = await this.findBestModel('text');
                     if (best) {
                         selectedModel = best.model;
                         modelType = best.type;
-                        console.log(`Auto-selected text model: ${selectedModel} for ${filename}`);
+                        log.debug({ event: 'processor_text_auto', filename, selectedModel }, 'Auto-selected text model');
                     }
                 }
             }
@@ -2061,15 +2031,19 @@ Output ONLY valid JSON:
 
             const isVisionModel = this.isVisionModel(selectedModel);
 
-            // Check for document date from metadata
+            // Check for document date and sprint/task from metadata
             const metaPath = filePath + '.meta.json';
             let documentDate = null;
             let documentTime = null;
+            let sprintId = null;
+            let actionId = null;
             if (fs.existsSync(metaPath)) {
                 try {
                     const metadata = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
                     documentDate = metadata.documentDate || null;
                     documentTime = metadata.documentTime || null;
+                    sprintId = metadata.sprintId || null;
+                    actionId = metadata.actionId || null;
                 } catch (e) { /* ignore */ }
             }
             
@@ -2082,10 +2056,12 @@ Output ONLY valid JSON:
                 file_date: fs.statSync(filePath).mtime.toISOString(),
                 document_date: documentDate,  // User-provided date for timeline
                 document_time: documentTime,
-                status: 'processing'
+                status: 'processing',
+                sprint_id: sprintId,
+                action_id: actionId
             });
             const docId = docRecord?.id || null;
-            console.log(`[Processor] Document registered with ID: ${docId}`);
+            log.debug({ event: 'processor_doc_registered', docId, filename }, 'Document registered');
 
             let result;
             let tempFiles = [];
@@ -2129,13 +2105,10 @@ Output ONLY valid JSON:
                         });
 
                         if (batchResult.success) {
-                            // Debug: Log raw response
-                            console.log(`Vision response (pages ${pageStart}-${pageEnd}):`, batchResult.response?.substring(0, 500));
                             let parsed = this.parseAIResponse(batchResult.response);
 
-                            // If parsing failed (0 facts and no JSON detected), retry with strict prompt
                             if (parsed.facts.length === 0 && !batchResult.response.includes('"facts"')) {
-                                console.log(`Page ${pageStart} returned non-JSON, retrying with strict prompt...`);
+                                log.debug({ event: 'processor_vision_retry', pageStart, filename }, 'Page returned non-JSON, retrying with strict prompt');
                                 const strictPrompt = this.buildStrictVisionPrompt(`${filename} (page ${pageStart})`, selectedModel);
                                 const retryResult = await this.llmGenerateVision(selectedModel, strictPrompt, batch, {
                                     temperature: 0.1,
@@ -2144,14 +2117,14 @@ Output ONLY valid JSON:
                                 if (retryResult.success && retryResult.response.includes('"facts"')) {
                                     batchResult = retryResult;
                                     parsed = this.parseAIResponse(retryResult.response);
-                                    console.log(`Retry succeeded: facts=${parsed.facts?.length || 0}`);
+                                    log.debug({ event: 'processor_vision_retry_ok', facts: parsed.facts?.length || 0 }, 'Retry succeeded');
                                 }
                             }
 
-                            console.log(`Parsed result: facts=${parsed.facts?.length || 0}, decisions=${parsed.decisions?.length || 0}`);
+                            log.debug({ event: 'processor_vision_parsed', pageStart, pageEnd, facts: parsed.facts?.length || 0, decisions: parsed.decisions?.length || 0 }, 'Parsed result');
                             pageResults.push(parsed);
                         } else {
-                            console.log(`Vision batch failed: ${batchResult.error}`);
+                            log.warn({ event: 'processor_vision_batch_failed', pageStart, pageEnd, error: batchResult.error }, 'Vision batch failed');
                         }
                     }
 
@@ -2179,7 +2152,7 @@ Output ONLY valid JSON:
                 if (!this.isVisionModel(selectedModel)) {
                     if (visionModel) {
                         imageModel = visionModel;
-                        console.log(`Using vision model ${visionModel} for image ${filename}`);
+                        log.debug({ event: 'processor_image_vision_model', filename, visionModel }, 'Using vision model for image');
                     } else {
                         throw new Error(`Image ${filename} requires a vision model but none is configured`);
                     }
@@ -2187,10 +2160,10 @@ Output ONLY valid JSON:
 
                 // PASS 1: Get detailed prose description from vision model
                 const prosePrompt = this.buildVisionProsePrompt(filename);
-                console.log(`Pass 1: Vision model extracting prose from ${filename}...`);
+                log.debug({ event: 'processor_pass1_start', filename }, 'Pass 1: Vision extracting prose');
                 const visionResult = await this.llmGenerateVision(imageModel, prosePrompt, [filePath], {
                     temperature: 0.3,
-                    maxTokens: 8192  // Allow longer responses for detailed extraction
+                    maxTokens: 8192
                 });
 
                 if (!visionResult.success) {
@@ -2198,20 +2171,19 @@ Output ONLY valid JSON:
                 }
 
                 const proseDescription = visionResult.response;
-                console.log(`Pass 1 complete: ${proseDescription.length} chars extracted`);
+                log.debug({ event: 'processor_pass1_done', filename, chars: proseDescription.length }, 'Pass 1 complete');
 
-                // PASS 2: Convert prose to structured JSON using text model
                 const textModel = this.config.ollama?.model || this.textModel || 'qwen3:30b';
                 const structurePrompt = this.buildProseToFactsPrompt(proseDescription, filename);
-                console.log(`Pass 2: Text model (${textModel}) converting prose to JSON...`);
+                log.debug({ event: 'processor_pass2_start', filename, textModel }, 'Pass 2: Text model converting prose to JSON');
 
                 result = await this.llmGenerateText(textModel, structurePrompt, {
-                    temperature: 0.1,  // Low temperature for consistent JSON output
+                    temperature: 0.1,
                     maxTokens: 4096
                 });
 
                 if (result.success) {
-                    console.log(`Pass 2 complete: JSON extraction done`);
+                    log.debug({ event: 'processor_pass2_done', filename }, 'Pass 2 complete');
                 }
             } else if (!isImage) {
                 // Text processing for non-image files only (documents, transcripts, etc.)
@@ -2244,12 +2216,8 @@ Output ONLY valid JSON:
                 throw new Error(result.error || 'AI generation failed');
             }
 
-            // Debug: Log raw AI response (first 500 chars)
-            console.log(`AI Response (${filename}): ${result.response?.substring(0, 500) || 'EMPTY'}...`);
-
-            // Parse response
             const extracted = this.parseAIResponse(result.response);
-            console.log(`Parsed: facts=${extracted.facts?.length || 0}, decisions=${extracted.decisions?.length || 0}, summary=${extracted.summary ? 'yes' : 'no'}`);
+            log.debug({ event: 'processor_parsed', filename, facts: extracted.facts?.length || 0, decisions: extracted.decisions?.length || 0, hasSummary: !!extracted.summary }, 'Parsed extraction');
 
             // Store extracted data
             let factsAdded = 0;
@@ -2259,24 +2227,32 @@ Output ONLY valid JSON:
             let actionsAdded = 0;
             let peopleAdded = 0;
 
-            // Facts (may be strings or objects) - with garbage filtering
+            // Facts (may be strings or objects) - with garbage filtering; batch insert when available
+            const batchFacts = [];
             for (const fact of extracted.facts || []) {
                 const content = typeof fact === 'string' ? fact : (fact.content || fact.fact || fact.text || fact.description);
                 if (!content) continue;
-
-                // Filter out garbage/low-value facts from vision models
                 if (this.isGarbageFact(content)) {
-                    console.log(`Filtered garbage fact: "${content.substring(0, 50)}..."`);
+                    log.debug({ event: 'processor_filtered_garbage_fact', prefix: content.substring(0, 50) }, 'Filtered garbage fact');
                     continue;
                 }
-
-                this.storage.addFact({
+                batchFacts.push({
                     document_id: docId,
-                    content: content,
+                    content,
                     category: typeof fact === 'object' ? (fact.category || fact.type) : 'general',
                     confidence: typeof fact === 'object' ? (fact.confidence || 1.0) : 1.0
                 });
-                factsAdded++;
+            }
+            if (batchFacts.length > 0) {
+                if (typeof this.storage.addFacts === 'function') {
+                    const result = await this.storage.addFacts(batchFacts, { skipDedup: true });
+                    factsAdded += result.inserted;
+                } else {
+                    for (const f of batchFacts) {
+                        await this.storage.addFact(f, true);
+                        factsAdded++;
+                    }
+                }
             }
 
             // Questions (may be strings or objects) - with auto-assignment
@@ -2290,7 +2266,7 @@ Output ONLY valid JSON:
 
                 // Filter out garbage questions from vision models
                 if (this.isGarbageQuestion(content, typeof question === 'object' ? question.context : null)) {
-                    console.log(`Filtered garbage question: "${content.substring(0, 50)}..."`);
+                    log.debug({ event: 'processor_filtered_garbage_question', prefix: content.substring(0, 50) }, 'Filtered garbage question');
                     continue;
                 }
 
@@ -2325,7 +2301,7 @@ Output ONLY valid JSON:
                     source: 'question_assignee' // Mark source for tracking
                 });
                 peopleAdded++;
-                console.log(`Auto-added person from question assignee: ${assigneeName}`);
+                log.debug({ event: 'processor_auto_added_person', assigneeName }, 'Auto-added person from question assignee');
             }
 
             // Decisions (validate content exists)
@@ -2366,18 +2342,20 @@ Output ONLY valid JSON:
                 risksAdded++;
             }
 
-            // Action Items (may be strings or objects)
-            for (const action of extracted.action_items || extracted.actions || []) {
-                const task = typeof action === 'string' ? action : (action.task || action.action || action.content || action.text);
-                if (!task) continue;
+            // Action Items: only from transcripts (not from plain documents)
+            if (isTranscript) {
+                for (const action of extracted.action_items || extracted.actions || []) {
+                    const task = typeof action === 'string' ? action : (action.task || action.action || action.content || action.text);
+                    if (!task) continue;
 
-                this.storage.addActionItem({
-                    document_id: docId,
-                    task: task,
-                    owner: typeof action === 'object' ? action.owner : null,
-                    deadline: typeof action === 'object' ? action.deadline : null
-                });
-                actionsAdded++;
+                    this.storage.addActionItem({
+                        document_id: docId,
+                        task: task,
+                        owner: typeof action === 'object' ? action.owner : null,
+                        deadline: typeof action === 'object' ? action.deadline : null
+                    });
+                    actionsAdded++;
+                }
             }
 
             // People (validate name exists)
@@ -2429,7 +2407,7 @@ Output ONLY valid JSON:
                             source: 'extracted_from_fact'
                         });
                         peopleAdded++;
-                        console.log(`Extracted role from fact: ${role}`);
+                        log.debug({ event: 'processor_extracted_role', role }, 'Extracted role from fact');
                     }
                 }
             }
@@ -2450,7 +2428,7 @@ Output ONLY valid JSON:
             }
 
             if (relationshipsAdded > 0) {
-                console.log(`Extracted ${relationshipsAdded} relationships for org chart`);
+                log.debug({ event: 'processor_org_chart_relationships', count: relationshipsAdded }, 'Extracted relationships for org chart');
             }
 
             // Archive the file
@@ -2472,10 +2450,10 @@ Output ONLY valid JSON:
                     await this.storage.updateDocument(docId, {
                         extraction_result: extracted
                     });
-                    console.log(`[Processor] Persisted extraction_result for document ${docId}`);
+                    log.debug({ event: 'processor_extraction_persisted', docId }, 'Persisted extraction_result');
                 }
             } catch (persistErr) {
-                console.warn(`[Processor] Failed to persist extraction_result: ${persistErr.message}`);
+                log.warn({ event: 'processor_extraction_persist_failed', docId, reason: persistErr.message }, 'Failed to persist extraction_result');
             }
 
             // Extract coverage data
@@ -2495,7 +2473,7 @@ Output ONLY valid JSON:
                     aiSummary = summaryResult.summary;
                 }
             } catch (e) {
-                console.warn('Failed to generate AI summary:', e.message);
+                log.warn({ event: 'processor_ai_summary_failed', reason: e.message }, 'Failed to generate AI summary');
             }
 
             // Log detailed file processing
@@ -2524,7 +2502,7 @@ Output ONLY valid JSON:
             const coverageInfo = coverage.coverage_percent
                 ? ` | Coverage: ${coverage.coverage_percent}%`
                 : ` | Items: ${coverage.items_found}`;
-            console.log(`File processed: ${filename} | Method: ${processingLog.method} | Facts: ${factsAdded} | Questions: ${questionsAdded}${coverageInfo} | Time: ${processingLog.processingTimeMs}ms`);
+            log.info({ event: 'processor_file_done', filename, method: processingLog.method, facts: factsAdded, questions: questionsAdded, coveragePercent: coverage.coverage_percent, durationMs: processingLog.processingTimeMs }, 'File processed');
 
             // TEAM ANALYSIS HOOK: Queue profile updates for participants in transcripts
             if (isTranscript && peopleAdded > 0) {
@@ -2539,38 +2517,38 @@ Output ONLY valid JSON:
                             .filter(n => n && typeof n === 'string' && n.trim().length >= 2);
                         
                         if (participantNames.length > 0) {
-                            console.log(`[TeamAnalysis] Queuing profile updates for ${participantNames.length} participants from ${filename}`);
+                            log.debug({ event: 'team_analysis_queuing', participants: participantNames.length, filename }, 'Queuing profile updates');
                             // Queue for async processing (don't block main processing)
                             setImmediate(async () => {
                                 try {
                                     await teamAnalyzer.updateProfilesFromTranscript(projectId, docId, participantNames);
                                 } catch (teamErr) {
-                                    console.warn(`[TeamAnalysis] Auto-update failed: ${teamErr.message}`);
+                                    log.warn({ event: 'team_analysis_auto_update_failed', reason: teamErr.message }, 'TeamAnalysis auto-update failed');
                                 }
                             });
                         }
                     }
                 } catch (teamAnalysisErr) {
                     // Team analysis module not available or error - don't block main processing
-                    console.warn(`[TeamAnalysis] Module not available: ${teamAnalysisErr.message}`);
+                    log.warn({ event: 'team_analysis_unavailable', reason: teamAnalysisErr.message }, 'TeamAnalysis module not available');
                 }
             }
 
             // Flag low-coverage extractions for review
             if (coverage.coverage_percent && coverage.coverage_percent < 80) {
-                console.warn(`⚠️ LOW COVERAGE WARNING: ${filename} - Only ${coverage.coverage_percent}% coverage detected. Consider re-processing.`);
+                log.warn({ event: 'processor_low_coverage', filename, coveragePercent: coverage.coverage_percent }, 'Low coverage - consider re-processing');
             }
 
             // Check if new facts answer any pending questions
             const questionsResolved = await this.checkAndResolveQuestions(extracted);
             if (questionsResolved > 0) {
-                console.log(`Auto-resolved ${questionsResolved} pending questions based on new information`);
+                log.debug({ event: 'processor_questions_resolved', count: questionsResolved }, 'Auto-resolved pending questions');
             }
 
             // Check if new facts indicate action items are complete
             const actionsCompleted = this.checkAndCompleteActions(extracted);
             if (actionsCompleted > 0) {
-                console.log(`Auto-completed ${actionsCompleted} pending action items based on new information`);
+                log.debug({ event: 'processor_actions_completed', count: actionsCompleted }, 'Auto-completed pending action items');
             }
 
             return {
@@ -2618,7 +2596,7 @@ Output ONLY valid JSON:
                 started_at: new Date().toISOString()
             });
 
-            console.error(`File processing failed: ${filename} | Error: ${error.message}`);
+            log.warn({ event: 'processor_file_failed', filename, reason: error.message }, 'File processing failed');
 
             // File stays in newinfo/ for retry
             return {
@@ -2662,7 +2640,7 @@ method: ${metadata.method || 'unknown'}
 
 `;
         fs.writeFileSync(contentPath, header + content, 'utf8');
-        console.log(`Saved raw content: ${contentPath} (${content.length} chars)`);
+        log.debug({ event: 'processor_raw_content_saved', contentPath, chars: content.length }, 'Saved raw content');
         return contentPath;
     }
 
@@ -2681,12 +2659,12 @@ method: ${metadata.method || 'unknown'}
 
         // Prevent race conditions
         if (this.filesInProgress.has(filePath)) {
-            console.log(`File already being processed (skipping): ${filename}`);
+            log.debug({ event: 'processor_content_only_skip_dup', filename }, 'File already being processed, skipping');
             return { success: true, skipped: true, reason: 'already_in_progress' };
         }
 
         if (!fs.existsSync(filePath)) {
-            console.log(`File no longer exists: ${filename}`);
+            log.debug({ event: 'processor_content_only_file_gone', filename }, 'File no longer exists');
             return { success: true, skipped: true, reason: 'file_not_found' };
         }
 
@@ -2700,7 +2678,7 @@ method: ${metadata.method || 'unknown'}
         if (duplicateCheck.exists) {
             const method = duplicateCheck.method === 'hash' ? 'content hash' : 'name+size';
             const existingName = duplicateCheck.document?.name || duplicateCheck.document?.filename || 'unknown';
-            console.log(`[Duplicate] Skipping ${filename} - matches "${existingName}" (${method})`);
+            log.debug({ event: 'processor_duplicate_skip', filename, existingName, method }, 'Duplicate document, skipping');
             
             // Archive the duplicate file
             const archiveDir = path.join(this.config.dataDir, 'archived', 'duplicates');
@@ -2712,9 +2690,9 @@ method: ${metadata.method || 'unknown'}
             const archivePath = path.join(archiveDir, `${new Date().toISOString().split('T')[0]}_${filename}`);
             try {
                 fs.renameSync(filePath, archivePath);
-                console.log(`[Duplicate] Moved to: ${archivePath}`);
+                log.debug({ event: 'processor_duplicate_archived', archivePath }, 'Duplicate moved to archive');
             } catch (e) {
-                console.log(`[Duplicate] Could not archive: ${e.message}`);
+                log.warn({ event: 'processor_duplicate_archive_failed', reason: e.message }, 'Could not archive duplicate');
             }
             
             return { 
@@ -2748,7 +2726,7 @@ method: ${metadata.method || 'unknown'}
                 }
 
                 const prosePrompt = this.buildVisionProsePrompt(filename);
-                console.log(`OCR extracting: ${filename} with ${imageModel}...`);
+                log.debug({ event: 'processor_ocr_start', filename, imageModel }, 'OCR extracting');
 
                 const visionResult = await this.llmGenerateVision(imageModel, prosePrompt, [filePath], {
                     temperature: 0.3,
@@ -2760,7 +2738,7 @@ method: ${metadata.method || 'unknown'}
                 }
 
                 rawContent = this.cleanOCROutput(visionResult.response);
-                console.log(`OCR complete: ${rawContent.length} chars from ${filename}`);
+                log.debug({ event: 'processor_ocr_done', filename, chars: rawContent.length }, 'OCR complete');
 
             } else if (isPdf) {
                 // Handle PDF - check if scanned
@@ -2817,7 +2795,7 @@ method: ${metadata.method || 'unknown'}
             const archivedPath = path.join(archiveDir, `${datePrefix}_${filename}`);
             fs.renameSync(filePath, archivedPath);
 
-            console.log(`Content extracted: ${filename} → ${contentPath} [hash: ${fileHash ? String(fileHash).substring(0, 8) : 'none'}...]`);
+            log.info({ event: 'processor_content_extracted', filename, contentPath, hashPrefix: fileHash ? String(fileHash).substring(0, 8) : null }, 'Content extracted');
 
             return {
                 success: true,
@@ -2830,7 +2808,7 @@ method: ${metadata.method || 'unknown'}
             };
 
         } catch (error) {
-            console.error(`Content extraction failed: ${filename} | ${error.message}`);
+            log.warn({ event: 'processor_content_extraction_failed', filename, reason: error.message }, 'Content extraction failed');
             return {
                 success: false,
                 error: error.message
@@ -2856,7 +2834,7 @@ method: ${metadata.method || 'unknown'}
             try {
                 return JSON.parse(fs.readFileSync(trackingPath, 'utf8'));
             } catch (e) {
-                console.error('Error loading synthesized files tracking:', e.message);
+                log.warn({ event: 'processor_synthesis_tracking_load_error', reason: e.message }, 'Error loading synthesized files tracking');
             }
         }
         return {
@@ -2936,14 +2914,14 @@ method: ${metadata.method || 'unknown'}
             // Check if content has changed (hash mismatch)
             const currentHash = this.getContentHash(file.content);
             if (tracked.hash !== currentHash) {
-                console.log(`File ${file.name} has changed since last synthesis`);
+                log.debug({ event: 'processor_file_changed', filename: file.name }, 'File changed since last synthesis');
                 return true;
             }
 
             return false;
         });
 
-        console.log(`Content files: ${allFiles.length} total, ${newFiles.length} new/changed`);
+        log.info({ event: 'processor_content_files', total: allFiles.length, newOrChanged: newFiles.length }, 'Content files');
         return newFiles;
     }
 
@@ -2954,7 +2932,7 @@ method: ${metadata.method || 'unknown'}
         const trackingPath = this.getSynthesizedFilesPath();
         if (fs.existsSync(trackingPath)) {
             fs.unlinkSync(trackingPath);
-            console.log('Synthesis tracking cleared - next synthesis will process all files');
+            log.info({ event: 'processor_synthesis_tracking_cleared' }, 'Synthesis tracking cleared');
         }
     }
 
@@ -3058,15 +3036,14 @@ ${allContent}
         this._currentDocumentIds = documentIds;
         
         this.processingState.message = 'Running holistic synthesis...';
-        console.log('Starting BATCHED holistic synthesis...');
-        console.log(`Document IDs available: ${Object.keys(documentIds).length}`);
+        log.info({ event: 'processor_synthesis_start', docCount: Object.keys(documentIds).length }, 'Starting batched holistic synthesis');
 
         // Get content files - incremental or full
         const allContentFiles = this.getContentFiles();
         let contentFiles;
 
         if (forceResynthesis) {
-            console.log('FULL RESYNTHESIS MODE - processing all content files');
+            log.info({ event: 'processor_synthesis_full_resync' }, 'Full resynthesis mode');
             this.clearSynthesisTracking();
             contentFiles = allContentFiles;
         } else {
@@ -3075,7 +3052,7 @@ ${allContent}
         }
 
         if (contentFiles.length === 0) {
-            console.log('No new content files to synthesize (all already processed)');
+            log.info({ event: 'processor_synthesis_nothing_new' }, 'No new content files to synthesize');
             return {
                 success: true,
                 message: 'No new content to synthesize - all files already processed',
@@ -3087,7 +3064,7 @@ ${allContent}
             };
         }
 
-        console.log(`Found ${contentFiles.length} content files to synthesize (${allContentFiles.length - contentFiles.length} already processed)`);
+        log.info({ event: 'processor_synthesis_files', toProcess: contentFiles.length, alreadyProcessed: allContentFiles.length - contentFiles.length }, 'Content files to synthesize');
 
         // Batch size - process N files at a time
         const BATCH_SIZE = 5;
@@ -3103,7 +3080,7 @@ ${allContent}
 
         // Get initial context
         const pendingQuestions = this.storage.getQuestions({ status: 'pending' });
-        console.log(`Context: ${pendingQuestions.length} pending questions`);
+        log.debug({ event: 'processor_synthesis_context', pendingQuestions: pendingQuestions.length }, 'Synthesis context');
 
         // Process in batches
         for (let batchNum = 0; batchNum < totalBatches; batchNum++) {
@@ -3117,11 +3094,11 @@ ${allContent}
             this.processingState.progress = batchProgress;
             this.processingState.message = `Synthesizing batch ${batchNum + 1}/${totalBatches} (${batchFiles.map(f => f.name.replace('.md', '')).join(', ')})`;
 
-            console.log(`\n--- Batch ${batchNum + 1}/${totalBatches}: ${batchFiles.map(f => f.name).join(', ')} ---`);
+            log.debug({ event: 'processor_synthesis_batch_start', batchNum: batchNum + 1, totalBatches, files: batchFiles.map(f => f.name) }, 'Synthesis batch');
 
             // Get CURRENT facts (including ones added in previous batches)
             const existingFacts = this.storage.getFacts();
-            console.log(`Current context: ${existingFacts.length} facts`);
+            log.debug({ event: 'processor_synthesis_context_facts', count: existingFacts.length }, 'Current context facts');
 
             // Combine batch content
             const batchContent = batchFiles.map(f => {
@@ -3141,13 +3118,13 @@ ${allContent}
             });
 
             if (!result.success) {
-                console.error(`Batch ${batchNum + 1} synthesis failed:`, result.error);
+                log.warn({ event: 'processor_synthesis_batch_failed', batchNum: batchNum + 1, error: result.error }, 'Batch synthesis failed');
                 continue; // Try next batch
             }
 
             // Parse synthesis results
             const synthesized = this.parseAIResponse(result.response);
-            console.log(`Batch ${batchNum + 1} results: ${synthesized.facts?.length || 0} facts, ${synthesized.resolved_questions?.length || 0} resolved`);
+            log.debug({ event: 'processor_synthesis_batch_results', batchNum: batchNum + 1, facts: synthesized.facts?.length || 0, resolved: synthesized.resolved_questions?.length || 0 }, 'Batch results');
 
             // Store results (facts are persisted, so next batch sees them)
             const existingFactSet = new Set(existingFacts.map(f => f.content?.toLowerCase().trim()));
@@ -3162,28 +3139,37 @@ ${allContent}
                                   this._currentDocumentIds?.[baseName + '.txt'] || null;
                 if (batchDocumentId) break;
             }
-            console.log(`[Synthesis] Batch document ID: ${batchDocumentId || 'none'}`);
+            log.debug({ event: 'processor_synthesis_batch_doc', batchDocumentId: batchDocumentId || null }, 'Synthesis batch document');
             
+            const synthesisBatchFacts = [];
             for (const fact of synthesized.facts || []) {
                 const content = typeof fact === 'string' ? fact : fact.content;
                 if (!content) continue;
-
                 const key = content.toLowerCase().trim();
                 if (existingFactSet.has(key)) continue;
                 if (this.isGarbageFact(content)) continue;
-
+                synthesisBatchFacts.push({
+                    content,
+                    category: fact.category || 'general',
+                    confidence: fact.confidence ?? 0.9,
+                    source_file: batchSourceFiles,
+                    source_document_id: batchDocumentId
+                });
+                existingFactSet.add(key);
+            }
+            if (synthesisBatchFacts.length > 0) {
                 try {
-                    await this.storage.addFact({
-                        content: content,
-                        category: fact.category || 'general',
-                        confidence: fact.confidence || 0.9,
-                        source_file: batchSourceFiles,
-                        source_document_id: batchDocumentId
-                    });
-                    existingFactSet.add(key);
-                    totalFactsAdded++;
+                    if (typeof this.storage.addFacts === 'function') {
+                        const result = await this.storage.addFacts(synthesisBatchFacts, { skipDedup: true });
+                        totalFactsAdded += result.inserted;
+                    } else {
+                        for (const f of synthesisBatchFacts) {
+                            await this.storage.addFact(f, true);
+                            totalFactsAdded++;
+                        }
+                    }
                 } catch (e) {
-                    console.warn(`[Synthesis] Failed to add fact: ${e.message}`);
+                    log.warn({ event: 'processor_synthesis_facts_batch_failed', reason: e.message }, 'Synthesis: failed to add facts batch');
                 }
             }
 
@@ -3194,7 +3180,7 @@ ${allContent}
                         await this.storage.resolveQuestion(resolved.question_id, resolved.answer);
                         totalQuestionsResolved++;
                     } catch (e) {
-                        console.warn(`[Synthesis] Failed to resolve question: ${e.message}`);
+                        log.warn({ event: 'processor_synthesis_resolve_question_failed', reason: e.message }, 'Synthesis: failed to resolve question');
                     }
                 }
             }
@@ -3213,7 +3199,7 @@ ${allContent}
                     });
                     totalQuestionsAdded++;
                 } catch (e) {
-                    console.warn(`[Synthesis] Failed to add question: ${e.message}`);
+                    log.warn({ event: 'processor_synthesis_add_question_failed', reason: e.message }, 'Synthesis: failed to add question');
                 }
             }
 
@@ -3231,7 +3217,7 @@ ${allContent}
                     });
                     totalDecisionsAdded++;
                 } catch (e) {
-                    console.warn(`[Synthesis] Failed to add decision: ${e.message}`);
+                    log.warn({ event: 'processor_synthesis_add_decision_failed', reason: e.message }, 'Synthesis: failed to add decision');
                 }
             }
 
@@ -3249,7 +3235,7 @@ ${allContent}
                     });
                     totalRisksAdded++;
                 } catch (e) {
-                    console.warn(`[Synthesis] Failed to add risk: ${e.message}`);
+                    log.warn({ event: 'processor_synthesis_add_risk_failed', reason: e.message }, 'Synthesis: failed to add risk');
                 }
             }
 
@@ -3281,16 +3267,16 @@ ${allContent}
                     });
                     totalPeopleAdded++;
                 } catch (e) {
-                    console.warn(`[Synthesis] Failed to add person: ${e.message}`);
+                    log.warn({ event: 'processor_synthesis_add_person_failed', reason: e.message }, 'Synthesis: failed to add person');
                 }
             }
 
-            console.log(`Running totals: ${totalFactsAdded} facts, ${totalQuestionsResolved} resolved, ${totalQuestionsAdded} new questions, ${totalPeopleAdded} people`);
+            log.debug({ event: 'processor_synthesis_totals', facts: totalFactsAdded, resolved: totalQuestionsResolved, newQuestions: totalQuestionsAdded, people: totalPeopleAdded }, 'Synthesis running totals');
 
             // Mark batch files as synthesized (incremental tracking)
             this.markFilesSynthesized(batchFiles);
           } catch (batchError) {
-            console.error(`[Synthesis] Batch ${batchNum + 1} error:`, batchError.message || batchError);
+            log.warn({ event: 'processor_synthesis_batch_error', batchNum: batchNum + 1, reason: batchError.message || batchError }, 'Synthesis batch error');
             // Continue with next batch instead of crashing
           }
         }
@@ -3301,7 +3287,7 @@ ${allContent}
         // Generate AI titles and summaries for documents that don't have them
         const summaryStats = await this.generateMissingDocumentSummaries();
 
-        console.log(`\nHolistic synthesis complete: +${totalFactsAdded} facts, ${totalQuestionsResolved} resolved, +${totalQuestionsAdded} new questions, +${totalDecisionsAdded} decisions, +${totalRisksAdded} risks, +${totalPeopleAdded} people, ${summaryStats.generated} summaries`);
+        log.info({ event: 'processor_synthesis_complete', facts: totalFactsAdded, resolved: totalQuestionsResolved, newQuestions: totalQuestionsAdded, decisions: totalDecisionsAdded, risks: totalRisksAdded, people: totalPeopleAdded, summaries: summaryStats.generated }, 'Holistic synthesis complete');
 
         return {
             success: true,
@@ -3335,11 +3321,11 @@ ${allContent}
             });
             
             if (docsNeedingSummary.length === 0) {
-                console.log('[Summaries] All documents already have AI summaries');
+                log.info({ event: 'processor_summaries_skip_all' }, 'All documents already have AI summaries');
                 return stats;
             }
             
-            console.log(`[Summaries] Generating AI summaries for ${docsNeedingSummary.length} documents...`);
+            log.info({ event: 'processor_summaries_start', count: docsNeedingSummary.length }, 'Generating AI summaries');
             
             for (const doc of docsNeedingSummary) {
                 try {
@@ -3389,19 +3375,19 @@ ${allContent}
                         });
                         
                         stats.generated++;
-                        console.log(`[Summaries] Generated: ${doc.name} - "${summaryResult.title}"`);
+                        log.debug({ event: 'processor_summary_generated', docName: doc.name, title: summaryResult.title }, 'Summary generated');
                     } else {
                         stats.skipped++;
                     }
                 } catch (err) {
-                    console.log(`[Summaries] Error for ${doc.name}: ${err.message}`);
+                    log.warn({ event: 'processor_summary_error', docName: doc.name, reason: err.message }, 'Summary error');
                     stats.errors++;
                 }
             }
             
-            console.log(`[Summaries] Complete: ${stats.generated} generated, ${stats.skipped} skipped, ${stats.errors} errors`);
+            log.info({ event: 'processor_summaries_complete', generated: stats.generated, skipped: stats.skipped, errors: stats.errors }, 'Summaries complete');
         } catch (e) {
-            console.error('[Summaries] Failed:', e.message);
+            log.warn({ event: 'processor_summaries_failed', reason: e.message }, 'Summaries failed');
         }
         
         return stats;
@@ -3420,7 +3406,7 @@ ${allContent}
             return;
         }
 
-        console.log(`Enriching ${questions.length} questions with ${people.length} people...`);
+        log.debug({ event: 'processor_enrich_start', questions: questions.length, people: people.length }, 'Enriching questions with people');
         let enrichedCount = 0;
         let nameUpgradeCount = 0;
 
@@ -3450,7 +3436,7 @@ ${allContent}
                 const namePattern = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
                 if (namePattern.test(fullText)) {
                     nameMatch = person.name;
-                    console.log(`Direct name match: ${person.name} found in question ${question.id}`);
+                    log.debug({ event: 'processor_enrich_name_match', personName: person.name, questionId: question.id }, 'Direct name match');
                     break;
                 }
             }
@@ -3459,10 +3445,10 @@ ${allContent}
             if (nameMatch && nameMatch !== currentAssignee) {
                 this.storage.updateQuestion(question.id, { assigned_to: nameMatch });
                 if (hasRoleAssignee) {
-                    console.log(`Upgraded question ${question.id}: ${currentAssignee} -> ${nameMatch} (name takes priority)`);
+                    log.debug({ event: 'processor_enrich_upgraded', questionId: question.id, from: currentAssignee, to: nameMatch }, 'Upgraded assignee (name priority)');
                     nameUpgradeCount++;
                 } else {
-                    console.log(`Enriched question ${question.id}: assigned to ${nameMatch}`);
+                    log.debug({ event: 'processor_enrich_assigned', questionId: question.id, assignee: nameMatch }, 'Enriched question');
                     enrichedCount++;
                 }
                 continue;
@@ -3473,14 +3459,14 @@ ${allContent}
                 const suggestedAssignee = this.suggestQuestionAssignee(question, people);
                 if (suggestedAssignee) {
                     this.storage.updateQuestion(question.id, { assigned_to: suggestedAssignee });
-                    console.log(`Enriched question ${question.id}: assigned to ${suggestedAssignee}`);
+                    log.debug({ event: 'processor_enrich_suggested', questionId: question.id, assignee: suggestedAssignee }, 'Enriched question (suggested)');
                     enrichedCount++;
                 }
             }
         }
 
         if (enrichedCount > 0 || nameUpgradeCount > 0) {
-            console.log(`Enriched ${enrichedCount} questions, upgraded ${nameUpgradeCount} from role to name`);
+            log.info({ event: 'processor_enrich_done', enriched: enrichedCount, upgraded: nameUpgradeCount }, 'Enriched questions');
         }
     }
 
@@ -3510,11 +3496,51 @@ ${allContent}
         this.visionModel = visionModel;
         this.userRole = userRole;
 
-        const pending = this.scanPendingFiles();
+        const pending = await this.scanPendingFiles();
         const allFiles = [
             ...pending.newinfo.map(f => ({ ...f, type: 'document' })),
             ...pending.newtranscripts.map(f => ({ ...f, type: 'transcript' }))
         ];
+
+        // Pending documents in Google Drive (already in DB with filepath gdrive:xxx)
+        const projectId = this.storage.getCurrentProject?.()?.id || this.storage.currentProjectId;
+        if (projectId && this.storage._supabase && this.storage._supabase.supabase) {
+            try {
+                const drive = require('./integrations/googleDrive/drive');
+                const { data: gdriveDocs } = await this.storage._supabase.supabase
+                    .from('documents')
+                    .select('id, filename, filepath, doc_type, project_id')
+                    .eq('project_id', projectId)
+                    .eq('status', 'pending')
+                    .like('filepath', 'gdrive:%');
+                if (gdriveDocs && gdriveDocs.length > 0) {
+                    const os = require('os');
+                    for (const doc of gdriveDocs) {
+                        const fileId = (doc.filepath || '').replace(/^gdrive:/, '').trim();
+                        if (!fileId) continue;
+                        const client = await drive.getDriveClientForRead(doc.project_id);
+                        if (!client || !client.drive) continue;
+                        try {
+                            const buffer = await drive.downloadFile(client, fileId);
+                            const tempPath = path.join(os.tmpdir(), `gdrive-${doc.id}-${(doc.filename || 'file').replace(/[^a-zA-Z0-9.-]/g, '_')}`);
+                            fs.writeFileSync(tempPath, buffer);
+                            const isTranscript = (doc.doc_type || '') === 'transcript';
+                            allFiles.push({
+                                name: doc.filename || 'document',
+                                path: tempPath,
+                                type: isTranscript ? 'transcript' : 'document',
+                                docId: doc.id,
+                                isGdrive: true
+                            });
+                        } catch (e) {
+                            log.warn({ event: 'processor_gdrive_download_failed', docId: doc.id, reason: e.message }, 'Failed to download gdrive doc');
+                        }
+                    }
+                }
+            } catch (e) {
+                log.warn({ event: 'processor_gdrive_fetch_failed', reason: e.message }, 'Failed to fetch gdrive pending docs');
+            }
+        }
 
         if (allFiles.length === 0) {
             this.processingState.status = 'idle';
@@ -3534,7 +3560,7 @@ ${allContent}
         this.processingState.currentPhase = 'extraction';
 
         // PHASE 1: Extract raw content from all files
-        console.log(`\n=== PHASE 1: Content Extraction (${allFiles.length} files) ===`);
+        log.info({ event: 'processor_phase1_start', fileCount: allFiles.length }, 'Phase 1: Content Extraction');
 
         for (let i = 0; i < allFiles.length; i++) {
             const file = allFiles[i];
@@ -3554,45 +3580,61 @@ ${allContent}
             if (result.success && !result.skipped) {
                 results.phase1.processed++;
 
-                // Track document in Supabase with content hash and document date
-                const docRecord = await this.storage.addDocument({
-                    name: file.name,
-                    filename: file.name,
-                    path: file.path,
-                    type: isTranscript ? 'transcript' : 'document',
-                    doc_type: isTranscript ? 'transcript' : 'document',
-                    content_path: result.contentPath,
-                    content: result.content,  // Store actual content in database
-                    extraction_method: result.method,
-                    content_length: result.contentLength,
-                    content_hash: result.contentHash,  // MD5 hash for duplicate detection
-                    document_date: file.documentDate || null,  // User-provided date for timeline
-                    document_time: file.documentTime || null,
-                    status: 'completed'
-                });
-                
-                // Store document ID for linking in Phase 2
-                if (docRecord?.id) {
+                if (file.docId && file.isGdrive) {
+                    // Update existing gdrive document (already in DB)
+                    await this.storage._supabase.updateDocument(file.docId, {
+                        content: result.content,
+                        content_path: result.contentPath,
+                        status: 'completed'
+                    });
                     if (!results.documentIds) results.documentIds = {};
-                    results.documentIds[file.name] = docRecord.id;
-                    // Also store by content file name (without extension)
+                    results.documentIds[file.name] = file.docId;
                     const baseName = file.name.replace(/\.[^/.]+$/, '');
-                    results.documentIds[baseName] = docRecord.id;
-                    results.documentIds[baseName + '.md'] = docRecord.id;
-                    console.log(`[Phase1] Document ${file.name} registered with ID: ${docRecord.id}`);
+                    results.documentIds[baseName] = file.docId;
+                    results.documentIds[baseName + '.md'] = file.docId;
+                    log.debug({ event: 'processor_phase1_gdrive_updated', filename: file.name, docId: file.docId }, 'Phase1: GDrive doc updated');
+                    try { if (fs.existsSync(file.path)) fs.unlinkSync(file.path); } catch (_) {}
+                } else {
+                    // Track document in Supabase with content hash and document date
+                    const docRecord = await this.storage.addDocument({
+                        name: file.name,
+                        filename: file.name,
+                        path: file.path,
+                        type: isTranscript ? 'transcript' : 'document',
+                        doc_type: isTranscript ? 'transcript' : 'document',
+                        content_path: result.contentPath,
+                        content: result.content,  // Store actual content in database
+                        extraction_method: result.method,
+                        content_length: result.contentLength,
+                        content_hash: result.contentHash,  // MD5 hash for duplicate detection
+                        document_date: file.documentDate || null,  // User-provided date for timeline
+                        document_time: file.documentTime || null,
+                        status: 'completed',
+                        sprint_id: file.sprintId || null,
+                        action_id: file.actionId || null
+                    });
+                    // Store document ID for linking in Phase 2
+                    if (docRecord?.id) {
+                        if (!results.documentIds) results.documentIds = {};
+                        results.documentIds[file.name] = docRecord.id;
+                        const baseName = file.name.replace(/\.[^/.]+$/, '');
+                        results.documentIds[baseName] = docRecord.id;
+                        results.documentIds[baseName + '.md'] = docRecord.id;
+                        log.debug({ event: 'processor_phase1_doc_registered', filename: file.name, docId: docRecord.id }, 'Phase1: Document registered');
+                    }
                 }
             } else if (result.skipped && result.reason === 'duplicate') {
-                console.log(`[Phase1] Skipped duplicate: ${file.name} (matches ${result.duplicateOf})`);
+                log.debug({ event: 'processor_phase1_skip_duplicate', filename: file.name, duplicateOf: result.duplicateOf }, 'Phase1: Skipped duplicate');
             } else if (!result.success) {
                 results.phase1.errors.push({ file: file.name, error: result.error });
             }
         }
 
-        console.log(`Phase 1 complete: ${results.phase1.processed} files extracted`);
+        log.info({ event: 'processor_phase1_done', processed: results.phase1.processed }, 'Phase 1 complete');
 
         // PHASE 2: Holistic synthesis with full context
         if (results.phase1.processed > 0) {
-            console.log(`\n=== PHASE 2: Holistic Synthesis ===`);
+            log.info({ event: 'processor_phase2_start' }, 'Phase 2: Holistic Synthesis');
             this.processingState.progress = 60;
             this.processingState.message = 'Running holistic synthesis...';
 
@@ -3604,13 +3646,14 @@ ${allContent}
         // PHASE 3: AI Content Processing - Extract entities, relationships, and populate graph
         const graphProvider = this.storage.getGraphProvider();
         if (results.phase1.processed > 0) {
-            console.log(`\n=== PHASE 3: AI Content Processing ===`);
+            log.info({ event: 'processor_phase3_start' }, 'Phase 3: AI Content Processing');
             this.processingState.progress = 85;
             this.processingState.message = 'Running AI content analysis...';
 
             try {
                 const { getAIContentProcessor } = require('./ai');
                 const aiProcessor = getAIContentProcessor({
+                    config: this.config,
                     llmProvider: this.getLLMProvider(),
                     llmModel: this.config.llm?.perTask?.text?.model || this.config.llm?.models?.text,
                     llmConfig: this.config.llm,
@@ -3631,7 +3674,7 @@ ${allContent}
                         const isTranscript = file.name.includes('transcript') || file.name.includes('meeting');
                         
                         this.processingState.message = `AI analyzing: ${file.name}...`;
-                        console.log(`[AIProcessor] Processing: ${file.name}`);
+                        log.debug({ event: 'processor_phase3_file', filename: file.name }, 'AIProcessor processing');
 
                         let aiResult;
                         if (isTranscript) {
@@ -3656,6 +3699,10 @@ ${allContent}
                         try {
                             const { getOntologyAgent } = require('./ontology');
                             const ontologyAgent = getOntologyAgent({
+                                storage: this.storage,
+                                graphProvider: this.storage.getGraphProvider?.(),
+                                llmConfig: this.config?.llm,
+                                appConfig: this.config,
                                 dataDir: this.storage.getProjectDataDir ? this.storage.getProjectDataDir() : './data'
                             });
                             await ontologyAgent.analyzeExtraction(aiResult, file.name);
@@ -3707,16 +3754,18 @@ ${allContent}
                             }
                         }
 
-                        // Add action items
-                        for (const action of aiResult.actionItems || []) {
-                            if (action.task && action.task.length > 5) {
-                                this.storage.addActionItem({
-                                    task: action.task,
-                                    owner: action.owner || action.assignee || null,
-                                    deadline: action.deadline || null,
-                                    status: 'pending',
-                                    source: `document:${file.name}`
-                                });
+                        // Add action items only from transcripts (not from plain documents)
+                        if (isTranscript) {
+                            for (const action of aiResult.actionItems || []) {
+                                if (action.task && action.task.length > 5) {
+                                    this.storage.addActionItem({
+                                        task: action.task,
+                                        owner: action.owner || action.assignee || null,
+                                        deadline: action.deadline || null,
+                                        status: 'pending',
+                                        source: `document:${file.name}`
+                                    });
+                                }
                             }
                         }
 
@@ -3769,18 +3818,18 @@ ${allContent}
                                             entities_extracted: totalEntitiesForDoc
                                         });
                                     if (logError) {
-                                        console.warn(`[Phase3] ai_analysis_log error:`, logError.message);
+                                        log.warn({ event: 'processor_phase3_analysis_log_error', reason: logError.message }, 'Phase3: ai_analysis_log error');
                                     }
                                 }
-                                console.log(`[Phase3] Updated document ${docId} with extraction_result (${totalEntitiesForDoc} entities)`);
+                                log.debug({ event: 'processor_phase3_doc_updated', docId, entities: totalEntitiesForDoc }, 'Phase3: Document updated with extraction_result');
                             } catch (updateErr) {
-                                console.warn(`[Phase3] Failed to update document ${docId}:`, updateErr.message);
+                                log.warn({ event: 'processor_phase3_update_failed', docId, reason: updateErr.message }, 'Phase3: Failed to update document');
                             }
                         }
 
                         filesProcessed++;
                     } catch (fileErr) {
-                        console.log(`[AIProcessor] Error processing ${file.name}: ${fileErr.message}`);
+                        log.warn({ event: 'processor_phase3_file_error', filename: file.name, reason: fileErr.message }, 'AIProcessor error');
                     }
                 }
 
@@ -3833,7 +3882,7 @@ ${allContent}
                     }
                 }
 
-                console.log(`[Phase3] AI processed ${filesProcessed} files: ${totalEntities} entities, ${totalRelationships} relationships, ${totalCypherQueries} graph queries`);
+                log.info({ event: 'processor_phase3_done', files: filesProcessed, entities: totalEntities, relationships: totalRelationships, cypherQueries: totalCypherQueries }, 'Phase3: AI processing complete');
                 results.phase3 = { 
                     success: true, 
                     filesProcessed,
@@ -3842,14 +3891,14 @@ ${allContent}
                     graphQueries: totalCypherQueries
                 };
             } catch (phase3Error) {
-                console.error('[Phase3] AI Content Processing error:', phase3Error.message);
+                log.warn({ event: 'processor_phase3_error', reason: phase3Error.message }, 'Phase3: AI Content Processing error');
                 results.phase3 = { success: false, error: phase3Error.message };
             }
         }
 
         // PHASE 4: Generate AI titles and summaries for processed documents
         if (results.phase1.processed > 0) {
-            console.log(`\n=== PHASE 4: Generating AI Titles & Summaries ===`);
+            log.info({ event: 'processor_phase4_start' }, 'Phase 4: Generating AI Titles & Summaries');
             this.processingState.progress = 92;
             this.processingState.message = 'Generating document summaries...';
             this.processingState.currentPhase = 'summaries';
@@ -3862,7 +3911,7 @@ ${allContent}
                 }
                 const allDocs = this.storage.getDocuments('processed') || [];
                 const recentDocs = allDocs.slice(0, Math.max(results.phase1.processed, 1));
-                console.log(`[Phase4] Found ${recentDocs.length} documents to check for AI summaries`);
+                log.debug({ event: 'processor_phase4_docs', count: recentDocs.length }, 'Phase4: Documents to check for summaries');
                 let summariesGenerated = 0;
                 
                 for (const doc of recentDocs) {
@@ -3870,7 +3919,7 @@ ${allContent}
                     const hasAITitle = doc.ai_title && doc.ai_title !== doc.filename && doc.ai_title !== doc.name;
                     const hasAISummary = doc.ai_summary || (doc.summary && doc.summary.length > 50);
                     if (hasAITitle && hasAISummary) {
-                        console.log(`[Phase4] Skipping ${doc.filename || doc.name} - already has AI summary`);
+                        log.debug({ event: 'processor_phase4_skip', filename: doc.filename || doc.name }, 'Phase4: Already has AI summary');
                         continue;
                     }
                     
@@ -3921,7 +3970,7 @@ ${allContent}
                                     });
                                 }
                             } catch (updateErr) {
-                                console.log(`[Phase4] Failed to persist summary: ${updateErr.message}`);
+                                log.warn({ event: 'processor_phase4_persist_failed', reason: updateErr.message }, 'Phase4: Failed to persist summary');
                             }
                             
                             // Update local cache
@@ -3943,22 +3992,22 @@ ${allContent}
                             }
                             
                             summariesGenerated++;
-                            console.log(`[Phase4] Generated summary for: ${doc.name || doc.filename} - "${summaryResult.title}"`);
+                            log.debug({ event: 'processor_phase4_summary_ok', docName: doc.name || doc.filename, title: summaryResult.title }, 'Phase4: Generated summary');
                         }
                     } catch (sumErr) {
-                        console.log(`[Phase4] Failed to generate summary for ${doc.name}: ${sumErr.message}`);
+                        log.warn({ event: 'processor_phase4_summary_failed', docName: doc.name, reason: sumErr.message }, 'Phase4: Failed to generate summary');
                     }
                 }
                 
-                console.log(`[Phase4] Generated ${summariesGenerated} AI summaries`);
+                log.info({ event: 'processor_phase4_done', generated: summariesGenerated }, 'Phase4: AI summaries generated');
                 results.phase4 = { success: true, summariesGenerated };
             } catch (phase4Error) {
-                console.error('[Phase4] AI Summary generation error:', phase4Error.message);
+                log.warn({ event: 'processor_phase4_error', reason: phase4Error.message }, 'Phase4: AI Summary generation error');
                 results.phase4 = { success: false, error: phase4Error.message };
             }
         }
 
-        // Unload models
+        // Unload models (Ollama-only; no-op for other providers)
         this.processingState.message = 'Unloading models...';
         try {
             const modelsToUnload = new Set([textModel, visionModel].filter(Boolean));
@@ -3968,10 +4017,11 @@ ${allContent}
             }
 
             if (modelsToUnload.size > 0) {
-                await this.ollama.unloadModels([...modelsToUnload]);
+                const ollamaConfig = this.getProviderConfig('ollama');
+                await llm.unloadModels('ollama', [...modelsToUnload], ollamaConfig);
             }
         } catch (e) {
-            console.error('Model unload failed:', e.message);
+            log.warn({ event: 'processor_model_unload_failed', reason: e.message }, 'Model unload failed');
         }
 
         this.processingState = {
@@ -3993,7 +4043,7 @@ ${allContent}
             try {
                 const graphProvider = this.storage.getGraphProvider();
                 if (graphProvider && graphProvider.connected) {
-                    console.log(`\n=== PHASE 5: Auto-syncing to FalkorDB ===`);
+                    log.info({ event: 'processor_phase5_start' }, 'Phase 5: Auto-syncing to FalkorDB');
                     const projectId = this.storage.getProjectId?.();
                     if (projectId && typeof graphProvider.switchGraph === 'function') {
                         await graphProvider.switchGraph(`project_${projectId}`);
@@ -4004,19 +4054,12 @@ ${allContent}
                     const syncResult = await graphSync.incrementalSync(this.storage);
                     results.graphSync = syncResult;
                     
-                    console.log(`[GraphSync] Auto-sync completed:`, {
-                        facts: syncResult.facts,
-                        decisions: syncResult.decisions,
-                        people: syncResult.people,
-                        risks: syncResult.risks,
-                        actions: syncResult.actions,
-                        documents: syncResult.documents
-                    });
+                    log.info({ event: 'processor_graph_sync_done', facts: syncResult.facts, decisions: syncResult.decisions, people: syncResult.people, risks: syncResult.risks, actions: syncResult.actions, documents: syncResult.documents }, 'GraphSync completed');
                 } else {
-                    console.log('[GraphSync] Skipping auto-sync - FalkorDB not connected');
+                    log.debug({ event: 'processor_graph_sync_skip' }, 'GraphSync: FalkorDB not connected');
                 }
             } catch (syncError) {
-                console.log('[GraphSync] Auto-sync error:', syncError.message);
+                log.warn({ event: 'processor_graph_sync_error', reason: syncError.message }, 'GraphSync error');
                 results.graphSyncError = syncError.message;
             }
         }
@@ -4027,10 +4070,10 @@ ${allContent}
                 const contactsSync = this.storage.syncPeopleToContacts();
                 results.contactsSync = contactsSync;
                 if (contactsSync.added > 0) {
-                    console.log(`[Contacts] Auto-synced ${contactsSync.added} people to Contacts Directory`);
+                    log.info({ event: 'processor_contacts_sync_done', added: contactsSync.added }, 'Contacts: Auto-synced people');
                 }
             } catch (contactsError) {
-                console.log('[Contacts] Auto-sync error:', contactsError.message);
+                log.warn({ event: 'processor_contacts_sync_error', reason: contactsError.message }, 'Contacts auto-sync error');
             }
         }
 
@@ -4041,12 +4084,12 @@ ${allContent}
                 const factCheckResult = await runFactCheck(this.storage, this.config, { recordEvents: true });
                 results.factCheck = factCheckResult;
                 if (factCheckResult.conflicts?.length > 0) {
-                    console.log(`[FactCheck] Found ${factCheckResult.conflicts.length} conflict(s) among ${factCheckResult.analyzed_facts} facts`);
+                    log.info({ event: 'processor_factcheck_conflicts', conflicts: factCheckResult.conflicts.length, analyzed: factCheckResult.analyzed_facts }, 'FactCheck: conflicts found');
                 } else if (factCheckResult.analyzed_facts >= 2) {
-                    console.log(`[FactCheck] No conflicts among ${factCheckResult.analyzed_facts} facts`);
+                    log.debug({ event: 'processor_factcheck_ok', analyzed: factCheckResult.analyzed_facts }, 'FactCheck: no conflicts');
                 }
             } catch (factCheckError) {
-                console.log('[FactCheck] Error:', factCheckError.message);
+                log.warn({ event: 'processor_factcheck_error', reason: factCheckError.message }, 'FactCheck error');
                 results.factCheckError = factCheckError.message;
             }
         }
@@ -4058,12 +4101,12 @@ ${allContent}
                 const decisionCheckResult = await runDecisionCheck(this.storage, this.config, { recordEvents: true });
                 results.decisionCheck = decisionCheckResult;
                 if (decisionCheckResult.conflicts?.length > 0) {
-                    console.log(`[DecisionCheck] Found ${decisionCheckResult.conflicts.length} conflict(s) among ${decisionCheckResult.analyzed_decisions} decisions`);
+                    log.info({ event: 'processor_decisioncheck_conflicts', conflicts: decisionCheckResult.conflicts.length, analyzed: decisionCheckResult.analyzed_decisions }, 'DecisionCheck: conflicts found');
                 } else if (decisionCheckResult.analyzed_decisions >= 2) {
-                    console.log(`[DecisionCheck] No conflicts among ${decisionCheckResult.analyzed_decisions} decisions`);
+                    log.debug({ event: 'processor_decisioncheck_ok', analyzed: decisionCheckResult.analyzed_decisions }, 'DecisionCheck: no conflicts');
                 }
             } catch (decisionCheckError) {
-                console.log('[DecisionCheck] Error:', decisionCheckError.message);
+                log.warn({ event: 'processor_decisioncheck_error', reason: decisionCheckError.message }, 'DecisionCheck error');
                 results.decisionCheckError = decisionCheckError.message;
             }
         }
@@ -4074,10 +4117,10 @@ ${allContent}
                 const answersFound = await this.detectAndResolveQuestionsWithAI();
                 results.questionsAutoAnswered = answersFound;
                 if (answersFound > 0) {
-                    console.log(`[AI] Auto-answered ${answersFound} pending questions from processed documents`);
+                    log.info({ event: 'processor_ai_questions_answered', count: answersFound }, 'AI: Auto-answered pending questions');
                 }
             } catch (aiError) {
-                console.log('[AI] Question detection error:', aiError.message);
+                log.warn({ event: 'processor_ai_question_detection_error', reason: aiError.message }, 'AI: Question detection error');
             }
         }
 
@@ -4135,14 +4178,15 @@ SOURCE: <which fact/decision provided the answer, or "N/A">
 CONFIDENCE: <high|medium|low>`;
 
                 try {
+                    const reasoningCfg = llmConfig.getTextConfigForReasoning(this.config);
+                    if (!reasoningCfg?.provider || !reasoningCfg?.model) continue;
                     const llmResult = await this.llm.generateText({
-                        provider: this.getLLMProvider(),
-                        providerConfig: this.getProviderConfig(),
-                        model: this.config.llm?.perTask?.text?.model || this.config.llm?.models?.text,
+                        provider: reasoningCfg.provider,
+                        providerConfig: reasoningCfg.providerConfig || {},
+                        model: reasoningCfg.model,
                         prompt: prompt,
                         maxTokens: 500,
-                        temperature: 0.2,
-                        providerConfig: this.config.llm?.providers?.[this.config.llm?.provider] || {}
+                        temperature: 0.2
                     });
 
                     const response = llmResult.success ? llmResult.text : '';
@@ -4161,15 +4205,15 @@ CONFIDENCE: <high|medium|low>`;
                             await this.storage.resolveQuestion(question.id, answer, 'auto-detected');
                             
                             resolved++;
-                            console.log(`[AI] Auto-answered question: "${question.content.substring(0, 40)}..."`);
+                            log.debug({ event: 'processor_ai_question_answered', questionId: question.id, contentPrefix: question.content?.substring(0, 40) }, 'AI: Auto-answered question');
                         }
                     }
                 } catch (llmError) {
-                    console.log(`[AI] Error checking question ${question.id}:`, llmError.message);
+                    log.warn({ event: 'processor_ai_question_check_error', questionId: question.id, reason: llmError.message }, 'AI: Error checking question');
                 }
             }
         } catch (error) {
-            console.error('[AI] detectAndResolveQuestionsWithAI error:', error.message);
+            log.warn({ event: 'processor_ai_detect_resolve_error', reason: error.message }, 'AI: detectAndResolveQuestionsWithAI error');
         }
 
         return resolved;
@@ -4248,13 +4292,13 @@ CONFIDENCE: <high|medium|low>`;
                             'auto-detected'
                         );
                         resolved++;
-                        console.log(`Question resolved: "${question.content.substring(0, 50)}..." matched with ${info.type}`);
+                        log.debug({ event: 'processor_question_resolved', questionId: question.id, type: info.type }, 'Question resolved');
                         break; // Move to next question
                     }
                 }
             }
         } catch (error) {
-            console.error('Error checking questions:', error.message);
+            log.warn({ event: 'processor_check_questions_error', reason: error.message }, 'Error checking questions');
         }
 
         return resolved;
@@ -4332,13 +4376,13 @@ CONFIDENCE: <high|medium|low>`;
                             completion_note: `[Auto-completed] ${text.substring(0, 200)}`
                         });
                         completed++;
-                        console.log(`Action completed: "${action.task.substring(0, 50)}..." matched completion text`);
+                        log.debug({ event: 'processor_action_completed', actionId: action.id }, 'Action completed (matched completion text)');
                         break; // Move to next action
                     }
                 }
             }
         } catch (error) {
-            console.error('Error checking action completions:', error.message);
+            log.warn({ event: 'processor_check_actions_error', reason: error.message }, 'Error checking action completions');
         }
 
         return completed;
@@ -4441,7 +4485,7 @@ CONFIDENCE: <high|medium|low>`;
             // Check for name mention (with word boundaries to avoid partial matches)
             const namePattern = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
             if (namePattern.test(fullText)) {
-                console.log(`Direct name match: ${person.name} found in question`);
+                log.debug({ event: 'processor_assignee_name_match', personName: person.name }, 'Direct name match in question');
                 return person.name; // Return immediately - direct name mention is highest priority
             }
         }
@@ -4631,14 +4675,14 @@ CONFIDENCE: <high|medium|low>`;
 
         for (const q of allQuestions) {
             if (this.isGarbageQuestion(q.content, q.context)) {
-                console.log(`Garbage question found: "${q.content?.substring(0, 50)}..."`);
+                log.debug({ event: 'processor_garbage_question', contentPrefix: q.content?.substring(0, 50) }, 'Garbage question found');
                 garbageIds.push(q.id);
             }
         }
 
         if (garbageIds.length > 0) {
             const removed = this.storage.removeQuestions(garbageIds);
-            console.log(`Removed ${removed} garbage questions`);
+            log.info({ event: 'processor_garbage_questions_removed', count: removed }, 'Removed garbage questions');
             return removed;
         }
 
@@ -4699,7 +4743,7 @@ CONFIDENCE: <high|medium|low>`;
     async synthesizeKnowledge(reasoningModel, progressCallback = null) {
         const updateProgress = (progress, message) => {
             if (progressCallback) progressCallback(progress, message);
-            console.log(`Synthesis ${progress}%: ${message}`);
+            log.debug({ event: 'processor_synthesis_progress', progress, message }, `Synthesis ${progress}%`);
         };
 
         updateProgress(0, 'Starting knowledge synthesis...');
@@ -4772,8 +4816,7 @@ CONFIDENCE: <high|medium|low>`;
                     synthesizedFacts.push(...cleanedFacts);
                 }
             } catch (err) {
-                console.error(`Error consolidating ${category}:`, err);
-                // Fallback: keep original cleaned facts
+                log.warn({ event: 'processor_consolidate_error', category, reason: err.message }, 'Error consolidating category');
                 synthesizedFacts.push(...cleanedFacts);
             }
 
@@ -4917,7 +4960,7 @@ IMPORTANT: When in doubt, KEEP the fact. Return ONLY valid JSON array.`;
 
             return { success: true, facts: consolidatedFacts };
         } catch (parseErr) {
-            console.error(`Failed to parse synthesis response for ${category}:`, parseErr);
+            log.warn({ event: 'processor_synthesis_parse_failed', category, reason: parseErr.message }, 'Failed to parse synthesis response');
             return { success: false, error: parseErr.message };
         }
     }
@@ -4944,7 +4987,7 @@ IMPORTANT: When in doubt, KEEP the fact. Return ONLY valid JSON array.`;
         this.textModel = textModel;
         this.visionModel = visionModel;
 
-        const pending = this.scanPendingFiles();
+        const pending = await this.scanPendingFiles();
         const allFiles = [
             ...pending.newinfo.map(f => ({ ...f, type: 'document' })),
             ...pending.newtranscripts.map(f => ({ ...f, type: 'transcript' }))
@@ -5027,17 +5070,17 @@ IMPORTANT: When in doubt, KEEP the fact. Return ONLY valid JSON array.`;
 
             try {
                 const reasoningModel = this.config.ollama?.reasoningModel || this.config.ollama?.model || textModel;
-                console.log(`Auto-synthesizing knowledge with ${reasoningModel}...`);
+                log.info({ event: 'processor_auto_synthesis_start', reasoningModel }, 'Auto-synthesizing knowledge');
 
                 const synthResult = await this.synthesizeKnowledge(reasoningModel);
 
                 if (synthResult.success && synthResult.stats) {
                     const removed = synthResult.stats.removed || {};
-                    console.log(`Synthesis complete: ${synthResult.stats.before} -> ${synthResult.stats.after} facts (removed ${removed.total || 0})`);
+                    log.info({ event: 'processor_auto_synthesis_done', before: synthResult.stats.before, after: synthResult.stats.after, removed: removed.total || 0 }, 'Synthesis complete');
                     results.synthesis = synthResult.stats;
                 }
             } catch (synthError) {
-                console.error('Auto-synthesis failed:', synthError.message);
+                log.warn({ event: 'processor_auto_synthesis_failed', reason: synthError.message }, 'Auto-synthesis failed');
                 // Don't fail the whole processing if synthesis fails
             }
         }
@@ -5056,14 +5099,15 @@ IMPORTANT: When in doubt, KEEP the fact. Return ONLY valid JSON array.`;
             }
 
             if (modelsToUnload.size > 0) {
-                const unloadResult = await this.ollama.unloadModels([...modelsToUnload]);
-                if (unloadResult.unloaded.length > 0) {
-                    console.log(`Models unloaded: ${unloadResult.unloaded.join(', ')}`);
+                const ollamaConfig = this.getProviderConfig('ollama');
+                const unloadResult = await llm.unloadModels('ollama', [...modelsToUnload], ollamaConfig);
+                if (unloadResult.unloaded?.length > 0) {
+                    log.debug({ event: 'processor_models_unloaded', models: unloadResult.unloaded }, 'Models unloaded');
                 }
-                results.modelsUnloaded = unloadResult.unloaded;
+                results.modelsUnloaded = unloadResult.unloaded || [];
             }
         } catch (unloadError) {
-            console.error('Model unload failed:', unloadError.message);
+            log.warn({ event: 'processor_model_unload_failed', reason: unloadError.message }, 'Model unload failed');
             // Don't fail processing if unload fails
         }
 
@@ -5189,17 +5233,17 @@ IMPORTANT: When in doubt, KEEP the fact. Return ONLY valid JSON array.`;
             allEmails = this.storage.getEmails ? await this.storage.getEmails({ limit: 1000 }) : [];
             emailCount = allEmails.length;
             emailsNeedingResponse = allEmails.filter(e => e.requires_response && !e.response_sent).length;
-        } catch (e) { console.warn('[SOT] Could not get emails:', e.message); }
+        } catch (e) { log.warn({ event: 'processor_sot_emails_failed', reason: e.message }, 'SOT: Could not get emails'); }
         
         try {
             allConversations = this.storage.getConversations ? await this.storage.getConversations() : [];
             conversationCount = allConversations.length;
-        } catch (e) { console.warn('[SOT] Could not get conversations:', e.message); }
+        } catch (e) { log.warn({ event: 'processor_sot_conversations_failed', reason: e.message }, 'SOT: Could not get conversations'); }
         
         try {
             allContacts = this.storage.getContacts ? await this.storage.getContacts() : [];
             contactCount = allContacts.length;
-        } catch (e) { console.warn('[SOT] Could not get contacts:', e.message); }
+        } catch (e) { log.warn({ event: 'processor_sot_contacts_failed', reason: e.message }, 'SOT: Could not get contacts'); }
         
         // Get proper counts with fallbacks
         const docCount = stats.documents || stats.documentsProcessed || 0;
@@ -5459,7 +5503,7 @@ IMPORTANT: When in doubt, KEEP the fact. Return ONLY valid JSON array.`;
      * @returns {Promise<object>} - Processing result
      */
     async reprocessDocument(docId) {
-        console.log(`[Processor] Starting reprocess for document: ${docId}`);
+        log.info({ event: 'processor_reprocess_start', docId }, 'Starting reprocess');
         
         try {
             // 1. Get document from database
@@ -5501,7 +5545,7 @@ IMPORTANT: When in doubt, KEEP the fact. Return ONLY valid JSON array.`;
                 for (const p of possiblePaths) {
                     if (fs.existsSync(p)) {
                         content = fs.readFileSync(p, 'utf-8');
-                        console.log(`[Processor] Read content from: ${p}`);
+                        log.debug({ event: 'processor_reprocess_content_read', path: p }, 'Read content from file');
                         break;
                     }
                 }
@@ -5533,6 +5577,7 @@ IMPORTANT: When in doubt, KEEP the fact. Return ONLY valid JSON array.`;
             const { getAIContentProcessor } = require('./ai');
             const graphProvider = this.storage.getGraphProvider();
             const aiProcessor = getAIContentProcessor({
+                config: this.config,
                 llmProvider: this.getLLMProvider(),
                 llmModel: this.config.llm?.perTask?.text?.model || this.config.llm?.models?.text,
                 llmConfig: this.config.llm,
@@ -5542,7 +5587,7 @@ IMPORTANT: When in doubt, KEEP the fact. Return ONLY valid JSON array.`;
             
             // 6. Process with AI (same as upload flow)
             const isTranscript = doc.doc_type === 'transcript' || doc.filename?.includes('transcript');
-            console.log(`[Processor] AI analyzing: ${doc.filename} (${isTranscript ? 'transcript' : 'document'})`);
+            log.info({ event: 'processor_reprocess_ai_start', filename: doc.filename, isTranscript }, 'AI analyzing');
             
             let aiResult;
             if (isTranscript) {
@@ -5588,17 +5633,20 @@ IMPORTANT: When in doubt, KEEP the fact. Return ONLY valid JSON array.`;
                     });
                 }
             }
-            
-            for (const action of aiResult.actionItems || []) {
-                if (action.task && action.task.length > 5) {
-                    this.storage.addActionItem({
-                        task: action.task,
-                        owner: action.owner || action.assignee || null,
-                        deadline: action.deadline || null,
-                        status: 'pending',
-                        source: `document:${doc.filename}`,
-                        source_document_id: docId
-                    });
+
+            // Action items only from transcripts (not from plain documents)
+            if (isTranscript) {
+                for (const action of aiResult.actionItems || []) {
+                    if (action.task && action.task.length > 5) {
+                        this.storage.addActionItem({
+                            task: action.task,
+                            owner: action.owner || action.assignee || null,
+                            deadline: action.deadline || null,
+                            status: 'pending',
+                            source: `document:${doc.filename}`,
+                            source_document_id: docId
+                        });
+                    }
                 }
             }
             
@@ -5647,12 +5695,11 @@ IMPORTANT: When in doubt, KEEP the fact. Return ONLY valid JSON array.`;
                 });
             
             if (logError) {
-                console.error(`[Processor] ai_analysis_log insert failed:`, logError.message);
+                log.warn({ event: 'processor_reprocess_analysis_log_failed', reason: logError.message }, 'ai_analysis_log insert failed');
             } else {
-                console.log(`[Processor] ai_analysis_log saved (${totalEntities} entities, ${aiResult.usage?.inputTokens || 0}/${aiResult.usage?.outputTokens || 0} tokens)`);
+                log.debug({ event: 'processor_reprocess_analysis_log_saved', entities: totalEntities, inputTokens: aiResult.usage?.inputTokens || 0, outputTokens: aiResult.usage?.outputTokens || 0 }, 'ai_analysis_log saved');
             }
-            
-            console.log(`[Processor] Reprocess complete for ${doc.filename}: ${totalEntities} entities extracted`);
+            log.info({ event: 'processor_reprocess_done', filename: doc.filename, entities: totalEntities }, 'Reprocess complete');
             
             return {
                 success: true,
@@ -5667,7 +5714,7 @@ IMPORTANT: When in doubt, KEEP the fact. Return ONLY valid JSON array.`;
             };
             
         } catch (error) {
-            console.error(`[Processor] Reprocess error for ${docId}:`, error.message);
+            log.warn({ event: 'processor_reprocess_error', docId, reason: error.message }, 'Reprocess error');
             
             // Update status to failed
             await this.storage._supabase.supabase

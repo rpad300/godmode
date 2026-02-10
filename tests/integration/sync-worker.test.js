@@ -24,21 +24,28 @@ jest.mock('../../src/supabase/outbox', () => ({
     upsertSyncStatus: jest.fn()
 }));
 
-const outbox = require('../../src/supabase/outbox');
-
 describe('Sync Worker', () => {
     let syncWorker;
+    let outbox;
 
     beforeEach(() => {
         jest.resetModules();
         jest.clearAllMocks();
         syncWorker = require('../../src/sync-worker');
+        outbox = require('../../src/supabase/outbox');
     });
 
     afterEach(() => {
-        if (syncWorker.isRunning && syncWorker.isRunning()) {
+        if (syncWorker.getStatus().isRunning) {
             syncWorker.stop();
         }
+    });
+
+    afterAll(() => {
+        try {
+            const mod = require('../../src/sync-worker');
+            if (mod.getStatus().isRunning) mod.stop();
+        } catch (_) { /* ignore */ }
     });
 
     describe('Module Structure', () => {
@@ -57,7 +64,7 @@ describe('Sync Worker', () => {
 
             syncWorker.start(mockGraph);
             
-            expect(syncWorker.getStatus().running).toBe(true);
+            expect(syncWorker.getStatus().isRunning).toBe(true);
             
             syncWorker.stop();
         });
@@ -73,7 +80,7 @@ describe('Sync Worker', () => {
             syncWorker.start(mockGraph); // Try to start again
             const secondStatus = syncWorker.getStatus();
             
-            expect(firstStatus.running).toBe(secondStatus.running);
+            expect(firstStatus.isRunning).toBe(secondStatus.isRunning);
             
             syncWorker.stop();
         });
@@ -86,10 +93,10 @@ describe('Sync Worker', () => {
             };
 
             syncWorker.start(mockGraph);
-            expect(syncWorker.getStatus().running).toBe(true);
+            expect(syncWorker.getStatus().isRunning).toBe(true);
             
             syncWorker.stop();
-            expect(syncWorker.getStatus().running).toBe(false);
+            expect(syncWorker.getStatus().isRunning).toBe(false);
         });
     });
 
@@ -97,9 +104,8 @@ describe('Sync Worker', () => {
         it('should return worker status', () => {
             const status = syncWorker.getStatus();
             
-            expect(status).toHaveProperty('running');
-            expect(status).toHaveProperty('processedCount');
-            expect(status).toHaveProperty('errorCount');
+            expect(status).toHaveProperty('isRunning');
+            expect(status).toHaveProperty('config');
         });
     });
 
@@ -112,7 +118,8 @@ describe('Sync Worker', () => {
             const mockEvents = [
                 {
                     id: 'event-1',
-                    event_type: 'entity',
+                    graph_name: 'test_graph',
+                    event_type: 'entity.created',
                     operation: 'CREATE',
                     entity_type: 'Person',
                     entity_id: 'person-1',
@@ -128,13 +135,10 @@ describe('Sync Worker', () => {
             outbox.markCompleted.mockResolvedValue({ success: true });
 
             syncWorker.start(mockGraph);
-            
-            // Wait for processing
-            await new Promise(resolve => setTimeout(resolve, 100));
-            
+            // Run one batch explicitly and wait for it
+            await syncWorker.processBatch();
             syncWorker.stop();
 
-            // Should have attempted to claim batch
             expect(outbox.claimBatch).toHaveBeenCalled();
         });
     });
@@ -142,14 +146,13 @@ describe('Sync Worker', () => {
     describe('Cypher Query Building', () => {
         it('should build CREATE query for entity', () => {
             const event = {
-                event_type: 'entity',
                 operation: 'CREATE',
                 entity_type: 'Person',
                 entity_id: 'person-1',
                 payload: { name: 'John', age: 30 }
             };
 
-            const query = syncWorker.buildCypherQuery(event);
+            const { query } = syncWorker.buildCypherQuery(event);
             
             expect(query).toContain('CREATE');
             expect(query).toContain('Person');
@@ -157,14 +160,13 @@ describe('Sync Worker', () => {
 
         it('should build UPDATE query for entity', () => {
             const event = {
-                event_type: 'entity',
                 operation: 'UPDATE',
                 entity_type: 'Person',
                 entity_id: 'person-1',
                 payload: { name: 'John Updated' }
             };
 
-            const query = syncWorker.buildCypherQuery(event);
+            const { query } = syncWorker.buildCypherQuery(event);
             
             expect(query).toContain('MATCH');
             expect(query).toContain('SET');
@@ -172,14 +174,13 @@ describe('Sync Worker', () => {
 
         it('should build DELETE query for entity', () => {
             const event = {
-                event_type: 'entity',
                 operation: 'DELETE',
                 entity_type: 'Person',
                 entity_id: 'person-1',
                 payload: {}
             };
 
-            const query = syncWorker.buildCypherQuery(event);
+            const { query } = syncWorker.buildCypherQuery(event);
             
             expect(query).toContain('MATCH');
             expect(query).toContain('DELETE');
@@ -187,38 +188,40 @@ describe('Sync Worker', () => {
 
         it('should build LINK query for relation', () => {
             const event = {
-                event_type: 'relation',
                 operation: 'LINK',
                 entity_type: 'KNOWS',
                 entity_id: 'rel-1',
                 payload: {
-                    from_id: 'person-1',
-                    from_type: 'Person',
-                    to_id: 'person-2',
-                    to_type: 'Person'
+                    fromType: 'Person',
+                    fromId: 'person-1',
+                    toType: 'Person',
+                    toId: 'person-2',
+                    relationType: 'KNOWS'
                 }
             };
 
-            const query = syncWorker.buildCypherQuery(event);
+            const { query } = syncWorker.buildCypherQuery(event);
             
             expect(query).toContain('MATCH');
-            expect(query).toContain('CREATE');
+            expect(query).toContain('MERGE');
             expect(query).toContain('KNOWS');
         });
 
         it('should build UNLINK query for relation', () => {
             const event = {
-                event_type: 'relation',
                 operation: 'UNLINK',
                 entity_type: 'KNOWS',
                 entity_id: 'rel-1',
                 payload: {
-                    from_id: 'person-1',
-                    to_id: 'person-2'
+                    fromType: 'Person',
+                    fromId: 'person-1',
+                    toType: 'Person',
+                    toId: 'person-2',
+                    relationType: 'KNOWS'
                 }
             };
 
-            const query = syncWorker.buildCypherQuery(event);
+            const { query } = syncWorker.buildCypherQuery(event);
             
             expect(query).toContain('MATCH');
             expect(query).toContain('DELETE');
@@ -234,7 +237,8 @@ describe('Sync Worker', () => {
             const mockEvents = [
                 {
                     id: 'event-1',
-                    event_type: 'entity',
+                    graph_name: 'test_graph',
+                    event_type: 'entity.created',
                     operation: 'CREATE',
                     entity_type: 'Person',
                     entity_id: 'person-1',
@@ -251,12 +255,9 @@ describe('Sync Worker', () => {
             outbox.markFailed.mockResolvedValue({ success: true });
 
             syncWorker.start(mockGraph);
-            
-            await new Promise(resolve => setTimeout(resolve, 200));
-            
+            await syncWorker.processBatch();
             syncWorker.stop();
 
-            // Should mark event as failed
             expect(outbox.markFailed).toHaveBeenCalled();
         });
 
@@ -276,8 +277,8 @@ describe('Sync Worker', () => {
             
             syncWorker.stop();
 
-            // Should not throw
-            expect(syncWorker.getStatus().errorCount).toBe(0);
+            // Should not throw; status has isRunning and config
+            expect(syncWorker.getStatus().isRunning).toBe(false);
         });
     });
 

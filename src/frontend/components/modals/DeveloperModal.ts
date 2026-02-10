@@ -8,7 +8,7 @@ import { createModal, openModal, closeModal } from '../Modal';
 import { appStore } from '../../stores/app';
 import { dataStore } from '../../stores/data';
 import { uiStore } from '../../stores/ui';
-import { http } from '../../services/api';
+import { http, fetchWithProject } from '../../services/api';
 import { toast } from '../../services/toast';
 
 const MODAL_ID = 'developer-modal';
@@ -205,7 +205,7 @@ function renderApiTab(): string {
       <div class="form-group">
         <label>Endpoint</label>
         <div class="input-group">
-          <select id="api-method" class="form-control" style="width: 100px">
+          <select id="api-method" class="form-control api-method-select">
             <option value="GET">GET</option>
             <option value="POST">POST</option>
             <option value="PUT">PUT</option>
@@ -304,7 +304,7 @@ async function testApi(container: HTMLElement): Promise<void> {
     }
 
     const start = performance.now();
-    const response = await fetch(endpoint, options);
+    const response = await fetchWithProject(endpoint, options);
     const elapsed = Math.round(performance.now() - start);
     const data = await response.json().catch(() => response.text());
 

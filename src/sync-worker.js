@@ -4,10 +4,14 @@
  */
 
 const outbox = require('./supabase/outbox');
+const { logger: rootLogger, logError } = require('./logger');
+
+const log = rootLogger.child({ module: 'worker' });
 
 // Worker state
 let isRunning = false;
 let intervalId = null;
+let healthCheckIntervalId = null;
 let graphConnector = null;
 
 // Configuration
@@ -15,7 +19,8 @@ const CONFIG = {
     pollIntervalMs: 5000,       // How often to check for new events
     batchSize: 50,              // Events per batch
     maxConcurrent: 3,           // Max concurrent graph operations
-    healthCheckIntervalMs: 60000 // Health check frequency
+    healthCheckIntervalMs: 60000, // Health check frequency
+    batchTimeoutMs: 60000       // Max time for one batch; prevents stuck worker
 };
 
 /**
@@ -23,25 +28,27 @@ const CONFIG = {
  */
 function start(graphConnection) {
     if (isRunning) {
-        console.log('[SyncWorker] Already running');
+        log.info({ event: 'job_already_running' }, 'Already running');
         return;
     }
 
     graphConnector = graphConnection;
     isRunning = true;
 
-    console.log('[SyncWorker] Starting...');
+    log.info({ event: 'job_start' }, 'SyncWorker starting');
 
-    // Start polling
+    // Start polling (unref so process can exit if only this is running, e.g. in tests)
     intervalId = setInterval(processBatch, CONFIG.pollIntervalMs);
+    if (intervalId.unref) intervalId.unref();
 
     // Initial run
     processBatch();
 
-    // Health check
-    setInterval(healthCheck, CONFIG.healthCheckIntervalMs);
+    // Health check (store ID so we can clear on stop)
+    healthCheckIntervalId = setInterval(healthCheck, CONFIG.healthCheckIntervalMs);
+    if (healthCheckIntervalId.unref) healthCheckIntervalId.unref();
 
-    console.log('[SyncWorker] Started');
+    log.info({ event: 'job_started' }, 'SyncWorker started');
 }
 
 /**
@@ -50,43 +57,57 @@ function start(graphConnection) {
 function stop() {
     if (!isRunning) return;
 
-    console.log('[SyncWorker] Stopping...');
+    log.info({ event: 'job_stop' }, 'SyncWorker stopping');
 
     if (intervalId) {
         clearInterval(intervalId);
         intervalId = null;
     }
+    if (healthCheckIntervalId) {
+        clearInterval(healthCheckIntervalId);
+        healthCheckIntervalId = null;
+    }
 
     isRunning = false;
-    console.log('[SyncWorker] Stopped');
+    graphConnector = null;
+    log.info({ event: 'job_stopped' }, 'SyncWorker stopped');
 }
 
 /**
- * Process a batch of outbox events
+ * Process a batch of outbox events (with timeout to prevent stuck worker)
  */
 async function processBatch() {
     if (!isRunning || !graphConnector) return;
 
-    try {
-        // Claim batch
+    const runBatch = async () => {
         const result = await outbox.claimBatch(CONFIG.batchSize);
         if (!result || !result.success) return;
         const events = result.events || [];
         if (events.length === 0) return;
 
-        console.log(`[SyncWorker] Processing ${events.length} events`);
+        const jobId = `batch-${Date.now()}`;
+        log.info({ event: 'job_start', jobId, batchSize: events.length }, 'Processing batch');
 
-        // Process events
         const promises = events.map(event => processEvent(event));
-        
-        // Process in chunks to limit concurrency
         for (let i = 0; i < promises.length; i += CONFIG.maxConcurrent) {
             const chunk = promises.slice(i, i + CONFIG.maxConcurrent);
             await Promise.allSettled(chunk);
         }
+    };
 
+    const timeoutPromise = new Promise((_, reject) => {
+        const t = setTimeout(() => reject(new Error('BATCH_TIMEOUT')), CONFIG.batchTimeoutMs);
+        if (t.unref) t.unref();
+    });
+
+    try {
+        await Promise.race([runBatch(), timeoutPromise]);
     } catch (error) {
-        console.error('[SyncWorker] Batch error:', error);
+        if (error.message === 'BATCH_TIMEOUT') {
+            log.warn({ event: 'job_batch_timeout' }, 'Batch timeout; will retry on next poll');
+        } else {
+            logError(error, { module: 'worker', event: 'job_batch_error' });
+        }
     }
 }
 
@@ -109,14 +130,41 @@ async function processEvent(event) {
         // Execute on FalkorDB
         await executeCypher(event.graph_name, query, params);
 
+        // Action UPDATE: sync IMPLEMENTS edge to Decision when decision_id present
+        if (event.entity_type === 'Action' && event.operation === 'UPDATE' && event.payload) {
+            const decisionId = event.payload.decision_id;
+            const actionId = event.entity_id;
+            if (decisionId) {
+                try {
+                    await executeCypher(
+                        event.graph_name,
+                        'MATCH (a:Action {id: $actionId}) MERGE (d:Decision {id: $decisionId}) MERGE (a)-[:IMPLEMENTS]->(d) RETURN a',
+                        { actionId, decisionId }
+                    );
+                } catch (err) {
+                    log.warn({ event: 'worker_action_implements_failed', actionId, decisionId, err: err.message }, 'IMPLEMENTS edge sync failed');
+                }
+            } else {
+                try {
+                    await executeCypher(
+                        event.graph_name,
+                        'MATCH (a:Action {id: $actionId})-[r:IMPLEMENTS]->() DELETE r',
+                        { actionId }
+                    );
+                } catch (err) {
+                    log.warn({ event: 'worker_action_implements_delete_failed', actionId, err: err.message }, 'IMPLEMENTS edge delete failed');
+                }
+            }
+        }
+
         // Mark as completed
         await outbox.markCompleted(event.id);
 
-        const duration = Date.now() - startTime;
-        console.log(`[SyncWorker] Completed ${event.operation} ${event.entity_type}:${event.entity_id} (${duration}ms)`);
+        const durationMs = Date.now() - startTime;
+        log.info({ event: 'job_end', operation: event.operation, entity_type: event.entity_type, entity_id: event.entity_id, durationMs }, 'Completed');
 
     } catch (error) {
-        console.error(`[SyncWorker] Failed ${event.event_id}:`, error.message);
+        log.error({ event: 'job_failed', messageId: event.event_id, entity_type: event.entity_type, entity_id: event.entity_id, err: error.message }, 'Failed');
         await outbox.markFailed(event.id, error.message);
     }
 }
@@ -146,13 +194,22 @@ function buildCypherQuery(event) {
 }
 
 /**
- * Build CREATE node query
+ * Build CREATE node query.
+ * For Action with sprint_id, also create IN_SPRINT relationship to Sprint node.
  */
 function buildCreateQuery(label, id, properties) {
     const props = { ...properties, id };
+    const sprintId = props.sprint_id;
     const propsString = Object.keys(props)
         .map(k => `${k}: $${k}`)
         .join(', ');
+
+    if (label === 'Action' && sprintId) {
+        return {
+            query: `CREATE (n:Action {${propsString}}) WITH n MERGE (s:Sprint {id: $sprint_id}) CREATE (n)-[:IN_SPRINT]->(s) RETURN n`,
+            params: props
+        };
+    }
 
     return {
         query: `CREATE (n:${label} {${propsString}}) RETURN n`,
@@ -284,17 +341,13 @@ async function healthCheck() {
         
         if (stats.success) {
             const { pending, failed, dead_letter } = stats.stats;
-            
-            // Log status
-            console.log(`[SyncWorker] Health: pending=${pending}, failed=${failed}, dead_letter=${dead_letter}`);
-
-            // Alert if too many failures
+            log.debug({ event: 'job_health', pending, failed, dead_letter }, 'Health');
             if (dead_letter > 10) {
-                console.warn(`[SyncWorker] WARNING: ${dead_letter} events in dead letter queue`);
+                log.warn({ event: 'job_dead_letter_high', dead_letter }, 'Dead letter queue high');
             }
         }
     } catch (error) {
-        console.error('[SyncWorker] Health check error:', error);
+        logError(error, { module: 'worker', event: 'job_health_check_error' });
     }
 }
 
@@ -326,5 +379,6 @@ module.exports = {
     stop,
     getStatus,
     configure,
-    processBatch  // Expose for manual triggering
+    processBatch,  // Expose for manual triggering
+    buildCypherQuery  // Exposed for tests
 };

@@ -3,6 +3,8 @@
  * Base class for all graph database backends
  */
 
+const { logger } = require('../logger');
+
 class GraphProvider {
     constructor(config = {}) {
         this.config = config;
@@ -295,11 +297,9 @@ class GraphProvider {
      * @param {object} details - Operation details
      */
     log(operation, details = {}) {
-        const timestamp = new Date().toISOString();
-        console.log(`[Graph:${this.constructor.info.id}] ${operation}`, {
-            timestamp,
-            ...details
-        });
+        const providerId = this.constructor.info?.id || 'base';
+        const log = logger.child({ module: `graph-${providerId}` });
+        log.debug({ event: `graph_${operation.replace(/-/g, '_')}`, ...details }, operation);
     }
 }
 

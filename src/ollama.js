@@ -4,6 +4,9 @@
  */
 
 const http = require('http');
+const { logger } = require('./logger');
+
+const log = logger.child({ module: 'ollama' });
 
 class OllamaClient {
     constructor(host = '127.0.0.1', port = 11434) {
@@ -106,7 +109,7 @@ class OllamaClient {
             }
             return [];
         } catch (error) {
-            console.error('Error fetching models:', error.message);
+            log.warn({ event: 'ollama_models_error', reason: error.message }, 'Error fetching models');
             return [];
         }
     }
@@ -289,9 +292,7 @@ class OllamaClient {
             const timeout = hasImages ? 600000 : 300000; // 10 min for vision, 5 min for text
             const response = await this.request('/api/generate', 'POST', requestBody, timeout);
 
-            // Debug: Log raw Ollama response
-            console.log(`Ollama raw response status: ${response.status}`);
-            console.log(`Ollama raw data keys: ${response.data ? Object.keys(response.data).join(', ') : 'NO DATA'}`);
+            log.debug({ event: 'ollama_response', status: response.status, dataKeys: response.data ? Object.keys(response.data) : [] }, 'Ollama raw response');
 
             if (response.status === 200 && response.data) {
                 // qwen3 models put output in 'thinking' field, others use 'response'
@@ -299,11 +300,11 @@ class OllamaClient {
 
                 // If response is empty, check thinking field (for qwen3 models)
                 if (!aiResponse && response.data.thinking) {
-                    console.log('Using thinking field instead of response');
+                    log.debug({ event: 'ollama_thinking_fallback' }, 'Using thinking field instead of response');
                     aiResponse = response.data.thinking;
                 }
 
-                console.log(`Final AI response (first 200 chars): ${aiResponse?.substring(0, 200) || 'STILL EMPTY'}`);
+                log.debug({ event: 'ollama_response_preview', preview: aiResponse?.substring(0, 200) || 'STILL EMPTY' }, 'Final AI response');
 
                 return {
                     success: true,
@@ -545,7 +546,7 @@ class OllamaClient {
      */
     async unloadModel(modelName) {
         try {
-            console.log(`Unloading model: ${modelName}...`);
+            log.debug({ event: 'ollama_unload_start', modelName }, 'Unloading model');
 
             // Send a generate request with keep_alive: 0 to immediately unload
             const response = await this.request('/api/generate', 'POST', {
@@ -555,13 +556,13 @@ class OllamaClient {
             }, 10000);
 
             if (response.status === 200) {
-                console.log(`Model unloaded: ${modelName}`);
+                log.debug({ event: 'ollama_unload_done', modelName }, 'Model unloaded');
                 return { success: true };
             } else {
                 return { success: false, error: `Status ${response.status}` };
             }
         } catch (error) {
-            console.error(`Error unloading model ${modelName}:`, error.message);
+            log.warn({ event: 'ollama_unload_error', modelName, reason: error.message }, 'Error unloading model');
             return { success: false, error: error.message };
         }
     }

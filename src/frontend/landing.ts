@@ -26,6 +26,22 @@ interface MeResponse {
 }
 
 // ==================== HTTP Helpers ====================
+/** Parse response as JSON only when Content-Type is JSON; otherwise return null and keep body as text for error message. */
+async function parseJsonOrText(response: Response): Promise<{ data: unknown; isJson: boolean }> {
+  const contentType = (response.headers.get('Content-Type') || '').toLowerCase();
+  const isJson = contentType.includes('application/json');
+  const text = await response.text();
+  if (isJson && text) {
+    try {
+      return { data: JSON.parse(text), isJson: true };
+    } catch {
+      // Malformed JSON from API
+      return { data: null, isJson: false };
+    }
+  }
+  return { data: text || null, isJson: false };
+}
+
 async function post<T>(url: string, data: Record<string, unknown>): Promise<T> {
   const response = await fetch(url, {
     method: 'POST',
@@ -35,14 +51,26 @@ async function post<T>(url: string, data: Record<string, unknown>): Promise<T> {
     credentials: 'include',
     body: JSON.stringify(data),
   });
-  
-  const result = await response.json();
-  
+
+  const { data: result, isJson } = await parseJsonOrText(response);
+
   if (!response.ok) {
-    throw new Error(result.error || result.message || 'Request failed');
+    const msg =
+      isJson && result && typeof result === 'object' && 'error' in result
+        ? String((result as { error?: string }).error)
+        : isJson && result && typeof result === 'object' && 'message' in result
+          ? String((result as { message?: string }).message)
+          : typeof result === 'string' && result.length > 0
+            ? result
+            : response.statusText || 'Pedido falhou';
+    throw new Error(msg || 'Pedido falhou');
   }
-  
-  return result;
+
+  if (!isJson || result == null) {
+    throw new Error('Resposta inválida do servidor. Tente novamente.');
+  }
+
+  return result as T;
 }
 
 async function get<T>(url: string): Promise<T> {
@@ -50,8 +78,26 @@ async function get<T>(url: string): Promise<T> {
     method: 'GET',
     credentials: 'include',
   });
-  
-  return response.json();
+
+  const { data, isJson } = await parseJsonOrText(response);
+
+  if (!response.ok) {
+    const msg =
+      isJson && data && typeof data === 'object' && 'error' in data
+        ? String((data as { error?: string }).error)
+        : isJson && data && typeof data === 'object' && 'message' in data
+          ? String((data as { message?: string }).message)
+          : typeof data === 'string' && data.length > 0
+            ? data
+            : response.statusText || 'Pedido falhou';
+    throw new Error(msg || 'Pedido falhou');
+  }
+
+  if (!isJson || data == null) {
+    throw new Error('Resposta inválida do servidor. Tente novamente.');
+  }
+
+  return data as T;
 }
 
 // ==================== Auth Functions ====================
@@ -106,8 +152,8 @@ function setLoading(button: HTMLButtonElement, loading: boolean): void {
   const loadingEl = button.querySelector('.btn-loading') as HTMLElement;
   
   if (textEl && loadingEl) {
-    textEl.style.display = loading ? 'none' : '';
-    loadingEl.style.display = loading ? '' : 'none';
+    textEl.classList.toggle('hidden', loading);
+    loadingEl.classList.toggle('hidden', !loading);
   }
   
   button.disabled = loading;
@@ -142,10 +188,9 @@ function initAuthTabs(): void {
       tabs.forEach((t) => t.classList.remove('active'));
       tab.classList.add('active');
       
-      // Show/hide forms
-      if (loginForm) loginForm.style.display = tabType === 'login' ? '' : 'none';
-      if (registerForm) registerForm.style.display = tabType === 'register' ? '' : 'none';
-      if (forgotForm) forgotForm.style.display = 'none';
+      if (loginForm) loginForm.classList.toggle('hidden', tabType !== 'login');
+      if (registerForm) registerForm.classList.toggle('hidden', tabType !== 'register');
+      if (forgotForm) forgotForm.classList.add('hidden');
       
       // Clear errors
       hideError('login-error');
@@ -262,18 +307,16 @@ function initForgotForm(): void {
   const loginForm = document.getElementById('login-form');
   const tabs = document.querySelectorAll('.landing-auth-tab');
   
-  // Show forgot form
   forgotLink?.addEventListener('click', () => {
-    if (loginForm) loginForm.style.display = 'none';
-    if (form) form.style.display = '';
+    if (loginForm) loginForm.classList.add('hidden');
+    if (form) form.classList.remove('hidden');
     tabs.forEach((t) => t.classList.remove('active'));
     hideError('login-error');
   });
-  
-  // Back to login
+
   backLink?.addEventListener('click', () => {
-    if (form) form.style.display = 'none';
-    if (loginForm) loginForm.style.display = '';
+    if (form) form.classList.add('hidden');
+    if (loginForm) loginForm.classList.remove('hidden');
     const loginTab = document.querySelector('.landing-auth-tab[data-tab="login"]') as HTMLElement;
     loginTab?.classList.add('active');
     hideError('forgot-error');
@@ -378,14 +421,7 @@ function initHeaderScroll(): void {
   
   window.addEventListener('scroll', () => {
     const currentScrollY = window.scrollY;
-    
-    // Add/remove background opacity based on scroll
-    if (currentScrollY > 50) {
-      header.style.background = 'rgba(26, 26, 46, 0.98)';
-    } else {
-      header.style.background = 'rgba(26, 26, 46, 0.95)';
-    }
-    
+    header.classList.toggle('landing-header-scrolled', currentScrollY > 50);
     lastScrollY = currentScrollY;
   });
 }

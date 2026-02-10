@@ -12,6 +12,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'ontology-manager' });
 
 class OntologyManager {
     constructor(options = {}) {
@@ -64,12 +67,12 @@ class OntologyManager {
                 if (supabaseSchema && Object.keys(supabaseSchema.entityTypes || {}).length > 0) {
                     this._applySchema(supabaseSchema);
                     this.loadedFrom = 'supabase';
-                    console.log(`[Ontology] Loaded from Supabase v${this.schema.version}: ${Object.keys(this.entityTypes).length} entities, ${Object.keys(this.relationTypes).length} relations`);
+                    log.info({ event: 'ontology_loaded_supabase', version: this.schema.version, entities: Object.keys(this.entityTypes).length, relations: Object.keys(this.relationTypes).length }, 'Loaded from Supabase');
                     return true;
                 }
-                console.log('[Ontology] No schema in Supabase, falling back to file');
+                log.debug({ event: 'ontology_no_supabase_schema' }, 'No schema in Supabase, falling back to file');
             } catch (e) {
-                console.log('[Ontology] Supabase load failed, falling back to file:', e.message);
+                log.debug({ event: 'ontology_supabase_load_fallback', reason: e.message }, 'Supabase load failed, falling back to file');
             }
         }
         
@@ -88,10 +91,10 @@ class OntologyManager {
             const schema = JSON.parse(schemaContent);
             this._applySchema(schema);
             this.loadedFrom = 'file';
-            console.log(`[Ontology] Loaded from file v${this.schema.version}: ${Object.keys(this.entityTypes).length} entity types, ${Object.keys(this.relationTypes).length} relation types`);
+            log.info({ event: 'ontology_loaded_file', version: this.schema.version, entityTypes: Object.keys(this.entityTypes).length, relationTypes: Object.keys(this.relationTypes).length }, 'Loaded from file');
             return true;
         } catch (error) {
-            console.error('[Ontology] Failed to load schema from file:', error.message);
+            log.error({ event: 'ontology_load_file_error', reason: error.message }, 'Failed to load schema from file');
             return false;
         }
     }
@@ -120,7 +123,7 @@ class OntologyManager {
             fs.writeFileSync(this.schemaPath, JSON.stringify(this.schema, null, 2));
             return true;
         } catch (error) {
-            console.error('[Ontology] Failed to save schema to file:', error.message);
+            log.error({ event: 'ontology_save_file_error', reason: error.message }, 'Failed to save schema to file');
             return false;
         }
     }
@@ -132,7 +135,7 @@ class OntologyManager {
      */
     async save(userId = null) {
         if (!this.schema) {
-            console.error('[Ontology] No schema to save');
+            log.warn({ event: 'ontology_no_schema_to_save' }, 'No schema to save');
             return false;
         }
 
@@ -144,16 +147,16 @@ class OntologyManager {
             try {
                 await this.storage.saveOntologySchema(this.schema, this.projectId, userId);
                 savedToSupabase = true;
-                console.log('[Ontology] Saved to Supabase');
+                log.info({ event: 'ontology_saved_supabase' }, 'Saved to Supabase');
             } catch (e) {
-                console.error('[Ontology] Failed to save to Supabase:', e.message);
+                log.error({ event: 'ontology_save_supabase_error', reason: e.message }, 'Failed to save to Supabase');
             }
         }
 
         // Always save to file as backup
         savedToFile = await this._saveToFile();
         if (savedToFile) {
-            console.log('[Ontology] Saved to file (backup)');
+            log.debug({ event: 'ontology_saved_file_backup' }, 'Saved to file (backup)');
         }
 
         return savedToSupabase || savedToFile;
@@ -196,10 +199,10 @@ class OntologyManager {
                 changedBy: userId
             });
 
-            console.log(`[Ontology] Migrated to Supabase: ${result.counts.total} items`);
+            log.info({ event: 'ontology_migrated_supabase', total: result.counts.total }, 'Migrated to Supabase');
             return { success: true, counts: result.counts };
         } catch (e) {
-            console.error('[Ontology] Migration failed:', e.message);
+            log.error({ event: 'ontology_migration_failed', reason: e.message }, 'Migration failed');
             return { success: false, error: e.message };
         }
     }
@@ -256,7 +259,7 @@ class OntologyManager {
      */
     setStrictMode(enabled) {
         this.strictMode = !!enabled;
-        console.log(`[Ontology] Strict mode ${this.strictMode ? 'enabled' : 'disabled'}`);
+        log.debug({ event: 'ontology_strict_mode', enabled: this.strictMode }, 'Strict mode toggled');
     }
 
     /**
@@ -332,10 +335,10 @@ class OntologyManager {
                 });
             }
 
-            console.log(`[Ontology] Schema updated to v${updatedSchema.version}`);
+            log.info({ event: 'ontology_schema_updated', version: updatedSchema.version }, 'Schema updated');
             return true;
         } catch (error) {
-            console.error('[Ontology] Failed to update schema:', error.message);
+            log.error({ event: 'ontology_update_schema_error', reason: error.message }, 'Failed to update schema');
             return false;
         }
     }

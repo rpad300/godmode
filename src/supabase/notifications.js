@@ -3,7 +3,10 @@
  * Handles user notifications, read status, and preferences
  */
 
+const { logger } = require('../logger');
 const { getAdminClient } = require('./client');
+
+const log = logger.child({ module: 'notifications' });
 
 // Notification types
 const NOTIFICATION_TYPES = {
@@ -59,7 +62,7 @@ async function createNotification({
 
         return { success: true, notification };
     } catch (error) {
-        console.error('[Notifications] Create error:', error);
+        log.warn({ event: 'notifications_create_error', reason: error?.message }, 'Create error');
         return { success: false, error: error.message };
     }
 }
@@ -111,7 +114,7 @@ async function getUserNotifications(userId, options = {}) {
             unreadCount: unreadOnly ? count : null
         };
     } catch (error) {
-        console.error('[Notifications] Get error:', error);
+        log.warn({ event: 'notifications_get_error', reason: error?.message }, 'Get error');
         return { success: false, error: error.message };
     }
 }
@@ -142,7 +145,7 @@ async function getUnreadCount(userId, projectId = null) {
 
         return { success: true, count };
     } catch (error) {
-        console.error('[Notifications] Count error:', error);
+        log.warn({ event: 'notifications_count_error', reason: error?.message }, 'Count error');
         return { success: false, error: error.message };
     }
 }
@@ -170,7 +173,7 @@ async function markAsRead(notificationId, userId) {
 
         return { success: true };
     } catch (error) {
-        console.error('[Notifications] Mark read error:', error);
+        log.warn({ event: 'notifications_mark_read_error', reason: error?.message }, 'Mark read error');
         return { success: false, error: error.message };
     }
 }
@@ -204,7 +207,7 @@ async function markAllAsRead(userId, projectId = null) {
 
         return { success: true };
     } catch (error) {
-        console.error('[Notifications] Mark all read error:', error);
+        log.warn({ event: 'notifications_mark_all_read_error', reason: error?.message }, 'Mark all read error');
         return { success: false, error: error.message };
     }
 }
@@ -229,7 +232,7 @@ async function deleteNotification(notificationId, userId) {
 
         return { success: true };
     } catch (error) {
-        console.error('[Notifications] Delete error:', error);
+        log.warn({ event: 'notifications_delete_error', reason: error?.message }, 'Delete error');
         return { success: false, error: error.message };
     }
 }
@@ -257,7 +260,7 @@ async function deleteOldNotifications(daysOld = 30) {
 
         return { success: true, deleted: count };
     } catch (error) {
-        console.error('[Notifications] Cleanup error:', error);
+        log.warn({ event: 'notifications_cleanup_error', reason: error?.message }, 'Cleanup error');
         return { success: false, error: error.message };
     }
 }
@@ -302,7 +305,7 @@ async function watchItem({
 
         return { success: true, watch };
     } catch (error) {
-        console.error('[Notifications] Watch error:', error);
+        log.warn({ event: 'notifications_watch_error', reason: error?.message }, 'Watch error');
         return { success: false, error: error.message };
     }
 }
@@ -329,7 +332,7 @@ async function unwatchItem(userId, projectId, targetType, targetId) {
 
         return { success: true };
     } catch (error) {
-        console.error('[Notifications] Unwatch error:', error);
+        log.warn({ event: 'notifications_unwatch_error', reason: error?.message }, 'Unwatch error');
         return { success: false, error: error.message };
     }
 }
@@ -355,7 +358,7 @@ async function getWatchers(projectId, targetType, targetId) {
 
         return { success: true, watchers: watchers || [] };
     } catch (error) {
-        console.error('[Notifications] Get watchers error:', error);
+        log.warn({ event: 'notifications_get_watchers_error', reason: error?.message }, 'Get watchers error');
         return { success: false, error: error.message };
     }
 }
@@ -385,7 +388,7 @@ async function getUserWatchedItems(userId, projectId = null) {
 
         return { success: true, items: items || [] };
     } catch (error) {
-        console.error('[Notifications] Get watched error:', error);
+        log.warn({ event: 'notifications_get_watched_error', reason: error?.message }, 'Get watched error');
         return { success: false, error: error.message };
     }
 }
@@ -481,7 +484,7 @@ async function createBalanceLowNotification(projectId, currentBalance, projectNa
 
         return { success: true, notified };
     } catch (error) {
-        console.error('[Notifications] Error creating balance low notification:', error);
+        log.warn({ event: 'notifications_balance_low_error', reason: error?.message }, 'Error creating balance low notification');
         return { success: false, notified: 0 };
     }
 }
@@ -556,7 +559,7 @@ async function createBalanceAddedNotification(projectId, amount, newBalance, pro
 
         return { success: true, notified };
     } catch (error) {
-        console.error('[Notifications] Error creating balance added notification:', error);
+        log.warn({ event: 'notifications_balance_added_error', reason: error?.message }, 'Error creating balance added notification');
         return { success: false, notified: 0 };
     }
 }

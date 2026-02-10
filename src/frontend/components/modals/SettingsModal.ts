@@ -8,6 +8,7 @@ import { createElement, on } from '../../utils/dom';
 import { appStore } from '../../stores/app';
 import { theme } from '../../services/theme';
 import { toast } from '../../services/toast';
+import { showCompaniesModal } from './CompaniesModal';
 
 const MODAL_ID = 'settings-modal';
 
@@ -16,25 +17,36 @@ export interface SettingsModalProps {
   initialTab?: 'general' | 'data';
 }
 
+export interface SettingsBindOptions {
+  onClose?: () => void;
+  onManageCompanies?: () => void;
+  onSaveSuccess?: () => void;
+  onSave?: (settings: Record<string, unknown>) => void;
+}
+
 /**
- * Create and show settings modal
+ * Get settings card + styles HTML (shared by modal and full page).
+ * When pageMode is true, header shows "Back to Dashboard" instead of close X.
  */
-export function showSettingsModal(props: SettingsModalProps = {}): void {
-  // Remove existing modal if any
-  const existing = document.querySelector(`[data-modal-id="${MODAL_ID}"]`);
-  if (existing) existing.remove();
+export function getSettingsMarkup(
+  state: ReturnType<typeof appStore.getState>,
+  currentTheme: string,
+  initialTab: 'general' | 'data',
+  options?: { pageMode?: boolean }
+): string {
+  const pageMode = options?.pageMode ?? false;
+  const closeButtonHtml = pageMode
+    ? `<button class="settings-close settings-back" id="close-settings-btn" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;margin-right:6px;"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+        Back to Dashboard
+      </button>`
+    : `<button class="settings-close" id="close-settings-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18 6L6 18M6 6l12 12"/>
+        </svg>
+      </button>`;
 
-  const state = appStore.getState();
-  const currentTheme = theme.getMode();
-  const initialTab = props.initialTab || 'general';
-
-  // Create modal container
-  const modalOverlay = createElement('div', { className: 'settings-modal-overlay' });
-  modalOverlay.setAttribute('data-modal-id', MODAL_ID);
-  
-  const container = createElement('div', { className: 'settings-modal-container' });
-  
-  container.innerHTML = `
+  return `
     <style>
       .settings-modal-overlay {
         position: fixed;
@@ -452,16 +464,27 @@ export function showSettingsModal(props: SettingsModalProps = {}): void {
       .admin-notice strong {
         color: #3b82f6;
       }
+      .settings-back {
+        position: static;
+        display: inline-flex;
+        align-items: center;
+        padding: 8px 14px;
+        font-size: 0.9rem;
+        font-weight: 500;
+        color: rgba(255,255,255,0.95);
+      }
+      .settings-back:hover {
+        background: rgba(255,255,255,0.15);
+      }
+      .settings-page-card .settings-body {
+        max-height: none;
+      }
     </style>
     
-    <div class="settings-card">
+    <div class="settings-card ${pageMode ? 'settings-page-card' : ''}">
       <!-- Header -->
       <div class="settings-header">
-        <button class="settings-close" id="close-settings-btn">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M18 6L6 18M6 6l12 12"/>
-          </svg>
-        </button>
+        ${closeButtonHtml}
         <div class="settings-header-content">
           <div class="settings-icon">
             <svg viewBox="0 0 24 24" stroke-width="2">
@@ -523,6 +546,18 @@ export function showSettingsModal(props: SettingsModalProps = {}): void {
             </select>
             <p class="hint">Interface language preference</p>
           </div>
+          
+          <h3 style="margin-top: 20px;">
+            <svg viewBox="0 0 24 24" stroke-width="2" style="width: 16px; height: 16px;">
+              <path d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
+            </svg>
+            Companies
+          </h3>
+          <p class="hint" style="margin-bottom: 10px;">Manage company profiles for branding and document templates.</p>
+          <button type="button" class="btn-save" id="settings-manage-companies-btn" style="margin-top: 0;">
+            <svg viewBox="0 0 24 24" stroke-width="2" style="width: 18px; height: 18px;"><path d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+            Manage companies
+          </button>
           
           ${state.currentUser?.role === 'superadmin' ? `
             <div class="admin-notice">
@@ -591,82 +626,114 @@ export function showSettingsModal(props: SettingsModalProps = {}): void {
       </div>
     </div>
   `;
-  
-  modalOverlay.appendChild(container);
-  document.body.appendChild(modalOverlay);
-  
-  // Bind events
-  bindSettingsEvents(modalOverlay, props);
 }
 
 /**
- * Bind event handlers
+ * Create and show settings modal
  */
-function bindSettingsEvents(overlay: HTMLElement, props: SettingsModalProps): void {
-  // Close buttons
-  const closeBtn = overlay.querySelector('#close-settings-btn');
-  const cancelBtn = overlay.querySelector('#cancel-settings-btn');
-  
-  const closeModal = () => overlay.remove();
-  
-  if (closeBtn) on(closeBtn as HTMLElement, 'click', closeModal);
-  if (cancelBtn) on(cancelBtn as HTMLElement, 'click', closeModal);
-  
-  // Close on overlay click
-  on(overlay, 'click', (e) => {
-    if (e.target === overlay) closeModal();
+export function showSettingsModal(props: SettingsModalProps = {}): void {
+  // Remove existing modal if any
+  const existing = document.querySelector(`[data-modal-id="${MODAL_ID}"]`);
+  if (existing) existing.remove();
+
+  const state = appStore.getState();
+  const currentTheme = theme.getMode();
+  const initialTab = props.initialTab || 'general';
+
+  const modalOverlay = createElement('div', { className: 'settings-modal-overlay' });
+  modalOverlay.setAttribute('data-modal-id', MODAL_ID);
+  const container = createElement('div', { className: 'settings-modal-container' });
+  container.innerHTML = getSettingsMarkup(state, currentTheme, initialTab, { pageMode: false });
+  modalOverlay.appendChild(container);
+  document.body.appendChild(modalOverlay);
+
+  const closeModal = () => modalOverlay.remove();
+  bindSettingsEvents(modalOverlay, {
+    ...props,
+    onClose: closeModal,
+    onSaveSuccess: closeModal,
+    onManageCompanies: () => {
+      closeModal();
+      showCompaniesModal();
+    },
   });
-  
+}
+
+/**
+ * Bind event handlers (shared by modal and full page).
+ */
+export function bindSettingsEvents(
+  root: HTMLElement,
+  props: SettingsModalProps & SettingsBindOptions
+): void {
+  const closeBtn = root.querySelector('#close-settings-btn');
+  const cancelBtn = root.querySelector('#cancel-settings-btn');
+  const isOverlay = root.classList.contains('settings-modal-overlay');
+
+  const closeAction = () => {
+    if (props.onClose) props.onClose();
+    else if (isOverlay) root.remove();
+  };
+
+  if (closeBtn) on(closeBtn as HTMLElement, 'click', closeAction);
+  if (cancelBtn) on(cancelBtn as HTMLElement, 'click', closeAction);
+
+  if (isOverlay) {
+    on(root, 'click', (e) => {
+      if (e.target === root) closeAction();
+    });
+  }
+
+  const manageCompaniesBtn = root.querySelector('#settings-manage-companies-btn');
+  if (manageCompaniesBtn) {
+    on(manageCompaniesBtn as HTMLElement, 'click', () => {
+      if (props.onManageCompanies) props.onManageCompanies();
+      else {
+        closeAction();
+        showCompaniesModal();
+      }
+    });
+  }
+
   // Tab switching
-  const tabs = overlay.querySelectorAll('.settings-tab');
+  const tabs = root.querySelectorAll('.settings-tab');
   tabs.forEach(tab => {
     on(tab as HTMLElement, 'click', () => {
       const tabId = tab.getAttribute('data-tab');
-      
-      // Update tab buttons
       tabs.forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
-      
-      // Update sections
-      overlay.querySelectorAll('.settings-section').forEach(section => {
+      root.querySelectorAll('.settings-section').forEach(section => {
         section.classList.remove('active');
       });
-      const targetSection = overlay.querySelector(`#section-${tabId}`);
+      const targetSection = root.querySelector(`#section-${tabId}`);
       if (targetSection) targetSection.classList.add('active');
     });
   });
-  
-  // Theme change (immediate preview)
-  const themeSelect = overlay.querySelector('#setting-theme') as HTMLSelectElement;
+
+  const themeSelect = root.querySelector('#setting-theme') as HTMLSelectElement;
   if (themeSelect) {
     on(themeSelect, 'change', () => {
       theme.set(themeSelect.value as 'light' | 'dark' | 'system');
     });
   }
-  
-  // Save button
-  const saveBtn = overlay.querySelector('#save-settings-btn');
+
+  const saveBtn = root.querySelector('#save-settings-btn');
   if (saveBtn) {
     on(saveBtn as HTMLElement, 'click', () => {
       const settings = {
-        theme: (overlay.querySelector('#setting-theme') as HTMLSelectElement)?.value,
-        language: (overlay.querySelector('#setting-language') as HTMLSelectElement)?.value,
-        analyticsEnabled: (overlay.querySelector('#setting-analytics') as HTMLInputElement)?.checked,
-        errorReportingEnabled: (overlay.querySelector('#setting-error-reporting') as HTMLInputElement)?.checked,
-        aiImprovementEnabled: (overlay.querySelector('#setting-ai-improvement') as HTMLInputElement)?.checked,
+        theme: (root.querySelector('#setting-theme') as HTMLSelectElement)?.value,
+        language: (root.querySelector('#setting-language') as HTMLSelectElement)?.value,
+        analyticsEnabled: (root.querySelector('#setting-analytics') as HTMLInputElement)?.checked,
+        errorReportingEnabled: (root.querySelector('#setting-error-reporting') as HTMLInputElement)?.checked,
+        aiImprovementEnabled: (root.querySelector('#setting-ai-improvement') as HTMLInputElement)?.checked,
       };
-      
-      // Update app state
       appStore.setConfig({
         ...appStore.getState().config,
         ...settings,
       });
-      
-      // Call onSave callback
       props.onSave?.(settings);
-      
       toast.success('Settings saved');
-      closeModal();
+      props.onSaveSuccess?.();
     });
   }
 }

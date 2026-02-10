@@ -5,6 +5,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'search-index' });
 
 class SearchIndex {
     constructor(options = {}) {
@@ -72,7 +75,7 @@ class SearchIndex {
             fs.writeFileSync(indexFile, JSON.stringify(Object.fromEntries(this.invertedIndex)));
             fs.writeFileSync(docsFile, JSON.stringify(Object.fromEntries(this.documents)));
         } catch (e) {
-            console.log(`[SearchIndex] Save warning: ${e.message}`);
+            log.warn({ event: 'search_index_save_warning', reason: e.message }, 'Save warning');
         }
     }
 

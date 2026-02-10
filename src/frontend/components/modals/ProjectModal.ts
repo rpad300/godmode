@@ -11,6 +11,7 @@ import { dataStore } from '../../stores/data';
 import { http } from '../../services/api';
 import { toast } from '../../services/toast';
 import { showMemberPermissionsModal } from './MemberPermissionsModal';
+import { listCompanies } from '../../services/companies';
 
 const MODAL_ID = 'project-modal';
 
@@ -21,6 +22,8 @@ export interface ProjectData {
   name: string;
   description?: string;
   owner_id?: string;
+  company_id?: string;
+  company?: { id: string; name?: string; logo_url?: string; brand_assets?: Record<string, unknown> };
   settings?: ProjectSettings;
   created_at?: string;
   updated_at?: string;
@@ -92,6 +95,8 @@ export interface ProjectModalProps {
 
 let currentProps: ProjectModalProps = { mode: 'create' };
 let currentProject: ProjectData | null = null;
+/** When set, form is shown inline (no modal); close/cancel/save/delete call this then clear */
+let inlineOnCancel: (() => void) | null = null;
 let projectMembers: ProjectMember[] = [];
 let projectRoles: RoleTemplate[] = [];
 let projectConfig: ProjectConfig | null = null;
@@ -100,14 +105,26 @@ let projectContacts: Contact[] = [];
 // ==================== Main Functions ====================
 
 /**
- * Show project modal
+ * Show project modal (or inline when container provided)
  */
-export function showProjectModal(props: ProjectModalProps): void {
+export function showProjectModal(props: ProjectModalProps & { inlineContainer?: HTMLElement; onCancel?: () => void }): void {
   currentProps = props;
   currentProject = props.project || null;
+  inlineOnCancel = props.inlineContainer ? (props.onCancel ?? (() => {})) : null;
 
   const content = createModalContent(props.mode);
-  
+
+  if (props.inlineContainer) {
+    props.inlineContainer.innerHTML = '';
+    props.inlineContainer.appendChild(content);
+    if (props.mode === 'edit' && props.project?.id) {
+      loadProjectData(content, props.project.id);
+    } else {
+      renderCreateForm(content);
+    }
+    return;
+  }
+
   const modal = createModal({
     id: MODAL_ID,
     title: '',
@@ -118,20 +135,29 @@ export function showProjectModal(props: ProjectModalProps): void {
   // Remove default modal styling for custom design
   const modalContent = modal.querySelector('.modal-content') as HTMLElement;
   if (modalContent) {
-    modalContent.style.cssText = 'background: transparent; box-shadow: none; padding: 0; max-width: 800px;';
+    modalContent.classList.add('project-modal-content-bare');
   }
   const modalHeader = modal.querySelector('.modal-header') as HTMLElement;
   if (modalHeader) {
-    modalHeader.style.display = 'none';
+    modalHeader.classList.add('hidden');
   }
 
   document.body.appendChild(modal);
   openModal(MODAL_ID);
-  
+
   if (props.mode === 'edit' && props.project?.id) {
     loadProjectData(content, props.project.id);
   } else {
     renderCreateForm(content);
+  }
+}
+
+function closeOrInlineCancel(): void {
+  if (inlineOnCancel) {
+    inlineOnCancel();
+    inlineOnCancel = null;
+  } else {
+    closeModal(MODAL_ID);
   }
 }
 
@@ -933,6 +959,17 @@ function renderCreateForm(container: HTMLElement): void {
             </label>
             <textarea name="description" placeholder="Brief description of the project"></textarea>
           </div>
+          <div class="form-field full-width">
+            <label>
+              <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
+              </svg>
+              Company *
+            </label>
+            <select name="company_id" id="project-company-id">
+              <option value="">Loading...</option>
+            </select>
+          </div>
         </div>
         
         <div class="form-actions">
@@ -1059,6 +1096,18 @@ function renderEditForm(container: HTMLElement): void {
               <input type="text" name="userRolePrompt" value="${escapeHtml(settings.userRolePrompt || '')}" placeholder="e.g., I manage the project timeline">
               <span class="form-hint">Brief description of your responsibilities</span>
             </div>
+
+            <div class="form-field full-width">
+              <label>
+                <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
+                </svg>
+                Company
+              </label>
+              <select name="company_id" id="project-company-id">
+                <option value="">Loading...</option>
+              </select>
+            </div>
           </div>
           
           <div class="form-actions">
@@ -1113,7 +1162,7 @@ function renderEditForm(container: HTMLElement): void {
       
       <!-- Roles Tab -->
       <div class="project-section" id="section-roles">
-        <div class="section-header" style="display: flex; justify-content: space-between; align-items: center;">
+        <div class="section-header">
           <h3>
             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
@@ -1127,7 +1176,7 @@ function renderEditForm(container: HTMLElement): void {
             Add Role
           </button>
         </div>
-        <p style="color: #64748b; font-size: 14px; margin-bottom: 20px;">
+        <p class="section-intro">
           Select which roles are available for team members in this project.
         </p>
         
@@ -1146,7 +1195,7 @@ function renderEditForm(container: HTMLElement): void {
             Project Configuration
           </h3>
         </div>
-        <p style="color: #64748b; font-size: 14px; margin-bottom: 24px;">
+        <p class="section-intro-24">
           Override system defaults with project-specific API keys. Leave empty to use system defaults.
         </p>
         
@@ -1159,7 +1208,7 @@ function renderEditForm(container: HTMLElement): void {
               </svg>
               LLM Model Selection
             </h4>
-            <p style="color: #64748b; font-size: 13px; margin-bottom: 16px;">
+            <p class="section-intro-sm">
               Override system defaults for each task type. Uncheck to use platform defaults.
             </p>
             
@@ -1228,7 +1277,7 @@ function renderEditForm(container: HTMLElement): void {
               </svg>
               LLM API Keys
             </h4>
-            <p style="color: #64748b; font-size: 13px; margin-bottom: 16px;">
+            <p class="section-intro-sm">
               Override system API keys for this project. Leave empty to use system defaults.
             </p>
             
@@ -1324,8 +1373,8 @@ function renderMembersList(): string {
             <h4>${escapeHtml(member.display_name || member.email || 'Unknown')}</h4>
             <p>
               ${escapeHtml(member.email || '')}
-              ${member.user_role ? ` • <strong>${escapeHtml(member.user_role)}</strong>` : ' • <em style="opacity: 0.6">No role defined</em>'}
-              ${member.linked_contact ? ` • <span style="color: #e11d48;" title="Linked to contact: ${escapeHtml(member.linked_contact.name)}">🔗 ${escapeHtml(member.linked_contact.name)}</span>` : ''}
+              ${member.user_role ? ` • <strong>${escapeHtml(member.user_role)}</strong>` : ' • <em class="member-role-muted">No role defined</em>'}
+              ${member.linked_contact ? ` • <span class="member-link" title="Linked to contact: ${escapeHtml(member.linked_contact.name)}">🔗 ${escapeHtml(member.linked_contact.name)}</span>` : ''}
             </p>
           </div>
         </div>
@@ -1335,7 +1384,7 @@ function renderMembersList(): string {
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
             </svg>
           </button>
-          <button class="btn-sota secondary small permissions-btn" data-user-id="${member.user_id}" title="Edit permissions" style="font-size: 14px;">
+          <button class="btn-sota secondary small permissions-btn" data-user-id="${member.user_id}" title="Edit permissions">
             🔐
           </button>
           ${isOwner 
@@ -1362,7 +1411,7 @@ function renderMembersList(): string {
 function renderRolesList(): string {
   if (projectRoles.length === 0) {
     return `
-      <div class="empty-state" style="grid-column: 1 / -1;">
+      <div class="empty-state gm-grid-col-all">
         <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
         </svg>
@@ -1414,13 +1463,26 @@ function bindCreateEvents(container: HTMLElement): void {
   // Close button
   const closeBtn = container.querySelector('#close-project-btn');
   if (closeBtn) {
-    on(closeBtn as HTMLElement, 'click', () => closeModal(MODAL_ID));
+    on(closeBtn as HTMLElement, 'click', () => closeOrInlineCancel());
   }
 
   // Cancel button
   const cancelBtn = container.querySelector('#cancel-btn');
   if (cancelBtn) {
-    on(cancelBtn as HTMLElement, 'click', () => closeModal(MODAL_ID));
+    on(cancelBtn as HTMLElement, 'click', () => closeOrInlineCancel());
+  }
+
+  // Load companies for dropdown
+  const companySelect = container.querySelector('#project-company-id') as HTMLSelectElement;
+  if (companySelect) {
+    listCompanies()
+      .then((companies) => {
+        companySelect.innerHTML = '<option value="">Use default company</option>' +
+          companies.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+      })
+      .catch(() => {
+        companySelect.innerHTML = '<option value="">Use default company</option>';
+      });
   }
 
   // Form submit
@@ -1430,14 +1492,16 @@ function bindCreateEvents(container: HTMLElement): void {
       e.preventDefault();
       
       const formData = new FormData(form);
-      const projectData: ProjectData = {
+      const companyId = (formData.get('company_id') as string)?.trim() || undefined;
+      const projectData: ProjectData & { company_id?: string } = {
         name: (formData.get('name') as string).trim(),
         description: (formData.get('description') as string).trim() || undefined,
       };
+      if (companyId) projectData.company_id = companyId;
 
       const submitBtn = form.querySelector('button[type="submit"]') as HTMLButtonElement;
       submitBtn.disabled = true;
-      submitBtn.innerHTML = '<span class="loading-spinner" style="width: 16px; height: 16px;"></span> Creating...';
+      submitBtn.innerHTML = '<span class="loading-spinner gm-size-4"></span> Creating...';
 
       try {
         const response = await http.post<{ id: string; project?: ProjectData }>('/api/projects', projectData);
@@ -1453,7 +1517,7 @@ function bindCreateEvents(container: HTMLElement): void {
         });
         
         currentProps.onSave?.(projectData);
-        closeModal(MODAL_ID);
+        closeOrInlineCancel();
         loadProjects();
       } catch {
         toast.error('Failed to create project');
@@ -1474,7 +1538,7 @@ function bindEditEvents(container: HTMLElement): void {
   // Close button
   const closeBtn = container.querySelector('#close-project-btn');
   if (closeBtn) {
-    on(closeBtn as HTMLElement, 'click', () => closeModal(MODAL_ID));
+    on(closeBtn as HTMLElement, 'click', () => closeOrInlineCancel());
   }
 
   // Tab switching
@@ -1491,6 +1555,21 @@ function bindEditEvents(container: HTMLElement): void {
     });
   });
 
+  // Load companies for edit form dropdown
+  const companySelectEdit = container.querySelector('#project-company-id') as HTMLSelectElement;
+  if (companySelectEdit) {
+    const project = currentProject || currentProps.project;
+    const currentCompanyId = project?.company_id ?? (project as ProjectData & { company?: { id: string } })?.company?.id;
+    listCompanies()
+      .then((companies) => {
+        companySelectEdit.innerHTML = '<option value="">—</option>' +
+          companies.map((c) => `<option value="${c.id}" ${c.id === currentCompanyId ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('');
+      })
+      .catch(() => {
+        companySelectEdit.innerHTML = '<option value="">—</option>';
+      });
+  }
+
   // General form submit
   const projectForm = container.querySelector('#project-form') as HTMLFormElement;
   if (projectForm) {
@@ -1498,7 +1577,8 @@ function bindEditEvents(container: HTMLElement): void {
       e.preventDefault();
       
       const formData = new FormData(projectForm);
-      const projectData = {
+      const companyId = (formData.get('company_id') as string)?.trim() || undefined;
+      const projectData: Record<string, unknown> = {
         name: (formData.get('name') as string).trim(),
         description: (formData.get('description') as string).trim() || undefined,
         settings: {
@@ -1506,17 +1586,19 @@ function bindEditEvents(container: HTMLElement): void {
           userRolePrompt: (formData.get('userRolePrompt') as string).trim() || undefined,
         },
       };
+      if (companyId) projectData.company_id = companyId;
 
       try {
         await http.put(`/api/projects/${currentProject?.id || currentProps.project?.id}`, projectData);
         toast.success('Project updated');
         currentProps.onSave?.({ ...currentProject, ...projectData } as ProjectData);
-        
+        if (inlineOnCancel) closeOrInlineCancel();
+
         // Update header
         const titleEl = container.querySelector('.project-title-info h2');
         const descEl = container.querySelector('.project-title-info p');
-        if (titleEl) titleEl.textContent = projectData.name;
-        if (descEl) descEl.textContent = projectData.description || 'No description';
+        if (titleEl) titleEl.textContent = String(projectData.name);
+        if (descEl) descEl.textContent = String(projectData.description || 'No description');
       } catch {
         toast.error('Failed to update project');
       }
@@ -1544,8 +1626,8 @@ function bindEditEvents(container: HTMLElement): void {
           await http.delete(`/api/projects/${project.id}`);
           toast.success('Project deleted');
           currentProps.onDelete?.(project.id);
-          closeModal(MODAL_ID);
-          
+          closeOrInlineCancel();
+
           if (appStore.getState().currentProjectId === project.id) {
             appStore.setCurrentProject(null);
           }
@@ -2211,7 +2293,7 @@ function showEditUserRoleDialog(container: HTMLElement, member: ProjectMember): 
       </svg>
       Edit Project Role
     </h3>
-    <p style="color: #64748b; font-size: 14px; margin: 0 0 20px 0;">
+    <p class="section-intro-last">
       Define <strong>${escapeHtml(member.display_name || member.email || 'this member')}</strong>'s role in the project
     </p>
     
@@ -2232,7 +2314,7 @@ function showEditUserRoleDialog(container: HTMLElement, member: ProjectMember): 
       <input type="text" id="edit-user-role-custom" 
              value="${member.user_role && !projectRoles.some(r => r.display_name === member.user_role || r.name === member.user_role) ? escapeHtml(member.user_role) : ''}" 
              placeholder="Enter custom role title"
-             style="margin-top: 8px; display: ${member.user_role && !projectRoles.some(r => r.display_name === member.user_role || r.name === member.user_role) ? 'block' : 'none'};">
+             class="gm-mt-2 ${member.user_role && !projectRoles.some(r => r.display_name === member.user_role || r.name === member.user_role) ? '' : 'hidden'}">
     </div>
     
     <div class="form-field">
@@ -2243,7 +2325,7 @@ function showEditUserRoleDialog(container: HTMLElement, member: ProjectMember): 
     
     <div class="form-field">
       <label>
-        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="display: inline; vertical-align: middle; margin-right: 4px;">
+        <svg class="gm-inline-icon" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
         </svg>
         Link to Contact
@@ -2296,7 +2378,7 @@ function showEditUserRoleDialog(container: HTMLElement, member: ProjectMember): 
     const isCustom = roleSelect.value === '__custom__';
     
     // Show/hide custom input
-    customInput.style.display = isCustom ? 'block' : 'none';
+    customInput.classList.toggle('hidden', !isCustom);
     if (isCustom) {
       customInput.focus();
     }

@@ -20,9 +20,11 @@
  * - POST /api/ollama/pull
  */
 
-const { parseBody } = require('../../server/request');
+const { parseBody, parseUrl } = require('../../server/request');
+const { getLogger } = require('../../server/requestContext');
+const { logger: rootLogger, logError } = require('../../logger');
 const { jsonResponse } = require('../../server/response');
-const { parseUrl } = require('../../server/request');
+const moduleLog = rootLogger.child({ module: 'llm' });
 
 /**
  * Handle LLM and Ollama routes
@@ -30,7 +32,14 @@ const { parseUrl } = require('../../server/request');
  * @returns {Promise<boolean>} - true if handled
  */
 async function handleLlm(ctx) {
-    const { req, res, pathname, config, saveConfig, llm, ollama, supabase } = ctx;
+    const { req, res, pathname, config, saveConfig, llm, supabase } = ctx;
+
+    function getOllamaConfig() {
+        return config.llm?.providers?.ollama || {
+            host: config.ollama?.host || '127.0.0.1',
+            port: config.ollama?.port || 11434
+        };
+    }
     
     // Only handle /api/llm/* and /api/ollama/* routes
     if (!pathname.startsWith('/api/llm/') && !pathname.startsWith('/api/ollama/')) {
@@ -39,16 +48,24 @@ async function handleLlm(ctx) {
 
     // Lazy load modules to avoid circular dependencies
     const llmConfig = require('../../llm/config');
-    const modelMetadata = require('../../llm/model-metadata');
-    const tokenBudget = require('../../llm/token-budget');
+    const modelMetadata = require('../../llm/modelMetadata');
+    const tokenBudget = require('../../llm/tokenBudget');
     const llmRouter = require('../../llm/router');
-    const healthRegistry = require('../../llm/health-registry');
+    const healthRegistry = require('../../llm/healthRegistry');
 
     // ==================== LLM Provider API ====================
 
-    // GET /api/llm/providers - Get list of supported providers with capabilities
+    // GET /api/llm/providers - Get list of supported providers with capabilities (frontend-compatible shape)
     if (pathname === '/api/llm/providers' && req.method === 'GET') {
-        const providers = llm.getProviders();
+        const raw = llm.getProviders();
+        const providerConfigs = config?.llm?.providers || {};
+        const providers = raw.map(p => ({
+            id: p.id,
+            name: p.label || p.name || p.id,
+            enabled: p.id === 'ollama' ? !!(providerConfigs.ollama?.host || config?.ollama?.host) : !!(providerConfigs[p.id]?.apiKey),
+            models: Array.isArray(p.models) ? p.models : [],
+            capabilities: p.capabilities || {}
+        }));
         jsonResponse(res, { providers });
         return true;
     }
@@ -90,7 +107,7 @@ async function handleLlm(ctx) {
                 database: status.database || null
             });
         } catch (error) {
-            console.error('[API] Queue status error:', error);
+            log.warn({ event: 'llm_queue_status_error', reason: error?.message }, 'Queue status error');
             jsonResponse(res, { error: error.message }, 500);
         }
         return true;
@@ -107,7 +124,7 @@ async function handleLlm(ctx) {
             const history = await getHistory(limit, projectId);
             jsonResponse(res, { history });
         } catch (error) {
-            console.error('[API] Queue history error:', error);
+            log.warn({ event: 'llm_queue_history_error', reason: error?.message }, 'Queue history error');
             jsonResponse(res, { error: error.message }, 500);
         }
         return true;
@@ -124,7 +141,7 @@ async function handleLlm(ctx) {
             const items = await getPendingItems(projectId, limit);
             jsonResponse(res, { items });
         } catch (error) {
-            console.error('[API] Queue pending error:', error);
+            log.warn({ event: 'llm_queue_pending_error', reason: error?.message }, 'Queue pending error');
             jsonResponse(res, { error: error.message }, 500);
         }
         return true;
@@ -141,7 +158,7 @@ async function handleLlm(ctx) {
             const items = await getRetryableItems(projectId, limit);
             jsonResponse(res, { items });
         } catch (error) {
-            console.error('[API] Queue retryable error:', error);
+            log.warn({ event: 'llm_queue_retryable_error', reason: error?.message }, 'Queue retryable error');
             jsonResponse(res, { error: error.message }, 500);
         }
         return true;
@@ -157,7 +174,7 @@ async function handleLlm(ctx) {
             const result = await retryItem(itemId);
             jsonResponse(res, result);
         } catch (error) {
-            console.error('[API] Queue retry error:', error);
+            log.warn({ event: 'llm_queue_retry_error', reason: error?.message }, 'Queue retry error');
             jsonResponse(res, { error: error.message }, 500);
         }
         return true;
@@ -173,7 +190,7 @@ async function handleLlm(ctx) {
             const result = await retryAllItems(projectId);
             jsonResponse(res, result);
         } catch (error) {
-            console.error('[API] Queue retry-all error:', error);
+            log.warn({ event: 'llm_queue_retry_all_error', reason: error?.message }, 'Queue retry-all error');
             jsonResponse(res, { error: error.message }, 500);
         }
         return true;
@@ -189,7 +206,7 @@ async function handleLlm(ctx) {
             const result = await cancelItem(itemId);
             jsonResponse(res, result);
         } catch (error) {
-            console.error('[API] Queue cancel error:', error);
+            log.warn({ event: 'llm_queue_cancel_error', reason: error?.message }, 'Queue cancel error');
             jsonResponse(res, { error: error.message }, 500);
         }
         return true;
@@ -206,7 +223,7 @@ async function handleLlm(ctx) {
             const result = await clearQueue(status, projectId);
             jsonResponse(res, result);
         } catch (error) {
-            console.error('[API] Queue clear error:', error);
+            log.warn({ event: 'llm_queue_clear_error', reason: error?.message }, 'Queue clear error');
             jsonResponse(res, { error: error.message }, 500);
         }
         return true;
@@ -535,7 +552,7 @@ async function handleLlm(ctx) {
             
             jsonResponse(res, report);
         } catch (error) {
-            console.error('Preflight error:', error);
+            log.warn({ event: 'llm_preflight_error', reason: error?.message }, 'Preflight error');
             jsonResponse(res, { 
                 error: 'Preflight runner failed', 
                 message: error.message 
@@ -548,30 +565,37 @@ async function handleLlm(ctx) {
 
     // GET /api/ollama/test - Test Ollama connection
     if (pathname === '/api/ollama/test' && req.method === 'GET') {
-        const result = await ollama.testConnection();
-        jsonResponse(res, result);
+        const result = await llm.testConnection('ollama', getOllamaConfig());
+        const resPayload = result.ok ? { connected: true, models: result.models } : { connected: false, error: result.error?.message };
+        jsonResponse(res, resPayload);
         return true;
     }
 
     // GET /api/ollama/models - Get available models (categorized)
     if (pathname === '/api/ollama/models' && req.method === 'GET') {
-        const categorized = await ollama.getCategorizedModels();
-        jsonResponse(res, {
-            models: categorized.all,
-            vision: categorized.vision,
-            text: categorized.text,
-            hasVision: categorized.vision.length > 0,
-            hasText: categorized.text.length > 0,
-            recommended: categorized.vision.length > 0 ? 'auto' : (categorized.text[0]?.name || null)
-        });
+        try {
+            const client = llm.getClient('ollama', getOllamaConfig());
+            const categorized = await client.getCategorizedModels();
+            jsonResponse(res, {
+                models: categorized.all,
+                vision: categorized.vision,
+                text: categorized.text,
+                hasVision: categorized.vision.length > 0,
+                hasText: categorized.text.length > 0,
+                recommended: categorized.vision.length > 0 ? 'auto' : (categorized.text[0]?.name || null)
+            });
+        } catch (e) {
+            jsonResponse(res, { models: [], vision: [], text: [], hasVision: false, hasText: false, recommended: null, error: e.message }, 500);
+        }
         return true;
     }
 
     // GET /api/ollama/recommended - Get recommended models for download
     if (pathname === '/api/ollama/recommended' && req.method === 'GET') {
         try {
-            const recommended = ollama.getRecommendedModels();
-            const installed = await ollama.getCategorizedModels();
+            const client = llm.getClient('ollama', getOllamaConfig());
+            const recommended = client.getRecommendedModels();
+            const installed = await client.getCategorizedModels();
             const installedNames = installed.all.map(m => m.name.split(':')[0]);
 
             for (const category of ['vision', 'text']) {
@@ -586,7 +610,7 @@ async function handleLlm(ctx) {
                 needsText: installed.text.length === 0
             });
         } catch (e) {
-            console.error('Error fetching recommended models:', e.message);
+            log.warn({ event: 'llm_recommended_models_error', reason: e.message }, 'Error fetching recommended models');
             jsonResponse(res, { error: 'Ollama server unavailable', details: e.message });
         }
         return true;
@@ -602,21 +626,21 @@ async function handleLlm(ctx) {
             return true;
         }
 
-        console.log(`Starting download of model: ${modelName}`);
+        log.debug({ event: 'llm_pull_start', modelName }, 'Starting download of model');
 
         let lastProgress = null;
-        const result = await ollama.pullModel(modelName, (progress) => {
+        const result = await llm.pullModel('ollama', modelName, getOllamaConfig(), (progress) => {
             lastProgress = progress;
-            if (progress.total > 0) {
-                console.log(`Downloading ${modelName}: ${progress.percent}% (${progress.status})`);
+            if (progress && progress.total > 0) {
+                log.debug({ event: 'llm_pull_progress', modelName, percent: progress.percent, status: progress.status }, 'Downloading model');
             }
         });
 
         if (result.success) {
-            console.log(`Model ${modelName} downloaded successfully`);
+            log.debug({ event: 'llm_pull_done', modelName }, 'Model downloaded successfully');
             jsonResponse(res, { success: true, model: modelName });
         } else {
-            console.log(`Failed to download ${modelName}: ${result.error}`);
+            log.warn({ event: 'llm_pull_failed', modelName, reason: result.error }, 'Failed to download model');
             jsonResponse(res, { success: false, error: result.error }, 500);
         }
         return true;
@@ -639,12 +663,12 @@ async function loadApiKeyFromSupabase(supabase, providerId) {
         if (secretName) {
             const apiKeyResult = await secrets.getSecret('system', secretName);
             if (apiKeyResult.success && apiKeyResult.value) {
-                console.log(`[LLM] Loaded API key for ${providerId} from Supabase`);
+                moduleLog.debug({ event: 'llm_apikey_loaded', providerId }, 'Loaded API key from Supabase');
                 return apiKeyResult.value;
             }
         }
     } catch (e) {
-        console.warn(`[LLM] Failed to load API key from Supabase for ${providerId}:`, e.message);
+        moduleLog.warn({ event: 'llm_apikey_load_failed', providerId, reason: e.message }, 'Failed to load API key from Supabase');
     }
     return null;
 }
@@ -665,7 +689,7 @@ function getApiKeyFromEnv(providerId) {
     };
     const key = envKeys[providerId];
     if (key) {
-        console.log(`[LLM] Using API key for ${providerId} from environment`);
+        moduleLog.debug({ event: 'llm_apikey_env', providerId }, 'Using API key from environment');
     }
     return key || null;
 }

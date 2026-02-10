@@ -241,7 +241,7 @@ export function showConversationPreviewModal(conversation: Conversation, onClose
     
     <div class="conv-preview-header">
       <div class="conv-preview-icon">💬</div>
-      <div style="flex: 1;">
+      <div class="conv-preview-header-fill">
         <h2 class="conv-preview-title">${escapeHtml(conversation.title || 'Untitled Conversation')}</h2>
         <div class="conv-preview-meta">
           <span>${conversation.participants?.length || 0} participants</span>
@@ -249,7 +249,7 @@ export function showConversationPreviewModal(conversation: Conversation, onClose
           <span>${formatRelativeTime(conversation.created_at)}</span>
         </div>
       </div>
-      <button class="btn btn-sm close-btn" style="font-size: 20px; padding: 4px 12px;">×</button>
+      <button class="btn btn-sm conv-preview-close-btn">×</button>
     </div>
     
     <div class="conv-preview-tabs">
@@ -262,7 +262,7 @@ export function showConversationPreviewModal(conversation: Conversation, onClose
         Extraction
         <span class="conv-preview-tab-badge" id="extraction-count">0</span>
       </button>
-      <button class="conv-preview-tab" data-tab="notes" id="notes-tab" style="display:none">
+      <button class="conv-preview-tab hidden" data-tab="notes" id="notes-tab">
         Notes
       </button>
     </div>
@@ -316,25 +316,10 @@ export function showConversationPreviewModal(conversation: Conversation, onClose
 
   // Create overlay
   const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay conversation-preview-overlay';
-  overlay.style.cssText = `
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.5);
-    backdrop-filter: blur(4px);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 10000;
-  `;
+  overlay.className = 'modal-overlay overlay-preview conversation-preview-overlay';
 
   const modal = document.createElement('div');
-  modal.style.cssText = `
-    background: var(--bg-primary);
-    border-radius: 16px;
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-    overflow: hidden;
-  `;
+  modal.className = 'modal-preview-box';
   modal.appendChild(content);
   overlay.appendChild(modal);
 
@@ -410,7 +395,7 @@ function loadExtractionData(container: HTMLElement, conversation: Conversation):
     }
     
     if (decisions.length > 0) {
-      html += `<div class="section-title" style="margin-top: 20px;">Decisions (${decisions.length})</div>`;
+      html += `<div class="section-title section-title-mt">Decisions (${decisions.length})</div>`;
       html += decisions.map(d => `
         <div class="entity-card">
           <div class="entity-content">${escapeHtml(d.content)}</div>
@@ -419,7 +404,7 @@ function loadExtractionData(container: HTMLElement, conversation: Conversation):
     }
     
     if (actions.length > 0) {
-      html += `<div class="section-title" style="margin-top: 20px;">Action Items (${actions.length})</div>`;
+      html += `<div class="section-title section-title-mt">Action Items (${actions.length})</div>`;
       html += actions.map(a => `
         <div class="entity-card">
           <div class="entity-content">${escapeHtml(a.task)}</div>
@@ -429,7 +414,7 @@ function loadExtractionData(container: HTMLElement, conversation: Conversation):
     }
     
     if (questions.length > 0) {
-      html += `<div class="section-title" style="margin-top: 20px;">Questions (${questions.length})</div>`;
+      html += `<div class="section-title section-title-mt">Questions (${questions.length})</div>`;
       html += questions.map(q => `
         <div class="entity-card">
           <div class="entity-content">${escapeHtml(q.content)}</div>
@@ -448,11 +433,11 @@ function loadExtractionData(container: HTMLElement, conversation: Conversation):
   const notesText = extraction?.notes_rendered_text;
   
   if (notesText) {
-    if (notesTab) notesTab.style.display = '';
+    if (notesTab) notesTab.classList.remove('hidden');
     notesContainer.innerHTML = `
       <div class="notes-rendered">
         ${renderNotesAsHtml(notesText)}
-        <div style="margin-top: 16px;">
+        <div class="conv-notes-actions-mt">
           <button class="btn btn-secondary btn-sm" id="copy-notes-btn">📋 Copy Notes</button>
         </div>
       </div>
@@ -463,7 +448,7 @@ function loadExtractionData(container: HTMLElement, conversation: Conversation):
       toast.success('Notes copied to clipboard');
     });
   } else if (extraction?.notes?.outline?.length) {
-    if (notesTab) notesTab.style.display = '';
+    if (notesTab) notesTab.classList.remove('hidden');
     const outline = extraction.notes.outline;
     notesContainer.innerHTML = `
       <div class="notes-rendered">
@@ -531,7 +516,7 @@ function renderNotesAsHtml(text: string): string {
   flushTopic();
   
   if (!html.includes('notes-topic')) {
-    return `<pre style="white-space: pre-wrap; font-family: inherit; margin: 0; line-height: 1.6;">${escapeHtml(text)}</pre>`;
+    return `<pre class="conv-notes-pre">${escapeHtml(text)}</pre>`;
   }
   
   return html;

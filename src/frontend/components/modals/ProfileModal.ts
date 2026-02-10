@@ -46,40 +46,15 @@ export function showProfileModal(props: ProfileModalProps = {}): void {
     onClose: props.onClose,
   });
 
-  // Force modal overlay to be centered
-  modal.style.cssText = `
-    position: fixed !important;
-    top: 0 !important;
-    left: 0 !important;
-    right: 0 !important;
-    bottom: 0 !important;
-    width: 100% !important;
-    height: 100% !important;
-    display: flex !important;
-    justify-content: center !important;
-    align-items: center !important;
-    background: rgba(0, 0, 0, 0.75) !important;
-    z-index: 9999 !important;
-    padding: 24px !important;
-    margin: 0 !important;
-  `;
-  
-  // Remove default modal styling for custom design
+  modal.classList.add('profile-modal-overlay');
+
   const modalContent = modal.querySelector('.modal-content') as HTMLElement;
   if (modalContent) {
-    modalContent.style.cssText = `
-      background: transparent;
-      box-shadow: none;
-      padding: 0;
-      max-width: 720px;
-      width: 95%;
-      margin: 0 !important;
-      position: relative !important;
-    `;
+    modalContent.classList.add('profile-modal-content');
   }
   const modalHeader = modal.querySelector('.modal-header') as HTMLElement;
   if (modalHeader) {
-    modalHeader.style.display = 'none';
+    modalHeader.classList.add('hidden');
   }
 
   document.body.appendChild(modal);
@@ -633,8 +608,9 @@ function createModalContent(): HTMLElement {
 
 /**
  * Load profile data
+ * @param bindOptions - When onBack is set (page mode), close button calls it instead of closeModal
  */
-async function loadProfile(container: HTMLElement): Promise<void> {
+async function loadProfile(container: HTMLElement, bindOptions?: { onBack?: () => void }): Promise<void> {
   const card = container.querySelector('.profile-card') as HTMLElement;
   if (!card) return;
 
@@ -647,7 +623,7 @@ async function loadProfile(container: HTMLElement): Promise<void> {
     
     if (apiProfile) {
       currentProfile = apiProfile;
-      renderProfile(card, currentProfile, timezones);
+      renderProfile(card, currentProfile, timezones, bindOptions);
     } else {
       // Fallback to current user from store
       const currentUser = appStore.getState().currentUser;
@@ -659,7 +635,7 @@ async function loadProfile(container: HTMLElement): Promise<void> {
           avatar_url: currentUser.avatar,
           created_at: new Date().toISOString(),
         };
-        renderProfile(card, currentProfile, timezones);
+        renderProfile(card, currentProfile, timezones, bindOptions);
       } else {
         card.innerHTML = '<div class="empty-state">Please log in to view your profile</div>';
       }
@@ -675,7 +651,7 @@ async function loadProfile(container: HTMLElement): Promise<void> {
         avatar_url: currentUser.avatar,
         created_at: new Date().toISOString(),
       };
-      renderProfile(card, currentProfile);
+      renderProfile(card, currentProfile, undefined, bindOptions);
     } else {
       card.innerHTML = '<div class="empty-state">Failed to load profile</div>';
     }
@@ -685,7 +661,7 @@ async function loadProfile(container: HTMLElement): Promise<void> {
 /**
  * Render profile
  */
-function renderProfile(container: HTMLElement, profile: UserProfile, timezones?: Timezone[]): void {
+function renderProfile(container: HTMLElement, profile: UserProfile, timezones?: Timezone[], bindOptions?: { onBack?: () => void }): void {
   const initials = getInitials(profile.display_name || profile.email);
   const currentUser = appStore.getState().currentUser;
   const role = currentUser?.role || profile.role || 'user';
@@ -931,7 +907,7 @@ function renderProfile(container: HTMLElement, profile: UserProfile, timezones?:
             </svg>
             Krisp AI Meeting Assistant
           </h3>
-          <p class="form-hint" style="margin-bottom: 16px;">
+          <p class="form-hint form-hint-mb">
             Connect your Krisp account to automatically import meeting transcriptions into GodMode.
           </p>
           
@@ -943,19 +919,25 @@ function renderProfile(container: HTMLElement, profile: UserProfile, timezones?:
     </div>
   `;
 
-  bindEvents(container);
+  bindEvents(container, bindOptions);
 }
 
 /**
  * Bind event handlers
+ * @param container - Root profile view container
+ * @param options - When onBack is set (page mode), close button calls it instead of closeModal
  */
-function bindEvents(container: HTMLElement): void {
+function bindEvents(container: HTMLElement, options?: { onBack?: () => void }): void {
   // Close button
   const closeBtn = container.querySelector('#close-profile-btn');
   if (closeBtn) {
     on(closeBtn as HTMLElement, 'click', () => {
-      closeModal(MODAL_ID);
-      currentProps.onClose?.();
+      if (options?.onBack) {
+        options.onBack();
+      } else {
+        closeModal(MODAL_ID);
+        currentProps.onClose?.();
+      }
     });
   }
 
@@ -1580,4 +1562,23 @@ async function loadKrispIntegration(container: HTMLElement): Promise<void> {
 
 export function closeProfileModal(): void {
   closeModal(MODAL_ID);
+}
+
+/**
+ * Create the profile view root element (same content as modal, no wrapper).
+ * Used for embedding profile in a tab/page.
+ */
+export function createProfileView(): HTMLElement {
+  return createModalContent();
+}
+
+/**
+ * Initialize profile as a full page inside the given container (no modal).
+ * Use when showing Profile in a tab; close button will call onBack.
+ */
+export function initProfilePage(container: HTMLElement, options: { onBack?: () => void } = {}): void {
+  container.innerHTML = '';
+  const view = createModalContent();
+  container.appendChild(view);
+  loadProfile(view, { onBack: options.onBack });
 }

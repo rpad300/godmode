@@ -114,7 +114,7 @@ export function createTimelinePanel(props: TimelinePanelProps = {}): HTMLElement
     <div class="timeline-content" id="timeline-content">
       ${renderSkeletons()}
     </div>
-    <div class="timeline-footer" id="timeline-footer" style="display:none;">
+    <div class="timeline-footer hidden" id="timeline-footer">
       <button class="btn btn-secondary btn-sm" id="timeline-load-more">Load more</button>
     </div>
   `;
@@ -289,12 +289,12 @@ function renderEventCard(event: TimelineEvent, index: number): string {
 
   return `
     <div class="timeline-event" data-id="${event.id}" data-index="${index}" tabindex="0">
-      <div class="event-avatar" style="background: ${color}20; color: ${color};">
+      <div class="event-avatar" style="--event-color: ${color}">
         ${initials || icon}
       </div>
       <div class="event-body">
         <div class="event-header">
-          <span class="event-type-badge" style="background: ${color}20; color: ${color};">
+          <span class="event-type-badge" style="--event-color: ${color}">
             <span class="type-icon">${icon}</span>
             ${config.label}
           </span>

@@ -343,7 +343,7 @@ export function createChat(props: ChatProps = {}): HTMLElement {
     loadContacts().then(() => renderNewChatContextSelect());
     loadSessions();
   } else {
-    chatHeader.style.display = 'none';
+    chatHeader.classList.add('hidden');
   }
   chat.appendChild(mainArea);
 
@@ -435,7 +435,7 @@ function renderMessage(
         const pillsEl = createElement('div', { className: 'chat-contact-pills' });
         pillsEl.innerHTML = contactSources.map(s => `
           <div class="contact-pill">
-            ${s.avatarUrl ? `<img class="contact-pill-avatar" src="${escapeHtml(s.avatarUrl)}" alt="" onerror="this.style.display='none'"/>` : `<div class="contact-pill-avatar-placeholder">${escapeHtml((s.contactName || s.type || '?')[0])}</div>`}
+            ${s.avatarUrl ? `<img class="contact-pill-avatar" src="${escapeHtml(s.avatarUrl)}" alt="" onerror="this.classList.add('hidden')"/>` : `<div class="contact-pill-avatar-placeholder">${escapeHtml((s.contactName || s.type || '?')[0])}</div>`}
             <div class="contact-pill-info">
               <span class="contact-pill-name">${escapeHtml(s.contactName || s.type || 'Contact')}</span>
               ${s.contactRole ? `<span class="contact-pill-role">${escapeHtml(s.contactRole)}</span>` : ''}

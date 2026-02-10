@@ -5,19 +5,13 @@
 
 /* ==================== Base Sidebar ==================== */
 .sidebar {
-  background: #ffffff !important;
-  border-right: 1px solid rgba(0, 0, 0, 0.06) !important;
-  box-shadow: none !important;
-  width: 210px !important;
-  min-width: 210px !important;
-  max-width: 210px !important;
+  background: var(--sidebar-bg, var(--surface-primary));
+  border-right: 1px solid var(--sidebar-border, var(--border-primary));
+  width: var(--sidebar-width);
+  min-width: var(--sidebar-width);
+  max-width: var(--sidebar-width);
   display: flex;
   flex-direction: column;
-}
-
-[data-theme="dark"] .sidebar {
-  background: #1a1a2e !important;
-  border-right: 1px solid rgba(255, 255, 255, 0.06) !important;
 }
 
 /* ==================== Sidebar Sections ==================== */
@@ -26,25 +20,17 @@
 }
 
 .sidebar-section + .sidebar-section {
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
-}
-
-[data-theme="dark"] .sidebar-section + .sidebar-section {
-  border-top-color: rgba(255, 255, 255, 0.06);
+  border-top: 1px solid var(--border-primary);
 }
 
 .sidebar-section-header {
   font-size: 0.625rem;
   font-weight: 800;
-  color: #b0b0b0;
+  color: var(--text-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.12em;
   margin-bottom: 0.625rem;
   padding-left: 0.125rem;
-}
-
-[data-theme="dark"] .sidebar-section-header {
-  color: #6a6a8a;
 }
 
 /* ==================== Action Buttons ==================== */
@@ -64,10 +50,6 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin-bottom: 0.5rem;
-}
-
-[data-theme="dark"] .sidebar-actions {
-  border-top-color: rgba(255, 255, 255, 0.06);
 }
 
 .sidebar-actions .btn,
@@ -93,39 +75,28 @@
 /* Primary button - Process Files */
 .sidebar .btn-primary,
 .sidebar-actions .btn-primary {
-  background: #3b82f6;
-  color: white;
-  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+  background: var(--accent);
+  color: var(--text-on-brand);
+  box-shadow: var(--shadow-md);
 }
 
 .sidebar .btn-primary:hover {
-  background: #2563eb;
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+  background: var(--accent-hover);
+  box-shadow: var(--accent-glow);
 }
 
 /* Secondary buttons */
 .sidebar .btn-secondary,
 .sidebar-actions .btn-secondary {
-  background: rgba(0, 0, 0, 0.03);
-  color: #555;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: var(--interactive-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-primary);
 }
 
-[data-theme="dark"] .sidebar .btn-secondary,
-[data-theme="dark"] .sidebar-actions .btn-secondary {
-  background: rgba(255, 255, 255, 0.05);
-  color: #aaa;
-  border-color: rgba(255, 255, 255, 0.1);
-}
-
-.sidebar .btn-secondary:hover {
-  background: rgba(0, 0, 0, 0.06);
-  border-color: rgba(0, 0, 0, 0.15);
-}
-
-[data-theme="dark"] .sidebar .btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.15);
+.sidebar .btn-secondary:hover,
+.sidebar-actions .btn-secondary:hover {
+  background: var(--interactive-secondary-hover);
+  border-color: var(--border-secondary);
 }
 
 /* Danger button - Reset */

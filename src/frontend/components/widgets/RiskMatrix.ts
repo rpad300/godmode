@@ -73,10 +73,10 @@ export function createRiskMatrix(props: RiskMatrixProps): HTMLElement {
       <div class="matrix-x-label">Likelihood</div>
     </div>
     <div class="matrix-legend">
-      <span class="legend-item"><span class="legend-color" style="background: #22c55e"></span> Low</span>
-      <span class="legend-item"><span class="legend-color" style="background: #eab308"></span> Medium</span>
-      <span class="legend-item"><span class="legend-color" style="background: #f97316"></span> High</span>
-      <span class="legend-item"><span class="legend-color" style="background: #ef4444"></span> Critical</span>
+      <span class="legend-item"><span class="legend-color risk-legend-low"></span> Low</span>
+      <span class="legend-item"><span class="legend-color risk-legend-medium"></span> Medium</span>
+      <span class="legend-item"><span class="legend-color risk-legend-high"></span> High</span>
+      <span class="legend-item"><span class="legend-color risk-legend-critical"></span> Critical</span>
     </div>
   `;
 
@@ -139,7 +139,7 @@ export function createRiskSummary(risks: Risk[]): HTMLElement {
         <div class="summary-bar">
           <span class="bar-label">${capitalize(level)}</span>
           <div class="bar-track">
-            <div class="bar-fill impact-${level}" style="width: ${Math.min(count * 20, 100)}%"></div>
+            <div class="bar-fill impact-${level}" style="--bar-width: ${Math.min(count * 20, 100)}"></div>
           </div>
           <span class="bar-count">${count}</span>
         </div>

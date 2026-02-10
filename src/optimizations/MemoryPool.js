@@ -3,6 +3,10 @@
  * Manages memory for large datasets, prevents OOM
  */
 
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'memory-pool' });
+
 class MemoryPool {
     constructor(options = {}) {
         // Memory limits (in MB)
@@ -197,7 +201,7 @@ class MemoryPool {
      * Emergency cleanup
      */
     emergencyCleanup() {
-        console.log('[MemoryPool] Emergency cleanup triggered');
+        log.warn({ event: 'memory_pool_emergency_cleanup' }, 'Emergency cleanup triggered');
         
         // Evict 50% from all pools
         for (const poolName of Object.keys(this.pools)) {
@@ -218,10 +222,10 @@ class MemoryPool {
             const check = this.checkMemory();
             
             if (check.status === 'critical') {
-                console.log('[MemoryPool]', check.message);
+                log.warn({ event: 'memory_pool_critical', message: check.message }, check.message);
                 this.emergencyCleanup();
             } else if (check.status === 'warning') {
-                console.log('[MemoryPool]', check.message);
+                log.debug({ event: 'memory_pool_warning', message: check.message }, check.message);
                 // Evict 20% from caches
                 this.evictFromPool('cache', 0.2);
             }

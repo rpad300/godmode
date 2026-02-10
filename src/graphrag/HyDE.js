@@ -8,7 +8,10 @@
  * Reference: "Precise Zero-Shot Dense Retrieval without Relevance Labels" (Gao et al., 2022)
  */
 
+const { logger } = require('../logger');
 const llm = require('../llm');
+
+const log = logger.child({ module: 'hyde' });
 
 class HyDE {
     constructor(options = {}) {
@@ -21,7 +24,7 @@ class HyDE {
         this.embeddingModel = options.embeddingModel || null;
         
         if (!this.llmProvider) {
-            console.warn('[HyDE] No LLM provider specified');
+            log.warn({ event: 'hyde_no_llm' }, 'No LLM provider specified');
         }
         
         // Cache hypothetical documents
@@ -46,11 +49,11 @@ class HyDE {
         const cacheKey = `hyde:${query}:${numDocs}`;
         const cached = this.getFromCache(cacheKey);
         if (cached) {
-            console.log('[HyDE] Cache hit for hypothetical document');
+            log.debug({ event: 'hyde_cache_hit' }, 'Cache hit for hypothetical document');
             return cached;
         }
         
-        console.log(`[HyDE] Generating ${numDocs} hypothetical document(s) for query`);
+        log.debug({ event: 'hyde_generate', numDocs }, 'Generating hypothetical document(s) for query');
         
         // Detect language
         const isPortuguese = /\b(quem|qual|quando|onde|como|porquê|são|está|pessoas|projeto|reunião)\b/i.test(query);
@@ -117,7 +120,7 @@ class HyDE {
         });
         
         if (!embedResult.success || !embedResult.embeddings?.length) {
-            console.error('[HyDE] Embedding generation failed:', embedResult.error);
+            log.warn({ event: 'hyde_embed_failed', reason: embedResult.error }, 'Embedding generation failed');
             return { embedding: null, hypotheticalDocs, error: embedResult.error };
         }
         
@@ -125,7 +128,7 @@ class HyDE {
         const embedding = this.averageEmbeddings(embedResult.embeddings);
         
         const latency = Date.now() - startTime;
-        console.log(`[HyDE] Generated embedding in ${latency}ms (${hypotheticalDocs.length} hypothetical docs)`);
+        log.debug({ event: 'hyde_embed_done', latencyMs: latency, count: hypotheticalDocs.length }, 'Generated embedding');
         
         return {
             embedding,

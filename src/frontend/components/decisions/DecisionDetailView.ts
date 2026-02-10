@@ -5,6 +5,7 @@
 
 import { createElement, on } from '../../utils/dom';
 import { Decision, decisionsService } from '../../services/decisions';
+import { actionsService } from '../../services/actions';
 import { contactsService, Contact } from '../../services/contacts';
 import { toast } from '../../services/toast';
 import { formatRelativeTime, formatDateTime } from '../../utils/format';
@@ -18,6 +19,8 @@ export interface DecisionDetailViewProps {
   onClose: () => void;
   onUpdate?: (decision: Decision) => void;
   onDecisionClick?: (decision: Decision) => void;
+  /** When user clicks an implementing action (optional, e.g. open action detail) */
+  onActionClick?: (action: { id: string | number; task?: string; content?: string; status?: string }) => void;
 }
 
 function escapeHtml(text: string): string {
@@ -36,7 +39,7 @@ function formatDate(iso: string | undefined): string {
 }
 
 export function createDecisionDetailView(props: DecisionDetailViewProps): HTMLElement {
-  const { decision, onClose, onUpdate, onDecisionClick } = props;
+  const { decision, onClose, onUpdate, onDecisionClick, onActionClick } = props;
 
   const container = createElement('div', { className: 'decision-detail-view question-detail-view' });
 
@@ -76,7 +79,7 @@ export function createDecisionDetailView(props: DecisionDetailViewProps): HTMLEl
               </button>
             </div>
             <div id="decision-view-rationale">${(decision.rationale || decision.context) ? `<p class="decision-rationale">${escapeHtml(decision.rationale || decision.context || '')}</p>` : '<p class="text-muted">No rationale recorded</p>'}</div>
-            <div id="decision-suggestions-panel" class="suggestions-panel-sota decision-suggestions-panel" style="display: none; margin-top: 8px;"></div>
+            <div id="decision-suggestions-panel" class="suggestions-panel-sota decision-suggestions-panel hidden gm-mt-2"></div>
           </section>
 
           <section class="detail-section" id="decision-owner-section">
@@ -119,7 +122,7 @@ export function createDecisionDetailView(props: DecisionDetailViewProps): HTMLEl
               `}
             </div>
 
-            <div id="decision-contact-picker" class="contact-picker-sota" style="display: none;">
+            <div id="decision-contact-picker" class="contact-picker-sota hidden">
               <div class="picker-search">
                 <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
                 <input type="text" id="decision-contact-search" placeholder="Search contacts..." autocomplete="off">
@@ -127,9 +130,9 @@ export function createDecisionDetailView(props: DecisionDetailViewProps): HTMLEl
               <div id="decision-contact-list" class="contact-list-grid">Loading...</div>
             </div>
 
-            <div id="decision-owner-suggestions-panel" class="suggestions-panel-sota decision-owner-suggestions-panel" style="display: none; margin-top: 8px;"></div>
+            <div id="decision-owner-suggestions-panel" class="suggestions-panel-sota decision-owner-suggestions-panel hidden gm-mt-2"></div>
 
-            ${decision.approved_by ? `<p class="text-muted" style="margin-top: 8px;">Approved by: ${escapeHtml(decision.approved_by)}</p>` : ''}
+            ${decision.approved_by ? `<p class="text-muted gm-mt-2">Approved by: ${escapeHtml(decision.approved_by)}</p>` : ''}
             ${decision.decided_at ? `<p class="text-muted">Decided: ${formatDate(decision.decided_at)}</p>` : ''}
           </section>
 
@@ -159,6 +162,15 @@ export function createDecisionDetailView(props: DecisionDetailViewProps): HTMLEl
             </dl>
           </section>
 
+          <section class="detail-section" id="decision-implementing-tasks-section">
+            <div class="section-header">
+              <h3>Implementing tasks</h3>
+            </div>
+            <div id="decision-implementing-tasks-list" class="decision-implementing-tasks-list">
+              <span class="text-muted">Loading…</span>
+            </div>
+          </section>
+
           <section class="detail-section decision-timeline-section">
             <div class="section-header">
               <h3>Timeline</h3>
@@ -185,15 +197,15 @@ export function createDecisionDetailView(props: DecisionDetailViewProps): HTMLEl
       </div>
       </div>
 
-      <div id="decision-edit-form" class="decision-detail-edit-form" style="display: none;">
+      <div id="decision-edit-form" class="decision-detail-edit-form hidden">
         <form id="decision-inline-form" class="decision-form">
           <div class="form-group">
             <label for="decision-edit-content">Decision *</label>
             <textarea id="decision-edit-content" rows="3" required placeholder="What was decided?">${escapeHtml(decision.content || '')}</textarea>
           </div>
           <div class="form-group">
-            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 6px;">
-              <label for="decision-edit-rationale" style="margin-bottom: 0;">Rationale</label>
+            <div class="gm-flex gm-flex-center gm-justify-between gm-flex-wrap gm-gap-2 gm-mb-2">
+              <label for="decision-edit-rationale" class="gm-mb-0">Rationale</label>
               <button type="button" class="btn-ai-suggest btn-sm" id="decision-edit-ai-suggest-btn" title="Suggest rationale, impact and summary from decision text">
                 <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
                 AI suggest
@@ -201,7 +213,7 @@ export function createDecisionDetailView(props: DecisionDetailViewProps): HTMLEl
             </div>
             <textarea id="decision-edit-rationale" rows="2" placeholder="Why was this decision made?">${escapeHtml(decision.rationale || decision.context || '')}</textarea>
           </div>
-          <div id="decision-edit-suggestions-panel" class="suggestions-panel-sota" style="display: none; margin-bottom: 12px;"></div>
+          <div id="decision-edit-suggestions-panel" class="suggestions-panel-sota hidden gm-mb-3"></div>
           <div class="form-row">
             <div class="form-group">
               <label for="decision-edit-impact">Impact</label>
@@ -232,7 +244,7 @@ export function createDecisionDetailView(props: DecisionDetailViewProps): HTMLEl
             <label>Made by</label>
             <input type="hidden" id="decision-edit-made-by" value="${escapeHtml(decision.made_by || (decision as { owner?: string }).owner || '')}">
             <div id="decision-edit-owner-display" class="current-assignment-card decision-edit-owner-card"></div>
-            <div id="decision-edit-contact-picker" class="contact-picker-sota" style="display: none; margin-top: 8px;">
+            <div id="decision-edit-contact-picker" class="contact-picker-sota hidden gm-mt-2">
               <div class="picker-search">
                 <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
                 <input type="text" id="decision-edit-contact-search" placeholder="Search contacts..." autocomplete="off">
@@ -268,8 +280,8 @@ export function createDecisionDetailView(props: DecisionDetailViewProps): HTMLEl
   const editBtn = container.querySelector('#edit-decision-btn');
   if (editBtn && viewContent && editForm) {
     on(editBtn as HTMLElement, 'click', () => {
-      viewContent.style.display = 'none';
-      editForm.style.display = 'block';
+      viewContent.classList.add('hidden');
+      editForm.classList.remove('hidden');
       // Sync edit form owner (in case owner was changed in view)
       renderEditFormOwnerDisplay(currentOwnerName);
     });
@@ -278,8 +290,8 @@ export function createDecisionDetailView(props: DecisionDetailViewProps): HTMLEl
   const cancelEditBtn = container.querySelector('#decision-cancel-edit-btn');
   if (cancelEditBtn && viewContent && editForm) {
     on(cancelEditBtn as HTMLElement, 'click', () => {
-      editForm.style.display = 'none';
-      viewContent.style.display = '';
+      editForm.classList.add('hidden');
+      viewContent.classList.remove('hidden');
     });
   }
 
@@ -375,8 +387,8 @@ export function createDecisionDetailView(props: DecisionDetailViewProps): HTMLEl
           if (showBtn) on(showBtn as HTMLElement, 'click', showOwnerPicker);
         }
         onUpdate(updated);
-        editForm.style.display = 'none';
-        viewContent.style.display = '';
+        editForm.classList.add('hidden');
+        viewContent.classList.remove('hidden');
       } catch {
         toast.error('Failed to save decision');
       } finally {
@@ -500,7 +512,7 @@ export function createDecisionDetailView(props: DecisionDetailViewProps): HTMLEl
           const updated = await decisionsService.update(decision.id, { made_by: name });
           currentOwnerName = name;
           toast.success(`Owner set to ${name}`);
-          if (ownerPicker) ownerPicker.style.display = 'none';
+          if (ownerPicker) ownerPicker.classList.add('hidden');
           if (onUpdate) onUpdate({ ...decision, made_by: name, ...updated });
           // Refresh displayed owner in current-assignment card
           const currentEl = container.querySelector('#decision-current-owner');
@@ -531,15 +543,15 @@ export function createDecisionDetailView(props: DecisionDetailViewProps): HTMLEl
 
   const showOwnerPicker = () => {
     if (!ownerPicker) return;
-    ownerPicker.style.display = ownerPicker.style.display === 'none' ? 'block' : 'none';
-    if (ownerPicker.style.display === 'block' && viewContacts.length === 0) {
+    ownerPicker.classList.toggle('hidden');
+    if (!ownerPicker.classList.contains('hidden') && viewContacts.length === 0) {
       contactsService.getAll().then((res) => {
         viewContacts = res?.contacts || [];
         renderOwnerContactGrid(ownerSearch?.value || '');
       }).catch(() => {
         if (ownerList) ownerList.innerHTML = '<div class="empty-state">Failed to load contacts</div>';
       });
-    } else if (ownerPicker.style.display === 'block') {
+    } else if (!ownerPicker.classList.contains('hidden')) {
       renderOwnerContactGrid(ownerSearch?.value || '');
     }
     if (ownerSearch) ownerSearch.focus();
@@ -647,7 +659,7 @@ export function createDecisionDetailView(props: DecisionDetailViewProps): HTMLEl
         const name = card.getAttribute('data-contact-name') || '';
         if (name) {
           renderEditFormOwnerDisplay(name);
-          if (editContactPicker) editContactPicker.style.display = 'none';
+          if (editContactPicker) editContactPicker.classList.add('hidden');
         }
       });
     });
@@ -655,8 +667,8 @@ export function createDecisionDetailView(props: DecisionDetailViewProps): HTMLEl
 
   function showEditOwnerPicker() {
     if (!editContactPicker) return;
-    editContactPicker.style.display = editContactPicker.style.display === 'none' ? 'block' : 'none';
-    if (editContactPicker.style.display === 'block') {
+    editContactPicker.classList.toggle('hidden');
+    if (!editContactPicker.classList.contains('hidden')) {
       if (viewContacts.length === 0) {
         contactsService.getAll().then((res) => {
           viewContacts = res?.contacts || [];
@@ -684,7 +696,7 @@ export function createDecisionDetailView(props: DecisionDetailViewProps): HTMLEl
   if (ownerAiSuggestBtn && ownerSuggestionsPanel) {
     on(ownerAiSuggestBtn as HTMLElement, 'click', async () => {
       (ownerAiSuggestBtn as HTMLButtonElement).disabled = true;
-      ownerSuggestionsPanel.style.display = 'block';
+      ownerSuggestionsPanel.classList.remove('hidden');
       ownerSuggestionsPanel.innerHTML = '<div class="loading">Asking AI…</div>';
       try {
         if (viewContacts.length === 0) {
@@ -733,7 +745,7 @@ export function createDecisionDetailView(props: DecisionDetailViewProps): HTMLEl
                 const updated = await decisionsService.update(decision.id, { made_by: name });
                 currentOwnerName = name;
                 toast.success(`Owner set to ${name}`);
-                ownerSuggestionsPanel.style.display = 'none';
+                ownerSuggestionsPanel.classList.add('hidden');
                 const currentOwnerEl = container.querySelector('#decision-current-owner');
                 if (currentOwnerEl) {
                   const contact = findContactByOwner(name);
@@ -761,11 +773,11 @@ export function createDecisionDetailView(props: DecisionDetailViewProps): HTMLEl
           });
         }
         const hideBtn = ownerSuggestionsPanel.querySelector('#decision-owner-hide-suggest-btn');
-        if (hideBtn) on(hideBtn as HTMLElement, 'click', () => { ownerSuggestionsPanel.style.display = 'none'; });
+        if (hideBtn) on(hideBtn as HTMLElement, 'click', () => { ownerSuggestionsPanel.classList.add('hidden'); });
       } catch {
         ownerSuggestionsPanel.innerHTML = '<div class="error">AI suggest failed. <button type="button" class="btn-link" id="decision-owner-hide-suggest-btn">Close</button></div>';
         const h = ownerSuggestionsPanel.querySelector('#decision-owner-hide-suggest-btn');
-        if (h) on(h as HTMLElement, 'click', () => { ownerSuggestionsPanel.style.display = 'none'; });
+        if (h) on(h as HTMLElement, 'click', () => { ownerSuggestionsPanel.classList.add('hidden'); });
         toast.error('AI suggest failed');
       } finally {
         (ownerAiSuggestBtn as HTMLButtonElement).disabled = false;
@@ -779,7 +791,7 @@ export function createDecisionDetailView(props: DecisionDetailViewProps): HTMLEl
   if (rationaleAiSuggestBtn && suggestionsPanel) {
     on(rationaleAiSuggestBtn as HTMLElement, 'click', async () => {
       (rationaleAiSuggestBtn as HTMLButtonElement).disabled = true;
-      suggestionsPanel.style.display = 'block';
+      suggestionsPanel.classList.remove('hidden');
       suggestionsPanel.innerHTML = '<div class="loading">Asking AI…</div>';
       try {
         const result = await decisionsService.suggest(decision.content || '', decision.rationale || decision.context || '');
@@ -813,7 +825,7 @@ export function createDecisionDetailView(props: DecisionDetailViewProps): HTMLEl
                 else badges.insertAdjacentHTML('afterbegin', `<span class="priority-pill impact-${(updated as Decision).impact}">${escapeHtml((updated as Decision).impact || '')} impact</span> `);
               }
               if (onUpdate) onUpdate(updated);
-              suggestionsPanel.style.display = 'none';
+              suggestionsPanel.classList.add('hidden');
             } catch {
               toast.error('Failed to apply');
             }
@@ -844,7 +856,7 @@ export function createDecisionDetailView(props: DecisionDetailViewProps): HTMLEl
       }
       (editAiSuggestBtn as HTMLButtonElement).disabled = true;
       if (editSuggestionsPanel) {
-        editSuggestionsPanel.style.display = 'block';
+        editSuggestionsPanel.classList.remove('hidden');
         editSuggestionsPanel.innerHTML = '<span class="text-muted">Asking AI…</span>';
       }
       try {
@@ -853,7 +865,7 @@ export function createDecisionDetailView(props: DecisionDetailViewProps): HTMLEl
         if (impactEl) impactEl.value = result.impact || 'medium';
         if (summaryEl) summaryEl.value = result.summary || '';
         if (editSuggestionsPanel) {
-          editSuggestionsPanel.style.display = 'none';
+          editSuggestionsPanel.classList.add('hidden');
           editSuggestionsPanel.innerHTML = '';
         }
         toast.success('Suggestion applied');
@@ -924,6 +936,37 @@ export function createDecisionDetailView(props: DecisionDetailViewProps): HTMLEl
       }
     }).catch(() => {
       (similarEl as HTMLElement).innerHTML = '<span class="text-muted">Could not load similar decisions</span>';
+    });
+  }
+
+  const implementingTasksEl = container.querySelector('#decision-implementing-tasks-list');
+  if (implementingTasksEl) {
+    actionsService.getActions(undefined, undefined, String(decision.id)).then((actions) => {
+      if (actions.length === 0) {
+        (implementingTasksEl as HTMLElement).innerHTML = '<span class="text-muted">No tasks linked to this decision</span>';
+        return;
+      }
+      (implementingTasksEl as HTMLElement).innerHTML = actions
+        .map((a) => {
+          const title = ((a.content || a.task) || '').toString().trim().substring(0, 60) + (((a.content || a.task) || '').toString().length > 60 ? '…' : '');
+          const status = (a.status || 'pending').toLowerCase();
+          return `<div class="decision-implementing-task-item" data-action-id="${escapeHtml(String(a.id))}" role="${onActionClick ? 'button' : 'none'}">
+            <span class="status-pill status-${status}">${escapeHtml(String(a.status || 'pending').replace('_', ' '))}</span>
+            <span class="decision-implementing-task-title">${escapeHtml(title)}</span>
+          </div>`;
+        })
+        .join('');
+      if (onActionClick) {
+        (implementingTasksEl as HTMLElement).querySelectorAll('.decision-implementing-task-item').forEach((el) => {
+          on(el as HTMLElement, 'click', () => {
+            const actionId = (el as HTMLElement).getAttribute('data-action-id');
+            const action = actions.find((a) => String(a.id) === actionId);
+            if (action) onActionClick(action);
+          });
+        });
+      }
+    }).catch(() => {
+      (implementingTasksEl as HTMLElement).innerHTML = '<span class="text-muted">Could not load tasks</span>';
     });
   }
 

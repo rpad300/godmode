@@ -282,7 +282,7 @@ export function showEmailPreviewModal(email: EmailData, onClose?: () => void): v
     
     <div class="email-preview-header">
       <div class="email-preview-icon">📧</div>
-      <div style="flex: 1;">
+      <div class="email-preview-header-fill">
         <h2 class="email-preview-title">${escapeHtml(email.subject || 'No Subject')}</h2>
         <div class="email-preview-meta">
           <div class="email-preview-meta-row">
@@ -304,19 +304,19 @@ export function showEmailPreviewModal(email: EmailData, onClose?: () => void): v
           ${email.requires_response ? `<span class="email-badge response-needed">⚠️ Response Needed</span>` : ''}
         </div>
       </div>
-      <button class="btn btn-sm close-btn" style="font-size: 20px; padding: 4px 12px;">×</button>
+      <button class="btn btn-sm email-preview-close-btn">×</button>
     </div>
     
     <div class="email-preview-tabs">
       <button class="email-preview-tab active" data-tab="content">Content</button>
-      <button class="email-preview-tab" data-tab="analysis" ${!hasExtraction ? 'style="display:none"' : ''}>
+      <button class="email-preview-tab ${!hasExtraction ? 'hidden' : ''}" data-tab="analysis">
         Analysis
       </button>
-      <button class="email-preview-tab" data-tab="entities" ${!extraction?.entities?.length ? 'style="display:none"' : ''}>
+      <button class="email-preview-tab ${!extraction?.entities?.length ? 'hidden' : ''}" data-tab="entities">
         Entities
         <span class="email-preview-tab-badge">${extraction?.entities?.length || 0}</span>
       </button>
-      <button class="email-preview-tab" data-tab="contacts" ${!extraction?.contacts?.length ? 'style="display:none"' : ''}>
+      <button class="email-preview-tab ${!extraction?.contacts?.length ? 'hidden' : ''}" data-tab="contacts">
         Contacts
         <span class="email-preview-tab-badge">${extraction?.contacts?.length || 0}</span>
       </button>
@@ -344,7 +344,7 @@ export function showEmailPreviewModal(email: EmailData, onClose?: () => void): v
         ` : ''}
         
         ${extraction?.action_items?.length ? `
-          <div class="section-title" style="margin-top: 20px;">Action Items</div>
+          <div class="section-title section-title-mt">Action Items</div>
           ${extraction.action_items.map(a => `
             <div class="extraction-card">
               <div class="extraction-content">☐ ${escapeHtml(a.task)}</div>
@@ -354,7 +354,7 @@ export function showEmailPreviewModal(email: EmailData, onClose?: () => void): v
         ` : ''}
         
         ${extraction?.questions?.length ? `
-          <div class="section-title" style="margin-top: 20px;">Questions</div>
+          <div class="section-title section-title-mt">Questions</div>
           ${extraction.questions.map(q => `
             <div class="extraction-card">
               <div class="extraction-content">❓ ${escapeHtml(q)}</div>
@@ -414,25 +414,10 @@ export function showEmailPreviewModal(email: EmailData, onClose?: () => void): v
 
   // Create overlay
   const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay email-preview-overlay';
-  overlay.style.cssText = `
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.5);
-    backdrop-filter: blur(4px);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 10000;
-  `;
+  overlay.className = 'modal-overlay overlay-preview email-preview-overlay';
 
   const modal = document.createElement('div');
-  modal.style.cssText = `
-    background: var(--bg-primary);
-    border-radius: 16px;
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-    overflow: hidden;
-  `;
+  modal.className = 'modal-preview-box';
   modal.appendChild(content);
   overlay.appendChild(modal);
 

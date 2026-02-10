@@ -5,6 +5,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'audit-log' });
 
 class AuditLog {
     constructor(options = {}) {
@@ -39,7 +42,7 @@ class AuditLog {
             }
             fs.writeFileSync(this.logFile, JSON.stringify(this.entries, null, 2));
         } catch (e) {
-            console.log(`[AuditLog] Save warning: ${e.message}`);
+            log.warn({ event: 'audit_log_save_warning', reason: e.message }, 'Save warning');
         }
     }
 
@@ -72,7 +75,7 @@ class AuditLog {
         }
 
         this.save();
-        console.log(`[AuditLog] Logged DELETE: ${options.entityType} "${options.entityName}"`);
+        log.debug({ event: 'audit_log_delete', entityType: options.entityType, entityName: options.entityName }, 'Logged DELETE');
         return entry;
     }
 
@@ -93,7 +96,7 @@ class AuditLog {
 
         this.entries.unshift(entry);
         this.save();
-        console.log(`[AuditLog] Logged RESTORE: ${options.entityType} "${options.entityName}"`);
+        log.debug({ event: 'audit_log_restore', entityType: options.entityType, entityName: options.entityName }, 'Logged RESTORE');
         return entry;
     }
 

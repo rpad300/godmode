@@ -5,12 +5,15 @@
  * Refactored to use Supabase instead of local JSON files
  */
 
+const { logger: rootLogger } = require('../logger');
+const log = rootLogger.child({ module: 'cost-tracker' });
+
 // Try to load Supabase - may fail due to project folder name conflict
 let getStorage = null;
 try {
     getStorage = require('../supabase/storageHelper').getStorage;
 } catch (e) {
-    console.warn('[CostTracker] Supabase not available, using in-memory tracking only');
+    log.warn({ event: 'cost_tracker_supabase_unavailable', reason: e.message }, 'Supabase not available, using in-memory tracking only');
 }
 
 // Pricing per 1 million tokens (USD)
@@ -129,7 +132,7 @@ class CostTracker {
             // Invalidate cache
             this._cache.lastRefresh = 0;
         } catch (e) {
-            console.warn('[CostTracker] Could not flush to Supabase:', e.message);
+            log.warn({ event: 'cost_tracker_flush_failed', reason: e.message }, 'Could not flush to Supabase');
             // Re-add to buffer for retry
             this._buffer.unshift(...toFlush);
         }
@@ -248,7 +251,7 @@ class CostTracker {
                 lastRefresh: Date.now()
             };
         } catch (e) {
-            console.warn('[CostTracker] Could not refresh cache:', e.message);
+            log.warn({ event: 'cost_tracker_refresh_failed', reason: e.message }, 'Could not refresh cache');
         }
     }
 
@@ -430,7 +433,7 @@ class CostTracker {
                 budgetAlertTriggered
             };
         } catch (e) {
-            console.warn('[CostTracker] getSummaryForPeriod failed:', e.message);
+            log.warn({ event: 'cost_tracker_summary_period_failed', reason: e.message }, 'getSummaryForPeriod failed');
             return this._emptyCostSummary(period);
         }
     }
@@ -531,7 +534,7 @@ class CostTracker {
      */
     setDataDir(dataDir) {
         // No-op in Supabase mode - data is stored in Supabase, not local files
-        console.log('[CostTracker] setDataDir called (no-op in Supabase mode)');
+        log.debug({ event: 'cost_tracker_setdatadir_noop' }, 'setDataDir called (no-op in Supabase mode)');
     }
 
     /**

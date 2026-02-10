@@ -4,6 +4,9 @@
  * NEVER hardcode provider or model names - always use this module
  */
 
+const { logger: rootLogger } = require('../logger');
+const log = rootLogger.child({ module: 'llm_config' });
+
 // Cache for config to avoid repeated lookups
 let configCache = null;
 let configCacheTime = 0;
@@ -17,7 +20,7 @@ const CACHE_TTL = 60000; // 1 minute cache
  */
 function getLLMConfig(appConfig) {
     if (!appConfig) {
-        console.warn('[LLMConfig] No config provided, using empty defaults');
+        log.warn({ event: 'llm_config_empty' }, 'No config provided, using empty defaults');
         return getEmptyConfig();
     }
     
@@ -33,7 +36,7 @@ function getLLMConfig(appConfig) {
             text: llm.perTask?.text?.model || llm.models?.text || ollama.model || null,
             vision: llm.perTask?.vision?.model || llm.models?.vision || ollama.visionModel || null,
             embeddings: llm.perTask?.embeddings?.model || llm.models?.embeddings || null,
-            reasoning: ollama.reasoningModel || llm.perTask?.text?.model || llm.models?.text || null
+            reasoning: llm.models?.reasoning || ollama.reasoningModel || llm.perTask?.text?.model || llm.models?.text || null
         },
         
         // Providers by task type
@@ -90,14 +93,33 @@ function getTextConfig(appConfig, overrides = {}) {
     const model = overrides.model || cfg.models.text;
     const providerConfig = cfg.getProviderConfig(provider);
     
-    if (!provider) {
-        console.warn('[LLMConfig] No text provider configured in admin settings');
-    }
-    if (!model) {
-        console.warn('[LLMConfig] No text model configured in admin settings');
-    }
-    
+    if (!provider) log.warn({ event: 'llm_config_missing_text_provider' }, 'No text provider configured');
+    if (!model) log.warn({ event: 'llm_config_missing_text_model' }, 'No text model configured');
     return { provider, providerConfig, model };
+}
+
+/**
+ * Get text config for reasoning/suggest tasks (prefers reasoning model when set).
+ * Works with any configured provider: Ollama (legacy or via LLM panel), OpenAI, DeepSeek, etc.
+ * Single source of truth for action-suggest, decision-suggest, risk-suggest, fact-check, decision-check flows.
+ * @param {object} appConfig - Application config
+ * @returns {object|null} { provider, providerConfig, model } or null if none configured
+ */
+function getTextConfigForReasoning(appConfig) {
+    if (!appConfig) return null;
+    const cfg = getLLMConfig(appConfig);
+    const model = cfg.models?.reasoning || cfg.models?.text || null;
+    const provider = cfg.providers?.text || (appConfig.ollama?.model || appConfig.ollama?.reasoningModel ? 'ollama' : null);
+    if (!provider || !model) return null;
+    let providerConfig = cfg.getProviderConfig(provider) || {};
+    if (provider === 'ollama' && (!providerConfig.host || !providerConfig.port)) {
+        providerConfig = {
+            host: appConfig.ollama?.host || '127.0.0.1',
+            port: appConfig.ollama?.port || 11434,
+            ...providerConfig
+        };
+    }
+    return { provider, model, providerConfig };
 }
 
 /**
@@ -109,17 +131,18 @@ function getTextConfig(appConfig, overrides = {}) {
 function getVisionConfig(appConfig, overrides = {}) {
     const cfg = getLLMConfig(appConfig);
     
-    const provider = overrides.provider || cfg.providers.vision;
-    const model = overrides.model || cfg.models.vision;
-    const providerConfig = cfg.getProviderConfig(provider);
-    
-    if (!provider) {
-        console.warn('[LLMConfig] No vision provider configured in admin settings');
+    let provider = overrides.provider || cfg.providers.vision || (appConfig.ollama?.visionModel ? 'ollama' : null);
+    const model = overrides.model || cfg.models.vision || (provider === 'ollama' ? appConfig.ollama?.visionModel : null);
+    let providerConfig = cfg.getProviderConfig(provider) || {};
+    if (provider === 'ollama' && (!providerConfig.host || !providerConfig.port)) {
+        providerConfig = {
+            host: appConfig.ollama?.host || '127.0.0.1',
+            port: appConfig.ollama?.port || 11434,
+            ...providerConfig
+        };
     }
-    if (!model) {
-        console.warn('[LLMConfig] No vision model configured in admin settings');
-    }
-    
+    if (!provider) log.warn({ event: 'llm_config_missing_vision_provider' }, 'No vision provider configured');
+    if (!model) log.warn({ event: 'llm_config_missing_vision_model' }, 'No vision model configured');
     return { provider, providerConfig, model };
 }
 
@@ -132,17 +155,18 @@ function getVisionConfig(appConfig, overrides = {}) {
 function getEmbeddingsConfig(appConfig, overrides = {}) {
     const cfg = getLLMConfig(appConfig);
     
-    const provider = overrides.provider || cfg.providers.embeddings;
-    const model = overrides.model || cfg.models.embeddings;
-    const providerConfig = cfg.getProviderConfig(provider);
-    
-    if (!provider) {
-        console.warn('[LLMConfig] No embeddings provider configured in admin settings');
+    const provider = overrides.provider || cfg.providers.embeddings || (appConfig.ollama?.model ? 'ollama' : null);
+    const model = overrides.model || cfg.models.embeddings || (provider === 'ollama' ? (appConfig.ollama?.model || 'mxbai-embed-large') : null);
+    let providerConfig = cfg.getProviderConfig(provider) || {};
+    if (provider === 'ollama' && (!providerConfig.host || !providerConfig.port)) {
+        providerConfig = {
+            host: appConfig.ollama?.host || '127.0.0.1',
+            port: appConfig.ollama?.port || 11434,
+            ...providerConfig
+        };
     }
-    if (!model) {
-        console.warn('[LLMConfig] No embeddings model configured in admin settings');
-    }
-    
+    if (!provider) log.warn({ event: 'llm_config_missing_embeddings_provider' }, 'No embeddings provider configured');
+    if (!model) log.warn({ event: 'llm_config_missing_embeddings_model' }, 'No embeddings model configured');
     return { provider, providerConfig, model };
 }
 
@@ -206,6 +230,7 @@ function getConfigSummary(appConfig) {
 module.exports = {
     getLLMConfig,
     getTextConfig,
+    getTextConfigForReasoning,
     getVisionConfig,
     getEmbeddingsConfig,
     validateConfig,

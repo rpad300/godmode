@@ -65,8 +65,8 @@ export function showRiskModal(props: RiskModalProps): void {
     const riskOwner = risk?.owner ?? '';
     content.innerHTML = `
       <form id="risk-form" class="risk-form">
-        <div class="form-group" style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-          <label for="risk-description" style="margin-bottom: 0;">Risk Description *</label>
+        <div class="form-group gm-flex gm-flex-center gm-gap-3 gm-flex-wrap">
+          <label for="risk-description" class="gm-mb-0">Risk Description *</label>
           <button type="button" class="btn btn-secondary btn-sm" id="risk-ai-suggest-btn" title="Suggest owner and mitigation from description">✨ AI suggest</button>
         </div>
         <div class="form-group">

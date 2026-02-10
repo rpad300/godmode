@@ -7,6 +7,10 @@ import { createElement, on, addClass, removeClass } from '../../utils/dom';
 import { createModal, openModal, closeModal } from '../Modal';
 import { toast } from '../../services/toast';
 import { formatFileSize } from '../../utils/format';
+import { getSprints } from '../../services/sprints';
+import { getActions } from '../../services/actions';
+import type { Sprint } from '../../services/sprints';
+import type { Action } from '../../services/actions';
 
 const MODAL_ID = 'file-upload-modal';
 
@@ -28,6 +32,10 @@ export interface FileUploadModalProps {
 
 let uploadQueue: UploadFile[] = [];
 let isUploading = false;
+let sprintsList: Sprint[] = [];
+let actionsList: Action[] = [];
+let selectedSprintId = '';
+let selectedActionId = '';
 
 /**
  * Show file upload modal
@@ -43,6 +51,8 @@ export function showFileUploadModal(props: FileUploadModalProps = {}): void {
 
   uploadQueue = [];
   isUploading = false;
+  selectedSprintId = '';
+  selectedActionId = '';
 
   // Remove existing modal
   const existing = document.querySelector(`[data-modal-id="${MODAL_ID}"]`);
@@ -51,6 +61,9 @@ export function showFileUploadModal(props: FileUploadModalProps = {}): void {
   const content = createElement('div', { className: 'file-upload-modal-content' });
 
   function render(): void {
+    const sprintOptions = sprintsList.map(s => `<option value="${s.id}" ${s.id === selectedSprintId ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('');
+    const actionOptions = actionsList.map(a => `<option value="${a.id}" ${a.id === selectedActionId ? 'selected' : ''}>${escapeHtml((a.content || a.task || String(a.id)).slice(0, 60))}${(a.content || a.task || '').length > 60 ? '…' : ''}</option>`).join('');
+
     content.innerHTML = `
       <div class="drop-zone" id="drop-zone">
         <div class="drop-zone-icon">📁</div>
@@ -63,6 +76,26 @@ export function showFileUploadModal(props: FileUploadModalProps = {}): void {
         </div>
         <input type="file" id="file-input" ${accept !== '*/*' ? `accept="${accept}"` : ''} ${multiple ? 'multiple' : ''} hidden>
       </div>
+
+      <div class="upload-association" style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-color, #e2e8f0);">
+        <label class="form-label" style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Associate with (optional)</label>
+        <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+          <div style="flex: 1; min-width: 140px;">
+            <select id="upload-sprint-select" class="form-select" style="width: 100%;">
+              <option value="">No sprint</option>
+              ${sprintOptions}
+            </select>
+            <span class="form-hint" style="font-size: 0.75rem; color: var(--text-tertiary);">Sprint</span>
+          </div>
+          <div style="flex: 1; min-width: 180px;">
+            <select id="upload-action-select" class="form-select" style="width: 100%;">
+              <option value="">No task</option>
+              ${actionOptions}
+            </select>
+            <span class="form-hint" style="font-size: 0.75rem; color: var(--text-tertiary);">Task</span>
+          </div>
+        </div>
+      </div>
       
       ${uploadQueue.length > 0 ? `
         <div class="upload-list">
@@ -74,6 +107,7 @@ export function showFileUploadModal(props: FileUploadModalProps = {}): void {
 
     bindDropZone();
     bindFileItems();
+    bindSprintTaskSelectors();
   }
 
   function bindDropZone(): void {
@@ -127,7 +161,42 @@ export function showFileUploadModal(props: FileUploadModalProps = {}): void {
     });
   }
 
+  async function loadSprints(): Promise<void> {
+    try {
+      sprintsList = await getSprints();
+    } catch {
+      sprintsList = [];
+    }
+  }
+
+  async function loadActionsForSprint(sprintId: string): Promise<void> {
+    try {
+      actionsList = await getActions(undefined, sprintId || undefined);
+    } catch {
+      actionsList = [];
+    }
+  }
+
+  function bindSprintTaskSelectors(): void {
+    const sprintSelect = content.querySelector('#upload-sprint-select') as HTMLSelectElement;
+    const actionSelect = content.querySelector('#upload-action-select') as HTMLSelectElement;
+    if (sprintSelect) {
+      on(sprintSelect, 'change', async () => {
+        selectedSprintId = sprintSelect.value || '';
+        selectedActionId = '';
+        await loadActionsForSprint(selectedSprintId);
+        render();
+      });
+    }
+    if (actionSelect) {
+      on(actionSelect, 'change', () => {
+        selectedActionId = actionSelect.value || '';
+      });
+    }
+  }
+
   render();
+  loadSprints().then(() => render());
 
   // Footer
   const footer = createElement('div', { className: 'modal-footer' });
@@ -245,7 +314,7 @@ function renderFileItem(item: UploadFile): string {
         <div class="file-size">${formatFileSize(item.file.size)}</div>
         ${item.status === 'uploading' ? `
           <div class="progress-bar">
-            <div class="progress-fill" style="width: ${item.progress}%"></div>
+            <div class="progress-fill" style="--progress: ${item.progress}"></div>
           </div>
         ` : ''}
         ${item.error ? `<div class="file-error">${escapeHtml(item.error)}</div>` : ''}
@@ -275,6 +344,8 @@ async function uploadFiles(
     try {
       const formData = new FormData();
       formData.append('file', file.file);
+      if (selectedSprintId) formData.append('sprintId', selectedSprintId);
+      if (selectedActionId) formData.append('actionId', selectedActionId);
 
       const xhr = new XMLHttpRequest();
       

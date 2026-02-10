@@ -12,6 +12,7 @@
 import { createElement, on } from '../../utils/dom';
 import { graphService, GraphNode, GraphEdge } from '../../services/graph';
 import { toast } from '../../services/toast';
+import { fetchWithProject } from '../../services/api';
 
 // Type definitions for canvas nodes
 interface CanvasNode {
@@ -99,15 +100,15 @@ export function createGraphCanvas(props: GraphCanvasProps = {}): HTMLElement {
   const container = createElement('div', { className: 'graph-canvas-container' });
   
   container.innerHTML = `
-    <div class="graph-canvas-wrapper" style="position: relative; width: 100%; height: ${props.height || 500}px;">
-      <div class="graph-canvas-loading" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 8px;">
+    <div class="graph-canvas-wrapper" style="--graph-height: ${props.height || 500}px;">
+      <div class="graph-canvas-loading">
         <div class="loading-spinner"></div>
-        <p style="color: var(--text-muted); font-size: 14px;">Loading graph data...</p>
+        <p class="loading-text">Loading graph data...</p>
       </div>
-      <falkordb-canvas id="graph-canvas" style="width: 100%; height: 100%;"></falkordb-canvas>
+      <falkordb-canvas id="graph-canvas"></falkordb-canvas>
       <div class="graph-avatar-overlay" id="avatar-overlay"></div>
     </div>
-    <div class="graph-canvas-controls" style="display: flex; gap: 8px; margin-top: 12px; justify-content: center;">
+    <div class="graph-canvas-controls">
       <button class="btn btn-sm" id="gc-zoom-in" title="Zoom In">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
@@ -131,9 +132,9 @@ export function createGraphCanvas(props: GraphCanvasProps = {}): HTMLElement {
         </svg>
       </button>
     </div>
-    <div class="graph-canvas-legend" style="margin-top: 12px; padding: 12px; background: var(--bg-secondary); border-radius: 8px;">
-      <h5 style="margin: 0 0 8px 0; font-size: 12px; color: var(--text-muted);">Legend</h5>
-      <div id="gc-legend" style="display: flex; flex-wrap: wrap; gap: 8px; font-size: 11px;">
+    <div class="graph-canvas-legend">
+      <h5>Legend</h5>
+      <div id="gc-legend">
         <!-- Legend items will be added dynamically -->
       </div>
     </div>
@@ -232,8 +233,8 @@ async function initCanvas(container: HTMLElement, props: GraphCanvasProps): Prom
     
     if (data.nodes.length === 0) {
       loadingEl.innerHTML = `
-        <div style="text-align: center;">
-          <p style="color: var(--text-muted);">No graph data available</p>
+        <div class="graph-canvas-no-data">
+          <p class="loading-text">No graph data available</p>
           <button class="btn btn-primary btn-sm" id="gc-sync">Sync Data</button>
         </div>
       `;
@@ -243,7 +244,7 @@ async function initCanvas(container: HTMLElement, props: GraphCanvasProps): Prom
       if (syncBtn) {
         on(syncBtn as HTMLElement, 'click', async () => {
           toast.info('Syncing data...');
-          await fetch('/api/graph/sync', { method: 'POST' });
+          await fetchWithProject('/api/graph/sync', { method: 'POST' });
           toast.success('Sync complete. Reloading...');
           initCanvas(container, props);
         });
@@ -260,7 +261,7 @@ async function initCanvas(container: HTMLElement, props: GraphCanvasProps): Prom
     // Set data
     canvasEl.setData(canvasData);
     canvasEl.setIsLoading(false);
-    loadingEl.style.display = 'none';
+    loadingEl.classList.add('gm-none');
     
     // Render avatar overlays for Contact nodes
     renderAvatarOverlays(avatarOverlay, data.nodes, canvasEl);
@@ -275,7 +276,7 @@ async function initCanvas(container: HTMLElement, props: GraphCanvasProps): Prom
     
   } catch (error) {
     console.error('[GraphCanvas] Error loading data:', error);
-    loadingEl.innerHTML = `<p style="color: var(--error);">Failed to load graph data</p>`;
+    loadingEl.innerHTML = `<p class="graph-canvas-error">Failed to load graph data</p>`;
     canvasEl.setIsLoading(false);
   }
 
@@ -308,7 +309,7 @@ async function initCanvas(container: HTMLElement, props: GraphCanvasProps): Prom
   if (refreshBtn) {
     on(refreshBtn as HTMLElement, 'click', async () => {
       toast.info('Refreshing graph...');
-      loadingEl.style.display = 'flex';
+      loadingEl.classList.remove('gm-none');
       canvasEl.setIsLoading(true);
       await initCanvas(container, props);
       toast.success('Graph refreshed');
@@ -433,8 +434,8 @@ function updateLegend(legendEl: HTMLElement, nodes: GraphNode[]): void {
   nodes.forEach(node => types.add(node.type || 'Unknown'));
   
   legendEl.innerHTML = Array.from(types).sort().map(type => `
-    <span style="display: inline-flex; align-items: center; gap: 4px;">
-      <span style="width: 12px; height: 12px; border-radius: 50%; background: ${TYPE_COLORS[type] || '#6b7280'}"></span>
+    <span class="graph-legend-item">
+      <span class="graph-legend-dot" style="--legend-color: ${TYPE_COLORS[type] || '#6b7280'}"></span>
       ${type}
     </span>
   `).join('');
@@ -449,17 +450,6 @@ function renderAvatarOverlays(overlayEl: HTMLElement, nodes: GraphNode[], _canva
   
   // Clear existing overlays
   overlayEl.innerHTML = '';
-  
-  // Add CSS for avatar overlay
-  overlayEl.style.cssText = `
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    pointer-events: none;
-    overflow: visible;
-  `;
   
   // Add a style for the tooltip that shows avatars
   const style = document.createElement('style');
@@ -619,7 +609,7 @@ function showNodeTooltipInternal(node: GraphNode, x: number, y: number, overlayE
     // For non-contact nodes, show relevant info
     const displayName = data.name || data.content?.substring(0, 100) || data.id;
     contentHtml = `
-      <div class="info" style="width: 100%;">
+      <div class="info">
         <span class="name">${displayName}</span>
         ${data.status ? `<span class="role">Status: ${data.status}</span>` : ''}
         ${data.severity ? `<span class="role">Severity: ${data.severity}</span>` : ''}

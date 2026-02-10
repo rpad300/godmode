@@ -4,6 +4,7 @@
  */
 
 const { parseUrl, parseBody } = require('../../server/request');
+const { getLogger } = require('../../server/requestContext');
 const { jsonResponse } = require('../../server/response');
 
 /**
@@ -15,6 +16,7 @@ function isKnowledgeRoute(pathname) {
            pathname.startsWith('/api/decisions') ||
            pathname.startsWith('/api/risks') ||
            pathname.startsWith('/api/actions') ||
+           pathname.startsWith('/api/user-stories') ||
            pathname === '/api/people';
 }
 
@@ -25,7 +27,7 @@ function isKnowledgeRoute(pathname) {
  */
 async function handleKnowledge(ctx) {
     const { req, res, pathname, storage, config, llm, llmConfig } = ctx;
-    
+    const log = getLogger().child({ module: 'knowledge' });
     // Quick check - if not a knowledge route, return false immediately
     if (!isKnowledgeRoute(pathname)) {
         return false;
@@ -84,10 +86,9 @@ async function handleKnowledge(ctx) {
         const questionId = questionUpdateMatch[1];
         const body = await parseBody(req);
         
-        console.log(`[Questions] Updating question ${questionId}:`, JSON.stringify(body).substring(0, 200));
-        
+        log.debug({ event: 'questions_update', questionId, bodyPreview: JSON.stringify(body).substring(0, 200) }, 'Updating question');
         const result = await storage.updateQuestion(questionId, body);
-        console.log(`[Questions] Update result:`, JSON.stringify(result).substring(0, 200));
+        log.debug({ event: 'questions_update_result', questionId, resultPreview: JSON.stringify(result).substring(0, 200) }, 'Update result');
         
         if (result.success || result.ok) {
             // Sync to FalkorDB if connected
@@ -97,14 +98,14 @@ async function handleKnowledge(ctx) {
                     const { getGraphSync } = require('../../sync');
                     const graphSync = getGraphSync({ graphProvider, storage });
                     await graphSync.syncQuestion(result.question);
-                    console.log(`[Graph] Question ${questionId} updated in FalkorDB`);
+                    log.debug({ event: 'knowledge_question_synced', questionId }, 'Question updated in FalkorDB');
                 } catch (syncErr) {
-                    console.log('[Graph] Question sync error:', syncErr.message);
+                    log.warn({ event: 'knowledge_question_sync_error', questionId, reason: syncErr.message }, 'Question sync error');
                 }
             }
             jsonResponse(res, { ok: true, success: true, question: result.question });
         } else {
-            console.log(`[Questions] Update failed for ${questionId}: ${result.error}`);
+            log.warn({ event: 'questions_update_failed', questionId, reason: result.error }, 'Update failed');
             jsonResponse(res, { ok: false, success: false, error: result.error || 'Question not found' }, 404);
         }
         return true;
@@ -141,9 +142,9 @@ async function handleKnowledge(ctx) {
                         `MATCH (q:Question {id: $id}) DETACH DELETE q`,
                         { id: questionId }
                     );
-                    console.log(`[Graph] Question ${questionId} deleted from FalkorDB`);
+                    log.debug({ event: 'knowledge_question_deleted', questionId }, 'Question deleted from FalkorDB');
                 } catch (syncErr) {
-                    console.log('[Graph] Question delete sync error:', syncErr.message);
+                    log.warn({ event: 'knowledge_question_delete_sync_error', questionId, reason: syncErr.message }, 'Question delete sync error');
                 }
             }
             
@@ -726,13 +727,51 @@ async function handleKnowledge(ctx) {
     }
 
     // ==================== Actions Routes ====================
-    
+
+    // GET /api/actions/report – counts by status, by assignee, by sprint
+    if (pathname === '/api/actions/report' && req.method === 'GET') {
+        try {
+            const actions = storage.getActions ? await storage.getActions() : (storage.getActionItems ? storage.getActionItems() : []);
+            const byStatus = {};
+            const byAssignee = {};
+            const bySprint = {};
+            (actions || []).forEach((a) => {
+                const status = (a.status || 'pending').toLowerCase();
+                byStatus[status] = (byStatus[status] || 0) + 1;
+                const owner = (a.assignee || a.owner || '').trim() || '(unassigned)';
+                byAssignee[owner] = (byAssignee[owner] || 0) + 1;
+                const sprintKey = a.sprint_id || '(no sprint)';
+                const sprintLabel = a.sprint_name || a.sprints?.name || sprintKey;
+                if (!bySprint[sprintKey]) bySprint[sprintKey] = { count: 0, name: sprintLabel };
+                bySprint[sprintKey].count += 1;
+            });
+            jsonResponse(res, { by_status: byStatus, by_assignee: byAssignee, by_sprint: bySprint });
+        } catch (e) {
+            jsonResponse(res, { error: e.message, by_status: {}, by_assignee: {}, by_sprint: {} }, 500);
+        }
+        return true;
+    }
+
     // GET /api/actions
     if (pathname === '/api/actions' && req.method === 'GET') {
         const parsedUrl = parseUrl(req.url);
         const status = parsedUrl.query.status;
-        const actions = storage.getActions ? await storage.getActions(status) : (storage.getActionItems ? storage.getActionItems(status) : []);
+        const owner = parsedUrl.query.owner;
+        const sprintId = parsedUrl.query.sprint_id || null;
+        const decisionId = parsedUrl.query.decision_id || null;
+        const actions = storage.getActions ? await storage.getActions(status, owner, sprintId, decisionId) : (storage.getActionItems ? storage.getActionItems(status) : []);
         jsonResponse(res, { actions: Array.isArray(actions) ? actions : [] });
+        return true;
+    }
+
+    // GET /api/actions/deleted (soft-deleted actions for restore)
+    if (pathname === '/api/actions/deleted' && req.method === 'GET') {
+        try {
+            const list = storage.getDeletedActions ? await storage.getDeletedActions() : [];
+            jsonResponse(res, { actions: list });
+        } catch (e) {
+            jsonResponse(res, { error: e.message, actions: [] }, 500);
+        }
         return true;
     }
 
@@ -752,8 +791,85 @@ async function handleKnowledge(ctx) {
                 priority: body.priority || 'medium',
                 status: body.status || 'pending',
                 source_file: body.source_file || null,
+                source_document_id: body.source_document_id || null,
+                source_email_id: body.source_email_id || null,
+                source_type: body.source_type || null,
+                generation_source: body.generation_source || 'manual',
+                requested_by: body.requested_by || null,
+                requested_by_contact_id: body.requested_by_contact_id || null,
+                supporting_document_ids: Array.isArray(body.supporting_document_ids) ? body.supporting_document_ids : (body.supporting_document_ids ? [body.supporting_document_ids] : []),
+                parent_story_ref: body.parent_story_ref || body.parent_story || null,
+                parent_story_id: body.parent_story_id || null,
+                size_estimate: body.size_estimate || body.size || null,
+                description: body.description || null,
+                definition_of_done: body.definition_of_done || [],
+                acceptance_criteria: body.acceptance_criteria || [],
+                depends_on: body.depends_on || [],
+                sprint_id: body.sprint_id || null,
+                task_points: body.task_points != null ? body.task_points : null,
+                decision_id: body.decision_id || null,
             });
             jsonResponse(res, { action, id: action.id });
+        } catch (e) {
+            jsonResponse(res, { error: e.message }, 500);
+        }
+        return true;
+    }
+
+    // POST /api/actions/suggest-task (AI expands user description into full task per Sprint Board rules; prompt in Admin)
+    if (pathname === '/api/actions/suggest-task' && req.method === 'POST') {
+        try {
+            const body = await parseBody(req);
+            const userInput = (body.user_input ?? body.content ?? body.description ?? '').trim();
+            if (!userInput) {
+                jsonResponse(res, { error: 'user_input (or content/description) is required' }, 400);
+                return true;
+            }
+            const promptsService = require('../../supabase/prompts');
+            const llm = require('../../llm');
+            const llmConfig = require('../../llm/config');
+            const promptRecord = await promptsService.getPrompt('task_description_from_rules');
+            const template = promptRecord?.prompt_template || null;
+            if (!template) {
+                jsonResponse(res, { error: 'Prompt task_description_from_rules not found. Add it in Admin > Prompts.' }, 400);
+                return true;
+            }
+            const prompt = promptsService.renderPrompt(template, {
+                USER_INPUT: userInput,
+                PARENT_STORY_REF: body.parent_story_ref || body.parent_story || ''
+            });
+            const llmCfg = llmConfig.getTextConfigForReasoning(config);
+            if (!llmCfg?.provider || !llmCfg?.model) {
+                jsonResponse(res, { error: 'No AI/LLM configured' }, 400);
+                return true;
+            }
+            const result = await llm.generateText({
+                provider: llmCfg.provider,
+                providerConfig: llmCfg.providerConfig,
+                model: llmCfg.model,
+                prompt,
+                temperature: 0.3,
+                maxTokens: 1024,
+                context: 'task-description-from-rules'
+            });
+            const raw = (result.text || result.response || '').trim();
+            if (!result.success) {
+                jsonResponse(res, { error: result.error || 'AI request failed' }, 400);
+                return true;
+            }
+            const jsonMatch = raw.match(/\{[\s\S]*\}/);
+            const taskPayload = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+            if (!taskPayload || !taskPayload.task) {
+                jsonResponse(res, { error: 'AI did not return a valid task structure' }, 400);
+                return true;
+            }
+            jsonResponse(res, {
+                task: taskPayload.task,
+                description: taskPayload.description || '',
+                size_estimate: taskPayload.size_estimate || '1 day',
+                definition_of_done: Array.isArray(taskPayload.definition_of_done) ? taskPayload.definition_of_done : [],
+                acceptance_criteria: Array.isArray(taskPayload.acceptance_criteria) ? taskPayload.acceptance_criteria : []
+            });
         } catch (e) {
             jsonResponse(res, { error: e.message }, 500);
         }
@@ -793,12 +909,42 @@ async function handleKnowledge(ctx) {
                 deadline: body.deadline ?? body.due_date,
                 priority: body.priority,
                 status: body.status,
+                parent_story_ref: body.parent_story_ref ?? body.parent_story,
+                parent_story_id: body.parent_story_id,
+                size_estimate: body.size_estimate ?? body.size,
+                description: body.description,
+                definition_of_done: body.definition_of_done,
+                acceptance_criteria: body.acceptance_criteria,
+                depends_on: body.depends_on,
+                source_email_id: body.source_email_id,
+                source_type: body.source_type,
+                requested_by: body.requested_by,
+                requested_by_contact_id: body.requested_by_contact_id,
+                supporting_document_ids: body.supporting_document_ids,
+                sprint_id: body.sprint_id,
+                task_points: body.task_points,
+                decision_id: body.decision_id,
             };
+            if (body.refined_with_ai === true) updates.refined_with_ai = true;
+            if (body.restore_snapshot != null && typeof body.restore_snapshot === 'object') updates.restore_snapshot = body.restore_snapshot;
             Object.keys(updates).forEach(k => updates[k] === undefined && delete updates[k]);
             const action = await storage.updateAction(actionId, updates);
             jsonResponse(res, { action });
         } catch (e) {
             jsonResponse(res, { error: e.message }, 500);
+        }
+        return true;
+    }
+
+    // POST /api/actions/:id/restore
+    const restoreActionMatch = pathname.match(/^\/api\/actions\/([^/]+)\/restore$/);
+    if (restoreActionMatch && req.method === 'POST') {
+        try {
+            const actionId = restoreActionMatch[1];
+            const action = await storage.restoreAction(actionId);
+            jsonResponse(res, { action });
+        } catch (e) {
+            jsonResponse(res, { error: e.message }, 400);
         }
         return true;
     }
@@ -810,6 +956,8 @@ async function handleKnowledge(ctx) {
             const actionId = patchActionMatch[1];
             const body = await parseBody(req);
             const updates = {};
+            if (body.refined_with_ai === true) updates.refined_with_ai = true;
+            if (body.restore_snapshot != null && typeof body.restore_snapshot === 'object') updates.restore_snapshot = body.restore_snapshot;
             if (body.status !== undefined) updates.status = body.status;
             if (body.priority !== undefined) updates.priority = body.priority;
             if (body.task !== undefined) updates.task = body.task;
@@ -818,6 +966,23 @@ async function handleKnowledge(ctx) {
             if (body.assignee !== undefined) updates.owner = body.assignee;
             if (body.deadline !== undefined) updates.deadline = body.deadline;
             if (body.due_date !== undefined) updates.deadline = body.due_date;
+            if (body.parent_story_ref !== undefined) updates.parent_story_ref = body.parent_story_ref;
+            if (body.parent_story !== undefined) updates.parent_story_ref = body.parent_story;
+            if (body.size_estimate !== undefined) updates.size_estimate = body.size_estimate;
+            if (body.size !== undefined) updates.size_estimate = body.size;
+            if (body.description !== undefined) updates.description = body.description;
+            if (body.definition_of_done !== undefined) updates.definition_of_done = body.definition_of_done;
+            if (body.acceptance_criteria !== undefined) updates.acceptance_criteria = body.acceptance_criteria;
+            if (body.parent_story_id !== undefined) updates.parent_story_id = body.parent_story_id;
+            if (body.depends_on !== undefined) updates.depends_on = body.depends_on;
+            if (body.source_email_id !== undefined) updates.source_email_id = body.source_email_id;
+            if (body.source_type !== undefined) updates.source_type = body.source_type;
+            if (body.requested_by !== undefined) updates.requested_by = body.requested_by;
+            if (body.requested_by_contact_id !== undefined) updates.requested_by_contact_id = body.requested_by_contact_id;
+            if (body.supporting_document_ids !== undefined) updates.supporting_document_ids = body.supporting_document_ids;
+            if (body.sprint_id !== undefined) updates.sprint_id = body.sprint_id;
+            if (body.task_points !== undefined) updates.task_points = body.task_points;
+            if (body.decision_id !== undefined) updates.decision_id = body.decision_id;
             const action = await storage.updateAction(actionId, updates);
             jsonResponse(res, { action });
         } catch (e) {
@@ -839,6 +1004,58 @@ async function handleKnowledge(ctx) {
         return true;
     }
 
+    // GET /api/actions/:id/similar – semantically similar actions (uses embeddings when available)
+    const actionSimilarMatch = pathname.match(/^\/api\/actions\/([^/]+)\/similar$/);
+    if (actionSimilarMatch && req.method === 'GET') {
+        try {
+            const actionId = actionSimilarMatch[1];
+            const actions = storage.getActions ? await storage.getActions() : (storage.getActionItems ? storage.getActionItems() : []);
+            const action = (actions || []).find((a) => String(a.id) === String(actionId));
+            if (!action) {
+                jsonResponse(res, { error: 'Action not found', similar: [] }, 404);
+                return true;
+            }
+            const queryText = [(action.task || action.content || ''), (action.description || '')].filter(Boolean).join(' ').trim();
+            if (!queryText) {
+                jsonResponse(res, { similar: [] });
+                return true;
+            }
+            const embedCfg = llmConfig && llmConfig.getEmbeddingsConfig ? llmConfig.getEmbeddingsConfig(config) : null;
+            if (!embedCfg?.provider || !embedCfg?.model || !llm?.embed) {
+                jsonResponse(res, { similar: [], hint: 'Embeddings not configured' });
+                return true;
+            }
+            const embedResult = await llm.embed({
+                provider: embedCfg.provider,
+                providerConfig: embedCfg.providerConfig,
+                model: embedCfg.model,
+                texts: [queryText]
+            });
+            if (!embedResult.success || !embedResult.embeddings?.[0]) {
+                jsonResponse(res, { similar: [], hint: 'Embedding failed' });
+                return true;
+            }
+            const results = await storage.searchWithEmbedding(queryText, embedResult.embeddings[0], {
+                entityTypes: ['action_item'],
+                limit: 7,
+                threshold: 0.25,
+                useHybrid: false
+            });
+            const ids = (results || [])
+                .map((r) => (r.id && r.id.startsWith('action_item_') ? r.id.slice('action_item_'.length) : r.id))
+                .filter((id) => id && String(id) !== String(actionId));
+            const order = new Map(ids.map((id, i) => [id, i]));
+            const similarActions = (actions || [])
+                .filter((a) => ids.includes(String(a.id)))
+                .sort((a, b) => (order.get(String(a.id)) ?? 99) - (order.get(String(b.id)) ?? 99))
+                .slice(0, 6);
+            jsonResponse(res, { similar: similarActions });
+        } catch (e) {
+            jsonResponse(res, { error: e.message, similar: [] }, 500);
+        }
+        return true;
+    }
+
     // GET /api/actions/:id/events
     const actionEventsMatch = pathname.match(/^\/api\/actions\/([^/]+)\/events$/);
     if (actionEventsMatch && req.method === 'GET') {
@@ -848,6 +1065,113 @@ async function handleKnowledge(ctx) {
             jsonResponse(res, { events: events || [] });
         } catch (e) {
             jsonResponse(res, { error: e.message, events: [] }, 500);
+        }
+        return true;
+    }
+
+    // ==================== User Stories Routes ====================
+
+    if (pathname === '/api/user-stories' && req.method === 'GET') {
+        try {
+            const parsedUrl = parseUrl(req.url);
+            const status = parsedUrl.query.status || null;
+            const list = storage.getUserStories ? await storage.getUserStories(status) : [];
+            jsonResponse(res, { user_stories: list });
+        } catch (e) {
+            jsonResponse(res, { error: e.message, user_stories: [] }, 500);
+        }
+        return true;
+    }
+
+    if (pathname === '/api/user-stories/deleted' && req.method === 'GET') {
+        try {
+            const list = storage.getDeletedUserStories ? await storage.getDeletedUserStories() : [];
+            jsonResponse(res, { user_stories: list });
+        } catch (e) {
+            jsonResponse(res, { error: e.message, user_stories: [] }, 500);
+        }
+        return true;
+    }
+
+    const userStoryRestoreMatch = pathname.match(/^\/api\/user-stories\/([^/]+)\/restore$/);
+    if (userStoryRestoreMatch && req.method === 'POST') {
+        try {
+            const storyId = userStoryRestoreMatch[1];
+            const story = await storage.restoreUserStory(storyId);
+            jsonResponse(res, { user_story: story });
+        } catch (e) {
+            jsonResponse(res, { error: e.message }, 400);
+        }
+        return true;
+    }
+
+    const userStoryIdMatch = pathname.match(/^\/api\/user-stories\/([^/]+)$/);
+    if (userStoryIdMatch) {
+        const storyId = userStoryIdMatch[1];
+        if (req.method === 'GET') {
+            try {
+                const story = storage.getUserStory ? await storage.getUserStory(storyId) : null;
+                if (!story) {
+                    jsonResponse(res, { error: 'User story not found' }, 404);
+                    return true;
+                }
+                jsonResponse(res, { user_story: story });
+            } catch (e) {
+                jsonResponse(res, { error: e.message }, 500);
+            }
+            return true;
+        }
+        if (req.method === 'PUT') {
+            try {
+                const body = await parseBody(req);
+                const story = storage.updateUserStory ? await storage.updateUserStory(storyId, body) : null;
+                if (!story) {
+                    jsonResponse(res, { error: 'User story not found' }, 404);
+                    return true;
+                }
+                jsonResponse(res, { user_story: story });
+            } catch (e) {
+                jsonResponse(res, { error: e.message }, 500);
+            }
+            return true;
+        }
+        if (req.method === 'DELETE') {
+            try {
+                if (storage.deleteUserStory) await storage.deleteUserStory(storyId, true);
+                jsonResponse(res, { ok: true });
+            } catch (e) {
+                jsonResponse(res, { error: e.message }, 500);
+            }
+            return true;
+        }
+    }
+
+    if (pathname === '/api/user-stories' && req.method === 'POST') {
+        try {
+            const body = await parseBody(req);
+            const title = (body.title || '').trim();
+            if (!title) {
+                jsonResponse(res, { error: 'title is required' }, 400);
+                return true;
+            }
+            const story = await storage.addUserStory({
+                title,
+                description: body.description || null,
+                status: body.status || 'draft',
+                acceptance_criteria: body.acceptance_criteria || [],
+                source_document_id: body.source_document_id || null,
+                source_file: body.source_file || null,
+                source_email_id: body.source_email_id || null,
+                source_type: body.source_type || 'manual',
+                requested_by: body.requested_by || null,
+                requested_by_contact_id: body.requested_by_contact_id || null,
+                supporting_document_ids: Array.isArray(body.supporting_document_ids) ? body.supporting_document_ids : (body.supporting_document_ids ? [body.supporting_document_ids] : []),
+                generation_source: body.generation_source || 'manual',
+                story_points: body.story_points != null ? body.story_points : null
+            });
+            jsonResponse(res, { user_story: story, id: story.id });
+        } catch (e) {
+            jsonResponse(res, { error: e.message }, 500);
         }
         return true;
     }

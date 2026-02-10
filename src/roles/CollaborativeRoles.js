@@ -5,6 +5,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'collaborative-roles' });
 
 class CollaborativeRoles {
     constructor(options = {}) {
@@ -25,7 +28,7 @@ class CollaborativeRoles {
                 return JSON.parse(fs.readFileSync(this.usersFile, 'utf8'));
             }
         } catch (e) {
-            console.error('[CollaborativeRoles] Load error:', e.message);
+            log.error({ event: 'collaborative_roles_load_failed', message: e.message }, 'Load error');
         }
         return {
             users: [],
@@ -39,7 +42,7 @@ class CollaborativeRoles {
             fs.mkdirSync(this.dataDir, { recursive: true });
             fs.writeFileSync(this.usersFile, JSON.stringify(this.data, null, 2));
         } catch (e) {
-            console.error('[CollaborativeRoles] Save error:', e.message);
+            log.error({ event: 'collaborative_roles_save_failed', message: e.message }, 'Save error');
         }
     }
 

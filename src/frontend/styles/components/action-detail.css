@@ -3,6 +3,28 @@
  * Extends question-detail-view (shared layout); action-specific overrides
  */
 
+/* Project in breadcrumb and as badge */
+.action-detail-view .breadcrumb-project {
+  color: var(--text-muted);
+  font-weight: 500;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action-detail-view .project-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
 .action-detail-view.question-detail-view .action-main .action-task-text {
   font-size: var(--font-size-base);
   line-height: 1.6;
@@ -77,6 +99,49 @@
   color: var(--accent);
 }
 
+/* Implementing decision section */
+.action-detail-view .action-decision-display {
+  margin-bottom: var(--space-sm);
+}
+.action-detail-view .action-decision-actions {
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+.action-detail-view .action-decision-picker {
+  margin-top: var(--space-md);
+  padding: var(--space-md);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  max-height: 200px;
+  overflow: auto;
+}
+.action-detail-view .action-decision-picker .picker-search {
+  margin-bottom: var(--space-sm);
+}
+.action-detail-view .action-decision-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.action-detail-view .action-decision-item {
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+}
+.action-detail-view .action-decision-item:hover {
+  background: var(--bg-card);
+}
+.action-detail-view .decision-link {
+  color: var(--accent);
+  text-decoration: none;
+}
+.action-detail-view .decision-link:hover {
+  text-decoration: underline;
+}
+
 .action-detail-view .action-detail-edit-form .detail-actions {
   margin-top: var(--space-lg);
   padding-top: var(--space-md);
@@ -116,6 +181,95 @@
   background: var(--error);
   color: white;
   border-color: var(--error);
+}
+
+/* Structured description (Task, Size, DoD, Acceptance criteria) */
+.action-detail-view .action-description-structured {
+  margin-top: var(--space-md);
+}
+.action-detail-view .action-description-body {
+  font-size: var(--font-size-sm);
+}
+.action-detail-view .action-description-dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 0 0 12px;
+}
+.action-detail-view .action-description-dl dt {
+  margin: 0;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.action-detail-view .action-description-dl dd {
+  margin: 0;
+}
+.action-detail-view .action-description-text,
+.action-detail-view .action-dod,
+.action-detail-view .action-ac {
+  margin-top: 10px;
+}
+.action-detail-view .action-description-text p,
+.action-detail-view .action-checklist {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+.action-detail-view .action-checklist li {
+  margin-bottom: 2px;
+}
+
+/* Definition of Done with checkmarks (toggle) */
+.action-detail-view .action-dod-list {
+  list-style: none;
+  padding-left: 0;
+}
+.action-detail-view .action-dod-list .dod-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.action-detail-view .dod-item-toggle {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.action-detail-view .dod-item-toggle:hover {
+  border-color: var(--color-primary);
+  background: var(--color-surface-hover);
+}
+.action-detail-view .dod-item.dod-done .dod-item-text {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+.action-detail-view .dod-item-text {
+  flex: 1;
+}
+
+/* Timeline: title row with Restore button */
+.action-detail-view .timeline-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.action-detail-view .timeline-title-row .timeline-title {
+  flex: 1;
+  min-width: 0;
+}
+.action-detail-view .action-restore-btn {
+  flex-shrink: 0;
 }
 
 /* Timeline uses #timeline-content + .timeline-content; styles from question-detail.css apply */
@@ -278,4 +432,39 @@
 .action-detail-view .action-assignee-card-role {
   font-size: var(--font-size-xs);
   color: var(--text-muted);
+}
+
+/* Similar actions list */
+.action-detail-view .action-similar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+.action-detail-view .action-similar-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg-secondary, #f9fafb);
+  border: 1px solid var(--border-light, #f3f4f6);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.action-detail-view .action-similar-card:hover {
+  background: var(--bg-card);
+  border-color: var(--border);
+}
+.action-detail-view .action-similar-card .action-similar-status {
+  flex-shrink: 0;
+}
+.action-detail-view .action-similar-card .action-similar-task {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

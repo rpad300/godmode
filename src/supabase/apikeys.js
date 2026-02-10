@@ -92,7 +92,7 @@ async function createApiKey({
             }
         };
     } catch (error) {
-        console.error('[API Keys] Create error:', error);
+        log.warn({ event: 'apikeys_create_error', reason: error?.message }, 'Create error');
         return { success: false, error: error.message };
     }
 }
@@ -139,7 +139,7 @@ async function validateApiKey(key) {
 
         return { success: true, apiKey };
     } catch (error) {
-        console.error('[API Keys] Validate error:', error);
+        log.warn({ event: 'apikeys_validate_error', reason: error?.message }, 'Validate error');
         return { success: false, error: error.message };
     }
 }
@@ -166,6 +166,7 @@ async function listApiKeys(projectId) {
     }
 
     try {
+        // created_by references auth.users(id), not user_profiles; no FK join available
         const { data: keys, error } = await supabase
             .from('api_keys')
             .select(`
@@ -173,7 +174,7 @@ async function listApiKeys(projectId) {
                 rate_limit_per_minute, rate_limit_per_day,
                 is_active, expires_at, last_used_at, total_requests,
                 created_at, revoked_at,
-                creator:user_profiles!created_by(id, username, display_name)
+                created_by
             `)
             .eq('project_id', projectId)
             .order('created_at', { ascending: false });
@@ -182,7 +183,7 @@ async function listApiKeys(projectId) {
 
         return { success: true, keys: keys || [] };
     } catch (error) {
-        console.error('[API Keys] List error:', error);
+        log.warn({ event: 'apikeys_list_error', reason: error?.message }, 'List error');
         return { success: false, error: error.message };
     }
 }
@@ -210,7 +211,7 @@ async function revokeApiKey(keyId, revokedBy) {
 
         return { success: true };
     } catch (error) {
-        console.error('[API Keys] Revoke error:', error);
+        log.warn({ event: 'apikeys_revoke_error', error });
         return { success: false, error: error.message };
     }
 }
@@ -245,7 +246,7 @@ async function updateApiKey(keyId, updates) {
 
         return { success: true, apiKey };
     } catch (error) {
-        console.error('[API Keys] Update error:', error);
+        log.warn({ event: 'apikeys_update_error', reason: error?.message }, 'Update error');
         return { success: false, error: error.message };
     }
 }
@@ -270,7 +271,7 @@ async function logUsage(apiKeyId, endpoint, method, statusCode, responseTimeMs, 
                 user_agent: userAgent
             });
     } catch (error) {
-        console.error('[API Keys] Log usage error:', error);
+        log.warn({ event: 'apikeys_ Log usage error:', error);
     }
 }
 
@@ -316,7 +317,7 @@ async function getUsageStats(apiKeyId, days = 7) {
 
         return { success: true, stats };
     } catch (error) {
-        console.error('[API Keys] Get stats error:', error);
+        log.warn({ event: 'apikeys_get_stats_error', reason: error?.message }, 'Get stats error');
         return { success: false, error: error.message };
     }
 }

@@ -72,11 +72,11 @@ export function createDecisionsPanel(props: DecisionsPanelProps = {}): HTMLEleme
         <button class="btn btn-primary btn-sm" id="add-decision-btn">+ Add</button>
       </div>
     </div>
-    <div id="conflicts-container" class="conflicts-container" style="display: none;"></div>
+    <div id="conflicts-container" class="conflicts-container hidden"></div>
     <div class="panel-content" id="decisions-content">
       <div class="loading">Loading decisions...</div>
     </div>
-    <div id="removed-decisions-container" class="removed-decisions-container" style="display: none;"></div>
+    <div id="removed-decisions-container" class="removed-decisions-container hidden"></div>
   `;
 
   const filterSelect = panel.querySelector('#decisions-filter') as HTMLSelectElement;
@@ -133,7 +133,7 @@ export function createDecisionsPanel(props: DecisionsPanelProps = {}): HTMLEleme
 }
 
 async function checkConflicts(container: HTMLElement, panel: HTMLElement, props: DecisionsPanelProps): Promise<void> {
-  container.style.display = 'block';
+  container.classList.remove('hidden');
   container.innerHTML = '<div class="loading">Checking for conflicts...</div>';
   try {
     const result = await decisionsService.runDecisionCheck();
@@ -160,7 +160,7 @@ function createConflictCard(c: DecisionConflict, panel: HTMLElement, props: Deci
   const desc = (c.description || c.reason || 'Conflict').substring(0, 200);
   return `
     <div class="conflict-card-sota" data-decision-id1="${d1.id}" data-decision-id2="${d2.id}">
-      <div class="conflict-card-priority-bar" style="background: var(--warning);"></div>
+      <div class="conflict-card-priority-bar conflict-card-priority-bar-warning"></div>
       <div class="conflict-card-body">
         <div class="conflict-card-header">
           <span class="conflict-type-badge">Conflict</span>
@@ -210,11 +210,11 @@ async function refreshRemovedSection(panel: HTMLElement, props: DecisionsPanelPr
   try {
     const deleted = await decisionsService.getDeletedDecisions();
     if (deleted.length === 0) {
-      container.style.display = 'none';
+      container.classList.add('hidden');
       container.innerHTML = '';
       return;
     }
-    container.style.display = 'block';
+    container.classList.remove('hidden');
     container.innerHTML = `
       <div class="removed-decisions-section">
         <div class="removed-decisions-header section-header-sota">
@@ -247,7 +247,7 @@ async function refreshRemovedSection(panel: HTMLElement, props: DecisionsPanelPr
       });
     });
   } catch {
-    container.style.display = 'none';
+    container.classList.add('hidden');
     container.innerHTML = '';
   }
 }
@@ -507,7 +507,7 @@ function createDecisionCard(decision: Decision, contacts: ContactLike[]): string
 
   return `
     <div class="decision-card-sota question-card-sota" data-id="${decision.id}" style="--decision-status-bar: ${barColor}">
-      <div class="card-priority-bar decision-status-bar" style="background: ${barColor}"></div>
+      <div class="card-priority-bar decision-status-bar"></div>
       <div class="card-body">
         <div class="card-top-row">
           <div class="card-badges">

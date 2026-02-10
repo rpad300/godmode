@@ -69,7 +69,7 @@ export function showGraphModal(props: GraphModalProps): void {
     <div class="graph-legend">
       ${getUniqueTypes(nodes).map(type => `
         <span class="legend-item">
-          <span class="legend-color" style="background: ${getTypeColor(type)}"></span>
+          <span class="legend-color" style="--legend-color: ${getTypeColor(type)}"></span>
           ${type}
         </span>
       `).join('')}

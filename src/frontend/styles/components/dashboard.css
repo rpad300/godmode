@@ -56,6 +56,56 @@
 }
 
 /* ==================== Stats Cards (Row 1) ==================== */
+/* No project state (empty state in stats grid) */
+.no-project-state {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 64px 24px;
+  text-align: center;
+  background: linear-gradient(135deg, rgba(225,29,72,0.05) 0%, rgba(225,29,72,0.02) 100%);
+  border-radius: 16px;
+  border: 2px dashed rgba(225,29,72,0.2);
+  min-height: 300px;
+}
+
+.no-project-state .no-project-icon {
+  color: var(--accent, #e11d48);
+  margin-bottom: 20px;
+  opacity: 0.6;
+}
+
+.no-project-state .no-project-title {
+  margin: 0 0 12px 0;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.no-project-state .no-project-desc {
+  margin: 0 0 24px 0;
+  font-size: 15px;
+  color: var(--text-secondary);
+  max-width: 450px;
+  line-height: 1.6;
+}
+
+.no-project-state .no-project-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.no-project-state .no-project-btn {
+  padding: 12px 28px;
+  font-size: 14px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .dashboard .stats-grid {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
@@ -566,6 +616,7 @@
 
 .bar-fill {
   height: 100%;
+  width: var(--bar-width, 0%);
   border-radius: 5px;
   transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -646,6 +697,7 @@
 .trend-bar {
   flex: 1;
   min-height: 3px;
+  height: var(--trend-height, 0%);
   border-radius: 3px 3px 0 0;
   transition: height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -724,6 +776,7 @@
   align-items: center;
   justify-content: center;
   position: relative;
+  background: var(--donut-conic, var(--color-border));
 }
 
 .risk-donut-center {
@@ -787,6 +840,7 @@
 
 .risk-bar-item .bar-fill {
   height: 100%;
+  width: var(--bar-width, 0%);
   border-radius: 3px;
   transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -883,6 +937,84 @@
   position: relative;
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
+}
+
+.health-bar .health-fill {
+  width: var(--fill-width, 0%);
+  background: var(--fill-color, var(--color-success));
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.4s ease;
+}
+
+.health-status .status-text {
+  color: var(--status-color, var(--color-success));
+}
+
+/* Golden hours section */
+.golden-hours-header .golden-header-time {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.golden-card .online-badge {
+  margin-left: auto;
+  font-size: 11px;
+  color: #10b981;
+}
+
+.golden-card .people-list {
+  margin-bottom: 16px;
+}
+
+.golden-card .meeting-suggestions {
+  margin-top: 16px;
+}
+
+.golden-card.golden-card-mt {
+  margin-top: 20px;
+}
+
+.suggestion-pill .suggestion-star {
+  color: var(--suggestion-star-color, var(--text-muted));
+}
+
+.tz-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 4px;
+  left: var(--tz-left, 0);
+  width: var(--tz-width, 0);
+}
+
+.tz-bar.work-hours {
+  background: rgba(0,0,0,0.08);
+}
+
+.tz-bar.golden {
+  background: linear-gradient(90deg, #f59e0b, #fbbf24);
+}
+
+.golden-summary.golden-summary-warning {
+  background: linear-gradient(135deg, rgba(239,68,68,0.1) 0%, rgba(239,68,68,0.05) 100%);
+  border-color: rgba(239,68,68,0.2);
+}
+
+.golden-summary-warning .golden-icon {
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  color: white;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+}
+
+.golden-summary-warning .hours {
+  color: #dc2626;
 }
 
 /* ==================== Alerts Section ==================== */

@@ -15,13 +15,6 @@ const defaultOptions: ToastOptions = {
   position: 'bottom-right',
 };
 
-const typeColors: Record<ToastType, string> = {
-  success: 'var(--success)',
-  error: 'var(--error)',
-  warning: 'var(--warning)',
-  info: 'var(--accent)',
-};
-
 /**
  * Show a toast notification
  */
@@ -34,30 +27,16 @@ export function showToast(
   
   // Create toast element
   const toast = document.createElement('div');
-  toast.className = 'toast fade-in';
-  toast.style.cssText = `
-    position: fixed;
-    ${opts.position?.includes('bottom') ? 'bottom' : 'top'}: 20px;
-    ${opts.position?.includes('right') ? 'right' : 'left'}: 20px;
-    background: ${typeColors[type]};
-    color: white;
-    padding: 12px 20px;
-    border-radius: 8px;
-    font-size: 14px;
-    z-index: 10000;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    max-width: 400px;
-    word-wrap: break-word;
-  `;
+  const pos = opts.position || 'bottom-right';
+  toast.className = `toast toast-${type} toast--${pos} fade-in`;
   toast.textContent = message;
-  
+
   // Add to DOM
   document.body.appendChild(toast);
-  
+
   // Remove after duration
   setTimeout(() => {
-    toast.style.opacity = '0';
-    toast.style.transition = 'opacity 0.3s';
+    toast.classList.add('toast-fade-out');
     setTimeout(() => toast.remove(), 300);
   }, opts.duration);
 }

@@ -8,7 +8,10 @@
  * SOTA v3.0 - Native Supabase support (no Cypher dependency)
  */
 
+const { logger } = require('../logger');
 const { getOntologyManager } = require('./OntologyManager');
+
+const log = logger.child({ module: 'inference-engine' });
 
 class InferenceEngine {
     constructor(options = {}) {
@@ -64,7 +67,7 @@ class InferenceEngine {
         // For Cypher-based providers (FalkorDB, Neo4j)
         const rules = this.ontology.getInferenceCyphers();
         if (!rules || rules.length === 0) {
-            console.log('[InferenceEngine] No inference rules defined');
+            log.debug({ event: 'inference_engine_no_rules' }, 'No inference rules defined');
             return { ok: true, results: { applied: 0, message: 'No rules defined' } };
         }
 
@@ -75,7 +78,7 @@ class InferenceEngine {
             details: []
         };
 
-        console.log(`[InferenceEngine] Running ${rules.length} inference rules...`);
+        log.info({ event: 'inference_engine_running', count: rules.length }, 'Running inference rules');
 
         for (const rule of rules) {
             try {
@@ -100,9 +103,9 @@ class InferenceEngine {
                 this.stats.totalRelationshipsInferred += relationshipsCreated;
                 
                 if (relationshipsCreated > 0) {
-                    console.log(`[InferenceEngine] ✓ ${rule.name}: created ${relationshipsCreated} relationships (${duration}ms)`);
+                    log.debug({ event: 'inference_engine_rule_created', ruleName: rule.name, relationshipsCreated, duration }, 'Rule created relationships');
                 } else {
-                    console.log(`[InferenceEngine] ✓ ${rule.name}: no new relationships (${duration}ms)`);
+                    log.debug({ event: 'inference_engine_rule_no_new', ruleName: rule.name, duration }, 'Rule no new relationships');
                 }
             } catch (e) {
                 results.errors.push({
@@ -110,14 +113,14 @@ class InferenceEngine {
                     error: e.message
                 });
                 this.stats.totalErrors++;
-                console.error(`[InferenceEngine] ✗ ${rule.name}: ${e.message}`);
+                log.error({ event: 'inference_engine_rule_error', ruleName: rule.name, reason: e.message }, 'Rule failed');
             }
         }
 
         this.lastRun = new Date().toISOString();
         this.stats.runsCompleted++;
 
-        console.log(`[InferenceEngine] Complete: ${results.applied} applied, ${results.errors.length} errors`);
+        log.info({ event: 'inference_engine_complete', applied: results.applied, errors: results.errors.length }, 'Inference complete');
         return { ok: true, results };
     }
 
@@ -135,7 +138,7 @@ class InferenceEngine {
             relationships: 0
         };
 
-        console.log('[InferenceEngine] Running native Supabase inference...');
+        log.info({ event: 'inference_engine_native_start' }, 'Running native Supabase inference');
         const startTime = Date.now();
 
         try {
@@ -157,7 +160,7 @@ class InferenceEngine {
             results.applied = results.details.filter(d => d.success).length;
             
             const duration = Date.now() - startTime;
-            console.log(`[InferenceEngine] Native inference complete: ${results.relationships} relationships created (${duration}ms)`);
+            log.info({ event: 'inference_engine_native_complete', relationships: results.relationships, duration }, 'Native inference complete');
 
             this.stats.totalRelationshipsInferred += results.relationships;
             this.lastRun = new Date().toISOString();
@@ -165,7 +168,7 @@ class InferenceEngine {
 
             return { ok: true, results };
         } catch (e) {
-            console.error('[InferenceEngine] Native inference error:', e.message);
+            log.error({ event: 'inference_engine_native_error', reason: e.message }, 'Native inference error');
             results.errors.push({ error: e.message });
             return { ok: false, error: e.message, results };
         }
@@ -324,7 +327,7 @@ class InferenceEngine {
 
         // For Supabase provider, use native inference methods
         if (this._isSupabaseProvider()) {
-            console.log(`[InferenceEngine] Supabase provider: running native inference for "${ruleName}"`);
+            log.debug({ event: 'inference_engine_supabase_native', ruleName }, 'Supabase provider: running native inference');
             const result = await this._runNativeInference();
             return { 
                 ok: true, 
@@ -349,7 +352,7 @@ class InferenceEngine {
             const result = await this.graphProvider.query(rule.cypher);
             const duration = Date.now() - startTime;
 
-            console.log(`[InferenceEngine] Ran rule "${ruleName}" in ${duration}ms`);
+            log.debug({ event: 'inference_engine_rule_ran', ruleName, duration }, 'Ran rule');
             return { 
                 ok: true, 
                 result: {
@@ -360,7 +363,7 @@ class InferenceEngine {
                 }
             };
         } catch (e) {
-            console.error(`[InferenceEngine] Rule "${ruleName}" failed:`, e.message);
+            log.error({ event: 'inference_engine_rule_failed', ruleName, reason: e.message }, 'Rule failed');
             return { ok: false, error: e.message };
         }
     }
@@ -398,10 +401,10 @@ class InferenceEngine {
             this.stopPeriodicRun();
         }
 
-        console.log(`[InferenceEngine] Starting periodic inference every ${intervalMs / 1000}s`);
+        log.info({ event: 'inference_engine_periodic_start', intervalSeconds: intervalMs / 1000 }, 'Starting periodic inference');
         
         this._periodicTimer = setInterval(async () => {
-            console.log('[InferenceEngine] Running scheduled inference...');
+            log.debug({ event: 'inference_engine_scheduled_run' }, 'Running scheduled inference');
             await this.runAllRules();
         }, intervalMs);
 
@@ -415,7 +418,7 @@ class InferenceEngine {
         if (this._periodicTimer) {
             clearInterval(this._periodicTimer);
             this._periodicTimer = null;
-            console.log('[InferenceEngine] Stopped periodic inference');
+            log.debug({ event: 'inference_engine_periodic_stopped' }, 'Stopped periodic inference');
         }
     }
 
@@ -425,7 +428,7 @@ class InferenceEngine {
      */
     async onSyncComplete() {
         if (this.autoRunAfterSync) {
-            console.log('[InferenceEngine] Running inference after sync...');
+            log.debug({ event: 'inference_engine_after_sync' }, 'Running inference after sync');
             return this.runAllRules();
         }
     }
@@ -499,7 +502,7 @@ class InferenceEngine {
             }
 
         } catch (e) {
-            console.error('[InferenceEngine] Analysis failed:', e.message);
+            log.error({ event: 'inference_engine_analysis_failed', reason: e.message }, 'Analysis failed');
         }
 
         return { suggestions };
@@ -550,9 +553,9 @@ class InferenceEngine {
                 });
             }
 
-            console.log(`[InferenceEngine] Native analysis: ${suggestions.length} suggestions`);
+            log.debug({ event: 'inference_engine_native_analysis', count: suggestions.length }, 'Native analysis');
         } catch (e) {
-            console.error('[InferenceEngine] Native analysis error:', e.message);
+            log.error({ event: 'inference_engine_native_analysis_error', reason: e.message }, 'Native analysis error');
         }
 
         return { suggestions };
@@ -580,7 +583,7 @@ class InferenceEngine {
                 return { ok: false, error: `Invalid Cypher: ${e.message}` };
             }
         } else {
-            console.log(`[InferenceEngine] Supabase provider: skipping Cypher validation for "${ruleDef.name}"`);
+            log.debug({ event: 'inference_engine_skip_cypher_validation', ruleName: ruleDef.name }, 'Supabase provider: skipping Cypher validation');
         }
 
         if (persist) {

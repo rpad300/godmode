@@ -47,7 +47,7 @@ export function createFactDetailView(props: FactDetailViewProps): HTMLElement {
         <span class="breadcrumb-current">Fact #${String(fact.id).substring(0, 8)}</span>
       </div>
       <div class="header-actions">
-        ${fact.verified ? '<span class="verified-badge detail sla-badge" style="background:var(--success);color:white">✓ Verified</span>' : ''}
+        ${fact.verified ? '<span class="verified-badge detail sla-badge">✓ Verified</span>' : ''}
         <button class="btn btn-icon" id="close-detail" title="Close">×</button>
       </div>
     </div>

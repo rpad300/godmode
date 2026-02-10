@@ -3,7 +3,10 @@
  * Handles audit log export and compliance features
  */
 
+const { logger } = require('../logger');
 const { getAdminClient } = require('./client');
+
+const log = logger.child({ module: 'audit' });
 
 // Export formats
 const EXPORT_FORMATS = {
@@ -66,12 +69,12 @@ async function createExportJob({
 
         // Start processing in background
         processExportJob(job.id).catch(err => {
-            console.error('[Audit] Background job error:', err);
+            log.error({ event: 'audit_background_job_error', reason: err?.message }, 'Background job error');
         });
 
         return { success: true, job };
     } catch (error) {
-        console.error('[Audit] Create export error:', error);
+        log.error({ event: 'audit_create_export_error', reason: error?.message }, 'Create export error');
         return { success: false, error: error.message };
     }
 }
@@ -165,7 +168,7 @@ async function processExportJob(jobId) {
             .eq('id', jobId);
 
     } catch (error) {
-        console.error('[Audit] Process job error:', error);
+        log.error({ event: 'audit_process_job_error', reason: error?.message }, 'Process job error');
 
         await supabase
             .from('audit_exports')
@@ -239,7 +242,7 @@ async function getExportJob(jobId) {
 
         return { success: true, job };
     } catch (error) {
-        console.error('[Audit] Get job error:', error);
+        log.error({ event: 'audit_get_job_error', reason: error?.message }, 'Get job error');
         return { success: false, error: error.message };
     }
 }
@@ -268,7 +271,7 @@ async function listExportJobs(projectId, limit = 20) {
 
         return { success: true, jobs: jobs || [] };
     } catch (error) {
-        console.error('[Audit] List jobs error:', error);
+        log.error({ event: 'audit_list_jobs_error', reason: error?.message }, 'List jobs error');
         return { success: false, error: error.message };
     }
 }
@@ -310,7 +313,7 @@ async function downloadExport(jobId, userId) {
             fileSize: job.file_size_bytes
         };
     } catch (error) {
-        console.error('[Audit] Download error:', error);
+        log.error({ event: 'audit_download_error', reason: error?.message }, 'Download error');
         return { success: false, error: error.message };
     }
 }
@@ -355,7 +358,7 @@ async function getAuditSummary(projectId, days = 30) {
 
         return { success: true, summary };
     } catch (error) {
-        console.error('[Audit] Summary error:', error);
+        log.error({ event: 'audit_summary_error', reason: error?.message }, 'Summary error');
         return { success: false, error: error.message };
     }
 }
@@ -376,7 +379,7 @@ async function cleanupExpiredExports() {
 
         if (error) throw error;
     } catch (error) {
-        console.error('[Audit] Cleanup error:', error);
+        log.error({ event: 'audit_cleanup_error', reason: error?.message }, 'Cleanup error');
     }
 }
 

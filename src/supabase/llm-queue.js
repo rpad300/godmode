@@ -7,8 +7,11 @@
  * either an authenticated user or service_role access.
  */
 
+const { logger } = require('../logger');
 const { getAdminClient } = require('./client');
 const crypto = require('crypto');
+
+const log = logger.child({ module: 'llm-queue' });
 
 /**
  * Generate hash for input data (for deduplication)
@@ -93,7 +96,7 @@ async function enqueueRequest({
 
     return { success: true, id: data.id, deduplicated: false };
   } catch (error) {
-    console.error('[LLM Queue] Failed to enqueue request:', error);
+    log.warn({ event: 'llm_queue_enqueue_error', reason: error?.message }, 'Failed to enqueue request');
     return { success: false, error: error.message };
   }
 }
@@ -133,7 +136,7 @@ async function claimNextRequest(projectId = null) {
       }
     };
   } catch (error) {
-    console.error('[LLM Queue] Failed to claim request:', error);
+    log.warn({ event: 'llm_queue_claim_error', reason: error?.message }, 'Failed to claim request');
     return { success: false, error: error.message };
   }
 }
@@ -168,7 +171,7 @@ async function completeRequest({
 
     return { success: true };
   } catch (error) {
-    console.error('[LLM Queue] Failed to complete request:', error);
+    log.warn({ event: 'llm_queue_complete_error', reason: error?.message }, 'Failed to complete request');
     return { success: false, error: error.message };
   }
 }
@@ -201,7 +204,7 @@ async function failRequest({
 
     return { success: true };
   } catch (err) {
-    console.error('[LLM Queue] Failed to mark request as failed:', err);
+    log.warn({ event: 'llm_queue_mark_failed_error', reason: err?.message }, 'Failed to mark request as failed');
     return { success: false, error: err.message };
   }
 }
@@ -224,7 +227,7 @@ async function cancelRequest(requestId) {
 
     return { success: true };
   } catch (error) {
-    console.error('[LLM Queue] Failed to cancel request:', error);
+    log.warn({ event: 'llm_queue_cancel_error', reason: error?.message }, 'Failed to cancel request');
     return { success: false, error: error.message };
   }
 }
@@ -248,7 +251,7 @@ async function retryRequest(requestId, resetAttempts = false) {
 
     return { success: true };
   } catch (error) {
-    console.error('[LLM Queue] Failed to retry request:', error);
+    log.warn({ event: 'llm_queue_retry_error', reason: error?.message }, 'Failed to retry request');
     return { success: false, error: error.message };
   }
 }
@@ -271,7 +274,7 @@ async function clearQueue(projectId) {
 
     return { success: true, cleared: data };
   } catch (error) {
-    console.error('[LLM Queue] Failed to clear queue:', error);
+    log.warn({ event: 'llm_queue_clear_error', reason: error?.message }, 'Failed to clear queue');
     return { success: false, error: error.message };
   }
 }
@@ -308,7 +311,7 @@ async function getQueueStatus(projectId = null) {
       }
     };
   } catch (error) {
-    console.error('[LLM Queue] Failed to get queue status:', error);
+    log.warn({ event: 'llm_queue_status_error', reason: error?.message }, 'Failed to get queue status');
     return { success: false, error: error.message };
   }
 }
@@ -352,7 +355,7 @@ async function getPendingRequests(projectId, limit = 50) {
       }))
     };
   } catch (error) {
-    console.error('[LLM Queue] Failed to get pending requests:', error);
+    log.warn({ event: 'llm_queue_pending_error', reason: error?.message }, 'Failed to get pending requests');
     return { success: false, error: error.message };
   }
 }
@@ -412,7 +415,7 @@ async function getHistory(projectId = null, limit = 100, offset = 0) {
       }))
     };
   } catch (error) {
-    console.error('[LLM Queue] Failed to get history:', error);
+    log.warn({ event: 'llm_queue_history_error', reason: error?.message }, 'Failed to get history');
     return { success: false, error: error.message };
   }
 }
@@ -444,7 +447,7 @@ async function getStatsByContext(projectId = null) {
       stats: data || []
     };
   } catch (error) {
-    console.error('[LLM Queue] Failed to get stats by context:', error);
+    log.warn({ event: 'llm_queue_stats_error', reason: error?.message }, 'Failed to get stats by context');
     return { success: false, error: error.message };
   }
 }
@@ -500,7 +503,7 @@ async function getRetryableRequests(projectId = null, limit = 50) {
       }))
     };
   } catch (error) {
-    console.error('[LLM Queue] Failed to get retryable requests:', error);
+    log.warn({ event: 'llm_queue_get_retryable_error', reason: error?.message }, 'Failed to get retryable requests');
     return { success: false, error: error.message };
   }
 }
@@ -525,7 +528,7 @@ async function getRequest(requestId) {
 
     return { success: true, request: data };
   } catch (error) {
-    console.error('[LLM Queue] Failed to get request:', error);
+    log.warn({ event: 'llm_queue_get_request_error', reason: error?.message }, 'Failed to get request');
     return { success: false, error: error.message };
   }
 }

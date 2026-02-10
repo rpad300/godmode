@@ -3,7 +3,10 @@
  * Handles comments, threading, mentions and resolution
  */
 
+const { logger } = require('../logger');
 const { getAdminClient } = require('./client');
+
+const log = logger.child({ module: 'comments' });
 
 /**
  * Create a new comment
@@ -75,7 +78,7 @@ async function createComment({
 
         return { success: true, comment };
     } catch (error) {
-        console.error('[Comments] Create error:', error);
+        log.error({ event: 'comments_create_error', reason: error?.message }, 'Create error');
         return { success: false, error: error.message };
     }
 }
@@ -122,7 +125,7 @@ async function getComments(projectId, targetType, targetId, options = {}) {
             total: count 
         };
     } catch (error) {
-        console.error('[Comments] Get error:', error);
+        log.error({ event: 'comments_get_error', reason: error?.message }, 'Get error');
         return { success: false, error: error.message };
     }
 }
@@ -170,7 +173,7 @@ async function updateComment(commentId, authorId, content) {
 
         return { success: true, comment };
     } catch (error) {
-        console.error('[Comments] Update error:', error);
+        log.error({ event: 'comments_update_error', reason: error?.message }, 'Update error');
         return { success: false, error: error.message };
     }
 }
@@ -209,7 +212,7 @@ async function deleteComment(commentId, userId, isAdmin = false) {
 
         return { success: true };
     } catch (error) {
-        console.error('[Comments] Delete error:', error);
+        log.error({ event: 'comments_delete_error', reason: error?.message }, 'Delete error');
         return { success: false, error: error.message };
     }
 }
@@ -239,7 +242,7 @@ async function resolveComment(commentId, userId, resolved = true) {
 
         return { success: true, comment };
     } catch (error) {
-        console.error('[Comments] Resolve error:', error);
+        log.error({ event: 'comments_resolve_error', reason: error?.message }, 'Resolve error');
         return { success: false, error: error.message };
     }
 }
@@ -318,7 +321,7 @@ async function processMentions(supabase, commentId, projectId, authorId, usernam
             }
         }
     } catch (error) {
-        console.error('[Comments] Process mentions error:', error);
+        log.error({ event: 'comments_process_mentions_error', reason: error?.message }, 'Process mentions error');
     }
 }
 
@@ -354,7 +357,7 @@ async function createReplyNotification(supabase, comment, parentId) {
             actor_id: comment.author_id
         });
     } catch (error) {
-        console.error('[Comments] Reply notification error:', error);
+        log.error({ event: 'comments_reply_notification_error', reason: error?.message }, 'Reply notification error');
     }
 }
 

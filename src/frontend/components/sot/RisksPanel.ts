@@ -70,11 +70,11 @@ export function createRisksPanel(props: RisksPanelProps = {}): HTMLElement {
         <button class="btn btn-primary btn-sm" id="add-risk-btn">+ Add</button>
       </div>
     </div>
-    <div id="risk-matrix-container" class="risk-matrix-container" style="display: none;"></div>
+    <div id="risk-matrix-container" class="risk-matrix-container hidden"></div>
     <div class="panel-content" id="risks-content">
       <div class="loading">Loading risks...</div>
     </div>
-    <div id="removed-risks-container" class="removed-risks-container" style="display: none;"></div>
+    <div id="removed-risks-container" class="removed-risks-container hidden"></div>
   `;
 
   const filterSelect = panel.querySelector('#risks-filter') as HTMLSelectElement;
@@ -108,7 +108,7 @@ export function createRisksPanel(props: RisksPanelProps = {}): HTMLElement {
     showMatrix = !showMatrix;
     matrixBtn.textContent = showMatrix ? 'Hide Matrix' : 'Show Matrix';
     const matrixContainer = panel.querySelector('#risk-matrix-container') as HTMLElement;
-    matrixContainer.style.display = showMatrix ? 'block' : 'none';
+    matrixContainer.classList.toggle('hidden', !showMatrix);
     if (showMatrix) {
       const risksToShow = lastLoadedRisks.length > 0 ? lastLoadedRisks : (dataStore.getState().risks as unknown as Risk[]) || [];
       renderRiskMatrix(matrixContainer, Array.isArray(risksToShow) ? risksToShow : []);
@@ -140,11 +140,11 @@ async function refreshRemovedSection(panel: HTMLElement, props: RisksPanelProps)
   try {
     const deleted = await risksService.getDeleted();
     if (deleted.length === 0) {
-      container.style.display = 'none';
+      container.classList.add('hidden');
       container.innerHTML = '';
       return;
     }
-    container.style.display = 'block';
+    container.classList.remove('hidden');
     container.innerHTML = `
       <div class="removed-risks-section">
         <div class="removed-risks-header section-header-sota">
@@ -177,7 +177,7 @@ async function refreshRemovedSection(panel: HTMLElement, props: RisksPanelProps)
       });
     });
   } catch {
-    container.style.display = 'none';
+    container.classList.add('hidden');
     container.innerHTML = '';
   }
 }
@@ -376,7 +376,7 @@ function createRiskCard(risk: Risk, contacts: ContactLike[]): string {
 
   return `
     <div class="risk-card-sota question-card-sota" data-id="${risk.id}" style="--risk-impact-bar: ${barColor}">
-      <div class="card-priority-bar risk-impact-bar" style="background: ${barColor}"></div>
+      <div class="card-priority-bar risk-impact-bar"></div>
       <div class="card-body">
         <div class="card-top-row">
           <div class="card-badges">
@@ -478,25 +478,25 @@ function renderRiskMatrix(container: HTMLElement, risks: Risk[]): void {
           <div class="risk-bar-item critical">
             <span class="bar-icon">🔴</span>
             <span class="bar-label">Critical</span>
-            <div class="bar-track"><div class="bar-fill" style="width: ${getPercent(counts.critical)}%"></div></div>
+            <div class="bar-track"><div class="bar-fill" style="--bar-width: ${getPercent(counts.critical)}"></div></div>
             <span class="bar-count">${counts.critical}</span>
           </div>
           <div class="risk-bar-item high">
             <span class="bar-icon">🟠</span>
             <span class="bar-label">High</span>
-            <div class="bar-track"><div class="bar-fill" style="width: ${getPercent(counts.high)}%"></div></div>
+            <div class="bar-track"><div class="bar-fill" style="--bar-width: ${getPercent(counts.high)}"></div></div>
             <span class="bar-count">${counts.high}</span>
           </div>
           <div class="risk-bar-item medium">
             <span class="bar-icon">🟡</span>
             <span class="bar-label">Medium</span>
-            <div class="bar-track"><div class="bar-fill" style="width: ${getPercent(counts.medium)}%"></div></div>
+            <div class="bar-track"><div class="bar-fill" style="--bar-width: ${getPercent(counts.medium)}"></div></div>
             <span class="bar-count">${counts.medium}</span>
           </div>
           <div class="risk-bar-item low">
             <span class="bar-icon">🟢</span>
             <span class="bar-label">Low</span>
-            <div class="bar-track"><div class="bar-fill" style="width: ${getPercent(counts.low)}%"></div></div>
+            <div class="bar-track"><div class="bar-fill" style="--bar-width: ${getPercent(counts.low)}"></div></div>
             <span class="bar-count">${counts.low}</span>
           </div>
         </div>

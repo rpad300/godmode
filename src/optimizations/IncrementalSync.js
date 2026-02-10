@@ -7,6 +7,9 @@
  */
 
 const crypto = require('crypto');
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'incremental-sync' });
 // Try to load Supabase - may fail due to project folder name conflict
 let getStorage = null;
 try {
@@ -75,7 +78,7 @@ class IncrementalSync {
                 };
             }
         } catch (e) {
-            console.warn('[IncrementalSync] Could not load state:', e.message);
+            log.warn({ event: 'incremental_sync_load_state_failed', message: e.message }, 'Could not load state');
         }
     }
 
@@ -108,7 +111,7 @@ class IncrementalSync {
                 onConflict: 'project_id,sync_type'
             });
         } catch (e) {
-            console.warn('[IncrementalSync] Could not save state:', e.message);
+            log.warn({ event: 'incremental_sync_save_state_failed', message: e.message }, 'Could not save state');
         }
     }
 
@@ -242,7 +245,7 @@ class IncrementalSync {
                     .eq('sync_type', this.syncType);
             }
         } catch (e) {
-            console.warn('[IncrementalSync] Could not reset state:', e.message);
+            log.warn({ event: 'incremental_sync_reset_state_failed', message: e.message }, 'Could not reset state');
         }
     }
 

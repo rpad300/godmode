@@ -3,7 +3,10 @@
  * Processes incoming webhook events from Krisp AI Meeting Assistant
  */
 
+const { logger } = require('../logger');
 const { getAdminClient } = require('../supabase/client');
+
+const log = logger.child({ module: 'krisp-webhook' });
 
 // Krisp event types
 const KRISP_EVENTS = {
@@ -139,7 +142,7 @@ async function processWebhook(webhookToken, authHeader, payload) {
         // 1. Validate webhook
         const validation = await validateWebhook(webhookToken, authHeader);
         if (!validation.valid) {
-            console.warn(`[Krisp Webhook] Validation failed: ${validation.error}`);
+            log.warn({ event: 'krisp_webhook_validation_failed', error: validation.error }, 'Validation failed');
             return { success: false, error: validation.error, status: 401 };
         }
 
@@ -155,7 +158,7 @@ async function processWebhook(webhookToken, authHeader, payload) {
         // 3. Check if event is enabled
         const enabledEvents = webhook.events_enabled || [];
         if (!enabledEvents.includes(eventType)) {
-            console.log(`[Krisp Webhook] Event ${eventType} not enabled for user ${userId}`);
+            log.debug({ event: 'krisp_webhook_event_ignored', eventType, userId }, 'Event not enabled for user');
             return { success: true, message: 'Event ignored (not enabled)', status: 200 };
         }
 
@@ -169,7 +172,7 @@ async function processWebhook(webhookToken, authHeader, payload) {
         // 5. Check for duplicates
         const existing = await checkDuplicate(userId, parsed.krisp_meeting_id, eventType);
         if (existing) {
-            console.log(`[Krisp Webhook] Duplicate detected: ${parsed.krisp_meeting_id}`);
+            log.debug({ event: 'krisp_webhook_duplicate', krispMeetingId: parsed.krisp_meeting_id }, 'Duplicate detected');
             return { 
                 success: true, 
                 message: 'Already processed', 
@@ -217,7 +220,7 @@ async function processWebhook(webhookToken, authHeader, payload) {
             .single();
 
         if (insertError) {
-            console.error('[Krisp Webhook] Insert error:', insertError);
+            log.error({ event: 'krisp_webhook_insert_failed', err: insertError }, 'Insert error');
             return { success: false, error: insertError.message, status: 500 };
         }
 
@@ -230,7 +233,7 @@ async function processWebhook(webhookToken, authHeader, payload) {
             })
             .eq('id', webhook.id);
 
-        console.log(`[Krisp Webhook] Processed: ${transcript.id} (${status})`);
+        log.info({ event: 'krisp_webhook_processed', transcriptId: transcript.id, status }, 'Processed');
 
         // 10. If not quarantined, queue for speaker matching
         if (status === 'pending') {
@@ -241,7 +244,7 @@ async function processWebhook(webhookToken, authHeader, payload) {
                     const { processTranscript } = require('./TranscriptProcessor');
                     await processTranscript(transcript.id);
                 } catch (err) {
-                    console.error('[Krisp Webhook] Async processing error:', err);
+                    log.error({ event: 'krisp_webhook_async_error', err }, 'Async processing error');
                 }
             });
         }
@@ -254,7 +257,7 @@ async function processWebhook(webhookToken, authHeader, payload) {
         };
 
     } catch (error) {
-        console.error('[Krisp Webhook] Processing error:', error);
+        log.error({ event: 'krisp_webhook_processing_error', err: error }, 'Processing error');
         return { success: false, error: error.message, status: 500 };
     }
 }
@@ -288,7 +291,7 @@ async function getOrCreateWebhook(userId) {
         .rpc('get_or_create_krisp_webhook', { p_user_id: userId });
 
     if (error) {
-        console.error('[Krisp Webhook] Error creating webhook:', error);
+        log.error({ event: 'krisp_webhook_create_failed', err: error }, 'Error creating webhook');
         return { success: false, error: error.message };
     }
 
@@ -308,7 +311,7 @@ async function regenerateWebhook(userId) {
         .rpc('regenerate_krisp_webhook', { p_user_id: userId });
 
     if (error) {
-        console.error('[Krisp Webhook] Error regenerating webhook:', error);
+        log.error({ event: 'krisp_webhook_regenerate_failed', err: error }, 'Error regenerating webhook');
         return { success: false, error: error.message };
     }
 

@@ -3,6 +3,9 @@
 -- Enterprise configuration management with encryption
 -- ============================================
 
+-- Ensure pgcrypto is available for encrypt_secret/decrypt_secret (required for pgp_sym_encrypt)
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 -- ============================================
 -- SYSTEM CONFIG
 -- Global system-level configuration (superadmin only)

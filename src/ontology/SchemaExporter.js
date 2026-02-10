@@ -8,7 +8,10 @@
  * SOTA v3.0 - Native Supabase graph support (no Cypher dependency)
  */
 
+const { logger } = require('../logger');
 const { getOntologyManager } = require('./OntologyManager');
+
+const log = logger.child({ module: 'schema-exporter' });
 
 class SchemaExporter {
     constructor(options = {}) {
@@ -57,8 +60,8 @@ class SchemaExporter {
             version: schema.version
         };
 
-        console.log(`[SchemaExporter] Ontology v${schema.version} sync complete (${results.entityTypes.synced} entities, ${results.relationTypes.synced} relations)`);
-        console.log('[SchemaExporter] Note: Ontology schema is stored in Supabase ontology_schema table');
+        log.info({ event: 'schema_exporter_sync_complete', version: schema.version, entities: results.entityTypes.synced, relations: results.relationTypes.synced }, 'Ontology sync complete');
+        log.debug({ event: 'schema_exporter_note' }, 'Ontology schema is stored in Supabase ontology_schema table');
         
         return { ok: true, results };
     }
@@ -85,7 +88,7 @@ class SchemaExporter {
             if (e.message?.includes('already exists') || e.message?.includes('Index already')) {
                 results.indexes.skipped++;
             } else {
-                console.warn(`[SchemaExporter] Index creation failed for ${label}.${property}:`, e.message);
+                log.warn({ event: 'schema_exporter_index_failed', label, property, reason: e.message }, 'Index creation failed');
                 results.indexes.failed++;
             }
         }

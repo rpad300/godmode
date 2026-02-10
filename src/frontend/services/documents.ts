@@ -3,7 +3,7 @@
  * Handles file upload, processing, and document management
  */
 
-import { http } from './api';
+import { http, fetchWithProject } from './api';
 import { toast } from './toast';
 
 export interface Document {
@@ -132,7 +132,7 @@ export async function uploadWithExtraction(file: File): Promise<{
   const formData = new FormData();
   formData.append('file', file);
 
-  const response = await fetch('/api/upload-extract', {
+  const response = await fetchWithProject('/api/upload-extract', {
     method: 'POST',
     body: formData,
   });
@@ -382,11 +382,10 @@ export async function bulkReprocessDocuments(ids: string[]): Promise<{ success: 
  * Bulk export documents as ZIP
  */
 export async function bulkExportDocuments(ids: string[], format: 'original' | 'markdown' = 'original'): Promise<Blob> {
-  const response = await fetch('/api/documents/bulk/export', {
+  const response = await fetchWithProject('/api/documents/bulk/export', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ids, format }),
-    credentials: 'include'
   });
   
   if (!response.ok) {

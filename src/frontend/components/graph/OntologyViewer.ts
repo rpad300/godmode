@@ -132,7 +132,7 @@ export function createOntologyViewer(props: OntologyViewerProps = {}): HTMLEleme
             <path d="M2 12l10 5 10-5"/>
           </svg>
           AI
-          <span class="badge" id="suggestions-badge" style="display: none">0</span>
+          <span class="badge hidden" id="suggestions-badge">0</span>
         </button>
         <button class="ontology-tab" data-tab="history">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -147,7 +147,7 @@ export function createOntologyViewer(props: OntologyViewerProps = {}): HTMLEleme
             <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
           </svg>
           Jobs
-          <span class="badge job-status-badge" id="jobs-badge" style="display: none"></span>
+          <span class="badge job-status-badge hidden" id="jobs-badge"></span>
         </button>
         <button class="ontology-tab" data-tab="tools">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -296,9 +296,9 @@ async function loadOntologyData(
     if (badge) {
       if (state.suggestions.length > 0) {
         badge.textContent = String(state.suggestions.length);
-        badge.style.display = '';
+        badge.classList.remove('hidden');
       } else {
-        badge.style.display = 'none';
+        badge.classList.add('hidden');
       }
     }
 
@@ -464,7 +464,7 @@ function renderEntitiesTab(
           return `
             <div class="entity-card" data-entity="${name}">
               <div class="entity-header">
-                <div class="entity-icon-wrapper" style="background: ${entity.color || '#6366f1'}">
+                <div class="entity-icon-wrapper" style="--entity-color: ${entity.color || '#6366f1'}">
                   <span class="entity-icon-letter">${(entity.label || name).charAt(0).toUpperCase()}</span>
                 </div>
                 <div class="entity-info">
@@ -485,7 +485,7 @@ function renderEntitiesTab(
                   `).join('')}
                   ${hasMoreProps ? `
                     <button class="btn-expand-props" data-entity="${name}">+${propEntries.length - 5} more</button>
-                    <div class="properties-hidden" style="display: none;">
+                    <div class="properties-hidden hidden">
                       ${propEntries.slice(5).map(([propName, prop]) => `
                         <div class="property-row">
                           <span class="property-name ${(prop as Record<string, unknown>).required ? 'required' : ''}">${escapeHtml(propName)}</span>
@@ -554,11 +554,11 @@ function renderEntitiesTab(
       if (hiddenProps) {
         const isExpanded = propsList?.getAttribute('data-expanded') === 'true';
         if (isExpanded) {
-          hiddenProps.style.display = 'none';
+          hiddenProps.classList.add('hidden');
           btn.textContent = `+${hiddenProps.querySelectorAll('.property-row').length} more`;
           propsList?.setAttribute('data-expanded', 'false');
         } else {
-          hiddenProps.style.display = 'block';
+          hiddenProps.classList.remove('hidden');
           btn.textContent = 'Show less';
           propsList?.setAttribute('data-expanded', 'true');
         }
@@ -577,7 +577,7 @@ function showEntityDetails(container: HTMLElement, name: string, entity: Ontolog
   const propEntries = Object.entries(entity.properties || {});
   
   panel.innerHTML = `
-    <div class="detail-header" style="border-left: 4px solid ${entity.color || '#6366f1'};">
+    <div class="detail-header" style="--entity-color: ${entity.color || '#6366f1'};">
       <h3>${escapeHtml(entity.label || name)}</h3>
       <span class="detail-key">${escapeHtml(name)}</span>
       ${entity.sharedEntity ? '<span class="shared-badge">Shared across projects</span>' : ''}
@@ -710,15 +710,15 @@ function renderGraphTab(
 
   // Create graph container
   container.innerHTML = `
-    <div class="ontology-graph-container" style="height: 400px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary);">
-      <div id="ontology-graph-canvas" style="width: 100%; height: 100%;"></div>
+    <div class="ontology-graph-container">
+      <div id="ontology-graph-canvas" class="ontology-graph-canvas-inner"></div>
     </div>
-    <div class="ontology-graph-legend" style="margin-top: 16px; padding: 12px; background: var(--bg-secondary); border-radius: 8px;">
-      <h5 style="margin: 0 0 8px 0; font-size: 12px; color: var(--text-muted);">Legend</h5>
-      <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+    <div class="ontology-graph-legend">
+      <h5>Legend</h5>
+      <div class="ontology-legend-items">
         ${Object.entries(state.schema.entityTypes).map(([name, entity]) => `
-          <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 11px;">
-            <span style="width: 12px; height: 12px; border-radius: 50%; background: ${(entity as Record<string, unknown>).color || '#6366f1'}"></span>
+          <span class="graph-legend-item">
+            <span class="graph-legend-dot" style="--legend-color: ${(entity as Record<string, unknown>).color || '#6366f1'}"></span>
             ${escapeHtml(name)}
           </span>
         `).join('')}
@@ -738,7 +738,7 @@ function renderGraphTab(
     };
     
     if (!vis) {
-      canvas.innerHTML = '<p style="padding: 20px; text-align: center; color: var(--text-muted);">vis.js not loaded</p>';
+      canvas.innerHTML = '<p class="ontology-graph-fallback">vis.js not loaded</p>';
       return;
     }
 
@@ -1213,7 +1213,7 @@ function renderAnalyticsTab(
         </div>
       `}
       
-      <div id="analysis-results" style="display: none;">
+      <div id="analysis-results" class="hidden">
         <!-- LLM analysis results will be rendered here -->
       </div>
     </div>
@@ -1241,7 +1241,7 @@ function renderAnalyticsTab(
         // Show results
         const resultsEl = container.querySelector('#analysis-results') as HTMLElement;
         if (resultsEl) {
-          resultsEl.style.display = 'block';
+          resultsEl.classList.remove('hidden');
           resultsEl.innerHTML = `
             <div class="analysis-results">
               <h4>LLM Analysis Results</h4>
@@ -1317,12 +1317,12 @@ function renderHistoryTab(
           const color = getChangeColor(change.change_type);
           return `
             <div class="history-item">
-              <div class="history-icon" style="color: ${color}">
+              <div class="history-icon" style="--history-color: ${color}">
                 ${icon}
               </div>
               <div class="history-content">
                 <div class="history-header">
-                  <span class="history-type" style="color: ${color}">${formatChangeType(change.change_type)}</span>
+                  <span class="history-type" style="--history-color: ${color}">${formatChangeType(change.change_type)}</span>
                   <span class="history-target">${escapeHtml(change.target_type || '')}/${escapeHtml(change.target_name || '')}</span>
                 </div>
                 ${change.reason ? `<p class="history-reason">${escapeHtml(change.reason)}</p>` : ''}
@@ -1982,15 +1982,15 @@ function updateJobsBadge(container: HTMLElement, state: ViewerState): void {
   if (state.workerStatus?.isRunning) {
     badge.textContent = '';
     badge.className = 'badge job-status-badge running';
-    badge.style.display = '';
+    badge.classList.remove('hidden');
     badge.title = 'Job running';
   } else if (state.workerStatus?.hasPendingAnalysis) {
     badge.textContent = '';
     badge.className = 'badge job-status-badge pending';
-    badge.style.display = '';
+    badge.classList.remove('hidden');
     badge.title = 'Analysis pending';
   } else {
-    badge.style.display = 'none';
+    badge.classList.add('hidden');
   }
 }
 
@@ -2026,9 +2026,9 @@ function updateSuggestionsBadge(container: HTMLElement, state: ViewerState): voi
   if (badge) {
     if (state.suggestions.length > 0) {
       badge.textContent = String(state.suggestions.length);
-      badge.style.display = '';
+      badge.classList.remove('hidden');
     } else {
-      badge.style.display = 'none';
+      badge.classList.add('hidden');
     }
   }
 }

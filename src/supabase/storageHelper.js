@@ -15,7 +15,10 @@
  *   const facts = await storage.getFacts();
  */
 
+const { logger } = require('../logger');
 const { SupabaseStorage, createSupabaseStorage } = require('./storage');
+
+const log = logger.child({ module: 'storage-helper' });
 
 // Singleton instance
 let storageInstance = null;
@@ -34,12 +37,12 @@ let storageInstance = null;
  */
 function initStorage(options = {}) {
     if (storageInstance) {
-        console.warn('[SupabaseStorage] Storage already initialized');
+        log.warn({ event: 'storage_helper_already_init' }, 'Storage already initialized');
         return storageInstance;
     }
 
     storageInstance = createSupabaseStorage(options);
-    console.log('[SupabaseStorage] Storage initialized');
+    log.info({ event: 'storage_helper_initialized' }, 'Storage initialized');
     return storageInstance;
 }
 
@@ -53,7 +56,7 @@ function getStorage() {
     if (!storageInstance) {
         // Auto-initialize with defaults if not yet initialized
         storageInstance = createSupabaseStorage();
-        console.log('[SupabaseStorage] Storage auto-initialized with defaults');
+        log.debug({ event: 'storage_helper_auto_init' }, 'Storage auto-initialized with defaults');
     }
     return storageInstance;
 }

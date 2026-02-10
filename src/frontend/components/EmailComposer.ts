@@ -6,6 +6,8 @@
 import { createElement, on } from '../utils/dom';
 import { http } from '../services/api';
 import { toast } from '../services/toast';
+import { getSprints } from '../services/sprints';
+import { getActions } from '../services/actions';
 
 export interface EmailComposerProps {
   onSave?: (email: unknown) => void;
@@ -366,6 +368,12 @@ export function createEmailComposer(props: EmailComposerProps = {}): HTMLElement
       ${renderPasteMode()}
     </div>
     
+    <div class="composer-association" style="padding: 12px 24px; border-top: 1px solid var(--border-color); display: flex; flex-wrap: wrap; gap: 12px; align-items: center;">
+      <span style="font-size: 13px; font-weight: 500; color: var(--text-secondary);">Associate with (optional)</span>
+      <select id="email-sprint-select" class="form-select" style="min-width: 140px;"><option value="">No sprint</option></select>
+      <select id="email-action-select" class="form-select" style="min-width: 180px;"><option value="">No task</option></select>
+    </div>
+    
     <div class="composer-footer">
       <button class="btn btn-secondary" id="cancel-btn">Cancel</button>
       <button class="btn btn-primary" id="save-btn" disabled>Add Email</button>
@@ -395,8 +403,42 @@ export function createEmailComposer(props: EmailComposerProps = {}): HTMLElement
   on(container.querySelector('#save-btn') as HTMLElement, 'click', () => saveEmail(container, props));
 
   bindPasteMode(container);
+  initEmailSprintTask(container);
 
   return container;
+}
+
+async function initEmailSprintTask(container: HTMLElement): Promise<void> {
+  const sprintSelect = container.querySelector('#email-sprint-select') as HTMLSelectElement;
+  const actionSelect = container.querySelector('#email-action-select') as HTMLSelectElement;
+  if (!sprintSelect || !actionSelect) return;
+  try {
+    const sprints = await getSprints();
+    sprints.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.id;
+      opt.textContent = s.name;
+      sprintSelect.appendChild(opt);
+    });
+    on(sprintSelect, 'change', async () => {
+      const sprintId = sprintSelect.value || '';
+      actionSelect.innerHTML = '<option value="">No task</option>';
+      if (!sprintId) return;
+      try {
+        const actions = await getActions(undefined, sprintId);
+        actions.forEach(a => {
+          const opt = document.createElement('option');
+          opt.value = String(a.id);
+          opt.textContent = (a.content || a.task || String(a.id)).slice(0, 60) + ((a.content || a.task || '').length > 60 ? '…' : '');
+          actionSelect.appendChild(opt);
+        });
+      } catch {
+        // ignore
+      }
+    });
+  } catch {
+    // ignore
+  }
 }
 
 function renderMode(container: HTMLElement): void {
@@ -604,7 +646,12 @@ async function saveEmail(container: HTMLElement, props: EmailComposerProps): Pro
       }
     }
 
-    const result = await http.post('/api/emails/import', data);
+    const sprintId = (container.querySelector('#email-sprint-select') as HTMLSelectElement)?.value || '';
+    const actionId = (container.querySelector('#email-action-select') as HTMLSelectElement)?.value || '';
+    if (sprintId) data.sprint_id = sprintId;
+    if (actionId) data.action_id = actionId;
+
+    const result = await http.post('/api/emails', data);
     toast.success('Email added successfully');
     props.onSave?.(result);
     closeEmailComposer();

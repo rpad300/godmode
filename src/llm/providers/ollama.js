@@ -189,6 +189,41 @@ class OllamaProvider extends BaseLLMProvider {
             };
         }
     }
+
+    /**
+     * Unload models from GPU/RAM (Ollama-specific)
+     * @param {string[]} modelNames - Model names to unload
+     * @returns {Promise<{success: boolean, unloaded: string[], errors: object}>}
+     */
+    async unloadModels(modelNames) {
+        return this.client.unloadModels(modelNames);
+    }
+
+    /**
+     * Pull/download a model from Ollama registry (Ollama-specific)
+     * @param {string} modelName - Model name to pull
+     * @param {function} onProgress - Optional progress callback
+     * @returns {Promise<{success: boolean, error?: string}>}
+     */
+    async pullModel(modelName, onProgress = null) {
+        return this.client.pullModel(modelName, onProgress);
+    }
+
+    /**
+     * Get categorized models (vision vs text) for /api/ollama/models compatibility
+     * @returns {Promise<{vision: Array, text: Array, all: Array}>}
+     */
+    async getCategorizedModels() {
+        return this.client.getCategorizedModels();
+    }
+
+    /**
+     * Get recommended models for download (static list)
+     * @returns {{vision: Array, text: Array}>}
+     */
+    getRecommendedModels() {
+        return this.client.getRecommendedModels();
+    }
 }
 
 module.exports = OllamaProvider;

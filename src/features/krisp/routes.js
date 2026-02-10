@@ -23,12 +23,13 @@
  * - GET /api/krisp/available
  * - POST /api/krisp/available/import
  * - GET /api/krisp/available/stats
- * - GET /api/krisp/available/summary
+ * - GET /api/krisp/available/summary - Get user's available meetings stats
+ * - POST /api/krisp/available/summary - Generate AI summary for one meeting (body: { meetingId })
  */
 
-const { parseBody } = require('../../server/request');
+const { parseBody, parseUrl } = require('../../server/request');
+const { getLogger } = require('../../server/requestContext');
 const { jsonResponse } = require('../../server/response');
-const { parseUrl } = require('../../server/request');
 
 /**
  * Handle Krisp webhook (public - no auth required)
@@ -37,7 +38,7 @@ const { parseUrl } = require('../../server/request');
  */
 async function handleKrispWebhook(ctx) {
     const { req, res, pathname } = ctx;
-    
+    const log = getLogger().child({ module: 'krisp-webhook' });
     // POST /api/webhooks/krisp/:token - Receive Krisp webhook events
     const krispWebhookMatch = pathname.match(/^\/api\/webhooks\/krisp\/([a-f0-9]{64})$/);
     if (krispWebhookMatch && req.method === 'POST') {
@@ -56,7 +57,7 @@ async function handleKrispWebhook(ctx) {
                 transcriptId: result.transcriptId
             }, result.status || (result.success ? 200 : 400));
         } catch (error) {
-            console.error('[Krisp Webhook] Error:', error);
+            log.warn({ event: 'krisp_webhook_error', reason: error?.message }, 'Krisp webhook error');
             jsonResponse(res, { error: error.message }, 500);
         }
         return true;
@@ -72,6 +73,7 @@ async function handleKrispWebhook(ctx) {
  */
 async function handleKrispApi(ctx) {
     const { req, res, pathname, parsedUrl, supabase, config } = ctx;
+    const log = getLogger().child({ module: 'krisp' });
     
     // Only handle /api/krisp/* routes
     if (!pathname.startsWith('/api/krisp/')) {
@@ -405,7 +407,7 @@ async function handleKrispApi(ctx) {
                 jsonResponse(res, { error: result.error }, 400);
             }
         } catch (error) {
-            console.error('[Krisp] Analyze error:', error);
+            log.warn({ event: 'krisp_analyze_error', reason: error?.message }, 'Analyze error');
             jsonResponse(res, { error: error.message }, 500);
         }
         return true;
@@ -441,7 +443,7 @@ async function handleKrispApi(ctx) {
                 jsonResponse(res, { error: result.error }, 400);
             }
         } catch (error) {
-            console.error('[Krisp] Process error:', error);
+            log.warn({ event: 'krisp_process_error', reason: error?.message }, 'Process error');
             jsonResponse(res, { error: error.message }, 500);
         }
         return true;
@@ -475,7 +477,7 @@ async function handleKrispApi(ctx) {
                 jsonResponse(res, { error: result.error }, 400);
             }
         } catch (error) {
-            console.error('[Krisp] Assign error:', error);
+            log.warn({ event: 'krisp_assign_error', reason: error?.message }, 'Assign error');
             jsonResponse(res, { error: error.message }, 500);
         }
         return true;
@@ -506,7 +508,7 @@ async function handleKrispApi(ctx) {
             
             jsonResponse(res, { imported: Array.from(imported) });
         } catch (error) {
-            console.error('[Krisp MCP] Error checking imported:', error);
+            log.warn({ event: 'krisp_mcp_imported_error', reason: error?.message }, 'Error checking imported');
             jsonResponse(res, { error: error.message }, 500);
         }
         return true;
@@ -542,7 +544,7 @@ async function handleKrispApi(ctx) {
             
             jsonResponse(res, result);
         } catch (error) {
-            console.error('[Krisp MCP] Import error:', error);
+            log.warn({ event: 'krisp_mcp_import_error', reason: error?.message }, 'Import error');
             jsonResponse(res, { error: error.message }, 500);
         }
         return true;
@@ -572,7 +574,7 @@ async function handleKrispApi(ctx) {
             
             jsonResponse(res, { history });
         } catch (error) {
-            console.error('[Krisp MCP] History error:', error);
+            log.warn({ event: 'krisp_mcp_history_error', reason: error?.message }, 'History error');
             jsonResponse(res, { error: error.message }, 500);
         }
         return true;
@@ -609,7 +611,7 @@ async function handleKrispApi(ctx) {
             
             jsonResponse(res, result);
         } catch (error) {
-            console.error('[Krisp Available] Sync error:', error);
+            log.warn({ event: 'krisp_available_sync_error', reason: error?.message }, 'Sync error');
             jsonResponse(res, { error: error.message }, 500);
         }
         return true;
@@ -645,7 +647,7 @@ async function handleKrispApi(ctx) {
             
             jsonResponse(res, result);
         } catch (error) {
-            console.error('[Krisp Available] List error:', error);
+            log.warn({ event: 'krisp_available_list_error', reason: error?.message }, 'List error');
             jsonResponse(res, { error: error.message }, 500);
         }
         return true;
@@ -680,7 +682,7 @@ async function handleKrispApi(ctx) {
             
             jsonResponse(res, result);
         } catch (error) {
-            console.error('[Krisp Available] Import error:', error);
+            log.warn({ event: 'krisp_available_import_error', reason: error?.message }, 'Import error');
             jsonResponse(res, { error: error.message }, 500);
         }
         return true;
@@ -707,13 +709,42 @@ async function handleKrispApi(ctx) {
             
             jsonResponse(res, result);
         } catch (error) {
-            console.error('[Krisp Available] Stats error:', error);
+            log.warn({ event: 'krisp_available_stats_error', reason: error?.message }, 'Stats error');
             jsonResponse(res, { error: error.message }, 500);
         }
         return true;
     }
     
-    // GET /api/krisp/available/summary - Get available meetings summary
+    // POST /api/krisp/available/summary - Generate AI summary for one meeting (uses centralized LLM)
+    if (pathname === '/api/krisp/available/summary' && req.method === 'POST') {
+        if (!supabase || !supabase.isConfigured()) {
+            jsonResponse(res, { error: 'Not configured' }, 503);
+            return true;
+        }
+        const token = supabase.auth.extractToken(req);
+        const userResult = await supabase.auth.getUser(token);
+        if (!userResult.success) {
+            jsonResponse(res, { error: 'Authentication required' }, 401);
+            return true;
+        }
+        try {
+            const body = await parseBody(req);
+            const meetingId = body.meetingId;
+            if (!meetingId) {
+                jsonResponse(res, { error: 'meetingId required' }, 400);
+                return true;
+            }
+            const { generateMeetingSummary } = require('../../krisp');
+            const result = await generateMeetingSummary(meetingId, config);
+            jsonResponse(res, result);
+        } catch (error) {
+            log.warn({ event: 'krisp_available_summary_error', reason: error?.message }, 'Summary error');
+            jsonResponse(res, { error: error.message }, 500);
+        }
+        return true;
+    }
+
+    // GET /api/krisp/available/summary - Get available meetings summary (stats)
     if (pathname === '/api/krisp/available/summary' && req.method === 'GET') {
         if (!supabase || !supabase.isConfigured()) {
             jsonResponse(res, { error: 'Not configured' }, 503);
@@ -734,7 +765,7 @@ async function handleKrispApi(ctx) {
             
             jsonResponse(res, result);
         } catch (error) {
-            console.error('[Krisp Available] Summary error:', error);
+            log.warn({ event: 'krisp_available_summary_error', reason: error?.message }, 'Summary error');
             jsonResponse(res, { error: error.message }, 500);
         }
         return true;

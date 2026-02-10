@@ -8,6 +8,7 @@
 import { createElement, on } from '../../utils/dom';
 import { graphService, GraphNode, GraphEdge } from '../../services/graph';
 import { toast } from '../../services/toast';
+import { fetchWithProject } from '../../services/api';
 
 // Type definitions for falkordb-canvas
 interface FalkorDBCanvasNode {
@@ -91,14 +92,14 @@ export function createFalkorDBCanvas(props: FalkorDBCanvasProps = {}): HTMLEleme
   const container = createElement('div', { className: 'falkordb-canvas-container' });
   
   container.innerHTML = `
-    <div class="falkordb-canvas-wrapper" style="position: relative; width: 100%; height: ${props.height || 500}px;">
-      <div class="falkordb-canvas-loading" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 8px;">
+    <div class="falkordb-canvas-wrapper" style="--graph-height: ${props.height || 500}px;">
+      <div class="falkordb-canvas-loading">
         <div class="loading-spinner"></div>
-        <p style="color: var(--text-muted); font-size: 14px;">Loading graph data...</p>
+        <p class="loading-text">Loading graph data...</p>
       </div>
-      <falkordb-canvas id="falkordb-graph" style="width: 100%; height: 100%;"></falkordb-canvas>
+      <falkordb-canvas id="falkordb-graph"></falkordb-canvas>
     </div>
-    <div class="falkordb-canvas-controls" style="display: flex; gap: 8px; margin-top: 12px; justify-content: center;">
+    <div class="falkordb-canvas-controls">
       <button class="btn btn-sm" id="fdb-zoom-in" title="Zoom In">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
@@ -122,9 +123,9 @@ export function createFalkorDBCanvas(props: FalkorDBCanvasProps = {}): HTMLEleme
         </svg>
       </button>
     </div>
-    <div class="falkordb-canvas-legend" style="margin-top: 12px; padding: 12px; background: var(--bg-secondary); border-radius: 8px;">
-      <h5 style="margin: 0 0 8px 0; font-size: 12px; color: var(--text-muted);">Legend</h5>
-      <div id="fdb-legend" style="display: flex; flex-wrap: wrap; gap: 8px; font-size: 11px;">
+    <div class="falkordb-canvas-legend">
+      <h5>Legend</h5>
+      <div id="fdb-legend">
         <!-- Legend items will be added dynamically -->
       </div>
     </div>
@@ -207,8 +208,8 @@ async function initCanvas(container: HTMLElement, props: FalkorDBCanvasProps): P
     
     if (data.nodes.length === 0) {
       loadingEl.innerHTML = `
-        <div style="text-align: center;">
-          <p style="color: var(--text-muted);">No graph data available</p>
+        <div class="graph-canvas-no-data">
+          <p class="loading-text">No graph data available</p>
           <button class="btn btn-primary btn-sm" id="fdb-sync">Sync Data</button>
         </div>
       `;
@@ -218,7 +219,7 @@ async function initCanvas(container: HTMLElement, props: FalkorDBCanvasProps): P
       if (syncBtn) {
         on(syncBtn as HTMLElement, 'click', async () => {
           toast.info('Syncing data...');
-          await fetch('/api/graph/sync', { method: 'POST' });
+          await fetchWithProject('/api/graph/sync', { method: 'POST' });
           toast.success('Sync complete. Reloading...');
           initCanvas(container, props);
         });
@@ -235,7 +236,7 @@ async function initCanvas(container: HTMLElement, props: FalkorDBCanvasProps): P
     // Set data
     canvasEl.setData(canvasData);
     canvasEl.setIsLoading(false);
-    loadingEl.style.display = 'none';
+    loadingEl.classList.add('gm-none');
     
     // Fit to view after layout settles
     setTimeout(() => canvasEl.zoomToFit(1.2), 1000);
@@ -247,7 +248,7 @@ async function initCanvas(container: HTMLElement, props: FalkorDBCanvasProps): P
     
   } catch (error) {
     console.error('[FalkorDBCanvas] Error loading data:', error);
-    loadingEl.innerHTML = `<p style="color: var(--error);">Failed to load graph data</p>`;
+    loadingEl.innerHTML = `<p class="graph-canvas-error">Failed to load graph data</p>`;
     canvasEl.setIsLoading(false);
   }
 
@@ -280,7 +281,7 @@ async function initCanvas(container: HTMLElement, props: FalkorDBCanvasProps): P
   if (refreshBtn) {
     on(refreshBtn as HTMLElement, 'click', async () => {
       toast.info('Refreshing graph...');
-      loadingEl.style.display = 'flex';
+      loadingEl.classList.remove('gm-none');
       canvasEl.setIsLoading(true);
       await initCanvas(container, props);
       toast.success('Graph refreshed');
@@ -405,8 +406,8 @@ function updateLegend(legendEl: HTMLElement, nodes: GraphNode[]): void {
   nodes.forEach(node => types.add(node.type || 'Unknown'));
   
   legendEl.innerHTML = Array.from(types).sort().map(type => `
-    <span style="display: inline-flex; align-items: center; gap: 4px;">
-      <span style="width: 12px; height: 12px; border-radius: 50%; background: ${TYPE_COLORS[type] || '#6b7280'}"></span>
+    <span class="graph-legend-item">
+      <span class="graph-legend-dot" style="--legend-color: ${TYPE_COLORS[type] || '#6b7280'}"></span>
       ${type}
     </span>
   `).join('');

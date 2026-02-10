@@ -5,6 +5,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'role-history' });
 
 class RoleHistory {
     constructor(options = {}) {
@@ -25,7 +28,7 @@ class RoleHistory {
                 return JSON.parse(fs.readFileSync(this.historyFile, 'utf8'));
             }
         } catch (e) {
-            console.error('[RoleHistory] Load error:', e.message);
+            log.error({ event: 'role_history_load_failed', message: e.message }, 'Load error');
         }
         return {
             changes: [],
@@ -38,7 +41,7 @@ class RoleHistory {
             fs.mkdirSync(this.dataDir, { recursive: true });
             fs.writeFileSync(this.historyFile, JSON.stringify(this.history, null, 2));
         } catch (e) {
-            console.error('[RoleHistory] Save error:', e.message);
+            log.error({ event: 'role_history_save_failed', message: e.message }, 'Save error');
         }
     }
 

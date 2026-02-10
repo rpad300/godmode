@@ -3,6 +3,9 @@
  * Tracks provider failures, cooldowns, and availability for failover routing
  */
 
+const { logger: rootLogger } = require('../logger');
+const log = rootLogger.child({ module: 'health-registry' });
+
 // In-memory health state for each provider
 const healthState = new Map();
 
@@ -86,8 +89,7 @@ function recordSuccess(providerId) {
     state.lastErrorMessage = null;
     state.totalRequests++;
     state.totalSuccesses++;
-    
-    console.log(`[HealthRegistry] Provider ${providerId}: success recorded, cooldown cleared`);
+    log.debug({ event: 'health_success', providerId }, 'Provider success recorded, cooldown cleared');
 }
 
 /**
@@ -118,10 +120,9 @@ function recordFailure(providerId, error, cooldownMs = 60000) {
         const backoffMultiplier = Math.min(Math.pow(2, state.consecutiveFailures - 1), 5);
         const effectiveCooldown = Math.min(cooldownMs * backoffMultiplier, 300000);
         state.cooldownUntil = now + effectiveCooldown;
-        console.log(`[HealthRegistry] Provider ${providerId}: cooldown set for ${effectiveCooldown}ms (consecutive: ${state.consecutiveFailures})`);
+        log.debug({ event: 'health_cooldown', providerId, effectiveCooldownMs: effectiveCooldown, consecutiveFailures: state.consecutiveFailures }, 'Cooldown set');
     }
-    
-    console.log(`[HealthRegistry] Provider ${providerId}: failure recorded, code=${error.code}, retryable=${error.retryable}`);
+    log.debug({ event: 'health_failure', providerId, code: error.code, retryable: error.retryable }, 'Failure recorded');
 }
 
 /**
@@ -130,7 +131,7 @@ function recordFailure(providerId, error, cooldownMs = 60000) {
  */
 function resetHealth(providerId) {
     healthState.set(providerId, createHealthEntry());
-    console.log(`[HealthRegistry] Provider ${providerId}: health state reset`);
+    log.debug({ event: 'health_reset', providerId }, 'Health state reset');
 }
 
 /**
@@ -138,7 +139,7 @@ function resetHealth(providerId) {
  */
 function resetAllHealth() {
     healthState.clear();
-    console.log('[HealthRegistry] All provider health states reset');
+    log.info({ event: 'health_reset_all' }, 'All provider health states reset');
 }
 
 /**

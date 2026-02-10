@@ -3,7 +3,10 @@
  * Unified search across projects, users, comments
  */
 
+const { logger } = require('../logger');
 const { getAdminClient } = require('./client');
+
+const log = logger.child({ module: 'search' });
 
 /**
  * Search users (for mentions autocomplete)
@@ -44,7 +47,7 @@ async function searchUsers(query, options = {}) {
 
         return { success: true, users: users || [] };
     } catch (error) {
-        console.error('[Search] Users error:', error);
+        log.error({ event: 'search_users_error', reason: error?.message }, 'Users error');
         return { success: false, error: error.message };
     }
 }
@@ -80,7 +83,7 @@ async function searchComments(query, projectId, options = {}) {
             total: count
         };
     } catch (error) {
-        console.error('[Search] Comments error:', error);
+        log.error({ event: 'search_comments_error', reason: error?.message }, 'Comments error');
         return { success: false, error: error.message };
     }
 }
@@ -120,7 +123,7 @@ async function searchProjects(query, userId, options = {}) {
 
         return { success: true, projects: projects || [] };
     } catch (error) {
-        console.error('[Search] Projects error:', error);
+        log.error({ event: 'search_projects_error', reason: error?.message }, 'Projects error');
         return { success: false, error: error.message };
     }
 }
@@ -179,7 +182,7 @@ async function globalSearch(query, userId, projectId = null, options = {}) {
 
         return { success: true, results };
     } catch (error) {
-        console.error('[Search] Global error:', error);
+        log.error({ event: 'search_global_error', reason: error?.message }, 'Global error');
         return { success: false, error: error.message };
     }
 }
@@ -216,7 +219,7 @@ async function getMentionSuggestions(prefix, projectId) {
 
         return { success: true, suggestions };
     } catch (error) {
-        console.error('[Search] Mention suggestions error:', error);
+        log.error({ event: 'search_mention_suggestions_error', reason: error?.message }, 'Mention suggestions error');
         return { success: false, error: error.message };
     }
 }

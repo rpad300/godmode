@@ -89,11 +89,11 @@ export function showContactModal(props: ContactModalProps): void {
   // Remove default modal styling for custom design
   const modalContent = modal.querySelector('.modal-content') as HTMLElement;
   if (modalContent) {
-    modalContent.style.cssText = 'background: transparent; box-shadow: none; padding: 0; max-width: 900px;';
+    modalContent.classList.add('modal-content-transparent');
   }
   const modalHeader = modal.querySelector('.modal-header') as HTMLElement;
   if (modalHeader) {
-    modalHeader.style.display = 'none';
+    modalHeader.classList.add('hidden');
   }
 
   document.body.appendChild(modal);
@@ -802,7 +802,7 @@ function createModalContent(mode: 'create' | 'edit' | 'view', contact?: Contact)
                 <option value="">-- Select role --</option>
                 <option value="__custom__">Custom role...</option>
               </select>
-              <input type="text" id="contact-role-custom" placeholder="Enter custom role" style="display: none; margin-top: 8px;" value="${contact?.role && !roleTemplates.some(r => r.display_name === contact.role) ? escapeHtml(contact.role) : ''}">
+              <input type="text" id="contact-role-custom" class="contact-role-custom hidden" placeholder="Enter custom role" value="${contact?.role && !roleTemplates.some(r => r.display_name === contact.role) ? escapeHtml(contact.role) : ''}">
             </div>
 
             <div class="form-field">
@@ -1112,14 +1112,14 @@ function renderRoleDropdown(container: HTMLElement): void {
 
   // Show custom input if custom is selected
   if (isCustomRole && customInput) {
-    customInput.style.display = 'block';
+    customInput.classList.remove('hidden');
     customInput.value = currentRole;
   }
 
   // Handle role change
   on(roleSelect, 'change', () => {
     const isCustom = roleSelect.value === '__custom__';
-    customInput.style.display = isCustom ? 'block' : 'none';
+    customInput.classList.toggle('hidden', !isCustom);
     if (isCustom) {
       customInput.focus();
     }
@@ -1134,7 +1134,7 @@ function renderProjectsList(container: HTMLElement): void {
   if (!listContainer) return;
 
   if (allProjects.length === 0) {
-    listContainer.innerHTML = '<p style="color: var(--text-secondary); text-align: center; padding: 20px;">No projects available</p>';
+    listContainer.innerHTML = '<p class="contact-no-projects-hint">No projects available</p>';
     return;
   }
 

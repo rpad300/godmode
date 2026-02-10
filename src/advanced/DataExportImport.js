@@ -6,6 +6,9 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'data-export-import' });
 
 class DataExportImport {
     constructor(options = {}) {
@@ -86,7 +89,7 @@ class DataExportImport {
             const exportFile = path.join(this.exportDir, `${exportId}.json`);
             fs.writeFileSync(exportFile, JSON.stringify(exportData, null, 2));
 
-            console.log(`[Export] Created export ${exportId} (${(exportData.size / 1024).toFixed(2)} KB)`);
+            log.debug({ event: 'export_created', exportId, sizeKb: (exportData.size / 1024).toFixed(2) }, 'Created export');
 
             return {
                 success: true,
@@ -145,33 +148,85 @@ class DataExportImport {
             if (this.storage && exportData.data) {
                 const merge = options.merge !== false; // Default to merge
 
-                // Facts
-                if (exportData.data.facts?.length > 0) {
-                    for (const fact of exportData.data.facts) {
-                        if (merge) {
-                            this.storage.addFact?.(fact);
+                // Facts (batch when available)
+                if (exportData.data.facts?.length > 0 && merge) {
+                    const factsToAdd = exportData.data.facts
+                        .filter(f => f && (f.content || '').trim().length >= 10)
+                        .map(f => ({
+                            content: f.content,
+                            category: f.category,
+                            confidence: f.confidence,
+                            source_document_id: f.source_document_id,
+                            document_id: f.document_id,
+                            source_file: f.source_file
+                        }));
+                    if (factsToAdd.length > 0) {
+                        if (typeof this.storage.addFacts === 'function') {
+                            const result = await this.storage.addFacts(factsToAdd, { skipDedup: true });
+                            imported.facts = result.inserted;
+                        } else {
+                            for (const fact of factsToAdd) {
+                                await this.storage.addFact?.(fact, true);
+                                imported.facts++;
+                            }
                         }
-                        imported.facts++;
                     }
                 }
 
-                // Questions
-                if (exportData.data.questions?.length > 0) {
-                    for (const q of exportData.data.questions) {
-                        if (merge) {
-                            this.storage.addQuestion?.(q);
+                // Questions (batch when available)
+                if (exportData.data.questions?.length > 0 && merge) {
+                    const questionsToAdd = exportData.data.questions
+                        .filter(q => q && (q.content || '').trim().length >= 10)
+                        .map(q => ({
+                            content: q.content,
+                            priority: q.priority,
+                            status: q.status,
+                            category: q.category,
+                            context: q.context,
+                            assigned_to: q.assigned_to,
+                            source_document_id: q.source_document_id,
+                            document_id: q.document_id,
+                            source_file: q.source_file
+                        }));
+                    if (questionsToAdd.length > 0) {
+                        if (typeof this.storage.addQuestions === 'function') {
+                            const result = await this.storage.addQuestions(questionsToAdd, { skipDedup: true });
+                            imported.questions = result.inserted;
+                        } else {
+                            for (const q of questionsToAdd) {
+                                await this.storage.addQuestion?.(q, true);
+                                imported.questions++;
+                            }
                         }
-                        imported.questions++;
                     }
                 }
 
-                // Decisions
-                if (exportData.data.decisions?.length > 0) {
-                    for (const d of exportData.data.decisions) {
-                        if (merge) {
-                            this.storage.addDecision?.(d);
+                // Decisions (batch when available)
+                if (exportData.data.decisions?.length > 0 && merge) {
+                    const decisionsToAdd = exportData.data.decisions
+                        .filter(d => d && (d.content || '').trim())
+                        .map(d => ({
+                            content: d.content,
+                            owner: d.owner,
+                            date: d.date,
+                            decision_date: d.decision_date,
+                            context: d.context,
+                            rationale: d.rationale,
+                            status: d.status,
+                            source_document_id: d.source_document_id,
+                            document_id: d.document_id,
+                            source_file: d.source_file
+                        }));
+                    if (decisionsToAdd.length > 0) {
+                        if (typeof this.storage.addDecisions === 'function') {
+                            const result = await this.storage.addDecisions(decisionsToAdd);
+                            imported.decisions = result.inserted;
+                        } else {
+                            for (const d of decisionsToAdd) {
+                                await this.storage.addDecision?.(d);
+                                imported.decisions++;
+                            }
                         }
-                        imported.decisions++;
                     }
                 }
 
@@ -208,7 +263,7 @@ class DataExportImport {
                 }
             }
 
-            console.log(`[Import] Imported from ${exportData.id}: ${JSON.stringify(imported)}`);
+            log.debug({ event: 'import_done', exportId: exportData.id, imported }, 'Imported from export');
 
             return {
                 success: true,

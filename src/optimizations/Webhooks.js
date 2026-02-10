@@ -7,6 +7,9 @@ const https = require('https');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'webhooks' });
 
 class Webhooks {
     constructor(options = {}) {
@@ -26,7 +29,7 @@ class Webhooks {
                 return JSON.parse(fs.readFileSync(this.configFile, 'utf-8'));
             }
         } catch (e) {
-            console.log('[Webhooks] Could not load config');
+            log.warn({ event: 'webhooks_load_config_failed' }, 'Could not load config');
         }
         return {
             endpoints: [],
@@ -47,7 +50,7 @@ class Webhooks {
             }
             fs.writeFileSync(this.configFile, JSON.stringify(this.config, null, 2));
         } catch (e) {
-            console.log('[Webhooks] Could not save config:', e.message);
+            log.warn({ event: 'webhooks_save_config_failed', message: e.message }, 'Could not save config');
         }
     }
 
@@ -171,29 +174,29 @@ class Webhooks {
 
                 const req = lib.request(options, (res) => {
                     if (res.statusCode >= 200 && res.statusCode < 300) {
-                        console.log(`[Webhooks] Sent ${event.type} to ${endpoint.url}`);
+                        log.debug({ event: 'webhooks_sent', eventType: event.type, url: endpoint.url }, 'Sent');
                         resolve({ success: true });
                     } else {
-                        console.log(`[Webhooks] Failed (${res.statusCode}): ${endpoint.url}`);
+                        log.warn({ event: 'webhooks_failed', statusCode: res.statusCode, url: endpoint.url }, 'Failed');
                         this.handleRetry(endpoint, event, attempt, resolve);
                     }
                 });
 
                 req.on('error', (error) => {
-                    console.log(`[Webhooks] Error: ${error.message}`);
+                    log.warn({ event: 'webhooks_error', message: error.message, url: endpoint.url }, 'Error');
                     this.handleRetry(endpoint, event, attempt, resolve);
                 });
 
                 req.on('timeout', () => {
                     req.destroy();
-                    console.log(`[Webhooks] Timeout: ${endpoint.url}`);
+                    log.warn({ event: 'webhooks_timeout', url: endpoint.url }, 'Timeout');
                     this.handleRetry(endpoint, event, attempt, resolve);
                 });
 
                 req.write(payload);
                 req.end();
             } catch (error) {
-                console.log(`[Webhooks] Exception: ${error.message}`);
+                log.warn({ event: 'webhooks_exception', message: error.message }, 'Exception');
                 resolve({ success: false, error: error.message });
             }
         });

@@ -5,6 +5,9 @@
 
 const { getClient, getAdminClient } = require('./client');
 const crypto = require('crypto');
+const { logger: rootLogger, logError } = require('../logger');
+
+const log = rootLogger.child({ module: 'auth' });
 
 /**
  * Register a new user
@@ -49,7 +52,7 @@ async function register(email, password, metadata = {}) {
         });
         
         if (error) {
-            console.error('[Auth] Registration error:', error.message);
+            log.warn({ event: 'auth_register_failed', reason: error.message }, 'Registration failed');
             return { success: false, error: error.message };
         }
         
@@ -71,7 +74,7 @@ async function register(email, password, metadata = {}) {
         };
         
     } catch (err) {
-        console.error('[Auth] Registration exception:', err.message);
+        logError(err, { module: 'auth', event: 'auth_register_error' });
         return { success: false, error: err.message };
     }
 }
@@ -94,8 +97,7 @@ async function login(email, password) {
         });
         
         if (error) {
-            console.error('[Auth] Login error:', error.message);
-            // Don't reveal if email exists
+            log.warn({ event: 'auth_login_failed', provider: 'password', reason: error.message }, 'Login failed');
             return { success: false, error: 'Invalid email or password' };
         }
         
@@ -116,7 +118,7 @@ async function login(email, password) {
         };
         
     } catch (err) {
-        console.error('[Auth] Login exception:', err.message);
+        logError(err, { module: 'auth', event: 'auth_login_error' });
         return { success: false, error: 'Login failed' };
     }
 }
@@ -131,7 +133,7 @@ async function logout(accessToken) {
     try {
         const { error } = await client.auth.signOut();
         if (error) {
-            console.error('[Auth] Logout error:', error.message);
+            log.warn({ event: 'auth_logout_failed', reason: error.message }, 'Logout error');
         }
         return { success: true };
     } catch (err) {
@@ -156,9 +158,8 @@ async function requestPasswordReset(email) {
             redirectTo: `${process.env.APP_URL || 'http://localhost:3005'}/reset-password`
         });
         
-        // Always return success to not reveal if email exists
         if (error) {
-            console.error('[Auth] Password reset error:', error.message);
+            log.warn({ event: 'auth_password_reset_failed', reason: error.message }, 'Password reset error');
         }
         
         return { 
@@ -167,7 +168,7 @@ async function requestPasswordReset(email) {
         };
         
     } catch (err) {
-        console.error('[Auth] Password reset exception:', err.message);
+        logError(err, { module: 'auth', event: 'auth_password_reset_error' });
         return { success: true, message: 'Password reset email sent if account exists' };
     }
 }
@@ -194,14 +195,14 @@ async function updatePassword(newPassword, accessToken) {
         });
         
         if (error) {
-            console.error('[Auth] Update password error:', error.message);
+            log.warn({ event: 'auth_update_password_failed', reason: error.message }, 'Update password failed');
             return { success: false, error: error.message };
         }
         
         return { success: true, message: 'Password updated successfully' };
         
     } catch (err) {
-        console.error('[Auth] Update password exception:', err.message);
+        logError(err, { module: 'auth', event: 'auth_update_password_error' });
         return { success: false, error: err.message };
     }
 }
@@ -297,7 +298,7 @@ async function getUserProfile(userId) {
         return null;
         
     } catch (err) {
-        console.error('[Auth] Get profile error:', err.message);
+        log.warn({ event: 'auth_get_profile_error', reason: err.message }, 'Get profile error');
         return null;
     }
 }
@@ -323,14 +324,14 @@ async function upsertUserProfile(userId, profileData) {
             .single();
         
         if (error) {
-            console.error('[Auth] Upsert profile error:', error.message);
+            log.warn({ event: 'auth_upsert_profile_failed', reason: error.message }, 'Upsert profile failed');
             return { success: false, error: error.message };
         }
         
         return { success: true, profile: data };
         
     } catch (err) {
-        console.error('[Auth] Upsert profile exception:', err.message);
+        logError(err, { module: 'auth', event: 'auth_upsert_profile_error' });
         return { success: false, error: err.message };
     }
 }
@@ -370,8 +371,8 @@ function sanitizeUser(user) {
  */
 function extractToken(req) {
     const authHeader = req.headers['authorization'];
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-        return authHeader.substring(7);
+    if (authHeader && /^bearer\s+/i.test(authHeader)) {
+        return authHeader.replace(/^bearer\s+/i, '').trim();
     }
     // Also check cookie
     const cookies = req.headers['cookie'];

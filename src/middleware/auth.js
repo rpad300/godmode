@@ -15,11 +15,14 @@
  *   app.get('/api/public', optionalAuth, (req, res) => { ... });
  */
 
+const { logger: rootLogger } = require('../logger');
+const log = rootLogger.child({ module: 'auth-middleware' });
+
 let supabase = null;
 try {
     supabase = require('../supabase');
 } catch (e) {
-    console.warn('[AuthMiddleware] Supabase module not available');
+    log.warn({ event: 'auth_middleware_supabase_unavailable', reason: e.message }, 'Supabase module not available');
 }
 
 /**
@@ -113,7 +116,7 @@ async function requireAuth(req, res, next) {
     if (!supabase || !supabase.isConfigured?.()) {
         // In development without Supabase, allow all requests
         if (process.env.NODE_ENV === 'development' && !process.env.SUPABASE_URL) {
-            console.warn('[Auth] Supabase not configured, skipping auth in development');
+            log.warn({ event: 'auth_skip_development' }, 'Supabase not configured, skipping auth in development');
             return next();
         }
         

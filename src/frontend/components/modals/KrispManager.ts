@@ -743,7 +743,7 @@ export async function showKrispManager(initialTab: TabId = 'transcripts'): Promi
       </button>
       <button class="krisp-tab ${initialTab === 'import' ? 'active' : ''}" data-tab="import">
         Import
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-left: 6px;">
+        <svg class="krisp-tab-svg-ml" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
         </svg>
       </button>
@@ -850,7 +850,7 @@ async function loadTranscripts(container: HTMLElement): Promise<void> {
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
         </svg>
         <p>No transcripts yet</p>
-        <p style="font-size: 12px; margin-top: 8px;">Configure your Krisp webhook in Profile &gt; Integrations</p>
+        <p class="krisp-hint">Configure your Krisp webhook in Profile &gt; Integrations</p>
       </div>
     `;
     return;
@@ -877,7 +877,7 @@ async function loadQuarantine(container: HTMLElement): Promise<void> {
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
         </svg>
         <p>No transcripts in quarantine</p>
-        <p style="font-size: 12px; margin-top: 8px;">All speakers are identified correctly</p>
+        <p class="krisp-hint">All speakers are identified correctly</p>
       </div>
     `;
     return;
@@ -904,7 +904,7 @@ async function loadMappings(container: HTMLElement): Promise<void> {
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>
         </svg>
         <p>No speaker mappings</p>
-        <p style="font-size: 12px; margin-top: 8px;">Mappings are created when you manually link speakers to contacts</p>
+        <p class="krisp-hint">Mappings are created when you manually link speakers to contacts</p>
       </div>
     `;
     return;
@@ -989,7 +989,7 @@ function renderQuarantineItem(transcript: KrispTranscript): string {
         <div class="krisp-item-meta">
           <span>${date}</span>
           <span>${duration}</span>
-          <span style="color: #f59e0b;">${transcript.status_reason || label}</span>
+          <span class="krisp-status-reason">${transcript.status_reason || label}</span>
         </div>
       </div>
       <div class="krisp-item-actions">
@@ -1216,50 +1216,44 @@ function showTranscriptDetail(transcript: KrispTranscript): void {
   const overlay = document.createElement('div');
   overlay.className = 'summary-modal-overlay';
   overlay.innerHTML = `
-    <div class="summary-modal" style="max-width: 500px;">
+    <div class="summary-modal krisp-summary-modal-box">
       <div class="summary-modal-header">
         <h3>${escapeHtml(transcript.display_title || transcript.krisp_title || 'Meeting Details')}</h3>
         <button class="summary-modal-close">&times;</button>
       </div>
       <div class="summary-modal-body">
-        <div style="display: flex; flex-direction: column; gap: 16px;">
+        <div class="krisp-summary-detail-row">
           <div>
-            <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">Status</div>
-            <span class="krisp-item-status status-${transcript.status}" style="display: inline-block;">${label}</span>
+            <div class="krisp-summary-detail-label">Status</div>
+            <span class="krisp-item-status status-${transcript.status} gm-inline-block">${label}</span>
           </div>
-          
           <div>
-            <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">Date</div>
-            <div style="font-weight: 500;">${date}</div>
+            <div class="krisp-summary-detail-label">Date</div>
+            <div class="krisp-summary-detail-value">${date}</div>
           </div>
-          
           <div>
-            <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">Speakers</div>
-            <div style="display: flex; flex-wrap: wrap; gap: 6px;">
-              ${(transcript.speakers || []).map(s => `<span style="padding: 4px 8px; background: var(--bg-secondary); border-radius: 4px; font-size: 13px;">${escapeHtml(s)}</span>`).join('')}
-              ${(!transcript.speakers || transcript.speakers.length === 0) ? '<span style="color: var(--text-secondary);">No speakers</span>' : ''}
+            <div class="krisp-summary-detail-label">Speakers</div>
+            <div class="krisp-summary-speakers-wrap">
+              ${(transcript.speakers || []).map(s => `<span class="krisp-summary-speaker-chip">${escapeHtml(s)}</span>`).join('')}
+              ${(!transcript.speakers || transcript.speakers.length === 0) ? '<span class="krisp-summary-no-speakers">No speakers</span>' : ''}
             </div>
           </div>
-          
           <div>
-            <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">Project</div>
+            <div class="krisp-summary-detail-label">Project</div>
             ${transcript.projects?.name 
               ? `<span class="project-tag">${escapeHtml(transcript.projects.name)}</span>`
-              : `<span style="color: var(--text-secondary);">Not assigned</span>`
+              : `<span class="krisp-summary-no-speakers">Not assigned</span>`
             }
           </div>
-          
           ${needsProject ? `
-            <div style="padding-top: 16px; border-top: 1px solid var(--border-color);">
-              <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">Assign to Project</div>
-              <div style="display: flex; gap: 8px;">
-                <select id="detail-project-select" style="flex: 1; padding: 8px 12px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 14px;">
+            <div class="krisp-summary-assign-wrap">
+              <div class="krisp-summary-assign-label">Assign to Project</div>
+              <div class="krisp-summary-assign-row">
+                <select id="detail-project-select" class="krisp-summary-assign-select">
                   <option value="">Select project...</option>
                   ${projectOptions}
                 </select>
-                <button id="detail-assign-btn" disabled style="padding: 8px 16px; background: var(--primary); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 500;">
-                  Assign
-                </button>
+                <button type="button" id="detail-assign-btn" class="krisp-summary-assign-btn" disabled>Assign</button>
               </div>
             </div>
           ` : ''}
@@ -1401,7 +1395,7 @@ async function loadImport(container: HTMLElement): Promise<void> {
         <span class="stat-label">Pending</span>
       </div>
       <div class="stat-item">
-        <span class="stat-value" style="font-size: 12px;">${lastSync}</span>
+        <span class="stat-value krisp-stat-value-sm">${lastSync}</span>
         <span class="stat-label">Last Sync</span>
       </div>
     </div>
@@ -1424,7 +1418,7 @@ async function loadImport(container: HTMLElement): Promise<void> {
         <input type="date" id="import-before" value="${state.importFilters.before}" />
       </label>
       <div class="search-row">
-        <label style="flex: 1;">
+        <label class="krisp-import-label-flex">
           Search
           <input type="text" id="import-search" placeholder="Search by title..." value="${state.importFilters.search}" />
         </label>
@@ -1471,7 +1465,7 @@ function renderAvailableMeetingsList(meetings: krispService.AvailableMeeting[]):
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
         </svg>
         <p>No meetings synced yet</p>
-        <p style="font-size: 12px; margin-top: 8px;">
+        <p class="krisp-hint">
           Ask Cursor to sync: <em>"sincroniza as meetings do Krisp de [data] a [data]"</em>
         </p>
       </div>
@@ -1701,7 +1695,7 @@ function bindAvailableMeetingListActions(container: HTMLElement): void {
       }
       
       importBtn.setAttribute('disabled', 'true');
-      importBtn.innerHTML = '<span class="loading-spinner" style="width: 16px; height: 16px;"></span> Importing...';
+      importBtn.innerHTML = '<span class="loading-spinner krisp-loading-spinner-sm"></span> Importing...';
       
       // Get selected meeting IDs (krisp_meeting_id)
       const selectedIds = Array.from(state.selectedMeetings);
@@ -1793,7 +1787,7 @@ async function showSummaryModal(meetingId: string, meetingName: string): Promise
       <div class="summary-modal-body">
         <div class="summary-loading">
           <div class="loading-spinner"></div>
-          <p style="margin-top: 12px;">Generating AI summary...</p>
+          <p class="krisp-summary-loading-p">Generating AI summary...</p>
         </div>
       </div>
     </div>
@@ -1841,8 +1835,8 @@ async function showSummaryModal(meetingId: string, meetingName: string): Promise
       
       bodyEl.innerHTML = `
         ${meeting_date ? `
-          <div class="summary-section" style="padding-bottom: 12px; margin-bottom: 16px; border-bottom: 1px solid var(--border-color, #e2e8f0);">
-            <div style="display: flex; align-items: center; gap: 8px; color: var(--text-secondary, #64748b); font-size: 13px;">
+          <div class="summary-section krisp-summary-section-border">
+            <div class="krisp-summary-date-row">
               <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
               </svg>
@@ -1854,9 +1848,9 @@ async function showSummaryModal(meetingId: string, meetingName: string): Promise
         ${uniqueParticipants.length > 0 ? `
           <div class="summary-section">
             <h4>Participants</h4>
-            <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+            <div class="krisp-summary-participants-wrap">
               ${uniqueParticipants.map(p => `
-                <span style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: var(--bg-secondary, #f1f5f9); border-radius: 16px; font-size: 13px;">
+                <span class="krisp-summary-participant-chip">
                   <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
                   </svg>
@@ -1870,10 +1864,10 @@ async function showSummaryModal(meetingId: string, meetingName: string): Promise
         ${mentionedFiltered.length > 0 ? `
           <div class="summary-section">
             <h4>Also Mentioned</h4>
-            <p style="font-size: 12px; color: var(--text-secondary, #64748b); margin-bottom: 8px;">People referenced in the discussion:</p>
-            <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+            <p class="krisp-summary-mentioned-p">People referenced in the discussion:</p>
+            <div class="krisp-summary-participants-wrap">
               ${mentionedFiltered.map(p => `
-                <span style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: rgba(59, 130, 246, 0.1); border: 1px dashed rgba(59, 130, 246, 0.3); border-radius: 16px; font-size: 13px; color: #3b82f6;">
+                <span class="krisp-summary-mentioned-chip">
                   <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
                   </svg>
@@ -1911,11 +1905,11 @@ async function showSummaryModal(meetingId: string, meetingName: string): Promise
         
         ${(!excerpt && (!key_points || key_points.length === 0) && (!action_items || action_items.length === 0) && uniqueParticipants.length === 0) ? `
           <div class="summary-section">
-            <p style="color: var(--text-secondary);">No summary data available for this meeting. The meeting may not have enough content to generate a summary.</p>
+            <p class="krisp-summary-no-data">No summary data available for this meeting. The meeting may not have enough content to generate a summary.</p>
           </div>
         ` : ''}
         
-        <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-color, #e2e8f0); text-align: right;">
+        <div class="krisp-summary-footer">
           <button class="summary-btn refresh-summary-btn" data-meeting-id="${meetingId}">
             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
@@ -1932,7 +1926,7 @@ async function showSummaryModal(meetingId: string, meetingName: string): Promise
           bodyEl.innerHTML = `
             <div class="summary-loading">
               <div class="loading-spinner"></div>
-              <p style="margin-top: 12px;">Regenerating AI summary...</p>
+              <p class="krisp-summary-loading-p">Regenerating AI summary...</p>
             </div>
           `;
           
@@ -1945,7 +1939,7 @@ async function showSummaryModal(meetingId: string, meetingName: string): Promise
           } else {
             bodyEl.innerHTML = `
               <div class="summary-section">
-                <p style="color: var(--error, #dc2626);">Failed to regenerate summary. Please try again.</p>
+                <p class="krisp-summary-error">Failed to regenerate summary. Please try again.</p>
               </div>
             `;
           }
@@ -1954,7 +1948,7 @@ async function showSummaryModal(meetingId: string, meetingName: string): Promise
     } else {
       bodyEl.innerHTML = `
         <div class="summary-section">
-          <p style="color: var(--error, #dc2626);">${escapeHtml(result?.error || 'Failed to generate summary. Please try again.')}</p>
+          <p class="krisp-summary-error">${escapeHtml(result?.error || 'Failed to generate summary. Please try again.')}</p>
         </div>
       `;
     }
@@ -1963,7 +1957,7 @@ async function showSummaryModal(meetingId: string, meetingName: string): Promise
     if (bodyEl) {
       bodyEl.innerHTML = `
         <div class="summary-section">
-          <p style="color: var(--error, #dc2626);">An error occurred while generating the summary.</p>
+          <p class="krisp-summary-error">An error occurred while generating the summary.</p>
         </div>
       `;
     }

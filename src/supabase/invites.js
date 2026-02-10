@@ -4,7 +4,10 @@
  */
 
 const crypto = require('crypto');
+const { logger } = require('../logger');
 const { getAdminClient } = require('./client');
+
+const log = logger.child({ module: 'invites' });
 
 /**
  * Generate a secure random token (128-bit = 16 bytes = 32 hex chars)
@@ -66,7 +69,7 @@ async function createInvite({ projectId, createdBy, role, email, expiresInHours 
             .single();
         
         if (error) {
-            console.error('[Invites] Create error:', error.message);
+            log.error({ event: 'invites_create_error', reason: error.message }, 'Create error');
             return { success: false, error: error.message };
         }
         
@@ -85,7 +88,7 @@ async function createInvite({ projectId, createdBy, role, email, expiresInHours 
         };
         
     } catch (err) {
-        console.error('[Invites] Create exception:', err.message);
+        log.error({ event: 'invites_create_exception', reason: err.message }, 'Create exception');
         return { success: false, error: err.message };
     }
 }
@@ -156,7 +159,7 @@ async function acceptInvite(token, userId, userEmail) {
             .single();
         
         if (memberError) {
-            console.error('[Invites] Add member error:', memberError.message);
+            log.error({ event: 'invites_add_member_error', reason: memberError.message }, 'Add member error');
             return { success: false, error: 'Failed to add you to the project' };
         }
         
@@ -180,7 +183,7 @@ async function acceptInvite(token, userId, userEmail) {
         };
         
     } catch (err) {
-        console.error('[Invites] Accept exception:', err.message);
+        log.error({ event: 'invites_accept_exception', reason: err.message }, 'Accept exception');
         return { success: false, error: err.message };
     }
 }

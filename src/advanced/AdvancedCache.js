@@ -5,6 +5,10 @@
  * Refactored to use Supabase instead of local JSON files
  */
 
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'advanced-cache' });
+
 // Try to load Supabase - may fail due to project folder name conflict
 let getStorage = null;
 try {
@@ -76,7 +80,7 @@ class AdvancedCache {
                 }
             }
         } catch (e) {
-            console.warn('[AdvancedCache] Could not load from Supabase:', e.message);
+            log.warn({ event: 'advanced_cache_load_failed', reason: e.message }, 'Could not load from Supabase');
         }
     }
 
@@ -115,7 +119,7 @@ class AdvancedCache {
                     .upsert(entries, { onConflict: 'project_id,cache_key' });
             }
         } catch (e) {
-            console.warn('[AdvancedCache] Could not persist to Supabase:', e.message);
+            log.warn({ event: 'advanced_cache_persist_failed', reason: e.message }, 'Could not persist to Supabase');
         }
     }
 

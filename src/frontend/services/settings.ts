@@ -3,7 +3,7 @@
  * Handles user settings, API keys, webhooks, and audit logs
  */
 
-import { http } from './api';
+import { http, fetchWithProject } from './api';
 
 export interface UserSettings {
   theme?: 'light' | 'dark' | 'system';
@@ -241,7 +241,7 @@ export async function exportAuditLogs(format: 'json' | 'csv', options?: {
   if (options?.startDate) params.set('startDate', options.startDate);
   if (options?.endDate) params.set('endDate', options.endDate);
 
-  const response = await fetch(`/api/audit/export?${params.toString()}`);
+  const response = await fetchWithProject(`/api/audit/export?${params.toString()}`);
   if (!response.ok) throw new Error('Export failed');
   return response.blob();
 }

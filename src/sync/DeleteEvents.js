@@ -4,6 +4,9 @@
  */
 
 const EventEmitter = require('events');
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'delete-events' });
 
 class DeleteEvents extends EventEmitter {
     constructor(options = {}) {
@@ -43,7 +46,7 @@ class DeleteEvents extends EventEmitter {
         // Notify WebSocket subscribers
         this.notifySubscribers(event);
 
-        console.log(`[DeleteEvents] Emitted DELETE event for ${type} "${item.name || item.title}"`);
+        log.debug({ event: 'delete_events_emitted', entityType: type, entityName: item.name || item.title }, 'Emitted DELETE event');
         return event;
     }
 
@@ -78,7 +81,7 @@ class DeleteEvents extends EventEmitter {
      */
     subscribe(connectionId, ws, filters = {}) {
         this.subscribers.set(connectionId, { ws, filters });
-        console.log(`[DeleteEvents] Subscriber ${connectionId} added`);
+        log.debug({ event: 'delete_events_subscriber_added', connectionId }, 'Subscriber added');
     }
 
     /**
@@ -86,7 +89,7 @@ class DeleteEvents extends EventEmitter {
      */
     unsubscribe(connectionId) {
         this.subscribers.delete(connectionId);
-        console.log(`[DeleteEvents] Subscriber ${connectionId} removed`);
+        log.debug({ event: 'delete_events_subscriber_removed', connectionId }, 'Subscriber removed');
     }
 
     /**
@@ -111,7 +114,7 @@ class DeleteEvents extends EventEmitter {
                     }));
                 }
             } catch (e) {
-                console.log(`[DeleteEvents] Failed to notify ${id}: ${e.message}`);
+                log.warn({ event: 'delete_events_notify_failed', id, reason: e.message }, 'Failed to notify subscriber');
                 this.subscribers.delete(id);
             }
         }

@@ -144,7 +144,7 @@ export function showDecisionModal(props: DecisionModalProps): void {
             <label>Made By</label>
             <input type="hidden" id="decision-by" value="${escapeHtml(decision?.madeBy || '')}">
             <div id="decision-made-by-display" class="current-assignment-card decision-modal-owner-card"></div>
-            <div id="decision-modal-contact-picker" class="contact-picker-sota" style="display: none; margin-top: 8px;">
+            <div id="decision-modal-contact-picker" class="contact-picker-sota contact-picker-mt hidden">
               <div class="picker-search">
                 <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
                 <input type="text" id="decision-modal-contact-search" placeholder="Search contacts..." autocomplete="off">
@@ -236,15 +236,16 @@ export function showDecisionModal(props: DecisionModalProps): void {
 
     function showModalPicker() {
       if (!modalPicker) return;
-      modalPicker.style.display = modalPicker.style.display === 'none' ? 'block' : 'none';
-      if (modalPicker.style.display === 'block' && modalContacts.length === 0) {
+      const wasHidden = modalPicker.classList.contains('hidden');
+      modalPicker.classList.toggle('hidden', !wasHidden);
+      if (wasHidden && modalContacts.length === 0) {
         contactsService.getAll().then((res) => {
           modalContacts = res?.contacts || [];
           renderModalContactGrid(modalContactSearch?.value || '');
         }).catch(() => {
           if (modalContactList) modalContactList.innerHTML = '<div class="empty-state">Failed to load contacts</div>';
         });
-      } else if (modalPicker.style.display === 'block') {
+      } else if (wasHidden) {
         renderModalContactGrid(modalContactSearch?.value || '');
       }
       if (modalContactSearch) modalContactSearch.focus();
@@ -287,7 +288,7 @@ export function showDecisionModal(props: DecisionModalProps): void {
           const name = card.getAttribute('data-contact-name') || '';
           if (name) {
             renderMadeByDisplay(name);
-            if (modalPicker) modalPicker.style.display = 'none';
+            if (modalPicker) modalPicker.classList.add('hidden');
           }
         });
       });

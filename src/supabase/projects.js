@@ -3,7 +3,10 @@
  * Full project lifecycle management in Supabase
  */
 
+const { logger } = require('../logger');
 const { getAdminClient } = require('./client');
+
+const log = logger.child({ module: 'projects' });
 
 /**
  * Create a new project
@@ -12,11 +15,15 @@ async function createProject({
     name,
     description = null,
     ownerId,
+    companyId,
     settings = {}
 }) {
     const supabase = getAdminClient();
     if (!supabase) {
         return { success: false, error: 'Supabase not configured' };
+    }
+    if (!companyId) {
+        return { success: false, error: 'Company is required' };
     }
 
     try {
@@ -27,6 +34,7 @@ async function createProject({
                 name,
                 description,
                 owner_id: ownerId,
+                company_id: companyId,
                 settings
             })
             .select()
@@ -58,7 +66,7 @@ async function createProject({
 
         return { success: true, project };
     } catch (error) {
-        console.error('[Projects] Create error:', error);
+        log.warn({ event: 'projects_create_error', reason: error?.message }, 'Create error');
         return { success: false, error: error.message };
     }
 }
@@ -77,7 +85,8 @@ async function getProject(projectId) {
             .from('projects')
             .select(`
                 *,
-                owner:user_profiles!owner_id(id, username, display_name, avatar_url)
+                owner:user_profiles!owner_id(id, username, display_name, avatar_url),
+                company:companies(id, name, logo_url, brand_assets)
             `)
             .eq('id', projectId)
             .single();
@@ -86,7 +95,7 @@ async function getProject(projectId) {
 
         return { success: true, project };
     } catch (error) {
-        console.error('[Projects] Get error:', error);
+        log.warn({ event: 'projects_get_error', reason: error?.message }, 'Get error');
         return { success: false, error: error.message };
     }
 }
@@ -121,7 +130,7 @@ async function updateProject(projectId, updates) {
 
         return { success: true, project };
     } catch (error) {
-        console.error('[Projects] Update error:', error);
+        log.warn({ event: 'projects_update_error', reason: error?.message }, 'Update error');
         return { success: false, error: error.message };
     }
 }
@@ -161,7 +170,7 @@ async function deleteProject(projectId, userId) {
 
         return { success: true };
     } catch (error) {
-        console.error('[Projects] Delete error:', error);
+        log.warn({ event: 'projects_delete_error', reason: error?.message }, 'Delete error');
         return { success: false, error: error.message };
     }
 }
@@ -215,7 +224,7 @@ async function listUserProjects(userId, options = {}) {
 
         return { success: true, projects: projectsWithRole };
     } catch (error) {
-        console.error('[Projects] List error:', error);
+        log.warn({ event: 'projects_list_error', reason: error?.message }, 'List error');
         return { success: false, error: error.message };
     }
 }
@@ -269,7 +278,7 @@ async function getProjectStats(projectId) {
             }
         };
     } catch (error) {
-        console.error('[Projects] Stats error:', error);
+        log.warn({ event: 'projects_stats_error', reason: error?.message }, 'Stats error');
         return { success: false, error: error.message };
     }
 }
@@ -308,7 +317,7 @@ async function updateSettings(projectId, settings) {
 
         return { success: true, project };
     } catch (error) {
-        console.error('[Projects] Update settings error:', error);
+        log.warn({ event: 'projects_update_settings_error', reason: error?.message }, 'Update settings error');
         return { success: false, error: error.message };
     }
 }
@@ -335,14 +344,20 @@ async function cloneProject(sourceProjectId, newName, ownerId) {
         }
 
         // Create new project
+        const { data: srcProject } = await supabase
+            .from('projects')
+            .select('company_id')
+            .eq('id', sourceProjectId)
+            .single();
         return await createProject({
             name: newName,
             description: source.description,
             ownerId,
+            companyId: srcProject?.company_id,
             settings: source.settings
         });
     } catch (error) {
-        console.error('[Projects] Clone error:', error);
+        log.warn({ event: 'projects_clone_error', reason: error?.message }, 'Clone error');
         return { success: false, error: error.message };
     }
 }

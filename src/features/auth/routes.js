@@ -19,6 +19,8 @@
 const { parseBody } = require('../../server/request');
 const { jsonResponse } = require('../../server/response');
 const { getCookieSecurityFlags, getClientIp } = require('../../server/middleware');
+const { getLogger } = require('../../server/requestContext');
+const { logError } = require('../../logger');
 
 /**
  * Handle auth routes
@@ -27,7 +29,8 @@ const { getCookieSecurityFlags, getClientIp } = require('../../server/middleware
  */
 async function handleAuth(ctx) {
     const { req, res, pathname, parsedUrl, supabase } = ctx;
-    
+    const log = getLogger().child({ module: 'auth' });
+
     // Only handle /api/auth/* routes
     if (!pathname.startsWith('/api/auth/')) {
         return false;
@@ -86,14 +89,13 @@ async function handleAuth(ctx) {
                     });
                     
                     if (!emailResult.success) {
-                        console.error('[Auth] Failed to send confirmation email:', emailResult.error);
+                        log.warn({ event: 'auth_confirmation_email_failed', reason: emailResult.error }, 'Failed to send confirmation email');
                     } else {
-                        console.log('[Auth] Sent confirmation email to', email);
+                        log.info({ event: 'auth_confirmation_email_sent', email }, 'Sent confirmation email');
                     }
                 }
             } catch (err) {
-                console.error('[Auth] Error creating confirmation OTP:', err.message);
-                // Continue with registration even if email fails
+                logError(err, { module: 'auth', event: 'auth_confirmation_otp_error' });
             }
             
             // Don't set session cookies - user needs to confirm email first
@@ -149,11 +151,11 @@ async function handleAuth(ctx) {
                                 expiresInMinutes: otpResult.expiresInMinutes
                             });
                             
-                            console.log('[Auth] Resent confirmation email to', email);
+                            log.info({ event: 'auth_confirmation_resent', email }, 'Resent confirmation email');
                         }
                     }
                 } catch (err) {
-                    console.error('[Auth] Error resending confirmation:', err.message);
+                    logError(err, { module: 'auth', event: 'auth_resend_confirmation_error' });
                 }
                 
                 jsonResponse(res, {
@@ -165,7 +167,7 @@ async function handleAuth(ctx) {
                 return true;
             }
             
-            // Email confirmed - allow login
+            // Email confirmed - allow login (send only serializable fields so client always gets valid JSON)
             const cookieFlags = getCookieSecurityFlags(req);
             res.setHeader('Set-Cookie', [
                 `sb-access-token=${result.session.access_token}; ${cookieFlags}; Path=/; Max-Age=3600`,
@@ -173,7 +175,10 @@ async function handleAuth(ctx) {
             ]);
             jsonResponse(res, {
                 success: true,
-                user: result.user
+                user: {
+                    id: result.user.id,
+                    email: result.user.email
+                }
             });
         } else {
             jsonResponse(res, result, 401);
@@ -202,39 +207,44 @@ async function handleAuth(ctx) {
         return true;
     }
     
-    // GET /api/auth/me - Get current user
+    // GET /api/auth/me - Get current user (tries access token, then refresh token)
     if (pathname === '/api/auth/me' && req.method === 'GET') {
-        // DEBUG: Log cookie info
-        const cookieHeader = req.headers.cookie || '';
-        console.log('[Auth Debug] /api/auth/me - Cookie header:', cookieHeader ? `"${cookieHeader.substring(0, 100)}..."` : '(empty)');
-        console.log('[Auth Debug] /api/auth/me - Has sb-access-token:', cookieHeader.includes('sb-access-token'));
-        
         if (!supabase || !supabase.isConfigured()) {
-            // Return unauthenticated state instead of error
-            console.log('[Auth Debug] Supabase not configured');
             jsonResponse(res, { authenticated: false, user: null });
             return true;
         }
-        
-        const token = supabase.auth.extractToken(req);
-        console.log('[Auth Debug] Extracted token:', token ? `${token.substring(0, 20)}...` : '(null)');
-        if (!token) {
-            // Return unauthenticated state with 200 OK
-            console.log('[Auth Debug] No token - returning unauthenticated');
-            jsonResponse(res, { authenticated: false, user: null });
-            return true;
+
+        const cookies = req.headers.cookie || '';
+        let token = supabase.auth.extractToken(req);
+
+        // If we have an access token, validate it
+        if (token) {
+            const result = await supabase.auth.getUser(token);
+            if (result.success) {
+                jsonResponse(res, { authenticated: true, user: result.user });
+                return true;
+            }
         }
-        
-        const result = await supabase.auth.getUser(token);
-        
-        if (result.success) {
-            jsonResponse(res, { 
-                authenticated: true, 
-                user: result.user 
-            });
-        } else {
-            jsonResponse(res, { authenticated: false }, 401);
+
+        // No valid access token: try refresh token and set new cookies
+        const refreshMatch = cookies.match(/sb-refresh-token=([^;]+)/);
+        if (refreshMatch) {
+            const refreshResult = await supabase.auth.refreshToken(refreshMatch[1].trim());
+            if (refreshResult.success) {
+                const flags = getCookieSecurityFlags(req);
+                res.setHeader('Set-Cookie', [
+                    `sb-access-token=${refreshResult.session.access_token}; ${flags}; Path=/; Max-Age=3600`,
+                    `sb-refresh-token=${refreshResult.session.refresh_token}; ${flags}; Path=/; Max-Age=2592000`
+                ]);
+                const userResult = await supabase.auth.getUser(refreshResult.session.access_token);
+                if (userResult.success) {
+                    jsonResponse(res, { authenticated: true, user: userResult.user });
+                    return true;
+                }
+            }
         }
+
+        jsonResponse(res, { authenticated: false, user: null });
         return true;
     }
     
@@ -362,8 +372,7 @@ async function handleAuth(ctx) {
             });
             
             if (!emailResult.success) {
-                console.error('[Auth] Failed to send OTP email:', emailResult.error);
-                // Don't reveal email sending failure to user (security)
+                log.warn({ event: 'auth_otp_email_failed', reason: emailResult.error }, 'Failed to send OTP email');
             }
             
             // Always return success (don't reveal if email exists or was sent)
@@ -375,7 +384,7 @@ async function handleAuth(ctx) {
             });
             
         } catch (err) {
-            console.error('[Auth] OTP request error:', err.message);
+            logError(err, { module: 'auth', event: 'auth_otp_request_error' });
             jsonResponse(res, { error: 'Failed to process request' }, 500);
         }
         return true;
@@ -475,7 +484,7 @@ async function handleOTPVerify(req, res, supabase) {
         const { data: userData, error: userError } = await admin.auth.admin.listUsers();
         
         if (userError) {
-            console.error('[Auth] Failed to list users:', userError.message);
+            log.warn({ event: 'auth_list_users_failed', reason: userError.message }, 'Failed to list users');
             jsonResponse(res, { error: 'Authentication failed' }, 500);
             return true;
         }
@@ -503,7 +512,7 @@ async function handleOTPVerify(req, res, supabase) {
         });
         
         if (sessionError || !sessionData) {
-            console.error('[Auth] Failed to generate session:', sessionError?.message);
+            log.warn({ event: 'auth_session_generate_failed', reason: sessionError?.message }, 'Failed to generate session');
             jsonResponse(res, { 
                 error: 'Failed to create session. Please try password login.',
                 fallbackToPassword: true
@@ -553,7 +562,7 @@ async function handleOTPVerify(req, res, supabase) {
                                     deviceInfo: userAgent,
                                     loginTime: new Date().toISOString(),
                                     ipAddress: requestIp
-                                }).catch(e => console.log('[Auth] Device notification skipped:', e.message));
+                                }).catch(e => log.debug({ event: 'auth_device_notification_skipped', reason: e.message }, 'Device notification skipped'));
                             } catch (e) { /* ignore */ }
                             
                             jsonResponse(res, {
@@ -571,7 +580,7 @@ async function handleOTPVerify(req, res, supabase) {
                         }
                     }
                 } catch (e) {
-                    console.error('[Auth] Token verification error:', e.message);
+                    log.warn({ event: 'auth_token_verification_error', reason: e.message }, 'Token verification error');
                 }
             }
         }
@@ -593,7 +602,7 @@ async function handleOTPVerify(req, res, supabase) {
         }, 500);
         
     } catch (err) {
-        console.error('[Auth] OTP verify error:', err.message);
+        logError(err, { module: 'auth', event: 'auth_otp_verify_error' });
         jsonResponse(res, { error: 'Verification failed' }, 500);
     }
     return true;
@@ -651,10 +660,9 @@ async function handleResendConfirmation(req, res, supabase) {
         });
         
         if (!emailResult.success) {
-            console.error('[Auth] Failed to send confirmation email:', emailResult.error);
+            log.warn({ event: 'auth_confirmation_email_failed', reason: emailResult.error }, 'Failed to send confirmation email');
         }
         
-        // Always return success
         jsonResponse(res, { 
             success: true,
             message: 'If an account exists with this email, a confirmation code has been sent.',
@@ -662,7 +670,7 @@ async function handleResendConfirmation(req, res, supabase) {
         });
         
     } catch (err) {
-        console.error('[Auth] Resend confirmation error:', err.message);
+        logError(err, { module: 'auth', event: 'auth_resend_confirmation_error' });
         jsonResponse(res, { error: 'Failed to process request' }, 500);
     }
     return true;
@@ -672,6 +680,7 @@ async function handleResendConfirmation(req, res, supabase) {
  * Handle GET /api/auth/confirm-email (redirect flow)
  */
 async function handleConfirmEmailGet(req, res, parsedUrl) {
+    const log = getLogger().child({ module: 'auth' });
     const code = parsedUrl.query.code;
     const email = parsedUrl.query.email;
     
@@ -721,7 +730,7 @@ async function handleConfirmEmailGet(req, res, parsedUrl) {
         res.end();
         
     } catch (err) {
-        console.error('[Auth] Email confirmation error:', err.message);
+        logError(err, { module: 'auth', event: 'auth_confirm_email_error' });
         res.writeHead(302, { 
             'Location': '/?auth=confirm-error&message=server-error' 
         });
@@ -783,7 +792,7 @@ async function handleConfirmEmailPost(req, res, supabase) {
         });
         
     } catch (err) {
-        console.error('[Auth] Email confirmation error:', err.message);
+        logError(err, { module: 'auth', event: 'auth_confirm_email_error' });
         jsonResponse(res, { error: 'Confirmation failed' }, 500);
     }
     return true;

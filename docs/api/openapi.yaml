@@ -39,6 +39,10 @@ tags:
     description: Audit log export (Enterprise)
   - name: Sync
     description: Graph synchronization status
+  - name: Companies
+    description: Company profiles, branding, and report templates (A4/PPT)
+  - name: System
+    description: System configuration (superadmin)
 
 components:
   securitySchemes:
@@ -291,6 +295,64 @@ components:
         error_count_24h:
           type: integer
 
+    BrandAssets:
+      type: object
+      properties:
+        primary_color:
+          type: string
+          nullable: true
+        secondary_color:
+          type: string
+          nullable: true
+        ai_context:
+          type: string
+          nullable: true
+        analyzed_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    Company:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        logo_url:
+          type: string
+          format: uri
+          nullable: true
+        website_url:
+          type: string
+          format: uri
+          nullable: true
+        linkedin_url:
+          type: string
+          format: uri
+          nullable: true
+        owner_id:
+          type: string
+          format: uuid
+        brand_assets:
+          $ref: '#/components/schemas/BrandAssets'
+        a4_template_html:
+          type: string
+          nullable: true
+        ppt_template_html:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
 paths:
   /auth/status:
     get:
@@ -454,6 +516,297 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/Project'
+
+  /companies:
+    get:
+      tags: [Companies]
+      summary: List companies for the current user
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of companies
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  companies:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Company'
+        '401':
+          description: Not authenticated
+    post:
+      tags: [Companies]
+      summary: Create a company
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                logo_url:
+                  type: string
+                  format: uri
+                website_url:
+                  type: string
+                  format: uri
+                linkedin_url:
+                  type: string
+                  format: uri
+      responses:
+        '200':
+          description: Company created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  company:
+                    $ref: '#/components/schemas/Company'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Not authenticated
+
+  /companies/{companyId}:
+    get:
+      tags: [Companies]
+      summary: Get company by ID
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: companyId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Company details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  company:
+                    $ref: '#/components/schemas/Company'
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+    put:
+      tags: [Companies]
+      summary: Update company
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: companyId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                logo_url:
+                  type: string
+                  format: uri
+                website_url:
+                  type: string
+                  format: uri
+                linkedin_url:
+                  type: string
+                  format: uri
+                brand_assets:
+                  $ref: '#/components/schemas/BrandAssets'
+      responses:
+        '200':
+          description: Company updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  company:
+                    $ref: '#/components/schemas/Company'
+        '403':
+          description: Only owner can update
+        '404':
+          description: Not found
+    delete:
+      tags: [Companies]
+      summary: Delete company
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: companyId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Company deleted
+        '403':
+          description: Only owner can delete
+        '404':
+          description: Not found
+
+  /companies/{companyId}/analyze:
+    post:
+      tags: [Companies]
+      summary: Run AI analysis (brand colors, context). Rate limited (e.g. 5 min per company).
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: companyId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Analysis complete; company updated with brand_assets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  company:
+                    $ref: '#/components/schemas/Company'
+        '429':
+          description: Rate limited
+        '403':
+          description: Only owner can run analysis
+
+  /companies/{companyId}/templates/{type}:
+    get:
+      tags: [Companies]
+      summary: Get company template HTML (a4 or ppt)
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: companyId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: type
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [a4, ppt]
+      responses:
+        '200':
+          description: Template HTML
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  html:
+                    type: string
+        '403':
+          description: Forbidden
+    put:
+      tags: [Companies]
+      summary: Update company template HTML
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: companyId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: type
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [a4, ppt]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                html:
+                  type: string
+      responses:
+        '200':
+          description: Template updated
+        '403':
+          description: Only owner can update
+
+  /companies/{companyId}/templates/generate:
+    post:
+      tags: [Companies]
+      summary: Generate template base with AI (a4 or ppt)
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: companyId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type:
+                  type: string
+                  enum: [a4, ppt]
+      responses:
+        '200':
+          description: Generated HTML saved and returned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  html:
+                    type: string
+                  company:
+                    $ref: '#/components/schemas/Company'
+        '403':
+          description: Only owner can generate
 
   /projects:
     get:
@@ -915,3 +1268,75 @@ paths:
       responses:
         '200':
           description: Sync stats
+
+  /system/google-drive:
+    get:
+      tags: [System]
+      summary: Get Google Drive config state (superadmin)
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Config state without secrets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                  rootFolderId:
+                    type: string
+                  hasSystemCredentials:
+                    type: boolean
+                  bootstrappedAt:
+                    type: string
+                    nullable: true
+    post:
+      tags: [System]
+      summary: Save Google Drive config (superadmin)
+      security:
+        - BearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+                rootFolderId:
+                  type: string
+                serviceAccountJson:
+                  type: string
+                  description: Full service account JSON (optional, to set or replace)
+      responses:
+        '200':
+          description: Saved
+
+  /system/google-drive/bootstrap-all:
+    post:
+      tags: [System]
+      summary: Bootstrap Google Drive folders for all projects (superadmin)
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Bootstrap result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  projectsCount:
+                    type: integer
+                  bootstrappedAt:
+                    type: string
+                  errors:
+                    type: array
+                    items:
+                      type: string

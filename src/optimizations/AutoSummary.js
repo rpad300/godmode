@@ -4,13 +4,14 @@
  */
 
 const llm = require('../llm');
+const llmConfig = require('../llm/config');
 
 class AutoSummary {
     constructor(options = {}) {
-        // No hardcoded defaults - must come from admin config
         this.llmProvider = options.llmProvider || null;
         this.llmModel = options.llmModel || null;
         this.llmConfig = options.llmConfig || {};
+        this.appConfig = options.appConfig || null;
         this.graphProvider = options.graphProvider;
         this.storage = options.storage;
     }
@@ -46,10 +47,15 @@ Generate a structured summary with these sections:
 Keep it concise but informative. Use bullet points where appropriate.`;
 
         try {
+            const textCfg = this.appConfig ? llmConfig.getTextConfig(this.appConfig) : null;
+            const provider = textCfg?.provider ?? this.llmProvider;
+            const model = textCfg?.model ?? this.llmModel;
+            const providerConfig = textCfg?.providerConfig ?? this.llmConfig?.providers?.[provider] ?? {};
+            if (!provider || !model) return { error: 'No LLM configured' };
             const result = await llm.generateText({
-                provider: this.llmProvider,
-                providerConfig: this.llmConfig?.providers?.[this.llmProvider] || {},
-                model: this.llmModel,
+                provider,
+                providerConfig,
+                model,
                 prompt,
                 temperature: 0.3,
                 maxTokens: 1500
@@ -217,10 +223,15 @@ Relationships: ${JSON.stringify(entity.relationships || [])}
 
 Provide a brief 2-3 sentence summary of who/what this is and their role in the project.`;
 
+            const textCfg = this.appConfig ? llmConfig.getTextConfig(this.appConfig) : null;
+            const provider = textCfg?.provider ?? this.llmProvider;
+            const model = textCfg?.model ?? this.llmModel;
+            const providerConfig = textCfg?.providerConfig ?? this.llmConfig?.providers?.[provider] ?? {};
+            if (!provider || !model) return { error: 'No LLM configured' };
             const llmResult = await llm.generateText({
-                provider: this.llmProvider,
-                providerConfig: this.llmConfig?.providers?.[this.llmProvider] || {},
-                model: this.llmModel,
+                provider,
+                providerConfig,
+                model,
                 prompt,
                 temperature: 0.3,
                 maxTokens: 300

@@ -37,6 +37,11 @@
   background: rgba(26, 26, 46, 0.95);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  transition: background 0.2s ease;
+}
+
+.landing-header.landing-header-scrolled {
+  background: rgba(26, 26, 46, 0.98);
   transition: background 0.3s ease;
 }
 

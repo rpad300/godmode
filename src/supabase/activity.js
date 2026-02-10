@@ -3,7 +3,10 @@
  * Append-only audit trail for project actions
  */
 
+const { logger } = require('../logger');
 const { getAdminClient, getClient } = require('./client');
+
+const log = logger.child({ module: 'activity' });
 
 /**
  * Action types for activity log
@@ -86,14 +89,14 @@ async function logActivity({ projectId, actorId, action, targetType, targetId, m
             .single();
         
         if (error) {
-            console.error('[Activity] Log error:', error.message);
+            log.error({ event: 'activity_log_error', reason: error.message }, 'Log error');
             return { success: false, error: error.message };
         }
         
         return { success: true, activity: data };
         
     } catch (err) {
-        console.error('[Activity] Log exception:', err.message);
+        log.error({ event: 'activity_log_exception', reason: err.message }, 'Log exception');
         return { success: false, error: err.message };
     }
 }
@@ -149,7 +152,7 @@ async function getProjectActivity(projectId, options = {}) {
         const { data, error, count } = await query;
         
         if (error) {
-            console.error('[Activity] Query error:', error.message);
+            log.error({ event: 'activity_query_error', reason: error.message }, 'Query error');
             return { success: false, error: error.message };
         }
         
@@ -176,7 +179,7 @@ async function getProjectActivity(projectId, options = {}) {
         };
         
     } catch (err) {
-        console.error('[Activity] Query exception:', err.message);
+        log.error({ event: 'activity_query_exception', reason: err.message }, 'Query exception');
         return { success: false, error: err.message };
     }
 }

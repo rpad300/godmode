@@ -11,8 +11,11 @@
  * - Automatic USD/EUR exchange rate support
  */
 
+const { logger } = require('../logger');
 const { getClient, getAdminClient } = require('./client');
 const notifications = require('./notifications');
+
+const log = logger.child({ module: 'billing' });
 
 // Exchange rate service (lazy loaded to avoid circular deps)
 let exchangeRateService = null;
@@ -21,7 +24,7 @@ function getExchangeRateService() {
         try {
             exchangeRateService = require('../services/exchange-rate');
         } catch (e) {
-            console.warn('[Billing] Exchange rate service not available:', e.message);
+            log.warn({ event: 'billing_exchange_rate_unavailable', reason: e.message }, 'Exchange rate service not available');
         }
     }
     return exchangeRateService;
@@ -54,7 +57,7 @@ async function checkProjectBalance(projectId, estimatedCostEur = 0) {
 
         if (!data || data.length === 0) {
             // Project not found, allow by default (will be logged)
-            console.warn(`[Billing] Project ${projectId} not found in balance check`);
+            log.warn({ event: 'billing_project_not_found', projectId }, 'Project not found in balance check');
             return { allowed: true, unlimited: true, balance_eur: 0, tokens_in_period: 0, current_markup_percent: 0 };
         }
 
@@ -69,7 +72,7 @@ async function checkProjectBalance(projectId, estimatedCostEur = 0) {
             current_markup_percent: parseFloat(result.current_markup_percent) || 0
         };
     } catch (error) {
-        console.error('[Billing] Error checking balance:', error.message);
+        log.warn({ event: 'billing_check_balance_error', reason: error.message }, 'Error checking balance');
         // On error, allow by default to avoid blocking legitimate requests
         return { allowed: true, unlimited: true, balance_eur: 0, tokens_in_period: 0, current_markup_percent: 0, error: error.message };
     }
@@ -106,7 +109,7 @@ async function debitProjectBalance(projectId, amountEur, llmRequestId = null, de
             reason: result.reason
         };
     } catch (error) {
-        console.error('[Billing] Error debiting balance:', error.message);
+        log.warn({ event: 'billing_debit_error', reason: error.message }, 'Error debiting balance');
         return { success: false, reason: error.message };
     }
 }
@@ -142,7 +145,7 @@ async function creditProjectBalance(projectId, amountEur, performedBy = null, de
             reason: result.reason
         };
     } catch (error) {
-        console.error('[Billing] Error crediting balance:', error.message);
+        log.warn({ event: 'billing_credit_error', reason: error.message }, 'Error crediting balance');
         return { success: false, reason: error.message };
     }
 }
@@ -170,7 +173,7 @@ async function setProjectUnlimited(projectId, unlimited, performedBy = null) {
         if (error) throw error;
         return data === true;
     } catch (error) {
-        console.error('[Billing] Error setting unlimited:', error.message);
+        log.error({ event: 'billing_set_unlimited_error', reason: error.message }, 'Error setting unlimited');
         return false;
     }
 }
@@ -189,7 +192,7 @@ async function getExchangeRate() {
         try {
             return await service.getUsdToEurRate();
         } catch (e) {
-            console.warn('[Billing] Exchange rate service error:', e.message);
+            log.warn({ event: 'billing_exchange_rate_error', reason: e.message }, 'Exchange rate service error');
         }
     }
     // Fallback
@@ -246,7 +249,7 @@ async function calculateBillableCost(projectId, providerCostUsd, totalTokens) {
             rate_source: exchangeRateResult.source
         };
     } catch (error) {
-        console.error('[Billing] Error calculating billable cost:', error.message);
+        log.warn({ event: 'billing_billable_cost_error', reason: error.message }, 'Error calculating billable cost');
         const providerEur = providerCostUsd * rate;
         return {
             provider_cost_eur: providerEur,
@@ -289,7 +292,7 @@ async function calculateAndRecordCost({
     );
     
     if (!debitResult.success && debitResult.reason !== 'Insufficient balance') {
-        console.warn('[Billing] Debit failed (non-blocking):', debitResult.reason);
+        log.warn({ event: 'billing_debit_failed_nonblocking', reason: debitResult.reason }, 'Debit failed (non-blocking)');
     }
     
     // Update period usage
@@ -340,7 +343,7 @@ async function updatePeriodUsage(projectId, inputTokens, outputTokens, providerC
         if (error) throw error;
         return data === true;
     } catch (error) {
-        console.error('[Billing] Error updating period usage:', error.message);
+        log.error({ event: 'billing_update_period_usage_error', reason: error.message }, 'Error updating period usage');
         return false;
     }
 }
@@ -381,7 +384,7 @@ async function notifyBalanceInsufficient(projectId, reason) {
             });
         }
     } catch (error) {
-        console.error('[Billing] Error sending insufficient balance notification:', error.message);
+        log.warn({ event: 'billing_insufficient_notification_error', reason: error.message }, 'Error sending insufficient balance notification');
     }
 }
 
@@ -435,7 +438,7 @@ async function checkAndNotifyLowBalance(projectId, thresholdPercent = 20) {
         // Mark as notified
         await client.rpc('mark_low_balance_notified', { p_project_id: projectId });
     } catch (error) {
-        console.error('[Billing] Error checking/sending low balance notification:', error.message);
+        log.warn({ event: 'billing_low_balance_notification_error', reason: error.message }, 'Error checking/sending low balance notification');
     }
 }
 
@@ -477,7 +480,7 @@ async function getProjectBillingSummary(projectId) {
             balance_percent_used: parseFloat(result.balance_percent_used) || 0
         };
     } catch (error) {
-        console.error('[Billing] Error getting billing summary:', error.message);
+        log.error({ event: 'billing_summary_error', reason: error.message }, 'Error getting billing summary');
         return null;
     }
 }
@@ -508,7 +511,7 @@ async function getAllProjectsBilling() {
             current_tier_name: row.current_tier_name
         }));
     } catch (error) {
-        console.error('[Billing] Error getting all projects billing:', error.message);
+        log.warn({ event: 'billing_all_projects_error', reason: error.message }, 'Error getting all projects billing');
         return [];
     }
 }
@@ -536,7 +539,7 @@ async function getBalanceTransactions(projectId, limit = 50) {
         if (error) throw error;
         return data || [];
     } catch (error) {
-        console.error('[Billing] Error getting balance transactions:', error.message);
+        log.warn({ event: 'billing_balance_transactions_error', reason: error.message }, 'Error getting balance transactions');
         return [];
     }
 }
@@ -566,7 +569,7 @@ async function getGlobalPricingConfig() {
         if (error && error.code !== 'PGRST116') throw error;
         return config;
     } catch (error) {
-        console.error('[Billing] Error getting global pricing config:', error.message);
+        log.warn({ event: 'billing_global_pricing_error', reason: error.message }, 'Error getting global pricing config');
         return null;
     }
 }
@@ -597,7 +600,7 @@ async function setGlobalPricingConfig({ fixedMarkupPercent, periodType, usdToEur
         if (error) throw error;
         return { success: true };
     } catch (error) {
-        console.error('[Billing] Error setting global pricing config:', error.message);
+        log.warn({ event: 'billing_set_global_pricing_error', reason: error.message }, 'Error setting global pricing config');
         return { success: false, error: error.message };
     }
 }
@@ -625,7 +628,7 @@ async function getProjectPricingOverride(projectId) {
         if (error && error.code !== 'PGRST116') throw error;
         return config;
     } catch (error) {
-        console.error('[Billing] Error getting project pricing override:', error.message);
+        log.warn({ event: 'billing_project_pricing_error', reason: error.message }, 'Error getting project pricing override');
         return null;
     }
 }
@@ -665,7 +668,7 @@ async function setProjectPricingOverride(projectId, { fixedMarkupPercent, period
         if (error) throw error;
         return { success: true, config_id: data?.id };
     } catch (error) {
-        console.error('[Billing] Error setting project pricing override:', error.message);
+        log.warn({ event: 'billing_set_project_pricing_error', reason: error.message }, 'Error setting project pricing override');
         return { success: false, error: error.message };
     }
 }
@@ -691,7 +694,7 @@ async function deleteProjectPricingOverride(projectId) {
         if (error) throw error;
         return true;
     } catch (error) {
-        console.error('[Billing] Error deleting project pricing override:', error.message);
+        log.warn({ event: 'billing_delete_project_pricing_error', reason: error.message }, 'Error deleting project pricing override');
         return false;
     }
 }
@@ -721,7 +724,7 @@ async function getPricingTiers(configId) {
         if (error) throw error;
         return data || [];
     } catch (error) {
-        console.error('[Billing] Error getting pricing tiers:', error.message);
+        log.warn({ event: 'billing_pricing_tiers_error', reason: error.message }, 'Error getting pricing tiers');
         return [];
     }
 }
@@ -764,7 +767,7 @@ async function setPricingTiers(configId, tiers) {
 
         return { success: true };
     } catch (error) {
-        console.error('[Billing] Error setting pricing tiers:', error.message);
+        log.warn({ event: 'billing_set_pricing_tiers_error', reason: error.message }, 'Error setting pricing tiers');
         return { success: false, error: error.message };
     }
 }

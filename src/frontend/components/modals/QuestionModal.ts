@@ -148,7 +148,7 @@ function renderCreateForm(container: HTMLElement): void {
         <label for="question-content">Question <span class="required">*</span></label>
         <textarea id="question-content" rows="3" required minlength="5"
                   placeholder="What needs to be clarified? (min 5 characters)"></textarea>
-        <div id="duplicate-warning" class="form-warning" style="display: none;"></div>
+        <div id="duplicate-warning" class="form-warning hidden"></div>
       </div>
       
       <div class="form-group">
@@ -177,7 +177,7 @@ function renderCreateForm(container: HTMLElement): void {
         </div>
       </div>
       
-      <div id="suggestions-container" class="suggestions-container" style="display: none;"></div>
+      <div id="suggestions-container" class="suggestions-container hidden"></div>
     </form>
   `;
 
@@ -317,7 +317,7 @@ async function loadAssigneeSuggestions(container: HTMLElement): Promise<void> {
 
   suggestBtn.disabled = true;
   suggestBtn.textContent = 'Loading...';
-  suggestionsContainer.style.display = 'block';
+  suggestionsContainer.classList.remove('hidden');
   suggestionsContainer.innerHTML = '<div class="loading">Getting AI suggestions...</div>';
 
   try {
@@ -351,7 +351,7 @@ async function loadAssigneeSuggestions(container: HTMLElement): Promise<void> {
             if (assigneeInput) {
               assigneeInput.value = suggestion.person;
             }
-            suggestionsContainer.style.display = 'none';
+            suggestionsContainer.classList.add('hidden');
             toast.success(`Selected: ${suggestion.person}`);
           }
         });
@@ -396,7 +396,7 @@ async function handleCreate(
     if (result.duplicate) {
       const warning = container.querySelector('#duplicate-warning') as HTMLElement;
       if (warning) {
-        warning.style.display = 'block';
+        warning.classList.remove('hidden');
         warning.innerHTML = `⚠️ Similar question exists (${result.similarity}% match). <a href="#" id="view-duplicate">View existing</a>`;
       }
       return;

@@ -125,11 +125,11 @@ function renderLoginForm(container: HTMLElement): void {
         <label for="login-password">Password</label>
         <input type="password" id="login-password" required autocomplete="current-password" placeholder="••••••••••••">
       </div>
-      <div class="form-error" id="login-error" style="display: none;"></div>
+      <div class="form-error hidden" id="login-error"></div>
       <div class="form-group">
         <button type="submit" class="btn btn-primary btn-block">
           <span class="btn-text">Sign In</span>
-          <span class="btn-loading" style="display: none;">Signing in...</span>
+          <span class="btn-loading hidden">Signing in...</span>
         </button>
       </div>
       <div class="auth-divider">
@@ -187,11 +187,11 @@ function renderRegisterForm(container: HTMLElement): void {
         <label for="register-confirm">Confirm Password <span class="required">*</span></label>
         <input type="password" id="register-confirm" required autocomplete="new-password" placeholder="••••••••••••">
       </div>
-      <div class="form-error" id="register-error" style="display: none;"></div>
+      <div class="form-error hidden" id="register-error"></div>
       <div class="form-group">
         <button type="submit" class="btn btn-primary btn-block">
           <span class="btn-text">Create Account</span>
-          <span class="btn-loading" style="display: none;">Creating account...</span>
+          <span class="btn-loading hidden">Creating account...</span>
         </button>
       </div>
       <div class="auth-links">
@@ -229,11 +229,11 @@ function renderForgotForm(container: HTMLElement): void {
         <label for="forgot-email">Email</label>
         <input type="email" id="forgot-email" required autocomplete="email" placeholder="your@email.com">
       </div>
-      <div class="form-error" id="forgot-error" style="display: none;"></div>
+      <div class="form-error hidden" id="forgot-error"></div>
       <div class="form-group">
         <button type="submit" class="btn btn-primary btn-block">
           <span class="btn-text">Send Reset Link</span>
-          <span class="btn-loading" style="display: none;">Sending...</span>
+          <span class="btn-loading hidden">Sending...</span>
         </button>
       </div>
       <div class="auth-links">
@@ -270,11 +270,11 @@ function renderResetForm(container: HTMLElement): void {
         <label for="reset-confirm">Confirm Password</label>
         <input type="password" id="reset-confirm" required autocomplete="new-password" placeholder="••••••••••••">
       </div>
-      <div class="form-error" id="reset-error" style="display: none;"></div>
+      <div class="form-error hidden" id="reset-error"></div>
       <div class="form-group">
         <button type="submit" class="btn btn-primary btn-block">
           <span class="btn-text">Reset Password</span>
-          <span class="btn-loading" style="display: none;">Resetting...</span>
+          <span class="btn-loading hidden">Resetting...</span>
         </button>
       </div>
     </form>
@@ -307,11 +307,11 @@ function renderOTPRequestForm(container: HTMLElement): void {
         <label for="otp-email">Email</label>
         <input type="email" id="otp-email" required autocomplete="email" placeholder="your@email.com" value="${otpEmail}">
       </div>
-      <div class="form-error" id="otp-request-error" style="display: none;"></div>
+      <div class="form-error hidden" id="otp-request-error"></div>
       <div class="form-group">
         <button type="submit" class="btn btn-primary btn-block">
           <span class="btn-text">Send Code</span>
-          <span class="btn-loading" style="display: none;">Sending...</span>
+          <span class="btn-loading hidden">Sending...</span>
         </button>
       </div>
       <div class="auth-links">
@@ -356,11 +356,11 @@ function renderOTPVerifyForm(container: HTMLElement): void {
         </div>
         <input type="hidden" id="otp-code" name="code">
       </div>
-      <div class="form-error" id="otp-verify-error" style="display: none;"></div>
+      <div class="form-error hidden" id="otp-verify-error"></div>
       <div class="form-group">
         <button type="submit" class="btn btn-primary btn-block" id="otp-verify-btn" disabled>
           <span class="btn-text">Verify Code</span>
-          <span class="btn-loading" style="display: none;">Verifying...</span>
+          <span class="btn-loading hidden">Verifying...</span>
         </button>
       </div>
       <div class="otp-resend">
@@ -430,11 +430,11 @@ function renderEmailConfirmForm(container: HTMLElement): void {
         </div>
         <input type="hidden" id="confirm-code" name="code">
       </div>
-      <div class="form-error" id="email-confirm-error" style="display: none;"></div>
+      <div class="form-error hidden" id="email-confirm-error"></div>
       <div class="form-group">
         <button type="submit" class="btn btn-primary btn-block" id="confirm-btn" disabled>
           <span class="btn-text">Confirm Email</span>
-          <span class="btn-loading" style="display: none;">Confirming...</span>
+          <span class="btn-loading hidden">Confirming...</span>
         </button>
       </div>
       <div class="auth-links">
@@ -938,8 +938,8 @@ function setFormLoading(form: HTMLFormElement, loading: boolean): void {
   inputs.forEach(input => input.disabled = loading);
   
   if (btnText && btnLoading) {
-    btnText.style.display = loading ? 'none' : '';
-    btnLoading.style.display = loading ? '' : 'none';
+    btnText.classList.toggle('hidden', !!loading);
+    btnLoading.classList.toggle('hidden', !loading);
   }
 }
 
@@ -948,14 +948,14 @@ function setFormLoading(form: HTMLFormElement, loading: boolean): void {
  */
 function showError(errorEl: HTMLElement, message: string): void {
   errorEl.textContent = message;
-  errorEl.style.display = 'block';
+  errorEl.classList.remove('hidden');
 }
 
 /**
  * Hide error message
  */
 function hideError(errorEl: HTMLElement): void {
-  errorEl.style.display = 'none';
+  errorEl.classList.add('hidden');
   errorEl.textContent = '';
 }
 
@@ -971,7 +971,7 @@ function updatePasswordStrength(password: string, elementId = 'password-strength
   strengthEl.className = `password-strength strength-${strength.level}`;
   strengthEl.innerHTML = `
     <div class="strength-bar">
-      <div class="strength-fill" style="width: ${strength.score}%"></div>
+      <div class="strength-fill" style="--strength-width: ${strength.score}%"></div>
     </div>
     <span class="strength-label">${strength.label}</span>
   `;

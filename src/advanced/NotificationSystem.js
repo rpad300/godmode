@@ -7,6 +7,9 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 const http = require('http');
+const { logger } = require('../logger');
+
+const log = logger.child({ module: 'notifications' });
 
 class NotificationSystem {
     constructor(options = {}) {
@@ -60,7 +63,7 @@ class NotificationSystem {
             }
             fs.writeFileSync(this.configFile, JSON.stringify(this.config, null, 2));
         } catch (e) {
-            console.log(`[Notifications] Save config warning: ${e.message}`);
+            log.warn({ event: 'notifications_save_config_warning', reason: e.message }, 'Save config warning');
         }
     }
 
@@ -133,7 +136,7 @@ class NotificationSystem {
         }
         this.saveHistory();
 
-        console.log(`[Notifications] Sent: ${event} (${priority}) -> ${channels.join(', ')}`);
+        log.debug({ event: 'notifications_sent', notificationEvent: event, priority, channels }, 'Sent notification');
         return notification;
     }
 
@@ -229,7 +232,7 @@ class NotificationSystem {
 
         // Email sending would require nodemailer or similar
         // For now, just log
-        console.log(`[Notifications] Would send email: ${notification.title}`);
+        log.debug({ event: 'notifications_email_stub', title: notification.title }, 'Would send email');
         return { sent: false, reason: 'Email not implemented - use webhook instead' };
     }
 

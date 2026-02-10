@@ -6,6 +6,9 @@
 
 const EventEmitter = require('events');
 const { calculateCost } = require('./modelMetadata');
+const { logger: rootLogger } = require('../logger');
+
+const log = rootLogger.child({ module: 'llm-queue' });
 
 // Priority levels
 const PRIORITY = {
@@ -109,8 +112,7 @@ class LLMQueueManager extends EventEmitter {
         
         // Initialize database connection
         this.initDatabase();
-        
-        console.log('[LLMQueue] Queue manager initialized (parallel processing enabled)');
+        log.info({ event: 'llm_queue_initialized' }, 'Queue manager initialized (parallel processing enabled)');
     }
     
     /**
@@ -203,15 +205,15 @@ class LLMQueueManager extends EventEmitter {
             
             if (client) {
                 this.dbEnabled = true;
-                console.log('[LLMQueue] Database persistence enabled');
+                log.info({ event: 'llm_queue_db_enabled' }, 'Database persistence enabled');
                 
                 // Start retry processor
                 this.startRetryProcessor();
             } else {
-                console.log('[LLMQueue] Database not configured (missing service_role key), using in-memory only');
+                log.debug({ event: 'llm_queue_db_disabled' }, 'Database not configured, using in-memory only');
             }
         } catch (error) {
-            console.warn('[LLMQueue] Failed to initialize database:', error.message);
+            log.warn({ event: 'llm_queue_db_init_failed', reason: error.message }, 'Failed to initialize database');
             this.dbEnabled = false;
         }
     }
@@ -232,16 +234,16 @@ class LLMQueueManager extends EventEmitter {
                 // Check for items ready to retry
                 const result = await this.dbQueue.claimNextRequest();
                 if (result.success && result.request) {
-                    console.log(`[LLMQueue] Found retry-pending item: ${result.request.id}`);
+                    log.debug({ event: 'llm_queue_retry_found', requestId: result.request.id }, 'Found retry-pending item');
                     // Process will be handled by the claim - just trigger processNext
                     this.processRetryItem(result.request);
                 }
             } catch (error) {
-                console.warn('[LLMQueue] Retry processor error:', error.message);
+                log.warn({ event: 'llm_queue_retry_processor_error', reason: error.message }, 'Retry processor error');
             }
         }, this.config.retryCheckInterval);
         
-        console.log('[LLMQueue] Retry processor started');
+        log.info({ event: 'llm_queue_retry_started' }, 'Retry processor started');
     }
     
     /**
@@ -258,7 +260,7 @@ class LLMQueueManager extends EventEmitter {
                 providerConfig = cfg.getProviderConfig(dbRequest.provider) || {};
             }
         } catch (err) {
-            console.warn('[LLMQueue] Could not get provider config for retry:', err.message);
+            log.warn({ event: 'llm_queue_retry_config_failed', reason: err.message }, 'Could not get provider config for retry');
         }
         
         const request = {
@@ -368,7 +370,7 @@ class LLMQueueManager extends EventEmitter {
                         dbId = result.id;
                     }
                 } catch (error) {
-                    console.warn('[LLMQueue] Failed to persist to database:', error.message);
+                    log.warn({ event: 'llm_queue_persist_failed', reason: error.message }, 'Failed to persist to database');
                     // Continue without database persistence
                 }
             }
@@ -392,7 +394,7 @@ class LLMQueueManager extends EventEmitter {
             
             // Log
             const context = request.context || 'unknown';
-            console.log(`[LLMQueue] Enqueued: ${id} (${context}) | Priority: ${priority} | Queue size: ${this.queue.length} | DB: ${dbId ? 'yes' : 'no'}`);
+            log.debug({ event: 'llm_queue_enqueued', id, context, priority, queueSize: this.queue.length, db: !!dbId }, 'Enqueued');
             
             this.emit('enqueue', { id, dbId, priority, queueSize: this.queue.length });
             
@@ -467,12 +469,12 @@ class LLMQueueManager extends EventEmitter {
         // Log parallel processing
         if (itemsToProcess.length > 1) {
             const keys = itemsToProcess.map(({ key }) => key).join(', ');
-            console.log(`[LLMQueue] Processing ${itemsToProcess.length} requests in parallel | Keys: ${keys}`);
+            log.debug({ event: 'llm_queue_parallel_start', count: itemsToProcess.length, keys }, 'Processing in parallel');
         }
         
         // Don't await - let them run in parallel
         Promise.all(processingPromises).catch(err => {
-            console.error('[LLMQueue] Parallel processing error:', err);
+            log.warn({ event: 'llm_queue_parallel_error', reason: err?.message }, 'Parallel processing error');
         });
     }
     
@@ -494,7 +496,7 @@ class LLMQueueManager extends EventEmitter {
         const context = item.request.context || 'unknown';
         const activeCount = this.getTotalProcessing();
         
-        console.log(`[LLMQueue] Processing: ${item.id} (${context}) | Key: ${key} | Active: ${activeCount} | Waited: ${waitTime}ms | Remaining: ${this.queue.length}`);
+        log.debug({ event: 'llm_queue_processing', id: item.id, context, key, activeCount, waitTimeMs: waitTime, remaining: this.queue.length }, 'Processing');
         
         this.emit('processing', { id: item.id, dbId: item.dbId, waitTime, queueSize: this.queue.length, concurrencyKey: key, activeCount });
         
@@ -509,7 +511,7 @@ class LLMQueueManager extends EventEmitter {
                     // Reject request due to insufficient balance
                     item.status = 'rejected';
                     
-                    console.log(`[LLMQueue] Blocked by balance: ${item.id} | Project: ${projectId} | Reason: ${balanceCheck.reason}`);
+                    log.debug({ event: 'llm_queue_blocked_balance', id: item.id, projectId, reason: balanceCheck.reason }, 'Blocked by balance');
                     
                     // Notify project admins
                     await billing.notifyBalanceInsufficient(projectId, balanceCheck.reason);
@@ -524,7 +526,7 @@ class LLMQueueManager extends EventEmitter {
                                 retry: false
                             });
                         } catch (dbError) {
-                            console.warn('[LLMQueue] Failed to update DB on balance rejection:', dbError.message);
+                            log.warn({ event: 'llm_queue_db_balance_reject_failed', reason: dbError.message }, 'Failed to update DB on balance rejection');
                         }
                     }
                     
@@ -538,7 +540,7 @@ class LLMQueueManager extends EventEmitter {
                 }
             } catch (balanceError) {
                 // On balance check error, log but continue (don't block)
-                console.warn('[LLMQueue] Balance check error (continuing):', balanceError.message);
+                log.warn({ event: 'llm_queue_balance_check_error', reason: balanceError.message }, 'Balance check error (continuing)');
             }
         }
         
@@ -559,7 +561,7 @@ class LLMQueueManager extends EventEmitter {
             const modelId = item.request?.model || 'unknown';
             const estimatedCost = calculateCost(modelId, inputTokens, outputTokens) || result.cost || 0;
             
-            console.log(`[LLMQueue] Completed: ${item.id} | Time: ${processingTime}ms | Tokens: ${inputTokens}/${outputTokens} | Cost: $${estimatedCost.toFixed(6)}`);
+            log.debug({ event: 'llm_queue_completed', id: item.id, processingTimeMs: processingTime, inputTokens, outputTokens, cost: estimatedCost }, 'Completed');
             
             // Track billable cost and debit balance (billing integration)
             let billingResult = null;
@@ -581,9 +583,9 @@ class LLMQueueManager extends EventEmitter {
                     // Check for low balance notification
                     await billing.checkAndNotifyLowBalance(projectId);
                     
-                    console.log(`[LLMQueue] Billing: ${item.id} | Provider: €${billingResult.provider_cost_eur?.toFixed(6)} | Billable: €${billingResult.billable_cost_eur?.toFixed(6)} | Markup: ${billingResult.markup_percent}%`);
+                    log.debug({ event: 'llm_queue_billing', id: item.id, providerCost: billingResult.provider_cost_eur, billableCost: billingResult.billable_cost_eur, markup: billingResult.markup_percent }, 'Billing');
                 } catch (billingError) {
-                    console.warn('[LLMQueue] Billing tracking error (non-blocking):', billingError.message);
+                    log.warn({ event: 'llm_queue_billing_error', reason: billingError.message }, 'Billing tracking error (non-blocking)');
                 }
             }
             
@@ -602,7 +604,7 @@ class LLMQueueManager extends EventEmitter {
                         estimatedCost: estimatedCost
                     });
                 } catch (dbError) {
-                    console.warn('[LLMQueue] Failed to update DB on complete:', dbError.message);
+                    log.warn({ event: 'llm_queue_db_complete_failed', reason: dbError.message }, 'Failed to update DB on complete');
                 }
             }
             
@@ -625,7 +627,7 @@ class LLMQueueManager extends EventEmitter {
                 item.status = 'pending';
                 this.stats.totalRetries++;
                 
-                console.log(`[LLMQueue] Rate limited: ${item.id} | Retry ${item.retries}/${item.maxRetries} in ${this.config.rateLimitDelay}ms`);
+                log.warn({ event: 'llm_queue_rate_limited', id: item.id, retries: item.retries, maxRetries: item.maxRetries, delayMs: this.config.rateLimitDelay }, 'Rate limited');
                 
                 // Update database for retry
                 if (this.dbEnabled && item.dbId) {
@@ -637,7 +639,7 @@ class LLMQueueManager extends EventEmitter {
                             retry: true
                         });
                     } catch (dbError) {
-                        console.warn('[LLMQueue] Failed to update DB on rate limit:', dbError.message);
+                        log.warn({ event: 'llm_queue_db_ratelimit_failed', reason: dbError.message }, 'Failed to update DB on rate limit');
                     }
                 }
                 
@@ -652,9 +654,7 @@ class LLMQueueManager extends EventEmitter {
                 item.retries++;
                 item.status = 'pending';
                 this.stats.totalRetries++;
-                
-                console.log(`[LLMQueue] Timeout: ${item.id} | Retry ${item.retries}/${item.maxRetries}`);
-                
+                log.warn({ event: 'llm_queue_timeout', id: item.id, retries: item.retries, maxRetries: item.maxRetries }, 'Timeout');
                 this.queue.unshift(item);
                 
             } else {
@@ -662,7 +662,7 @@ class LLMQueueManager extends EventEmitter {
                 item.status = 'failed';
                 this.stats.totalFailed++;
                 
-                console.error(`[LLMQueue] Failed: ${item.id} | Error: ${error.message}`);
+                log.warn({ event: 'llm_queue_failed', id: item.id, reason: error.message }, 'Request failed');
                 
                 // Update database
                 if (this.dbEnabled && item.dbId) {
@@ -675,7 +675,7 @@ class LLMQueueManager extends EventEmitter {
                             retry: false
                         });
                     } catch (dbError) {
-                        console.warn('[LLMQueue] Failed to update DB on failure:', dbError.message);
+                        log.warn({ event: 'llm_queue_db_failure_failed', reason: dbError.message }, 'Failed to update DB on failure');
                     }
                 }
                 
@@ -830,7 +830,7 @@ class LLMQueueManager extends EventEmitter {
                     memoryStatus.stats.dbTotalCostToday = dbStatus.status.totalCostTodayUsd;
                 }
             } catch (error) {
-                console.warn('[LLMQueue] Failed to get database status:', error.message);
+                log.warn({ event: 'llm_queue_db_status_failed', reason: error.message }, 'Failed to get database status');
             }
         }
         
@@ -848,7 +848,7 @@ class LLMQueueManager extends EventEmitter {
                     return result.history;
                 }
             } catch (error) {
-                console.warn('[LLMQueue] Failed to get database history:', error.message);
+                log.warn({ event: 'llm_queue_db_history_failed', reason: error.message }, 'Failed to get database history');
             }
         }
         
@@ -882,10 +882,9 @@ class LLMQueueManager extends EventEmitter {
                     return [...memoryPending, ...dbPending];
                 }
             } catch (error) {
-                console.warn('[LLMQueue] Failed to get database pending items:', error.message);
+                log.warn({ event: 'llm_queue_db_pending_failed', reason: error.message }, 'Failed to get database pending items');
             }
         }
-        
         return memoryPending;
     }
     
@@ -901,7 +900,7 @@ class LLMQueueManager extends EventEmitter {
             const result = await this.dbQueue.getRetryableRequests(projectId, limit);
             return result.success ? result.items : [];
         } catch (error) {
-            console.warn('[LLMQueue] Failed to get retryable items:', error.message);
+            log.warn({ event: 'llm_queue_retryable_failed', reason: error.message }, 'Failed to get retryable items');
             return [];
         }
     }
@@ -917,7 +916,7 @@ class LLMQueueManager extends EventEmitter {
         try {
             const result = await this.dbQueue.retryRequest(requestId, resetAttempts);
             if (result.success) {
-                console.log(`[LLMQueue] Queued retry for request: ${requestId}`);
+                log.debug({ event: 'llm_queue_retry_queued', requestId }, 'Queued retry for request');
             }
             return result;
         } catch (error) {
@@ -937,7 +936,7 @@ class LLMQueueManager extends EventEmitter {
             const result = await this.dbQueue.getStatsByContext(projectId);
             return result.success ? result.stats : [];
         } catch (error) {
-            console.warn('[LLMQueue] Failed to get stats by context:', error.message);
+            log.warn({ event: 'llm_queue_stats_context_failed', reason: error.message }, 'Failed to get stats by context');
             return [];
         }
     }
@@ -947,7 +946,7 @@ class LLMQueueManager extends EventEmitter {
      */
     pause() {
         this.isPaused = true;
-        console.log('[LLMQueue] Queue paused');
+        log.info({ event: 'llm_queue_paused' }, 'Queue paused');
         this.emit('paused');
     }
     
@@ -956,7 +955,7 @@ class LLMQueueManager extends EventEmitter {
      */
     resume() {
         this.isPaused = false;
-        console.log('[LLMQueue] Queue resumed');
+        log.info({ event: 'llm_queue_resumed' }, 'Queue resumed');
         this.emit('resumed');
         this.processNext();
     }
@@ -978,17 +977,15 @@ class LLMQueueManager extends EventEmitter {
             item.status = 'cancelled';
             this.stats.totalCancelled++;
             item.reject(new Error('Request cancelled'));
-            
             // Cancel in database too
             if (this.dbEnabled && item.dbId) {
                 try {
                     await this.dbQueue.cancelRequest(item.dbId);
                 } catch (error) {
-                    console.warn('[LLMQueue] Failed to cancel in database:', error.message);
+                    log.warn({ event: 'llm_queue_cancel_db_failed', reason: error.message }, 'Failed to cancel in database');
                 }
             }
-            
-            console.log(`[LLMQueue] Cancelled: ${requestId}`);
+            log.debug({ event: 'llm_queue_cancelled', requestId }, 'Cancelled');
             this.emit('cancelled', { id: requestId, dbId: item.dbId });
             return true;
         }
@@ -998,12 +995,12 @@ class LLMQueueManager extends EventEmitter {
             try {
                 const result = await this.dbQueue.cancelRequest(requestId);
                 if (result.success) {
-                    console.log(`[LLMQueue] Cancelled in database: ${requestId}`);
+                    log.debug({ event: 'llm_queue_cancelled_db', requestId }, 'Cancelled in database');
                     this.emit('cancelled', { id: requestId, dbId: requestId });
                     return true;
                 }
             } catch (error) {
-                console.warn('[LLMQueue] Failed to cancel in database:', error.message);
+                log.warn({ event: 'llm_queue_cancel_db_failed', reason: error.message }, 'Failed to cancel in database');
             }
         }
         
@@ -1040,12 +1037,12 @@ class LLMQueueManager extends EventEmitter {
                     dbCount = result.cleared || 0;
                 }
             } catch (error) {
-                console.warn('[LLMQueue] Failed to clear database queue:', error.message);
+                log.warn({ event: 'llm_queue_clear_db_failed', reason: error.message }, 'Failed to clear database queue');
             }
         }
         
         const totalCleared = memoryCount + dbCount;
-        console.log(`[LLMQueue] Cleared ${totalCleared} pending requests (memory: ${memoryCount}, db: ${dbCount})`);
+        log.info({ event: 'llm_queue_cleared', totalCleared, memoryCount, dbCount }, 'Cleared pending requests');
         this.emit('cleared', { count: totalCleared, memoryCount, dbCount });
         return totalCleared;
     }
@@ -1055,7 +1052,7 @@ class LLMQueueManager extends EventEmitter {
      */
     configure(options) {
         Object.assign(this.config, options);
-        console.log('[LLMQueue] Configuration updated:', this.config);
+        log.debug({ event: 'llm_queue_config_updated', config: this.config }, 'Configuration updated');
     }
 }
 

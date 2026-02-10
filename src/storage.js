@@ -6,6 +6,9 @@
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const { logger } = require('./logger');
+
+const log = logger.child({ module: 'storage' });
 
 class Storage {
     constructor(dataDir) {
@@ -62,7 +65,7 @@ class Storage {
             try {
                 this.projectsData = JSON.parse(fs.readFileSync(this.projectsPath, 'utf8'));
             } catch (e) {
-                console.error('Error loading projects:', e.message);
+                log.warn({ event: 'storage_load_projects_error', reason: e.message }, 'Error loading projects');
                 this.projectsData = null;
             }
         }
@@ -124,7 +127,7 @@ class Storage {
 
         this.saveProjects();
 
-        console.log(`Project created: ${name} (${id})`);
+        log.debug({ event: 'storage_project_created', name, id }, 'Project created');
         return project;
     }
 
@@ -179,7 +182,7 @@ class Storage {
         
         this.projectsData.defaultProjectId = projectId;
         this.saveProjects();
-        console.log(`[Storage] Default project set to: ${project.name} (${projectId})`);
+        log.debug({ event: 'storage_default_project', projectName: project.name, projectId }, 'Default project set');
     }
 
     /**
@@ -240,7 +243,7 @@ class Storage {
         this.currentProjectId = projectId;
         this.loadProjectData();
 
-        console.log(`Switched to project: ${project.name} (${projectId})`);
+        log.debug({ event: 'storage_switched_project', projectName: project.name, projectId }, 'Switched to project');
         return project;
     }
 
@@ -296,7 +299,7 @@ class Storage {
         }
 
         this.saveProjects();
-        console.log(`Project deleted: ${project.name} (${projectId})`);
+        log.debug({ event: 'storage_project_deleted', projectName: project.name, projectId }, 'Project deleted');
         return true;
     }
 
@@ -387,7 +390,7 @@ class Storage {
         this.migrateQuestionAssigneesToPeople();
 
         const project = this.getCurrentProject();
-        console.log(`Storage initialized: Project "${project?.name}" - ${this.knowledge.facts.length} facts, ${this.questions.items.length} questions, ${this.documents.items.length} documents`);
+        log.debug({ event: 'storage_initialized', projectName: project?.name, facts: this.knowledge.facts.length, questions: this.questions.items.length, documents: this.documents.items.length }, 'Storage initialized');
     }
 
     /**
@@ -409,7 +412,7 @@ class Storage {
      * Migrate legacy single-project data to multi-project structure
      */
     migrateToMultiProject() {
-        console.log('Migrating from single-project to multi-project structure...');
+        log.debug({ event: 'storage_migration_start' }, 'Migrating from single-project to multi-project structure');
 
         // Create the default project
         const project = this.createProject('Default Project');
@@ -432,7 +435,7 @@ class Storage {
             if (fs.existsSync(oldPath)) {
                 fs.copyFileSync(oldPath, newPath);
                 fs.unlinkSync(oldPath);
-                console.log(`Migrated: ${filename}`);
+                log.debug({ event: 'storage_migrated_file', filename }, 'Migrated');
             }
         }
 
@@ -476,7 +479,7 @@ class Storage {
             }
         }
 
-        console.log('Migration complete!');
+        log.debug({ event: 'storage_migration_complete' }, 'Migration complete');
     }
 
     /**
@@ -505,7 +508,7 @@ class Storage {
      */
     loadProjectData() {
         if (!this.currentProjectId) {
-            console.warn('No current project set');
+            log.warn({ event: 'storage_no_current_project' }, 'No current project set');
             return;
         }
 
@@ -585,7 +588,7 @@ class Storage {
         
         if (synced > 0) {
             this.saveHistory();
-            console.log(`Synced ${synced} missing file logs from documents`);
+            log.debug({ event: 'storage_synced_file_logs', synced }, 'Synced missing file logs from documents');
         }
     }
 
@@ -615,14 +618,14 @@ class Storage {
                         created_at: new Date().toISOString()
                     });
                     added++;
-                    console.log(`Migrated question assignee to People: ${assigneeName}`);
+                    log.debug({ event: 'storage_migrated_assignee', assigneeName }, 'Migrated question assignee to People');
                 }
             }
         }
 
         if (added > 0) {
             this.saveKnowledge();
-            console.log(`Migrated ${added} question assignees to People list`);
+            log.debug({ event: 'storage_migrated_assignees', added }, 'Migrated question assignees to People list');
         }
     }
 
@@ -686,7 +689,7 @@ class Storage {
             try {
                 return JSON.parse(fs.readFileSync(filePath, 'utf8'));
             } catch (e) {
-                console.error(`Error loading ${filePath}:`, e.message);
+                log.warn({ event: 'storage_load_file_error', filePath, reason: e.message }, 'Error loading file');
             }
         }
         return defaultValue;
@@ -805,7 +808,7 @@ class Storage {
             const content = fs.readFileSync(filePath);
             return crypto.createHash('md5').update(content).digest('hex');
         } catch (e) {
-            console.warn(`[Hash] Could not calculate hash for ${filePath}: ${e.message}`);
+            log.warn({ event: 'storage_hash_error', filePath, reason: e.message }, 'Could not calculate hash');
             return null;
         }
     }
@@ -824,7 +827,7 @@ class Storage {
                     d.status === 'processed'
                 );
                 if (existingByHash) {
-                    console.log(`[Duplicate] Found by hash: ${filename} matches existing "${existingByHash.name || existingByHash.filename}"`);
+                    log.debug({ event: 'storage_duplicate_hash', filename, existing: existingByHash.name || existingByHash.filename }, 'Found by hash');
                     return { 
                         exists: true, 
                         document: existingByHash, 
@@ -851,7 +854,7 @@ class Storage {
         );
         
         if (existing) {
-            console.log(`[Duplicate] Found by name+size: ${filename}`);
+            log.debug({ event: 'storage_duplicate_name_size', filename }, 'Found by name+size');
         }
         
         return { 
@@ -993,7 +996,7 @@ class Storage {
             results.document = { id: doc.id, name: doc.name || doc.filename };
             const docName = (doc.name || doc.filename || '').replace(/\.[^/.]+$/, '').toLowerCase();
             
-            console.log(`[DeleteDocument] Starting cascade delete for: ${doc.name || doc.filename}`);
+            log.debug({ event: 'storage_cascade_delete_start', docName: doc.name || doc.filename }, 'Starting cascade delete');
             
             // 1. Delete related facts
             const factsToDelete = this.knowledge.facts.filter(f => {
@@ -1004,7 +1007,7 @@ class Storage {
                 const factIds = new Set(factsToDelete.map(f => f.id));
                 this.knowledge.facts = this.knowledge.facts.filter(f => !factIds.has(f.id));
                 results.deleted.facts = factsToDelete.length;
-                console.log(`[DeleteDocument] Removed ${factsToDelete.length} facts`);
+                log.debug({ event: 'storage_cascade_facts', count: factsToDelete.length }, 'Removed facts');
             }
             
             // 2. Delete related decisions
@@ -1016,7 +1019,7 @@ class Storage {
                 const decisionIds = new Set(decisionsToDelete.map(d => d.id));
                 this.knowledge.decisions = this.knowledge.decisions.filter(d => !decisionIds.has(d.id));
                 results.deleted.decisions = decisionsToDelete.length;
-                console.log(`[DeleteDocument] Removed ${decisionsToDelete.length} decisions`);
+                log.debug({ event: 'storage_cascade_decisions', count: decisionsToDelete.length }, 'Removed decisions');
             }
             
             // 3. Delete related risks
@@ -1028,7 +1031,7 @@ class Storage {
                 const riskIds = new Set(risksToDelete.map(r => r.id));
                 this.knowledge.risks = this.knowledge.risks.filter(r => !riskIds.has(r.id));
                 results.deleted.risks = risksToDelete.length;
-                console.log(`[DeleteDocument] Removed ${risksToDelete.length} risks`);
+                log.debug({ event: 'storage_cascade_risks', count: risksToDelete.length }, 'Removed risks');
             }
             
             // 4. Delete related action items
@@ -1040,7 +1043,7 @@ class Storage {
                 const actionIds = new Set(actionsToDelete.map(a => a.id));
                 this.knowledge.action_items = (this.knowledge.action_items || []).filter(a => !actionIds.has(a.id));
                 results.deleted.actions = actionsToDelete.length;
-                console.log(`[DeleteDocument] Removed ${actionsToDelete.length} action items`);
+                log.debug({ event: 'storage_cascade_actions', count: actionsToDelete.length }, 'Removed action items');
             }
             
             // 5. Delete related people (only those exclusively from this document and not contacts)
@@ -1053,7 +1056,7 @@ class Storage {
                 const peopleIds = new Set(peopleToDelete.map(p => p.id));
                 this.knowledge.people = this.knowledge.people.filter(p => !peopleIds.has(p.id));
                 results.deleted.people = peopleToDelete.length;
-                console.log(`[DeleteDocument] Removed ${peopleToDelete.length} people`);
+                log.debug({ event: 'storage_cascade_people', count: peopleToDelete.length }, 'Removed people');
             }
             
             // 6. Delete related questions
@@ -1065,7 +1068,7 @@ class Storage {
                 const questionIds = new Set(questionsToDelete.map(q => q.id));
                 this.questions.items = this.questions.items.filter(q => !questionIds.has(q.id));
                 results.deleted.questions = questionsToDelete.length;
-                console.log(`[DeleteDocument] Removed ${questionsToDelete.length} questions`);
+                log.debug({ event: 'storage_cascade_questions', count: questionsToDelete.length }, 'Removed questions');
             }
             
             // 7. Delete file log entry
@@ -1078,7 +1081,7 @@ class Storage {
                 try {
                     fs.unlinkSync(doc.content_path);
                     results.deleted.contentFile = true;
-                    console.log(`[DeleteDocument] Deleted content file: ${doc.content_path}`);
+                    log.debug({ event: 'storage_deleted_content_file', path: doc.content_path }, 'Deleted content file');
                 } catch (e) {
                     results.errors.push(`Failed to delete content file: ${e.message}`);
                 }
@@ -1089,7 +1092,7 @@ class Storage {
                 try {
                     fs.unlinkSync(doc.archived_path);
                     results.deleted.archivedFile = true;
-                    console.log(`[DeleteDocument] Deleted archived file: ${doc.archived_path}`);
+                    log.debug({ event: 'storage_deleted_archived_file', path: doc.archived_path }, 'Deleted archived file');
                 } catch (e) {
                     results.errors.push(`Failed to delete archived file: ${e.message}`);
                 }
@@ -1105,7 +1108,7 @@ class Storage {
                 results.deleted.embeddings = embeddingsBefore - this.embeddings.documents.length;
                 if (results.deleted.embeddings > 0) {
                     this.saveEmbeddings();
-                    console.log(`[DeleteDocument] Removed ${results.deleted.embeddings} embeddings`);
+                    log.debug({ event: 'storage_cascade_embeddings', count: results.deleted.embeddings }, 'Removed embeddings');
                 }
             }
             
@@ -1124,17 +1127,17 @@ class Storage {
             this.saveHistory();
             
             results.success = true;
-            console.log(`[DeleteDocument] Cascade delete complete for: ${doc.name || doc.filename}`);
+            log.debug({ event: 'storage_cascade_complete', docName: doc.name || doc.filename }, 'Cascade delete complete');
             
             // 12. Sync with Graph DB (async, don't wait)
             this._syncDocumentDeletionToGraph(documentId, doc.name || doc.filename).catch(e => {
-                console.log(`[DeleteDocument] Graph sync error: ${e.message}`);
+                log.warn({ event: 'storage_cascade_graph_sync_error', reason: e.message }, 'Graph sync error');
             });
             
             // 13. Clean any remaining orphan data
             const orphanStats = this.cleanOrphanData();
             if (Object.values(orphanStats).some(v => v > 0)) {
-                console.log(`[DeleteDocument] Additional orphans cleaned:`, orphanStats);
+                log.debug({ event: 'storage_cascade_orphans', orphanStats }, 'Additional orphans cleaned');
                 results.deleted.orphans = orphanStats;
             }
             
@@ -1142,7 +1145,7 @@ class Storage {
             
         } catch (error) {
             results.errors.push(error.message);
-            console.error(`[DeleteDocument] Error: ${error.message}`);
+            log.warn({ event: 'storage_cascade_error', reason: error.message }, 'Cascade delete error');
             return results;
         }
     }
@@ -1160,10 +1163,10 @@ class Storage {
             const { getGraphSync } = require('./sync/GraphSync');
             const graphSync = getGraphSync(graphProvider);
             const result = await graphSync.onDocumentDeleted(documentId, documentTitle);
-            console.log(`[DeleteDocument] Graph sync: ${JSON.stringify(result)}`);
+            log.debug({ event: 'storage_graph_sync', result }, 'Graph sync');
             return result;
         } catch (e) {
-            console.log(`[DeleteDocument] Graph sync failed: ${e.message}`);
+            log.warn({ event: 'storage_graph_sync_failed', reason: e.message }, 'Graph sync failed');
             return { error: e.message };
         }
     }
@@ -2091,7 +2094,7 @@ class Storage {
             added++;
         }
         
-        console.log(`[Contacts] Synced people: ${added} added, ${updated} updated, ${skipped} unchanged`);
+        log.debug({ event: 'storage_contacts_synced', added, updated, skipped }, 'Synced people');
         return { added, updated, skipped, total: people.length };
     }
 
@@ -2208,7 +2211,7 @@ class Storage {
 
         // Reject placeholder content
         if (content === '...' || content === '…' || /^\.+$/.test(content)) {
-            console.log(`Skipping garbage fact: "${content}"`);
+            log.debug({ event: 'storage_skip_garbage_fact', contentPreview: content.substring(0, 80) }, 'Skipping garbage fact');
             return { id: null, action: 'skipped', reason: 'placeholder' };
         }
 
@@ -2218,14 +2221,14 @@ class Storage {
             content.toLowerCase().startsWith('/ ') ||
             content.startsWith('/proc/') ||
             content.startsWith('/sys/')) {
-            console.log(`Skipping invalid fact: "${content.substring(0, 50)}..."`);
+            log.debug({ event: 'storage_skip_invalid_fact', contentPreview: content.substring(0, 50) }, 'Skipping invalid fact');
             return { id: null, action: 'skipped', reason: 'invalid_content' };
         }
 
         if (!skipDedup) {
             const dupCheck = this.findDuplicate(content, this.knowledge.facts);
             if (dupCheck.isDuplicate) {
-                console.log(`Duplicate fact (${Math.round(dupCheck.similarity * 100)}%): "${content.substring(0, 50)}..."`);
+                log.debug({ event: 'storage_duplicate_fact', similarity: Math.round(dupCheck.similarity * 100), contentPreview: content.substring(0, 50) }, 'Duplicate fact');
                 return { id: dupCheck.existingItem.id, action: 'duplicate', similarity: dupCheck.similarity };
             }
         }
@@ -2260,7 +2263,7 @@ class Storage {
         this.knowledge.facts = newFacts;
         this.logChange('replace', 'facts', null, `Replaced ${oldCount} facts with ${newFacts.length} synthesized facts`);
         this.saveKnowledge();
-        console.log(`Knowledge base updated: ${oldCount} -> ${newFacts.length} facts`);
+        log.debug({ event: 'storage_knowledge_updated', oldCount, newCount: newFacts.length }, 'Knowledge base updated');
     }
 
     getAllKnowledge() {
@@ -2280,7 +2283,7 @@ class Storage {
         if (!skipDedup) {
             const dupCheck = this.findDuplicate(question.content, this.questions.items);
             if (dupCheck.isDuplicate) {
-                console.log(`Duplicate question (${Math.round(dupCheck.similarity * 100)}%): "${question.content.substring(0, 50)}..."`);
+                log.debug({ event: 'storage_duplicate_question', similarity: Math.round(dupCheck.similarity * 100), contentPreview: question.content.substring(0, 50) }, 'Duplicate question');
                 return { id: dupCheck.existingItem.id, action: 'duplicate', similarity: dupCheck.similarity };
             }
         }
@@ -2530,7 +2533,7 @@ class Storage {
         if (!skipDedup) {
             const dupCheck = this.findDuplicate(decision.content, this.knowledge.decisions);
             if (dupCheck.isDuplicate) {
-                console.log(`Duplicate decision (${Math.round(dupCheck.similarity * 100)}%): "${decision.content.substring(0, 50)}..."`);
+                log.debug({ event: 'storage_duplicate_decision', similarity: Math.round(dupCheck.similarity * 100), contentPreview: decision.content.substring(0, 50) }, 'Duplicate decision');
                 return { id: dupCheck.existingItem.id, action: 'duplicate', similarity: dupCheck.similarity };
             }
         }
@@ -2566,20 +2569,20 @@ class Storage {
 
         // Reject too short or placeholder content
         if (content.length < 10 || content === '...' || content === '…' || /^\.+$/.test(content)) {
-            console.log(`Skipping garbage risk: "${content}"`);
+            log.debug({ event: 'storage_skip_garbage_risk', contentPreview: content.substring(0, 80) }, 'Skipping garbage risk');
             return { id: null, action: 'skipped', reason: 'invalid_content' };
         }
 
         // Reject garbage impact/likelihood values
         if (risk.impact === '...' || risk.likelihood === '...') {
-            console.log(`Skipping risk with placeholder values`);
+            log.debug({ event: 'storage_skip_placeholder_risk' }, 'Skipping risk with placeholder values');
             return { id: null, action: 'skipped', reason: 'placeholder_values' };
         }
 
         if (!skipDedup) {
             const dupCheck = this.findDuplicate(content, this.knowledge.risks);
             if (dupCheck.isDuplicate) {
-                console.log(`Duplicate risk (${Math.round(dupCheck.similarity * 100)}%): "${content.substring(0, 50)}..."`);
+                log.debug({ event: 'storage_duplicate_risk', similarity: Math.round(dupCheck.similarity * 100), contentPreview: content.substring(0, 50) }, 'Duplicate risk');
                 return { id: dupCheck.existingItem.id, action: 'duplicate', similarity: dupCheck.similarity };
             }
         }
@@ -2630,7 +2633,7 @@ class Storage {
         if (!skipDedup) {
             const dupCheck = this.findDuplicate(item.task, this.knowledge.action_items, 'task');
             if (dupCheck.isDuplicate) {
-                console.log(`Duplicate action (${Math.round(dupCheck.similarity * 100)}%): "${item.task.substring(0, 50)}..."`);
+                log.debug({ event: 'storage_duplicate_action', similarity: Math.round(dupCheck.similarity * 100), taskPreview: item.task.substring(0, 50) }, 'Duplicate action');
                 return { id: dupCheck.existingItem.id, action: 'duplicate', similarity: dupCheck.similarity };
             }
         }
@@ -2641,9 +2644,14 @@ class Storage {
             task: item.task,
             owner: item.owner || null,
             deadline: item.deadline || null,
-            status: 'pending',
+            status: item.status || 'pending',
             source_file: item.source_file || null,
-            created_at: new Date().toISOString()
+            created_at: new Date().toISOString(),
+            parent_story_ref: item.parent_story_ref || item.parent_story || null,
+            size_estimate: item.size_estimate || item.size || null,
+            description: item.description || null,
+            definition_of_done: Array.isArray(item.definition_of_done) ? item.definition_of_done : [],
+            acceptance_criteria: Array.isArray(item.acceptance_criteria) ? item.acceptance_criteria : []
         });
         this.logChange('add', 'action_item', id, item.task, item.source_file);
         this.saveKnowledge();
@@ -2711,13 +2719,13 @@ class Storage {
 
         // Reject placeholder/garbage names
         if (name === '...' || name === '…' || /^\.+$/.test(name) || name.toLowerCase() === 'null') {
-            console.log(`Skipping garbage person: "${name}"`);
+            log.debug({ event: 'storage_skip_garbage_person', name }, 'Skipping garbage person');
             return null;
         }
 
         // Reject names that are clearly not people (system paths, errors)
         if (name.startsWith('/') || name.includes('\\') || name.toLowerCase().includes('error')) {
-            console.log(`Skipping invalid person name: "${name}"`);
+            log.debug({ event: 'storage_skip_invalid_person', name }, 'Skipping invalid person name');
             return null;
         }
 
@@ -3440,7 +3448,7 @@ class Storage {
                 this._embeddingsCacheTime = now;
                 return this._embeddingsCache;
             } catch (e) {
-                console.error('Error loading embeddings:', e.message);
+                log.warn({ event: 'storage_embeddings_load_error', reason: e.message }, 'Error loading embeddings');
             }
         }
         return null;
@@ -3578,7 +3586,7 @@ class Storage {
 
         fs.writeFileSync(path.join(projectDir, 'PENDING_QUESTIONS.md'), pq);
 
-        console.log('Markdown files exported');
+        log.debug({ event: 'storage_markdown_exported' }, 'Markdown files exported');
         return { sot, pq };
     }
 
@@ -3617,14 +3625,14 @@ class Storage {
         for (const fact of this.knowledge.facts) {
             const normalized = this.normalizeCategory(fact.category);
             if (normalized !== fact.category) {
-                console.log(`Category normalized: "${fact.category}" → "${normalized}"`);
+                log.debug({ event: 'storage_category_normalized', from: fact.category, to: normalized }, 'Category normalized');
                 fact.category = normalized;
                 changed++;
             }
         }
         if (changed > 0) {
             this.saveKnowledge();
-            console.log(`Normalized ${changed} fact categories`);
+            log.debug({ event: 'storage_categories_normalized', changed }, 'Normalized fact categories');
         }
         return changed;
     }
@@ -3742,7 +3750,7 @@ class Storage {
         if (totalRecovered > 0) {
             this.saveKnowledge();
             this.saveQuestions();
-            console.log(`[Recovery] Recovered from change_log:`, stats);
+            log.debug({ event: 'storage_recovery', stats }, 'Recovered from change_log');
         }
         
         return {
@@ -3914,7 +3922,7 @@ class Storage {
         const totalCleaned = Object.values(stats).reduce((a, b) => a + b, 0);
         if (totalCleaned > 0) {
             this.saveAll();
-            console.log(`[Storage] Cleaned orphan data:`, stats);
+            log.debug({ event: 'storage_cleaned_orphans', stats }, 'Cleaned orphan data');
         }
 
         return stats;
@@ -4374,7 +4382,7 @@ class Storage {
      */
     async initGraph(graphConfig) {
         if (!graphConfig?.enabled) {
-            console.log('[Storage] Graph database disabled');
+            log.debug({ event: 'storage_graph_disabled' }, 'Graph database disabled');
             return { ok: true, message: 'Graph disabled' };
         }
 
@@ -4392,15 +4400,15 @@ class Storage {
             const connectResult = await this.graphProvider.connect();
             
             if (!connectResult.ok) {
-                console.error('[Storage] Failed to connect to graph:', connectResult.error);
+                log.warn({ event: 'storage_graph_connect_failed', reason: connectResult.error }, 'Failed to connect to graph');
                 this.graphProvider = null;
                 return connectResult;
             }
             
-            console.log(`[Storage] Connected to graph database: ${providerId}`);
+            log.debug({ event: 'storage_graph_connected', providerId }, 'Connected to graph database');
             return { ok: true };
         } catch (error) {
-            console.error('[Storage] Graph init error:', error.message);
+            log.warn({ event: 'storage_graph_init_error', reason: error.message }, 'Graph init error');
             this.graphProvider = null;
             return { ok: false, error: error.message };
         }
@@ -4531,7 +4539,7 @@ class Storage {
             return { ok: false, error: 'FalkorDB provider not available or does not support listGraphs' };
         }
 
-        console.log('[Storage] Syncing FalkorDB graphs with Supabase projects...');
+        log.debug({ event: 'storage_sync_falkordb_start' }, 'Syncing FalkorDB graphs with Supabase projects');
 
         try {
             // 1. List all graphs in FalkorDB
@@ -4540,14 +4548,14 @@ class Storage {
                 return { ok: false, error: graphsResult.error || 'Failed to list graphs' };
             }
             const allGraphs = graphsResult.graphs || [];
-            console.log(`[Storage] Found ${allGraphs.length} graphs in FalkorDB:`, allGraphs);
+            log.debug({ event: 'storage_falkordb_graphs', count: allGraphs.length, graphNames: allGraphs }, 'Found graphs in FalkorDB');
 
             // 2. Get valid project IDs from Supabase
             let validProjectIds = [];
             if (this.supabaseStorage && typeof this.supabaseStorage.listProjects === 'function') {
                 const projects = await this.supabaseStorage.listProjects();
                 validProjectIds = projects.map(p => p.id);
-                console.log(`[Storage] Found ${validProjectIds.length} projects in Supabase`);
+                log.debug({ event: 'storage_supabase_projects', count: validProjectIds.length }, 'Found projects in Supabase');
             }
 
             // 3. Build valid graph names
@@ -4569,9 +4577,9 @@ class Storage {
             const orphanGraphs = allGraphs.filter(g => !validGraphNames.has(g));
             const validGraphs = allGraphs.filter(g => validGraphNames.has(g));
 
-            console.log(`[Storage] Valid graphs: ${validGraphs.length}, Orphan graphs: ${orphanGraphs.length}`);
+            log.debug({ event: 'storage_valid_orphan_counts', valid: validGraphs.length, orphan: orphanGraphs.length }, 'Valid and orphan graphs');
             if (orphanGraphs.length > 0) {
-                console.log('[Storage] Orphan graphs to delete:', orphanGraphs);
+                log.debug({ event: 'storage_orphans_to_delete', orphanGraphs }, 'Orphan graphs to delete');
             }
 
             // 5. Delete orphan graphs (unless dry run)
@@ -4582,12 +4590,12 @@ class Storage {
                         const deleteResult = await this.graphProvider.deleteGraph(graphName);
                         if (deleteResult.ok) {
                             deleted.push(graphName);
-                            console.log(`[Storage] Deleted orphan graph: ${graphName}`);
+                            log.debug({ event: 'storage_orphan_deleted', graphName }, 'Deleted orphan graph');
                         } else {
-                            console.warn(`[Storage] Failed to delete graph ${graphName}:`, deleteResult.error);
+                            log.warn({ event: 'storage_orphan_delete_failed', graphName, reason: deleteResult.error }, 'Failed to delete graph');
                         }
                     } catch (err) {
-                        console.warn(`[Storage] Error deleting graph ${graphName}:`, err.message);
+                        log.warn({ event: 'storage_orphan_delete_error', graphName, reason: err.message }, 'Error deleting graph');
                     }
                 }
             }
@@ -4601,7 +4609,7 @@ class Storage {
                 dryRun
             };
         } catch (error) {
-            console.error('[Storage] syncFalkorDBGraphs error:', error);
+            log.warn({ event: 'storage_sync_falkordb_error', reason: error?.message }, 'syncFalkorDBGraphs error');
             return { ok: false, error: error.message };
         }
     }
@@ -4648,7 +4656,7 @@ class Storage {
             });
             
             if (cleaned.facts > 0) {
-                console.log(`[Storage] Cleaned ${cleaned.facts} old facts`);
+                log.debug({ event: 'storage_cleaned_facts', count: cleaned.facts }, 'Cleaned old facts');
             }
         }
 
@@ -4674,7 +4682,7 @@ class Storage {
             });
             
             if (cleaned.questions > 0) {
-                console.log(`[Storage] Cleaned ${cleaned.questions} old resolved questions`);
+                log.debug({ event: 'storage_cleaned_questions', count: cleaned.questions }, 'Cleaned old resolved questions');
             }
         }
 
@@ -4707,7 +4715,7 @@ class Storage {
                 existingArchive = JSON.parse(fs.readFileSync(archiveFile, 'utf-8'));
             }
         } catch (e) {
-            console.log('[Storage] Could not read existing archive');
+            log.debug({ event: 'storage_archive_read_failed' }, 'Could not read existing archive');
         }
 
         // Append new archived items
@@ -4717,9 +4725,9 @@ class Storage {
 
         try {
             fs.writeFileSync(archiveFile, JSON.stringify(existingArchive, null, 2));
-            console.log(`[Storage] Archived ${archived.facts?.length || 0} facts, ${archived.questions?.length || 0} questions`);
+            log.debug({ event: 'storage_archived', facts: archived.facts?.length || 0, questions: archived.questions?.length || 0 }, 'Archived');
         } catch (e) {
-            console.error('[Storage] Failed to save archive:', e.message);
+            log.warn({ event: 'storage_archive_save_failed', reason: e.message }, 'Failed to save archive');
         }
     }
 
@@ -4795,7 +4803,7 @@ class Storage {
 
         if (removed.facts > 0 || removed.people > 0) {
             this.save();
-            console.log(`[Storage] Removed duplicates: ${removed.facts} facts, ${removed.people} people`);
+            log.debug({ event: 'storage_removed_duplicates', facts: removed.facts, people: removed.people }, 'Removed duplicates');
         }
 
         return { removed };

@@ -151,16 +151,16 @@ function filterEvents(container: HTMLElement, type: string): void {
   const events = container.querySelectorAll('.timeline-event');
   events.forEach(el => {
     if (type === 'all' || el.getAttribute('data-type') === type) {
-      (el as HTMLElement).style.display = '';
+      (el as HTMLElement).classList.remove('hidden');
     } else {
-      (el as HTMLElement).style.display = 'none';
+      (el as HTMLElement).classList.add('hidden');
     }
   });
 
   // Hide empty days
   container.querySelectorAll('.timeline-day').forEach(day => {
-    const visibleEvents = day.querySelectorAll('.timeline-event:not([style*="display: none"])');
-    (day as HTMLElement).style.display = visibleEvents.length > 0 ? '' : 'none';
+    const visibleEvents = day.querySelectorAll('.timeline-event:not(.hidden)');
+    (day as HTMLElement).classList.toggle('hidden', visibleEvents.length === 0);
   });
 }
 

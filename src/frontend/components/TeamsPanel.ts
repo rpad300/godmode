@@ -122,7 +122,7 @@ function createTeamCard(team: Team): string {
   return `
     <div class="team-card" data-id="${team.id}">
       <div class="team-header">
-        <div class="team-color" style="background: ${team.color || '#6366f1'}"></div>
+        <div class="team-color" style="--team-color: ${team.color || '#6366f1'}"></div>
         <div class="team-name">${escapeHtml(team.name)}</div>
         ${team.team_type ? `<span class="team-type">${team.team_type}</span>` : ''}
       </div>

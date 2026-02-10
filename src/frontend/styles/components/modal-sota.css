@@ -583,6 +583,39 @@
   color: var(--text-muted);
 }
 
+.modal-sota-relative { position: relative; }
+
+.modal-sota .sota-empty-full { grid-column: 1 / -1; }
+
+.modal-sota .sota-btn-mt { margin-top: 20px; }
+.modal-sota .sota-btn-retry {
+  max-width: 200px;
+  margin: 16px auto 0;
+}
+.modal-sota .sota-btn-retry-mt { margin: 20px auto 0; }
+
+.modal-sota .sota-more-hint {
+  text-align: center;
+  color: var(--text-muted);
+  margin-top: 8px;
+  font-size: 12px;
+}
+.modal-sota .sota-questions-footer {
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 12px;
+  margin-top: 12px;
+}
+.modal-sota .sota-questions-footer-muted { color: var(--text-muted); }
+
+.mini-avatar .avatar-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.mini-avatar .avatar-fallback.hidden { display: none; }
+.mini-avatar .mini-avatar-img.hidden { display: none; }
+
 /* ==================== SOTA Overlay ==================== */
 .modal-sota .sota-overlay {
   position: absolute;
@@ -594,6 +627,8 @@
   justify-content: center;
   z-index: 20;
 }
+
+.modal-sota .sota-overlay.hidden { display: none; }
 
 .modal-sota .overlay-spinner {
   width: 56px;
@@ -772,4 +807,73 @@
   .modal-sota .config-buttons {
     width: 100%;
   }
+}
+
+/* ==================== Project modal (bare content wrapper) ==================== */
+.project-modal-content-bare.modal-content {
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+  max-width: 800px;
+}
+
+.project-modal-sota .section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.project-modal-sota .section-intro {
+  color: var(--text-secondary, #64748b);
+  font-size: 14px;
+  margin-bottom: 20px;
+}
+
+.project-modal-sota .section-intro-sm {
+  color: var(--text-secondary, #64748b);
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.project-modal-sota .section-intro-24 {
+  color: var(--text-secondary, #64748b);
+  font-size: 14px;
+  margin-bottom: 24px;
+}
+
+.project-modal-sota .section-intro-last {
+  color: var(--text-secondary, #64748b);
+  font-size: 14px;
+  margin: 0 0 20px 0;
+}
+
+.project-modal-sota .empty-state.gm-grid-col-all {
+  grid-column: 1 / -1;
+}
+
+.project-modal-sota .loading-spinner.gm-size-4 {
+  width: 16px;
+  height: 16px;
+}
+
+.project-modal-sota .member-role-muted {
+  opacity: 0.6;
+}
+
+.project-modal-sota .member-link {
+  color: var(--accent, #e11d48);
+}
+
+.project-modal-sota .permissions-btn {
+  font-size: 14px;
+}
+
+.project-modal-sota .gm-inline-icon {
+  display: inline;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+
+.project-modal-sota #edit-user-role-custom.gm-mt-2 {
+  margin-top: 8px;
 }
