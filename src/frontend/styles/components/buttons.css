@@ -1,130 +1,190 @@
 /**
  * Button Styles
  * GodMode Design System
+ * SOTA Edition: Premium Interactions
  */
+
+/* Note: Variables are inherited from theme.css */
 
 /* ==================== Base Button ==================== */
 .btn {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: var(--space-sm);
   padding: 10px 20px;
-  border: none;
+  border: 1px solid transparent;
+  /* Explicit border for consistency */
   border-radius: var(--radius-md);
   cursor: pointer;
   font-size: 14px;
   font-weight: 500;
   font-family: inherit;
   text-decoration: none;
-  transition: all var(--transition-normal);
-  position: relative;
   white-space: nowrap;
+
+  /* SOTA Transitions */
+  transition: all var(--duration-200) var(--ease-out);
+
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: none;
 }
 
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Acessibilidade: foco */
+.btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--bg-primary), 0 0 0 4px var(--interactive-primary);
 }
 
 /* ==================== Button Variants ==================== */
 
+/* Primary: Brand Color + Glow */
 .btn-primary {
-  background: var(--accent);
-  color: white;
+  background: var(--interactive-primary);
+  color: var(--text-on-brand);
+  border-color: transparent;
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: var(--accent-hover);
+  background: var(--interactive-primary-hover);
+  box-shadow: var(--glow-primary);
+  transform: translateY(-1px);
 }
 
+.btn-primary:active:not(:disabled) {
+  background: var(--interactive-primary-active);
+}
+
+/* Secondary: Surface + Border */
 .btn-secondary {
-  background: var(--bg-card);
+  background: var(--surface-primary);
   color: var(--text-primary);
-  border: 1px solid var(--border);
+  border-color: var(--border-primary);
 }
 
 .btn-secondary:hover:not(:disabled) {
-  background: var(--bg-secondary);
+  background: var(--surface-hover);
+  border-color: var(--border-secondary);
+  color: var(--text-primary);
+  transform: translateY(-1px);
 }
 
+.btn-secondary:active:not(:disabled) {
+  background: var(--surface-active);
+}
+
+/* Danger: Error Color */
 .btn-danger {
-  background: var(--error);
+  background: var(--status-danger);
   color: white;
+  border-color: transparent;
 }
 
 .btn-danger:hover:not(:disabled) {
-  opacity: 0.9;
+  filter: brightness(1.1);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+  transform: translateY(-1px);
 }
 
+/* Success: Green */
 .btn-success {
-  background: var(--success);
+  background: var(--status-success);
   color: white;
+  border-color: transparent;
 }
 
 .btn-success:hover:not(:disabled) {
-  opacity: 0.9;
+  filter: brightness(1.1);
+  box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);
+  transform: translateY(-1px);
 }
 
+/* Warning: Amber */
 .btn-warning {
-  background: var(--warning);
-  color: #1a1a2e;
+  background: var(--status-warning);
+  color: white;
+  /* Contrast check: amber often needs dark text, but this is SOTA vibrant amber */
+  border-color: transparent;
 }
 
 .btn-warning:hover:not(:disabled) {
-  opacity: 0.9;
+  filter: brightness(1.1);
+  transform: translateY(-1px);
 }
 
+/* Ghost: Transparent + Glass Hover */
 .btn-ghost {
   background: transparent;
-  color: var(--text-primary);
-  border: 1px solid transparent;
+  color: var(--text-secondary);
+  border-color: transparent;
 }
 
 .btn-ghost:hover:not(:disabled) {
-  background: var(--bg-card);
+  background: var(--glass-highlight);
+  color: var(--text-primary);
+  backdrop-filter: var(--backdrop-blur);
 }
 
+/* Link: Text Only */
 .btn-link {
   background: none;
   border: none;
-  color: var(--accent);
+  color: var(--interactive-primary);
   padding: 0;
+  box-shadow: none;
 }
 
 .btn-link:hover:not(:disabled) {
-  color: var(--accent-hover);
+  color: var(--interactive-primary-hover);
   text-decoration: underline;
+  transform: none;
+  box-shadow: none;
 }
 
 /* ==================== Button Sizes ==================== */
-
 .btn-sm {
   padding: 6px 12px;
   font-size: 12px;
+  border-radius: var(--radius-sm);
+  gap: 6px;
 }
 
 .btn-lg {
   padding: 14px 28px;
   font-size: 16px;
+  border-radius: var(--radius-lg);
 }
 
 .btn-icon {
-  padding: var(--space-sm);
-  min-width: 36px;
+  padding: 0;
+  width: 36px;
   height: 36px;
+  border-radius: var(--radius-md);
+  flex-shrink: 0;
 }
 
 .btn-icon svg {
   width: 20px;
   height: 20px;
+  stroke-width: 2px;
 }
 
 /* ==================== Loading State ==================== */
-
 .btn.loading {
   color: transparent !important;
   pointer-events: none;
+  position: relative;
 }
 
 .btn.loading::after {
@@ -132,27 +192,33 @@
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 16px;
-  height: 16px;
-  margin: -8px 0 0 -8px;
-  border: 2px solid transparent;
-  border-top-color: currentColor;
+  width: 1em;
+  height: 1em;
+  margin-top: -0.5em;
+  margin-left: -0.5em;
+  border: 2px solid rgba(255, 255, 255, 0.3);
   border-radius: 50%;
-  animation: btn-spin 0.6s linear infinite;
+  border-top-color: currentColor;
+  animation: sota-spin 0.6s linear infinite;
 }
 
-.btn-primary.loading::after {
-  border-top-color: white;
-}
-
-.btn-secondary.loading::after {
+.btn-secondary.loading::after,
+.btn-ghost.loading::after {
+  border-color: var(--border-secondary);
   border-top-color: var(--text-primary);
 }
 
-/* ==================== Button Group ==================== */
+@keyframes sota-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 
+/* ==================== Button Group ==================== */
 .btn-group {
   display: inline-flex;
+  isolation: isolate;
+  /* Create stacking context */
 }
 
 .btn-group .btn {
@@ -160,22 +226,30 @@
 }
 
 .btn-group .btn:first-child {
-  border-radius: var(--radius-md) 0 0 var(--radius-md);
+  border-top-left-radius: var(--radius-md);
+  border-bottom-left-radius: var(--radius-md);
 }
 
 .btn-group .btn:last-child {
-  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  border-top-right-radius: var(--radius-md);
+  border-bottom-right-radius: var(--radius-md);
 }
 
-.btn-group .btn + .btn {
+.btn-group .btn+.btn {
   margin-left: -1px;
 }
 
-/* ==================== Mobile Adjustments ==================== */
+.btn-group .btn:hover,
+.btn-group .btn:focus-visible {
+  z-index: 2;
+}
 
+/* ==================== Mobile Adjustments ==================== */
 @media (max-width: 767px) {
   .btn {
     padding: 12px 16px;
     font-size: 14px;
+    width: auto;
+    /* Allow full width if needed via utility */
   }
 }

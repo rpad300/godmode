@@ -8,14 +8,14 @@ import { createElement, on } from '../utils/dom';
 import { http } from '../services/api';
 import { toast } from '../services/toast';
 import { appStore } from '../stores/app';
-import { 
-  billingService, 
-  type ProjectBillingOverview, 
-  type PricingConfig, 
+import {
+  billingService,
+  type ProjectBillingOverview,
+  type PricingConfig,
   type PricingTier,
   type ExchangeRateConfig,
-  formatEur, 
-  formatTokens 
+  formatEur,
+  formatTokens
 } from '../services/billing';
 
 // Types
@@ -98,6 +98,13 @@ interface TeamAnalysisSettings {
   enabled: boolean;
   access: 'admin_only' | 'all';
 }
+
+interface GoogleDriveState {
+  enabled: boolean;
+  rootFolderId: string;
+  hasSystemCredentials: boolean;
+  bootstrappedAt: string | null;
+}
 let teamAnalysisSettings: TeamAnalysisSettings = { enabled: true, access: 'admin_only' };
 let teamAnalysisLoaded = false;
 let teamAnalysisLoading = false;
@@ -126,16 +133,16 @@ let googleDriveLoaded = false;
  */
 async function loadSystemConfig(): Promise<void> {
   try {
-    const response = await http.get<{ 
+    const response = await http.get<{
       llm_pertask?: { text?: { provider: string; model: string }; vision?: { provider: string; model: string }; embeddings?: { provider: string; model: string } };
       prompts?: Record<string, unknown>;
       processing?: Record<string, unknown>;
       graph?: Record<string, unknown>;
     }>('/api/system/config');
-    
+
     // Convert to internal format grouped by category
     systemConfig = {};
-    
+
     // LLM per-task configs
     if (response.data?.llm_pertask) {
       systemConfig['llm'] = [];
@@ -150,17 +157,17 @@ async function loadSystemConfig(): Promise<void> {
         systemConfig['llm'].push({ key: 'embeddings_provider', value: perTask.embeddings, category: 'llm' });
       }
     }
-    
+
     // Processing config
     if (response.data?.processing) {
       systemConfig['processing'] = [{ key: 'processing', value: response.data.processing, category: 'processing' }];
     }
-    
+
     // Graph config
     if (response.data?.graph) {
       systemConfig['graph'] = [{ key: 'graph', value: response.data.graph, category: 'graph' }];
     }
-    
+
     console.log('[AdminPanel] Loaded system config:', systemConfig);
   } catch (error) {
     console.warn('Failed to load system config:', error);
@@ -341,7 +348,7 @@ async function testProvider(providerId: string): Promise<void> {
  */
 function getConfigValue(category: string, key: string, defaultValue: unknown = ''): unknown {
   const configs = systemConfig[category] || [];
-  
+
   // For graph category, the config is stored as { key: 'graph', value: { enabled, graphName, provider } }
   if (category === 'graph') {
     const graphConfigEntry = configs.find(c => c.key === 'graph');
@@ -350,7 +357,7 @@ function getConfigValue(category: string, key: string, defaultValue: unknown = '
       return graphValue[key] ?? defaultValue;
     }
   }
-  
+
   const config = configs.find(c => c.key === key);
   return config?.value ?? defaultValue;
 }
@@ -388,7 +395,7 @@ function renderNav(): string {
  */
 function renderLLMSection(): string {
   const taskTypes = ['text', 'vision', 'embeddings'];
-  
+
   return `
     <div class="admin-section">
       <div class="admin-section-header">
@@ -408,7 +415,7 @@ function renderLLMSection(): string {
               </div>
               <div class="provider-models">${(p.models && p.models.length > 0) ? p.models.slice(0, 3).join(', ') : '—'}</div>
               <div class="provider-actions">
-                <button class="btn-sm" data-test-provider="${p.id}">Test</button>
+                <button class="btn btn-sm btn-secondary" data-test-provider="${p.id}">Test</button>
                 <label class="toggle-switch">
                   <input type="checkbox" ${p.enabled ? 'checked' : ''} data-toggle-provider="${p.id}">
                   <span class="slider"></span>
@@ -425,53 +432,53 @@ function renderLLMSection(): string {
         <p class="text-muted">Configure which provider and model to use for each AI task. These settings apply globally to the platform and are persisted in Supabase.</p>
         
         ${taskTypes.map(task => {
-          const taskConfig = getConfigValue('llm', task + '_provider', { provider: '', model: '' }) as { provider: string; model: string };
-          const icons: Record<string, string> = { text: '💬', vision: '👁️', embeddings: '🔗' };
-          const labels: Record<string, string> = { text: 'Text / Chat', vision: 'Vision / Images', embeddings: 'Embeddings' };
-          const descs: Record<string, string> = { 
-            text: 'Document analysis, chat, briefings, Q&A, extraction',
-            vision: 'Image analysis, scanned documents, diagrams, charts',
-            embeddings: 'Semantic search, similarity matching, RAG'
-          };
-          const icon = icons[task] || '⚙️';
-          const label = labels[task] || task;
-          const desc = descs[task] || '';
-          const providerOpts = ['openai', 'anthropic', 'google', 'deepseek', 'grok', 'kimi', 'minimax', 'ollama'];
-          const providerNames: Record<string, string> = {
-            openai: 'OpenAI', anthropic: 'Anthropic (Claude)', google: 'Google AI (Gemini)',
-            deepseek: 'DeepSeek', grok: 'xAI (Grok)', kimi: 'Kimi (Moonshot)', 
-            minimax: 'MiniMax', ollama: 'Ollama (Local)'
-          };
-          
-          return '<div class="task-config-row admin-task-config-row" data-task-row="' + task + '">' +
-            '<div class="task-label admin-task-label">' +
-              '<span class="admin-task-label-icon">' + icon + '</span>' +
-              '<strong class="admin-task-label-strong">' + label + '</strong>' +
-              '<span class="text-muted admin-task-desc">' + desc + '</span>' +
-            '</div>' +
-            '<div class="task-selects admin-task-selects">' +
-              '<div>' +
-                '<label class="admin-field-label">Provider</label>' +
-                '<select class="form-select provider-select" data-task="' + task + '" data-field="provider">' +
-                  '<option value=""' + (!taskConfig.provider ? ' selected' : '') + '>-- Select Provider --</option>' +
-                  providerOpts.map(p => '<option value="' + p + '"' + (taskConfig.provider === p ? ' selected' : '') + '>' + providerNames[p] + '</option>').join('') +
-                '</select>' +
-              '</div>' +
-              '<div>' +
-                '<label class="admin-field-label">Model</label>' +
-                '<select class="form-select model-select" data-task="' + task + '" data-field="model">' +
-                  '<option value="">-- Select Provider First --</option>' +
-                  (taskConfig.model ? '<option value="' + taskConfig.model + '" selected>' + taskConfig.model + '</option>' : '') +
-                '</select>' +
-                '<span class="model-loading hidden" data-task="' + task + '">Loading models...</span>' +
-              '</div>' +
-            '</div>' +
-            '<div class="model-status admin-model-status" data-task="' + task + '"></div>' +
-          '</div>';
-        }).join('')}
+    const taskConfig = getConfigValue('llm', task + '_provider', { provider: '', model: '' }) as { provider: string; model: string };
+    const icons: Record<string, string> = { text: '💬', vision: '👁️', embeddings: '🔗' };
+    const labels: Record<string, string> = { text: 'Text / Chat', vision: 'Vision / Images', embeddings: 'Embeddings' };
+    const descs: Record<string, string> = {
+      text: 'Document analysis, chat, briefings, Q&A, extraction',
+      vision: 'Image analysis, scanned documents, diagrams, charts',
+      embeddings: 'Semantic search, similarity matching, RAG'
+    };
+    const icon = icons[task] || '⚙️';
+    const label = labels[task] || task;
+    const desc = descs[task] || '';
+    const providerOpts = ['openai', 'anthropic', 'google', 'deepseek', 'grok', 'kimi', 'minimax', 'ollama'];
+    const providerNames: Record<string, string> = {
+      openai: 'OpenAI', anthropic: 'Anthropic (Claude)', google: 'Google AI (Gemini)',
+      deepseek: 'DeepSeek', grok: 'xAI (Grok)', kimi: 'Kimi (Moonshot)',
+      minimax: 'MiniMax', ollama: 'Ollama (Local)'
+    };
+
+    return '<div class="task-config-row admin-task-config-row" data-task-row="' + task + '">' +
+      '<div class="task-label admin-task-label">' +
+      '<span class="admin-task-label-icon">' + icon + '</span>' +
+      '<strong class="admin-task-label-strong">' + label + '</strong>' +
+      '<span class="text-muted admin-task-desc">' + desc + '</span>' +
+      '</div>' +
+      '<div class="task-selects admin-task-selects">' +
+      '<div>' +
+      '<label class="admin-field-label">Provider</label>' +
+      '<select class="form-select provider-select" data-task="' + task + '" data-field="provider">' +
+      '<option value=""' + (!taskConfig.provider ? ' selected' : '') + '>-- Select Provider --</option>' +
+      providerOpts.map(p => '<option value="' + p + '"' + (taskConfig.provider === p ? ' selected' : '') + '>' + providerNames[p] + '</option>').join('') +
+      '</select>' +
+      '</div>' +
+      '<div>' +
+      '<label class="admin-field-label">Model</label>' +
+      '<select class="form-select model-select" data-task="' + task + '" data-field="model">' +
+      '<option value="">-- Select Provider First --</option>' +
+      (taskConfig.model ? '<option value="' + taskConfig.model + '" selected>' + taskConfig.model + '</option>' : '') +
+      '</select>' +
+      '<span class="model-loading hidden" data-task="' + task + '">Loading models...</span>' +
+      '</div>' +
+      '</div>' +
+      '<div class="model-status admin-model-status" data-task="' + task + '"></div>' +
+      '</div>';
+  }).join('')}
         
         <div class="admin-llm-save-row">
-          <button class="btn-primary" id="save-llm-config">Save LLM Configuration</button>
+          <button class="btn btn-primary" id="save-llm-config">Save LLM Configuration</button>
           <span class="text-muted admin-llm-warning">⚠️ Changes apply immediately to all AI processing</span>
         </div>
       </div>
@@ -486,7 +493,7 @@ function renderLLMSection(): string {
             <label>OpenAI <span class="key-status admin-key-status"></span></label>
             <div class="input-group">
               <input type="text" id="openai-key" name="llm_key_openai_${Date.now()}" placeholder="sk-proj-..." class="form-input api-key-input" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')">
-              <button class="btn-icon" data-toggle-visibility="openai-key">Show</button>
+              <button class="btn btn-sm btn-ghost" data-toggle-visibility="openai-key">Show</button>
             </div>
           </div>
           
@@ -494,7 +501,7 @@ function renderLLMSection(): string {
             <label>Anthropic (Claude) <span class="key-status admin-key-status"></span></label>
             <div class="input-group">
               <input type="text" id="anthropic-key" name="llm_key_claude_${Date.now()}" placeholder="sk-ant-api03-..." class="form-input api-key-input" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')">
-              <button class="btn-icon" data-toggle-visibility="anthropic-key">Show</button>
+              <button class="btn btn-sm btn-ghost" data-toggle-visibility="anthropic-key">Show</button>
             </div>
           </div>
           
@@ -502,7 +509,7 @@ function renderLLMSection(): string {
             <label>Google AI (Gemini) <span class="key-status admin-key-status"></span></label>
             <div class="input-group">
               <input type="text" id="google-key" name="llm_key_google_${Date.now()}" placeholder="AIza..." class="form-input api-key-input" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')">
-              <button class="btn-icon" data-toggle-visibility="google-key">Show</button>
+              <button class="btn btn-sm btn-ghost" data-toggle-visibility="google-key">Show</button>
             </div>
           </div>
           
@@ -510,7 +517,7 @@ function renderLLMSection(): string {
             <label>xAI (Grok) <span class="key-status admin-key-status"></span></label>
             <div class="input-group">
               <input type="text" id="xai-key" name="llm_key_xai_${Date.now()}" placeholder="xai-..." class="form-input api-key-input" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')">
-              <button class="btn-icon" data-toggle-visibility="xai-key">Show</button>
+              <button class="btn btn-sm btn-ghost" data-toggle-visibility="xai-key">Show</button>
             </div>
           </div>
           
@@ -518,7 +525,7 @@ function renderLLMSection(): string {
             <label>DeepSeek <span class="key-status admin-key-status"></span></label>
             <div class="input-group">
               <input type="text" id="deepseek-key" name="llm_key_deepseek_${Date.now()}" placeholder="sk-..." class="form-input api-key-input" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')">
-              <button class="btn-icon" data-toggle-visibility="deepseek-key">Show</button>
+              <button class="btn btn-sm btn-ghost" data-toggle-visibility="deepseek-key">Show</button>
             </div>
           </div>
           
@@ -526,7 +533,7 @@ function renderLLMSection(): string {
             <label>Kimi (Moonshot) <span class="key-status admin-key-status"></span></label>
             <div class="input-group">
               <input type="text" id="kimi-key" name="llm_key_kimi_${Date.now()}" placeholder="sk-..." class="form-input api-key-input" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')">
-              <button class="btn-icon" data-toggle-visibility="kimi-key">Show</button>
+              <button class="btn btn-sm btn-ghost" data-toggle-visibility="kimi-key">Show</button>
             </div>
           </div>
           
@@ -534,13 +541,13 @@ function renderLLMSection(): string {
             <label>MiniMax <span class="key-status admin-key-status"></span></label>
             <div class="input-group">
               <input type="text" id="minimax-key" name="llm_key_minimax_${Date.now()}" placeholder="MINIMAX-..." class="form-input api-key-input" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')">
-              <button class="btn-icon" data-toggle-visibility="minimax-key">Show</button>
+              <button class="btn btn-sm btn-ghost" data-toggle-visibility="minimax-key">Show</button>
             </div>
           </div>
         </div>
         
         <div id="api-keys-loading" class="admin-keys-loading">Loading configured keys...</div>
-        <button class="btn-primary mt-4" id="save-api-keys">Save LLM API Keys</button>
+        <button class="btn btn-primary mt-4" id="save-api-keys">Save LLM API Keys</button>
       </div>
 
       <!-- Service API Keys -->
@@ -552,7 +559,7 @@ function renderLLMSection(): string {
           <label>Resend API Key (Email Service) <span class="key-status admin-key-status"></span></label>
           <div class="input-group">
             <input type="text" id="resend-key" name="service_key_resend_${Date.now()}" placeholder="re_..." class="form-input api-key-input" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')">
-            <button class="btn-icon" data-toggle-visibility="resend-key">Show</button>
+            <button class="btn btn-sm btn-ghost" data-toggle-visibility="resend-key">Show</button>
           </div>
         </div>
         
@@ -560,12 +567,12 @@ function renderLLMSection(): string {
           <label>Brave Search API Key (Company analysis) <span class="key-status admin-key-status"></span></label>
           <div class="input-group">
             <input type="password" id="brave-key" name="service_key_brave_${Date.now()}" placeholder="Optional – for richer company reports" class="form-input api-key-input" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')">
-            <button class="btn-icon" data-toggle-visibility="brave-key">Show</button>
+            <button class="btn btn-sm btn-ghost" data-toggle-visibility="brave-key">Show</button>
           </div>
           <p class="text-muted text-sm">Get key at <a href="https://api-dashboard.search.brave.com/documentation" target="_blank" rel="noopener">Brave Search API</a>. Used to enrich company analysis with web search.</p>
         </div>
         
-        <button class="btn-primary mt-4" id="save-service-keys">Save Service Keys</button>
+        <button class="btn btn-primary mt-4" id="save-service-keys">Save Service Keys</button>
       </div>
     </div>
   `;
@@ -610,8 +617,8 @@ function renderGraphSection(): string {
         </div>
 
         <div class="btn-group mt-4">
-          <button class="btn-primary" id="save-graph-config">Save Configuration</button>
-          <button class="btn-secondary" id="test-graph-connection">Test Connection</button>
+          <button class="btn btn-primary" id="save-graph-config">Save Configuration</button>
+          <button class="btn btn-secondary" id="test-graph-connection">Test Connection</button>
         </div>
       </div>
 
@@ -619,7 +626,7 @@ function renderGraphSection(): string {
         <h4>Graph overview</h4>
         <p class="text-muted">Current graph status. Enable and save configuration above first.</p>
         <div id="graph-overview-content">
-          ${graphOverviewLoading ? '<p class="text-muted">Loading...</p>' : !graphOverviewLoaded ? '<button class="btn-secondary" id="load-graph-overview">Load overview</button>' : (graphList.length === 0 && !graphStatus?.enabled ? '<p class="text-muted">Graph not enabled or not connected. Enable and save configuration.</p><button class="btn-secondary mt-4" id="refresh-graph-overview">Refresh</button>' : `
+          ${graphOverviewLoading ? '<p class="text-muted">Loading...</p>' : !graphOverviewLoaded ? '<button class="btn btn-secondary" id="load-graph-overview">Load overview</button>' : (graphList.length === 0 && !graphStatus?.enabled ? '<p class="text-muted">Graph not enabled or not connected. Enable and save configuration.</p><button class="btn-secondary mt-4" id="refresh-graph-overview">Refresh</button>' : `
             ${graphStatus?.enabled && (graphStatus.stats != null || graphStatus.graphName) ? `
               <div class="graph-status-row admin-graph-status-row">
                 <strong>Current graph:</strong> ${graphStatus.graphName ?? '—'}
@@ -636,8 +643,8 @@ function renderGraphSection(): string {
               </table>
             ` : ''}
             <div class="btn-group mt-4">
-              <button class="btn-secondary" id="open-graph-tab">Open in Graph tab</button>
-              <button class="btn-secondary" id="refresh-graph-overview">Refresh</button>
+              <button class="btn btn-secondary" id="open-graph-tab">Open in Graph tab</button>
+              <button class="btn btn-secondary" id="refresh-graph-overview">Refresh</button>
             </div>
           `)}
         </div>
@@ -659,7 +666,7 @@ function renderOntologySection(): string {
       </div>
       <div class="admin-card">
         <p class="text-muted">${ontologyLoading ? 'Loading ontology...' : 'Click Load to fetch entity and relation types from the API.'}</p>
-        ${!ontologyLoading ? '<button class="btn-primary" id="load-ontology">Load ontology</button>' : ''}
+        ${!ontologyLoading ? '<button class="btn btn-primary" id="load-ontology">Load ontology</button>' : ''}
       </div>
     </div>
     `;
@@ -701,7 +708,7 @@ function renderOntologySection(): string {
       </div>
 
       <div class="btn-group mt-4">
-        <button class="btn-secondary" id="reload-ontology">Reload ontology</button>
+        <button class="btn btn-secondary" id="reload-ontology">Reload ontology</button>
       </div>
     </div>
   `;
@@ -741,7 +748,7 @@ Available placeholders:
 {{ROLE_CONTEXT}} - User role context
 {{PROJECT_CONTEXT}} - Project context">${p.prompt_template || ''}</textarea>
       <div class="prompt-actions">
-        <button class="btn-sm btn-secondary" data-view-versions="${p.key}">
+        <button class="btn btn-sm btn-secondary" data-view-versions="${p.key}">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="10"/>
             <polyline points="12,6 12,12 16,14"/>
@@ -886,20 +893,20 @@ function renderProcessingSection(): string {
 async function loadTeamAnalysisSettings(): Promise<void> {
   const state = appStore.getState();
   const projectId = state.currentProject?.id;
-  
+
   if (!projectId) {
     teamAnalysisSettings = { enabled: true, access: 'admin_only' };
     teamAnalysisLoaded = true;
     return;
   }
-  
+
   teamAnalysisLoading = true;
-  
+
   try {
     const response = await http.get<{ ok: boolean; config: { enabled: boolean; access: string } }>('/api/team-analysis/config');
     teamAnalysisSettings = {
-      enabled: response?.config?.enabled ?? true,
-      access: (response?.config?.access as 'admin_only' | 'all') ?? 'admin_only'
+      enabled: response?.data?.config?.enabled ?? true,
+      access: (response?.data?.config?.access as 'admin_only' | 'all') ?? 'admin_only'
     };
     teamAnalysisLoaded = true;
   } catch (error) {
@@ -917,18 +924,18 @@ async function loadTeamAnalysisSettings(): Promise<void> {
 async function saveTeamAnalysisSettings(enabled: boolean, access: string): Promise<void> {
   const state = appStore.getState();
   const projectId = state.currentProject?.id;
-  
+
   if (!projectId) {
     toast.error('No project selected');
     return;
   }
-  
+
   try {
     await http.put('/api/team-analysis/config', {
       enabled,
       access
     });
-    
+
     teamAnalysisSettings = { enabled, access: access as 'admin_only' | 'all' };
     toast.success('Team Analysis settings saved');
   } catch (error) {
@@ -945,10 +952,10 @@ async function loadGoogleDriveState(): Promise<void> {
   try {
     const response = await http.get<GoogleDriveState>('/api/system/google-drive');
     googleDriveState = {
-      enabled: response?.enabled ?? false,
-      rootFolderId: response?.rootFolderId ?? '',
-      hasSystemCredentials: response?.hasSystemCredentials ?? false,
-      bootstrappedAt: response?.bootstrappedAt ?? null
+      enabled: response.data.enabled ?? false,
+      rootFolderId: response.data.rootFolderId ?? '',
+      hasSystemCredentials: response.data.hasSystemCredentials ?? false,
+      bootstrappedAt: response.data.bootstrappedAt ?? null
     };
     googleDriveLoaded = true;
   } catch (error) {
@@ -1020,7 +1027,7 @@ function renderTeamAnalysisSection(): string {
   const state = appStore.getState();
   const projectId = state.currentProject?.id;
   const projectName = state.currentProject?.name || 'Unknown';
-  
+
   if (!projectId) {
     return `
     <div class="admin-section">
@@ -1040,13 +1047,13 @@ function renderTeamAnalysisSection(): string {
     </div>
     `;
   }
-  
+
   if (teamAnalysisLoading || !teamAnalysisLoaded) {
     // Trigger load and show loading state
     if (!teamAnalysisLoading && !teamAnalysisLoaded) {
       loadTeamAnalysisSettings();
     }
-    
+
     return `
     <div class="admin-section">
       <div class="admin-section-header">
@@ -1063,7 +1070,7 @@ function renderTeamAnalysisSection(): string {
     </div>
     `;
   }
-  
+
   return `
     <div class="admin-section">
       <div class="admin-section-header">
@@ -1278,7 +1285,7 @@ async function loadBillingData(): Promise<void> {
   // Guard is now in bindSectionEvents, so we just proceed with loading
   // billingLoading is already set to true by caller
   console.log('[AdminPanel] loadBillingData() starting...');
-  
+
   try {
     // Load all data in parallel
     console.log('[AdminPanel] Calling billing API...');
@@ -1288,17 +1295,17 @@ async function loadBillingData(): Promise<void> {
       billingService.getGlobalPricingTiers(),
       billingService.getExchangeRateConfig()
     ]);
-    
+
     console.log('[AdminPanel] API responses:', { projects, config, tiersData, exchangeRate });
-    
+
     billingProjects = projects;
     globalPricingConfig = config;
     globalPricingTiers = tiersData.tiers;
     exchangeRateConfig = exchangeRate;
     billingLoaded = true;
-    
-    console.log('[AdminPanel] Loaded billing data:', { 
-      projects: projects.length, 
+
+    console.log('[AdminPanel] Loaded billing data:', {
+      projects: projects.length,
       config: !!config,
       tiers: tiersData.tiers.length,
       exchangeRate: exchangeRate?.currentRate
@@ -1330,17 +1337,17 @@ function renderBillingSection(): string {
       </div>
     `;
   }
-  
+
   // Format tier display
-  const tiersDisplay = globalPricingTiers.length > 0 
+  const tiersDisplay = globalPricingTiers.length > 0
     ? globalPricingTiers.map((tier, i) => {
-        const prevLimit = i > 0 ? globalPricingTiers[i - 1].token_limit : 0;
-        const fromStr = formatTokens(prevLimit || 0);
-        const toStr = tier.token_limit ? formatTokens(tier.token_limit) : '∞';
-        return `${tier.name || `Tier ${i + 1}`}: ${fromStr}-${toStr} tokens → +${tier.markup_percent}%`;
-      }).join('<br>')
+      const prevLimit = i > 0 ? globalPricingTiers[i - 1].token_limit : 0;
+      const fromStr = formatTokens(prevLimit || 0);
+      const toStr = tier.token_limit ? formatTokens(tier.token_limit) : '∞';
+      return `${tier.name || `Tier ${i + 1}`}: ${fromStr}-${toStr} tokens → +${tier.markup_percent}%`;
+    }).join('<br>')
     : 'No tiers configured (using fixed markup)';
-  
+
   return `
     <div class="admin-section">
       <div class="admin-section-header">
@@ -1493,16 +1500,16 @@ function renderBillingSection(): string {
                     ${p.current_tier_name ? `<small class="text-muted">Tier: ${p.current_tier_name}</small>` : ''}
                   </td>
                   <td class="admin-td admin-td-right">
-                    ${p.unlimited_balance 
-                      ? '<span class="admin-unlimited">∞ Unlimited</span>' 
-                      : formatEur(p.balance_eur)}
+                    ${p.unlimited_balance
+      ? '<span class="admin-unlimited">∞ Unlimited</span>'
+      : formatEur(p.balance_eur)}
                   </td>
                   <td class="admin-td admin-td-center">
-                    ${p.is_blocked 
-                      ? '<span class="badge badge-danger">Blocked</span>' 
-                      : p.unlimited_balance
-                        ? '<span class="badge badge-success">Unlimited</span>'
-                        : '<span class="badge badge-primary">Active</span>'}
+                    ${p.is_blocked
+      ? '<span class="badge badge-danger">Blocked</span>'
+      : p.unlimited_balance
+        ? '<span class="badge badge-success">Unlimited</span>'
+        : '<span class="badge badge-primary">Active</span>'}
                   </td>
                   <td class="admin-td admin-td-right">${formatTokens(p.tokens_this_period)}</td>
                   <td class="admin-td admin-td-right">${formatEur(p.billable_cost_this_period)}</td>
@@ -1696,7 +1703,7 @@ function bindSectionEvents(container: HTMLElement): void {
     on(btn as HTMLElement, 'click', async () => {
       const newSection = btn.getAttribute('data-section') || 'llm';
       currentSection = newSection;
-      
+
       // Load Team Analysis settings when switching to that section
       if (newSection === 'team-analysis') {
         teamAnalysisLoaded = false;
@@ -1753,57 +1760,57 @@ function bindSectionEvents(container: HTMLElement): void {
 
   // Cache for loaded models by provider
   const modelsCache: Record<string, { textModels: string[]; visionModels: string[]; embeddingModels: string[] }> = {};
-  
+
   // Load models for a provider
   async function loadModelsForProvider(providerId: string, taskType: string): Promise<void> {
     const modelSelect = container.querySelector(`select.model-select[data-task="${taskType}"]`) as HTMLSelectElement;
     const loadingSpan = container.querySelector(`.model-loading[data-task="${taskType}"]`) as HTMLElement;
     const statusDiv = container.querySelector(`.model-status[data-task="${taskType}"]`) as HTMLElement;
-    
+
     if (!modelSelect || !providerId) {
       if (modelSelect) {
         modelSelect.innerHTML = '<option value="">-- Select Provider First --</option>';
       }
       return;
     }
-    
+
     // Show loading state
     if (loadingSpan) loadingSpan.classList.remove('hidden');
     modelSelect.disabled = true;
-    
+
     try {
       // Check cache first
       if (!modelsCache[providerId]) {
-        const response = await http.get<{ textModels: Array<{id: string; name?: string}>; visionModels: Array<{id: string; name?: string}>; embeddingModels: Array<{id: string; name?: string}> }>(`/api/llm/models?provider=${providerId}`);
+        const response = await http.get<{ textModels: Array<{ id: string; name?: string }>; visionModels: Array<{ id: string; name?: string }>; embeddingModels: Array<{ id: string; name?: string }> }>(`/api/llm/models?provider=${providerId}`);
         modelsCache[providerId] = {
           textModels: (response.data.textModels || []).map(m => m.id || m.name || '').filter(Boolean),
           visionModels: (response.data.visionModels || []).map(m => m.id || m.name || '').filter(Boolean),
           embeddingModels: (response.data.embeddingModels || []).map(m => m.id || m.name || '').filter(Boolean)
         };
       }
-      
+
       // Determine which models to show based on task type
       let models: string[] = [];
       if (taskType === 'text') models = modelsCache[providerId].textModels;
       else if (taskType === 'vision') models = modelsCache[providerId].visionModels;
       else if (taskType === 'embeddings') models = modelsCache[providerId].embeddingModels;
-      
+
       // Get current selected value
       const currentValue = modelSelect.value;
-      
+
       // Populate dropdown
       modelSelect.innerHTML = '<option value="">-- Select Model --</option>' +
         models.map(m => `<option value="${m}"${m === currentValue ? ' selected' : ''}>${m}</option>`).join('');
-      
+
       // Update status
       if (statusDiv) {
-        statusDiv.textContent = models.length > 0 
-          ? `${models.length} model(s) available` 
+        statusDiv.textContent = models.length > 0
+          ? `${models.length} model(s) available`
           : 'No models found for this task type. Check provider configuration.';
         statusDiv.classList.remove('admin-status-success', 'admin-status-warning', 'admin-status-error');
         statusDiv.classList.add(models.length > 0 ? 'admin-status-success' : 'admin-status-warning');
       }
-      
+
     } catch (error) {
       console.error(`Failed to load models for ${providerId}:`, error);
       modelSelect.innerHTML = '<option value="">Error loading models</option>';
@@ -1817,7 +1824,7 @@ function bindSectionEvents(container: HTMLElement): void {
       modelSelect.disabled = false;
     }
   }
-  
+
   // Provider change handler - load models dynamically
   container.querySelectorAll('select.provider-select').forEach(select => {
     on(select as HTMLElement, 'change', async () => {
@@ -1827,7 +1834,7 @@ function bindSectionEvents(container: HTMLElement): void {
         await loadModelsForProvider(provider, task);
       }
     });
-    
+
     // Initial load if provider is already selected
     const task = select.getAttribute('data-task');
     const provider = (select as HTMLSelectElement).value;
@@ -1841,15 +1848,15 @@ function bindSectionEvents(container: HTMLElement): void {
   if (saveLLMBtn) {
     on(saveLLMBtn as HTMLElement, 'click', async () => {
       const taskConfigs: Record<string, { provider: string; model: string }> = {};
-      
+
       container.querySelectorAll('select[data-task]').forEach(el => {
         const task = el.getAttribute('data-task')!;
         const field = el.getAttribute('data-field')!;
-        
+
         if (!taskConfigs[task]) {
           taskConfigs[task] = { provider: '', model: '' };
         }
-        
+
         taskConfigs[task][field as 'provider' | 'model'] = (el as HTMLSelectElement).value;
       });
 
@@ -1895,7 +1902,7 @@ function bindSectionEvents(container: HTMLElement): void {
       if (loadingEl) loadingEl.classList.add('hidden');
     }
   }
-  
+
   // Load API keys status on render
   loadApiKeysStatus();
 
@@ -1963,7 +1970,7 @@ function bindSectionEvents(container: HTMLElement): void {
   }
 
   // ============ Queue Section Handlers ============
-  
+
   // Load queue status
   // Interface for queue data
   interface QueueStatusData {
@@ -1989,11 +1996,11 @@ function bindSectionEvents(container: HTMLElement): void {
     const itemsContent = container.querySelector('#queue-items-content');
     const pendingCount = container.querySelector('#pending-count');
     const dbStatusBadge = container.querySelector('#db-status-badge');
-    
+
     try {
       const response = await http.get<QueueStatusData>('/api/llm/queue/status');
       const data = response.data;
-      
+
       // Update DB status badge
       if (dbStatusBadge) {
         if (data.database) {
@@ -2004,12 +2011,12 @@ function bindSectionEvents(container: HTMLElement): void {
           dbStatusBadge.textContent = 'DB: Memory Only';
         }
       }
-      
+
       // Update status
       if (statusContent) {
         const statusColor = data.isPaused ? 'var(--warning)' : (data.isProcessing ? 'var(--success)' : 'var(--text-tertiary)');
         const statusText = data.isPaused ? '⏸ PAUSED' : (data.isProcessing ? '🔄 PROCESSING' : '✓ IDLE');
-        
+
         statusContent.innerHTML = `
           <div class="admin-queue-status-grid">
             <div class="admin-queue-stat">
@@ -2034,12 +2041,12 @@ function bindSectionEvents(container: HTMLElement): void {
           ` : ''}
         `;
       }
-      
+
       // Update pending items
       if (itemsContent && pendingCount) {
         const pendingLen = data.pendingItems?.length || 0;
         pendingCount.textContent = `${pendingLen} items`;
-        
+
         if (pendingLen > 0) {
           itemsContent.innerHTML = `
             <table class="admin-queue-table admin-queue-table-sm">
@@ -2067,7 +2074,7 @@ function bindSectionEvents(container: HTMLElement): void {
           itemsContent.innerHTML = '<div class="admin-placeholder">No items in queue</div>';
         }
       }
-      
+
       // Update stats
       const db = data.database;
       const statPending = container.querySelector('#stat-pending');
@@ -2077,7 +2084,7 @@ function bindSectionEvents(container: HTMLElement): void {
       const statRetry = container.querySelector('#stat-retry');
       const statAvgTime = container.querySelector('#stat-avg-time');
       const statCost = container.querySelector('#stat-cost');
-      
+
       if (statPending) statPending.textContent = String(db?.pendingCount || data.queueLength || 0);
       if (statProcessing) statProcessing.textContent = String(db?.processingCount || (data.isProcessing ? 1 : 0));
       if (statSuccess) statSuccess.textContent = String(db?.completedToday || data.stats?.successful || 0);
@@ -2085,7 +2092,7 @@ function bindSectionEvents(container: HTMLElement): void {
       if (statRetry) statRetry.textContent = String(db?.retryPendingCount || 0);
       if (statAvgTime) statAvgTime.textContent = String(Math.round(db?.avgProcessingTimeMs || data.stats?.avgProcessingTime || 0));
       if (statCost) statCost.textContent = `$${(db?.totalCostTodayUsd || 0).toFixed(4)}`;
-      
+
     } catch (error) {
       console.error('Failed to load queue status:', error);
       if (statusContent) {
@@ -2093,11 +2100,11 @@ function bindSectionEvents(container: HTMLElement): void {
       }
     }
   }
-  
+
   // Load queue history
   async function loadQueueHistory(): Promise<void> {
     const historyContent = container.querySelector('#queue-history-content');
-    
+
     try {
       const response = await http.get<{
         history: Array<{
@@ -2115,9 +2122,9 @@ function bindSectionEvents(container: HTMLElement): void {
           error?: string;
         }>;
       }>('/api/llm/queue/history?limit=50');
-      
+
       const history = response.data?.history || [];
-      
+
       if (historyContent) {
         if (history.length > 0) {
           historyContent.innerHTML = `
@@ -2162,7 +2169,7 @@ function bindSectionEvents(container: HTMLElement): void {
       }
     }
   }
-  
+
   // Show request details modal
   async function showRequestDetails(requestId: string): Promise<void> {
     try {
@@ -2193,20 +2200,20 @@ function bindSectionEvents(container: HTMLElement): void {
           completed_at: string | null;
         };
       }>(`/api/llm/queue/${requestId}`);
-      
+
       if (!response.data.success || !response.data.request) {
         toast.error('Request not found');
         return;
       }
-      
+
       const req = response.data.request;
-      
+
       // Escape HTML in strings to prevent XSS and template breaking
       const escapeHtml = (str: string | null | undefined): string => {
         if (!str) return '';
         return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
       };
-      
+
       // Format JSON with syntax highlighting
       const formatJsonHtml = (obj: unknown): string => {
         const json = JSON.stringify(obj, null, 2);
@@ -2216,7 +2223,7 @@ function bindSectionEvents(container: HTMLElement): void {
           .replace(/: (\d+)/g, ': <span class="hl-json-num">$1</span>')
           .replace(/: (true|false|null)/g, ': <span class="hl-json-bool">$1</span>');
       };
-      
+
       // Format prompt text for readability
       const formatPromptText = (text: string | null | undefined): string => {
         if (!text) return '<span class="hl-prompt-empty">(No content)</span>';
@@ -2227,7 +2234,7 @@ function bindSectionEvents(container: HTMLElement): void {
           .replace(/^[-•]\s*(.+)$/gm, '  • $1')
           .replace(/---+/g, '<hr class="hl-prompt-hr">');
       };
-      
+
       // Get status color and icon
       const getStatusInfo = (status: string) => {
         const statusMap: Record<string, { color: string; icon: string; bg: string }> = {
@@ -2240,18 +2247,18 @@ function bindSectionEvents(container: HTMLElement): void {
         };
         return statusMap[status] || { color: 'var(--text-primary)', icon: '?', bg: 'var(--bg-secondary)' };
       };
-      
+
       const statusInfo = getStatusInfo(req.status);
       const inputData = (req.input_data || {}) as Record<string, unknown>;
       const messages = inputData.messages as Array<{ content?: string }> | undefined;
       const promptText = (inputData.prompt as string) || messages?.[0]?.content || '';
-      
+
       // Create modal - using unique ID to avoid duplicates
       const existingModal = document.getElementById('llm-request-details-modal');
       if (existingModal) {
         existingModal.remove();
       }
-      
+
       const modal = document.createElement('div');
       modal.id = 'llm-request-details-modal';
       modal.className = 'modal open';
@@ -2374,16 +2381,16 @@ function bindSectionEvents(container: HTMLElement): void {
           </div>
         </div>
       `;
-      
+
       document.body.appendChild(modal);
-      
+
       // Close handlers
       modal.querySelector('.modal-close')?.addEventListener('click', () => modal.remove());
       modal.querySelector('.modal-close-btn')?.addEventListener('click', () => modal.remove());
       modal.addEventListener('click', (e) => {
         if (e.target === modal) modal.remove();
       });
-      
+
       // ESC key to close
       const handleEsc = (e: KeyboardEvent) => {
         if (e.key === 'Escape') {
@@ -2392,7 +2399,7 @@ function bindSectionEvents(container: HTMLElement): void {
         }
       };
       document.addEventListener('keydown', handleEsc);
-      
+
       // Copy handlers
       modal.querySelector('#copy-input-btn')?.addEventListener('click', () => {
         const text = promptText || JSON.stringify(req.input_data, null, 2);
@@ -2411,17 +2418,17 @@ function bindSectionEvents(container: HTMLElement): void {
         navigator.clipboard.writeText(JSON.stringify(req.output_data, null, 2));
         toast.success('Output JSON copied to clipboard');
       });
-      
+
     } catch (error) {
       console.error('Failed to load request details:', error);
       toast.error('Failed to load request details');
     }
   }
-  
+
   // Load failed items
   async function loadFailedItems(): Promise<void> {
     const failedContent = container.querySelector('#failed-items-content');
-    
+
     try {
       const response = await http.get<{
         items: Array<{
@@ -2437,9 +2444,9 @@ function bindSectionEvents(container: HTMLElement): void {
           completedAt?: string;
         }>;
       }>('/api/llm/queue/retryable?limit=20');
-      
+
       const items = response.data?.items || [];
-      
+
       if (failedContent) {
         if (items.length > 0) {
           failedContent.innerHTML = `
@@ -2480,25 +2487,25 @@ function bindSectionEvents(container: HTMLElement): void {
       }
     }
   }
-  
+
   // Refresh queue status button
   const refreshStatusBtn = container.querySelector('#refresh-queue-status');
   if (refreshStatusBtn) {
     on(refreshStatusBtn as HTMLElement, 'click', loadQueueStatus);
   }
-  
+
   // Refresh history button
   const refreshHistoryBtn = container.querySelector('#refresh-queue-history');
   if (refreshHistoryBtn) {
     on(refreshHistoryBtn as HTMLElement, 'click', loadQueueHistory);
   }
-  
+
   // Refresh failed button
   const refreshFailedBtn = container.querySelector('#refresh-failed-btn');
   if (refreshFailedBtn) {
     on(refreshFailedBtn as HTMLElement, 'click', loadFailedItems);
   }
-  
+
   // Retry all failed items
   const retryAllBtn = container.querySelector('#retry-all-btn');
   if (retryAllBtn) {
@@ -2507,7 +2514,7 @@ function bindSectionEvents(container: HTMLElement): void {
         // Get all retryable items and retry them
         const response = await http.get<{ items: Array<{ id: string; canRetry: boolean }> }>('/api/llm/queue/retryable?limit=50');
         const items = (response.data?.items || []).filter(i => i.canRetry);
-        
+
         let successCount = 0;
         for (const item of items) {
           try {
@@ -2517,7 +2524,7 @@ function bindSectionEvents(container: HTMLElement): void {
             // Continue with others
           }
         }
-        
+
         toast.success(`Queued ${successCount} items for retry`);
         loadQueueStatus();
         loadFailedItems();
@@ -2526,7 +2533,7 @@ function bindSectionEvents(container: HTMLElement): void {
       }
     });
   }
-  
+
   // Pause queue button
   const pauseBtn = container.querySelector('#queue-pause-btn');
   if (pauseBtn) {
@@ -2540,7 +2547,7 @@ function bindSectionEvents(container: HTMLElement): void {
       }
     });
   }
-  
+
   // Resume queue button
   const resumeBtn = container.querySelector('#queue-resume-btn');
   if (resumeBtn) {
@@ -2554,7 +2561,7 @@ function bindSectionEvents(container: HTMLElement): void {
       }
     });
   }
-  
+
   // Clear queue button
   const clearBtn = container.querySelector('#queue-clear-btn');
   if (clearBtn) {
@@ -2570,11 +2577,11 @@ function bindSectionEvents(container: HTMLElement): void {
       }
     });
   }
-  
+
   // Cancel individual item, retry handlers, and view details
   container.addEventListener('click', async (e) => {
     const target = e.target as HTMLElement;
-    
+
     // View request details - use closest to handle click on button or its content
     const viewBtn = target.closest('[data-view-request]') as HTMLElement | null;
     if (viewBtn) {
@@ -2586,7 +2593,7 @@ function bindSectionEvents(container: HTMLElement): void {
       }
       return;
     }
-    
+
     // Cancel pending item
     const cancelBtn = target.closest('[data-cancel-item]') as HTMLElement | null;
     if (cancelBtn) {
@@ -2602,7 +2609,7 @@ function bindSectionEvents(container: HTMLElement): void {
         return;
       }
     }
-    
+
     // Retry failed item
     const retryBtn = target.closest('[data-retry-item]') as HTMLElement | null;
     if (retryBtn) {
@@ -2619,7 +2626,7 @@ function bindSectionEvents(container: HTMLElement): void {
         return;
       }
     }
-    
+
     // Retry with reset
     const retryResetBtn = target.closest('[data-retry-reset-item]') as HTMLElement | null;
     if (retryResetBtn) {
@@ -2637,14 +2644,14 @@ function bindSectionEvents(container: HTMLElement): void {
       }
     }
   });
-  
+
   // ============ Models Section Handlers ============
-  
+
   // Load metadata sync status
   async function loadMetadataSyncStatus(): Promise<void> {
     const statusDiv = container.querySelector('#metadata-sync-status');
     const countsDiv = container.querySelector('#provider-model-counts');
-    
+
     try {
       const response = await http.get<{
         success: boolean;
@@ -2657,9 +2664,9 @@ function bindSectionEvents(container: HTMLElement): void {
           last_synced: string | null;
         }>;
       }>('/api/llm/metadata/status');
-      
+
       const providers = response.data?.providers || [];
-      
+
       if (statusDiv) {
         if (providers.length > 0) {
           statusDiv.innerHTML = `
@@ -2692,7 +2699,7 @@ function bindSectionEvents(container: HTMLElement): void {
           statusDiv.innerHTML = '<div class="admin-placeholder">No metadata found. Click "Sync All Providers" to fetch model data.</div>';
         }
       }
-      
+
       // Update counts display
       if (countsDiv && providers.length > 0) {
         const total = providers.reduce((sum, p) => sum + (p.active_models || 0), 0);
@@ -2718,7 +2725,7 @@ function bindSectionEvents(container: HTMLElement): void {
       }
     }
   }
-  
+
   // Sync all metadata
   const syncAllBtn = container.querySelector('#sync-all-metadata-btn');
   if (syncAllBtn) {
@@ -2726,7 +2733,7 @@ function bindSectionEvents(container: HTMLElement): void {
       const resultDiv = container.querySelector('#metadata-sync-result');
       (syncAllBtn as HTMLButtonElement).disabled = true;
       (syncAllBtn as HTMLButtonElement).textContent = 'Syncing...';
-      
+
       try {
         const response = await http.post<{
           success: boolean;
@@ -2734,12 +2741,12 @@ function bindSectionEvents(container: HTMLElement): void {
           totalModels: number;
           errors: Array<{ provider: string; error: string }>;
         }>('/api/llm/metadata/sync', {});
-        
+
         if (resultDiv) {
           (resultDiv as HTMLElement).classList.remove('hidden');
           const providers = response.data?.providers || {};
           const entries = Object.entries(providers);
-          
+
           resultDiv.innerHTML = `
             <div class="admin-sync-result-box">
               <div class="admin-sync-result-title">Sync Results</div>
@@ -2759,10 +2766,10 @@ function bindSectionEvents(container: HTMLElement): void {
             </div>
           `;
         }
-        
+
         toast.success(`Synced ${response.data?.totalModels || 0} models`);
         loadMetadataSyncStatus();
-        
+
       } catch (error) {
         toast.error('Failed to sync metadata');
         if (resultDiv) {
@@ -2775,7 +2782,7 @@ function bindSectionEvents(container: HTMLElement): void {
       }
     });
   }
-  
+
   // Browse models by provider
   const browseModelsBtn = container.querySelector('#browse-models-btn');
   if (browseModelsBtn) {
@@ -2783,16 +2790,16 @@ function bindSectionEvents(container: HTMLElement): void {
       const providerSelect = container.querySelector('#browse-provider-select') as HTMLSelectElement;
       const contentDiv = container.querySelector('#models-browser-content');
       const provider = providerSelect?.value;
-      
+
       if (!provider) {
         toast.info('Please select a provider');
         return;
       }
-      
+
       if (contentDiv) {
         contentDiv.innerHTML = '<div class="admin-placeholder">Loading models...</div>';
       }
-      
+
       try {
         const response = await http.get<{
           success: boolean;
@@ -2800,9 +2807,9 @@ function bindSectionEvents(container: HTMLElement): void {
           visionModels: Array<{ model_id: string; display_name: string }>;
           embeddingModels: Array<{ model_id: string; display_name: string }>;
         }>(`/api/llm/metadata/${provider}`);
-        
+
         const { textModels = [], visionModels = [], embeddingModels = [] } = response.data || {};
-        
+
         if (contentDiv) {
           if (textModels.length === 0 && embeddingModels.length === 0) {
             contentDiv.innerHTML = '<div class="admin-empty-state">No models found for this provider. Try syncing first.</div>';
@@ -2848,12 +2855,12 @@ function bindSectionEvents(container: HTMLElement): void {
       }
     });
   }
-  
+
   // Auto-load metadata status if on models section
   if (currentSection === 'models') {
     loadMetadataSyncStatus();
   }
-  
+
   // Auto-load queue data if on queue section
   if (currentSection === 'queue') {
     loadQueueStatus();
@@ -2875,7 +2882,7 @@ function bindSectionEvents(container: HTMLElement): void {
       try {
         // Save as a single 'graph' key with the config object
         await saveConfig('graph', graphConfigValue, 'graph');
-        
+
         toast.success('Graph configuration saved!');
         console.log('[AdminPanel] Saved graph config:', graphConfigValue);
       } catch (error) {
@@ -2896,9 +2903,9 @@ function bindSectionEvents(container: HTMLElement): void {
           provider: 'supabase',
           graphName: (container.querySelector('#graph-name') as HTMLInputElement)?.value || 'godmode',
         };
-        
+
         console.log('[AdminPanel] Testing Supabase graph connection');
-        
+
         const response = await http.post<{ success: boolean; ok?: boolean; message?: string; error?: string }>('/api/graph/test', testConfig);
         if (response.data.success || response.data.ok) {
           toast.success('Supabase graph connection successful!');
@@ -2960,16 +2967,16 @@ function bindSectionEvents(container: HTMLElement): void {
     on(savePromptsBtn as HTMLElement, 'click', async () => {
       const promptElements = container.querySelectorAll('[data-prompt-key]');
       let savedCount = 0;
-      
+
       for (const textarea of promptElements) {
         const key = textarea.getAttribute('data-prompt-key')!;
         const value = (textarea as HTMLTextAreaElement).value;
-        
+
         if (value && value.trim()) {
           try {
             await http.put(`/api/system/prompts/${key}`, { prompt_template: value.trim() });
             savedCount++;
-            
+
             // Update status indicator
             const statusEl = container.querySelector(`#status-${key}`);
             if (statusEl) {
@@ -2986,7 +2993,7 @@ function bindSectionEvents(container: HTMLElement): void {
           }
         }
       }
-      
+
       if (savedCount > 0) {
         toast.success(`${savedCount} prompt(s) saved successfully`);
       } else {
@@ -3011,24 +3018,24 @@ function bindSectionEvents(container: HTMLElement): void {
       const key = btn.getAttribute('data-view-versions')!;
       const historyDiv = container.querySelector(`#versions-${key}`) as HTMLElement;
       const listDiv = historyDiv?.querySelector('.version-list') as HTMLElement;
-      
+
       if (!historyDiv || !listDiv) return;
-      
+
       // Toggle visibility
       if (!historyDiv.classList.contains('hidden')) {
         historyDiv.classList.add('hidden');
         return;
       }
-      
+
       // Load versions
       listDiv.innerHTML = '<p class="text-muted">Loading versions...</p>';
       historyDiv.classList.remove('hidden');
-      
+
       try {
         const response = await http.get<{ current_version: number; versions: Array<{ id: string; version: number; created_at: string }> }>(`/api/system/prompts/${key}/versions`);
         const versions = response.data?.versions || [];
         const currentVersion = response.data?.current_version || 1;
-        
+
         if (versions.length === 0) {
           listDiv.innerHTML = `
             <p class="text-muted">No previous versions. Current version: ${currentVersion}</p>
@@ -3036,7 +3043,7 @@ function bindSectionEvents(container: HTMLElement): void {
           `;
           return;
         }
-        
+
         listDiv.innerHTML = `
           <p class="text-sm"><strong>Current version:</strong> ${currentVersion}</p>
           <div class="version-items">
@@ -3054,17 +3061,17 @@ function bindSectionEvents(container: HTMLElement): void {
             `).join('')}
           </div>
         `;
-        
+
         // Bind restore buttons
         listDiv.querySelectorAll('[data-restore-version]').forEach(restoreBtn => {
           on(restoreBtn as HTMLElement, 'click', async () => {
             const [promptKey, versionStr] = restoreBtn.getAttribute('data-restore-version')!.split(':');
             const version = parseInt(versionStr, 10);
-            
+
             if (!confirm(`Restore prompt "${promptKey}" to version ${version}? The current version will be saved in history.`)) {
               return;
             }
-            
+
             try {
               await http.post(`/api/system/prompts/${promptKey}/restore`, { version });
               toast.success(`Restored to version ${version}`);
@@ -3075,17 +3082,17 @@ function bindSectionEvents(container: HTMLElement): void {
             }
           });
         });
-        
+
         // Bind preview buttons
         listDiv.querySelectorAll('[data-preview-version]').forEach(previewBtn => {
           on(previewBtn as HTMLElement, 'click', async () => {
             const [promptKey, versionStr] = previewBtn.getAttribute('data-preview-version')!.split(':');
             const version = parseInt(versionStr, 10);
-            
+
             try {
               const response = await http.get<{ version: { prompt_template: string } }>(`/api/system/prompts/${promptKey}/versions/${version}`);
               const template = response.data?.version?.prompt_template || '';
-              
+
               // Show in a modal or alert for now
               const previewModal = document.createElement('div');
               previewModal.className = 'modal-overlay';
@@ -3101,7 +3108,7 @@ function bindSectionEvents(container: HTMLElement): void {
                 </div>
               `;
               document.body.appendChild(previewModal);
-              
+
               previewModal.querySelector('.modal-close')?.addEventListener('click', () => {
                 previewModal.remove();
               });
@@ -3113,7 +3120,7 @@ function bindSectionEvents(container: HTMLElement): void {
             }
           });
         });
-        
+
       } catch (error) {
         listDiv.innerHTML = '<p class="text-error">Failed to load version history</p>';
       }
@@ -3168,7 +3175,7 @@ function bindSectionEvents(container: HTMLElement): void {
       if (btn) { btn.disabled = true; btn.textContent = 'Running...'; }
       try {
         const res = await http.post<{ success: boolean; message?: string; projectsCount?: number }>('/api/system/google-drive/bootstrap-all');
-        toast.success(res?.message ?? `Bootstrap complete: ${res?.projectsCount ?? 0} projects`);
+        toast.success(res.data?.message ?? `Bootstrap complete: ${res.data?.projectsCount ?? 0} projects`);
         googleDriveLoaded = false;
         await loadGoogleDriveState();
         renderAdminPanel(container);
@@ -3183,7 +3190,7 @@ function bindSectionEvents(container: HTMLElement): void {
   // =========================
   // BILLING SECTION EVENTS
   // =========================
-  
+
   // Exchange rate auto toggle
   const exchangeRateAutoCheckbox = container.querySelector('#exchange-rate-auto');
   if (exchangeRateAutoCheckbox) {
@@ -3199,7 +3206,7 @@ function bindSectionEvents(container: HTMLElement): void {
       }
     });
   }
-  
+
   // Refresh exchange rate button
   const refreshRateBtn = container.querySelector('#refresh-rate-btn');
   if (refreshRateBtn) {
@@ -3207,7 +3214,7 @@ function bindSectionEvents(container: HTMLElement): void {
       const btn = refreshRateBtn as HTMLButtonElement;
       btn.disabled = true;
       btn.textContent = 'Refreshing...';
-      
+
       try {
         const result = await billingService.refreshExchangeRate();
         if (result.success && result.rate) {
@@ -3227,16 +3234,16 @@ function bindSectionEvents(container: HTMLElement): void {
       }
     });
   }
-  
+
   // Save exchange rate settings
   const saveExchangeRateBtn = container.querySelector('#save-exchange-rate-btn');
   if (saveExchangeRateBtn) {
     on(saveExchangeRateBtn as HTMLElement, 'click', async () => {
       const isAuto = (container.querySelector('#exchange-rate-auto') as HTMLInputElement)?.checked ?? true;
       const manualRate = parseFloat((container.querySelector('#exchange-rate-manual') as HTMLInputElement)?.value || '0.92');
-      
+
       const result = await billingService.setExchangeRateMode(isAuto, manualRate);
-      
+
       if (result.success) {
         toast.success('Exchange rate settings saved');
         billingLoaded = false;
@@ -3247,19 +3254,19 @@ function bindSectionEvents(container: HTMLElement): void {
       }
     });
   }
-  
+
   // Save global pricing config
   const saveGlobalPricingBtn = container.querySelector('#save-global-pricing-btn');
   if (saveGlobalPricingBtn) {
     on(saveGlobalPricingBtn as HTMLElement, 'click', async () => {
       const fixedMarkup = parseFloat((container.querySelector('#global-markup-percent') as HTMLInputElement)?.value || '0');
       const periodType = (container.querySelector('#global-period-type') as HTMLSelectElement)?.value || 'monthly';
-      
+
       const result = await billingService.setGlobalPricingConfig({
         fixed_markup_percent: fixedMarkup,
         period_type: periodType as 'monthly' | 'weekly'
       });
-      
+
       if (result.success) {
         toast.success('Global pricing saved');
         billingLoaded = false;
@@ -3270,7 +3277,7 @@ function bindSectionEvents(container: HTMLElement): void {
       }
     });
   }
-  
+
   // Add tier button
   const addTierBtn = container.querySelector('#add-tier-btn');
   if (addTierBtn) {
@@ -3287,7 +3294,7 @@ function bindSectionEvents(container: HTMLElement): void {
       renderAdminPanel(container);
     });
   }
-  
+
   // Remove tier buttons
   container.querySelectorAll('.remove-tier-btn').forEach(btn => {
     on(btn as HTMLElement, 'click', () => {
@@ -3296,7 +3303,7 @@ function bindSectionEvents(container: HTMLElement): void {
       renderAdminPanel(container);
     });
   });
-  
+
   // Tier unlimited checkboxes
   container.querySelectorAll('.tier-unlimited').forEach(checkbox => {
     on(checkbox as HTMLElement, 'change', () => {
@@ -3310,7 +3317,7 @@ function bindSectionEvents(container: HTMLElement): void {
       }
     });
   });
-  
+
   // Save tiers button
   const saveTiersBtn = container.querySelector('#save-tiers-btn');
   if (saveTiersBtn) {
@@ -3321,14 +3328,14 @@ function bindSectionEvents(container: HTMLElement): void {
         const limitValue = (row.querySelector('.tier-limit') as HTMLInputElement)?.value;
         const markup = parseFloat((row.querySelector('.tier-markup') as HTMLInputElement)?.value || '0');
         const unlimited = (row.querySelector('.tier-unlimited') as HTMLInputElement)?.checked;
-        
+
         tiers.push({
           token_limit: unlimited ? null : (limitValue ? parseInt(limitValue, 10) : null),
           markup_percent: markup,
           name: name || undefined
         });
       });
-      
+
       const result = await billingService.setGlobalPricingTiers(tiers);
       if (result.success) {
         toast.success('Pricing tiers saved');
@@ -3340,7 +3347,7 @@ function bindSectionEvents(container: HTMLElement): void {
       }
     });
   }
-  
+
   // Refresh billing button
   const refreshBillingBtn = container.querySelector('#refresh-billing-btn');
   if (refreshBillingBtn) {
@@ -3351,17 +3358,17 @@ function bindSectionEvents(container: HTMLElement): void {
       toast.info('Billing data refreshed');
     });
   }
-  
+
   // Add balance buttons
   container.querySelectorAll('.add-balance-btn').forEach(btn => {
     on(btn as HTMLElement, 'click', async () => {
       const projectId = btn.getAttribute('data-project-id');
       const projectName = btn.getAttribute('data-project-name');
       if (!projectId) return;
-      
+
       const amount = prompt(`Enter amount in EUR to add to "${projectName}":`);
       if (!amount || isNaN(parseFloat(amount))) return;
-      
+
       const result = await billingService.creditProjectBalance(projectId, parseFloat(amount));
       if (result.success) {
         toast.success(`Added €${parseFloat(amount).toFixed(2)} to ${projectName}. New balance: €${result.new_balance?.toFixed(2)}`);
@@ -3373,17 +3380,17 @@ function bindSectionEvents(container: HTMLElement): void {
       }
     });
   });
-  
+
   // Toggle unlimited buttons
   container.querySelectorAll('.toggle-unlimited-btn').forEach(btn => {
     on(btn as HTMLElement, 'click', async () => {
       const projectId = btn.getAttribute('data-project-id');
       const isUnlimited = btn.getAttribute('data-unlimited') === 'true';
       if (!projectId) return;
-      
+
       const action = isUnlimited ? 'disable unlimited mode' : 'enable unlimited mode';
       if (!confirm(`Are you sure you want to ${action} for this project?`)) return;
-      
+
       const result = await billingService.setProjectUnlimited(projectId, !isUnlimited);
       if (result.success) {
         toast.success(`Unlimited mode ${isUnlimited ? 'disabled' : 'enabled'}`);
