@@ -53,6 +53,16 @@ class DocumentProcessor {
     }
 
     /**
+     * Scan for pending files
+     * used by GET /api/files
+     */
+    async scanPendingFiles() {
+        if (!this.storage.getDocuments) return [];
+        const allDocs = await this.storage.getDocuments();
+        return allDocs.filter(d => d.status === 'pending');
+    }
+
+    /**
      * Process all files
      */
     async processAll(textModel, visionModel = null) {

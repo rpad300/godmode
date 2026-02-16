@@ -101,7 +101,13 @@ async function handleDashboard(ctx) {
         const recentHistory = storage.getRecentActivity ? storage.getRecentActivity(10) : [];
 
         // Sprint Placeholder (until Sprints are fully implemented)
-        const sprints = storage.getSprints ? storage.getSprints() : [];
+        let sprints = [];
+        if (storage.getSprints) {
+            const result = storage.getSprints();
+            if (Array.isArray(result)) {
+                sprints = result;
+            }
+        }
         const activeSprint = sprints.find(s => s.status === 'active') || null;
 
         jsonResponse(res, {

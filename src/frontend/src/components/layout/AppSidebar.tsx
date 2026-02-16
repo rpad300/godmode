@@ -1,13 +1,35 @@
-import { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard, MessageSquare, FileText, Calendar, Users, Network,
   FolderOpen, Mail, GitBranch, DollarSign, Clock, Settings, Shield,
-  ChevronLeft, ChevronRight, Zap, Upload, Trash2, AlertCircle, FileUp, FolderKanban, User, Building2
+  ChevronLeft, ChevronRight, Zap, Upload, Trash2, AlertCircle, FileUp, FolderKanban, User, Building2,
+  Layers, Plus, File, Loader2
 } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useToast } from "@/hooks/use-toast";
+import { apiClient } from "@/lib/api-client";
 import type { TabId } from '@/types/godmode';
 
 export type ImportFileType = 'documents' | 'transcripts' | 'emails' | 'conversations';
+
+interface PendingFile {
+  filename: string;
+  type: string;
+  size: number;
+  status: string;
+  created_at?: string;
+  emailId?: string;
+}
 
 interface AppSidebarProps {
   activeTab: TabId;
@@ -66,12 +88,111 @@ const dropZones = [
 
 const AppSidebar = ({ activeTab, onTabChange, onImportFile }: AppSidebarProps) => {
   const [collapsed, setCollapsed] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    const fetchPendingFiles = async () => {
+      try {
+        const files = await apiClient.get<PendingFile[]>('/api/files');
+        setPendingFiles(Array.isArray(files) ? files : []);
+      } catch (error) {
+        console.error('Failed to fetch pending files', error);
+      }
+    };
+
+    fetchPendingFiles();
+    // Poll every 10 seconds
+    const interval = setInterval(fetchPendingFiles, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleProcessFiles = async () => {
+    try {
+      setIsProcessing(true);
+      await apiClient.post('/api/process', { provider: 'auto' });
+      toast({
+        title: "Processing Started",
+        description: "Your files are being processed in the background.",
+      });
+    } catch (error) {
+      console.error('Processing failed:', error);
+      toast({
+        title: "Processing Failed",
+        description: "Failed to start processing. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleExport = async () => {
+    try {
+      setIsExporting(true);
+      // Use the project export endpoint which returns a downloadable file
+      const response = await apiClient.get<Blob>('/api/projects/current/export', {
+        responseType: 'blob'
+      });
+
+      // Create url from blob and trigger download
+      const url = window.URL.createObjectURL(response);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `project-export-${new Date().toISOString().split('T')[0]}.json`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      toast({
+        title: "Export Successful",
+        description: "Project data exported successfully.",
+      });
+    } catch (error) {
+      console.error('Export failed:', error);
+      toast({
+        title: "Export Failed",
+        description: "Failed to export project data.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleResetData = async () => {
+    try {
+      setIsResetting(true);
+      await apiClient.post('/api/data/cleanup', {
+        factsMaxAgeDays: 0,
+        questionsMaxAgeDays: 0,
+        archive: false
+      });
+      toast({
+        title: "Data Reset",
+        description: "Project data has been cleared.",
+      });
+      setShowResetConfirm(false);
+    } catch (error) {
+      console.error('Reset failed:', error);
+      toast({
+        title: "Reset Failed",
+        description: "Failed to reset project data.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsResetting(false);
+    }
+  };
 
   return (
     <aside
-      className={`h-full border-r border-sidebar-border flex flex-col transition-all duration-300 ${
-        collapsed ? 'w-16' : 'w-64'
-      }`}
+      className={`h-full border-r border-sidebar-border flex flex-col transition-all duration-300 ${collapsed ? 'w-16' : 'w-64'
+        }`}
       style={{ background: 'var(--gradient-sidebar)' }}
     >
       {/* Collapse toggle */}
@@ -103,14 +224,19 @@ const AppSidebar = ({ activeTab, onTabChange, onImportFile }: AppSidebarProps) =
         </div>
       )}
 
-      {/* Pending files */}
-      {!collapsed && (
-        <div className="px-3 mb-3">
-          <div className="flex items-center justify-between px-1 mb-1">
-            <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Pending</span>
-            <span className="text-[10px] text-muted-foreground">1 file</span>
+      {/* Pending Files */}
+      {!collapsed && pendingFiles.length > 0 && (
+        <div className="px-3 py-2">
+          <div className="space-y-1">
+            <p className="text-[10px] uppercase tracking-widest text-muted-foreground px-1">Pending Files</p>
+            {pendingFiles.map((file, idx) => (
+              <div key={idx} className="flex items-center gap-2 px-2 py-1.5 text-sm text-foreground/80 hover:bg-muted/50 rounded-md transition-colors cursor-pointer group">
+                <File className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                <span className="truncate flex-1">{file.filename}</span>
+                <div className="w-1.5 h-1.5 rounded-full bg-yellow-500" title="Pending" />
+              </div>
+            ))}
           </div>
-          <div className="text-xs text-muted-foreground px-1">Sprint Retrospective.txt</div>
         </div>
       )}
 
@@ -119,9 +245,8 @@ const AppSidebar = ({ activeTab, onTabChange, onImportFile }: AppSidebarProps) =
         {navGroups.map((group) => (
           <div key={group.label} className="mb-3">
             {!collapsed && (
-              <p className={`text-[10px] uppercase tracking-widest mb-1.5 px-2 ${
-                group.adminOnly ? 'text-destructive/60' : 'text-muted-foreground'
-              }`}>
+              <p className={`text-[10px] uppercase tracking-widest mb-1.5 px-2 ${group.adminOnly ? 'text-destructive/60' : 'text-muted-foreground'
+                }`}>
                 {group.label}
               </p>
             )}
@@ -135,13 +260,12 @@ const AppSidebar = ({ activeTab, onTabChange, onImportFile }: AppSidebarProps) =
                   <button
                     key={item.id}
                     onClick={() => onTabChange(item.id)}
-                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all relative group ${
-                      isActive
-                        ? 'bg-primary/10 text-primary font-medium'
-                        : group.adminOnly
+                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all relative group ${isActive
+                      ? 'bg-primary/10 text-primary font-medium'
+                      : group.adminOnly
                         ? 'text-destructive/70 hover:bg-destructive/5 hover:text-destructive'
                         : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
-                    }`}
+                      }`}
                     title={collapsed ? item.label : undefined}
                   >
                     {isActive && (
@@ -164,22 +288,54 @@ const AppSidebar = ({ activeTab, onTabChange, onImportFile }: AppSidebarProps) =
       {!collapsed && (
         <div className="p-3 border-t border-sidebar-border space-y-2">
           <p className="text-[10px] uppercase tracking-widest text-muted-foreground px-1">Actions</p>
-          <button className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors">
-            <Zap className="w-4 h-4" /> Process Files
+          <button
+            onClick={handleProcessFiles}
+            disabled={isProcessing}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+            {isProcessing ? 'Processing...' : 'Process Files'}
           </button>
           <div className="flex gap-1.5">
-            <button className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md bg-secondary text-secondary-foreground text-xs hover:bg-muted transition-colors">
-              <Upload className="w-3.5 h-3.5" /> Export
+            <button
+              onClick={handleExport}
+              disabled={isExporting}
+              className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md bg-secondary text-secondary-foreground text-xs hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isExporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+              {isExporting ? '...' : 'Export'}
             </button>
             <button className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md bg-secondary text-secondary-foreground text-xs hover:bg-muted transition-colors">
               <AlertCircle className="w-3.5 h-3.5" /> Overdue
             </button>
           </div>
-          <button className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-md bg-destructive/10 text-destructive text-xs hover:bg-destructive/20 transition-colors">
-            <Trash2 className="w-3.5 h-3.5" /> Reset Data
+          <button
+            onClick={() => setShowResetConfirm(true)}
+            disabled={isResetting}
+            className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-md bg-destructive/10 text-destructive text-xs hover:bg-destructive/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isResetting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+            Reset Data
           </button>
         </div>
       )}
+
+      <AlertDialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete all processed data (facts, questions, insights) from this project. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleResetData} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Reset Data
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </aside>
   );
 };

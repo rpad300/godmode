@@ -9,6 +9,7 @@ const BASE_URL = "";
 
 interface RequestOptions extends RequestInit {
     params?: Record<string, string | number | undefined>;
+    responseType?: 'json' | 'blob';
 }
 
 class ApiError extends Error {
@@ -264,6 +265,11 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
         // Handle 204 No Content
         if (response.status === 204) {
             return {} as T;
+        }
+
+        if (options.responseType === 'blob') {
+            const data = await response.blob();
+            return data as unknown as T;
         }
 
         const data = await response.json();
