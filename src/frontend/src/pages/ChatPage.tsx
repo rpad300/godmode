@@ -1,31 +1,57 @@
-import { useState, useRef, useEffect } from 'react';
-import { Send } from 'lucide-react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { Send, Trash2, Info } from 'lucide-react';
 import { Button } from '../components/ui/Button';
-import { useSendMessage } from '../hooks/useGodMode';
+import { Badge } from '../components/ui/Badge';
+import { useSendChatMessage, type ChatSource } from '../hooks/useGodMode';
 import { cn } from '../lib/utils';
 
 interface ChatMessage {
+  id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
-  sources?: unknown[];
+  sources?: ChatSource[];
+  contextQuality?: 'high' | 'medium' | 'low' | 'none';
+}
+
+const STORAGE_KEY = 'godmode_chat_history';
+
+function loadHistory(): ChatMessage[] {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveHistory(messages: ChatMessage[]) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(messages.slice(-100)));
+  } catch {}
 }
 
 export default function ChatPage() {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>(loadHistory);
   const [input, setInput] = useState('');
+  const [showSources, setShowSources] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const sendMessage = useSendMessage();
+  const sendMessage = useSendChatMessage();
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const handleSend = () => {
+  useEffect(() => {
+    saveHistory(messages);
+  }, [messages]);
+
+  const handleSend = useCallback(() => {
     const text = input.trim();
     if (!text || sendMessage.isPending) return;
 
     const userMsg: ChatMessage = {
+      id: `msg-${Date.now()}-user`,
       role: 'user',
       content: text,
       timestamp: new Date().toISOString(),
@@ -34,30 +60,55 @@ export default function ChatPage() {
     setMessages((prev) => [...prev, userMsg]);
     setInput('');
 
-    sendMessage.mutate(text, {
-      onSuccess: (data) => {
-        const assistantMsg: ChatMessage = {
-          role: 'assistant',
-          content: data.response,
-          timestamp: new Date().toISOString(),
-          sources: data.sources,
-        };
-        setMessages((prev) => [...prev, assistantMsg]);
-      },
-      onError: (error) => {
-        const errorMsg: ChatMessage = {
-          role: 'assistant',
-          content: `Error: ${error.message}`,
-          timestamp: new Date().toISOString(),
-        };
-        setMessages((prev) => [...prev, errorMsg]);
-      },
-    });
-  };
+    // Build last 10 messages as context
+    const history = messages.slice(-10).map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
+
+    sendMessage.mutate(
+      { message: text, history },
+      {
+        onSuccess: (data) => {
+          const assistantMsg: ChatMessage = {
+            id: `msg-${Date.now()}-assistant`,
+            role: 'assistant',
+            content: data.response,
+            timestamp: new Date().toISOString(),
+            sources: data.sources,
+            contextQuality: data.contextQuality,
+          };
+          setMessages((prev) => [...prev, assistantMsg]);
+        },
+        onError: (error) => {
+          const errorMsg: ChatMessage = {
+            id: `msg-${Date.now()}-error`,
+            role: 'assistant',
+            content: `Error: ${error.message}`,
+            timestamp: new Date().toISOString(),
+          };
+          setMessages((prev) => [...prev, errorMsg]);
+        },
+      }
+    );
+  }, [input, messages, sendMessage]);
+
+  const handleClearHistory = useCallback(() => {
+    setMessages([]);
+    localStorage.removeItem(STORAGE_KEY);
+  }, []);
 
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)]">
-      <h1 className="text-2xl font-bold mb-4">Chat</h1>
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-2xl font-bold">Chat</h1>
+        {messages.length > 0 && (
+          <Button variant="ghost" size="sm" onClick={handleClearHistory}>
+            <Trash2 className="h-4 w-4 mr-1" />
+            Clear
+          </Button>
+        )}
+      </div>
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto space-y-4 mb-4 rounded-lg border bg-[hsl(var(--card))] p-4">
@@ -66,25 +117,68 @@ export default function ChatPage() {
             Ask a question about your project knowledge base.
           </div>
         )}
-        {messages.map((msg, i) => (
-          <div
-            key={i}
-            className={cn(
-              'max-w-[80%] rounded-lg p-3 text-sm',
-              msg.role === 'user'
-                ? 'ml-auto bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]'
-                : 'bg-[hsl(var(--muted))]'
-            )}
-          >
-            <div className="whitespace-pre-wrap">{msg.content}</div>
+        {messages.map((msg) => (
+          <div key={msg.id}>
             <div
               className={cn(
-                'text-[10px] mt-1 opacity-60',
-                msg.role === 'user' ? 'text-right' : ''
+                'max-w-[80%] rounded-lg p-3 text-sm',
+                msg.role === 'user'
+                  ? 'ml-auto bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]'
+                  : 'bg-[hsl(var(--muted))]'
               )}
             >
-              {new Date(msg.timestamp).toLocaleTimeString()}
+              <div className="whitespace-pre-wrap">{msg.content}</div>
+              <div className="flex items-center justify-between mt-1">
+                <div
+                  className={cn(
+                    'text-[10px] opacity-60',
+                    msg.role === 'user' ? 'text-right flex-1' : ''
+                  )}
+                >
+                  {new Date(msg.timestamp).toLocaleTimeString()}
+                </div>
+                {msg.role === 'assistant' && msg.sources && msg.sources.length > 0 && (
+                  <button
+                    onClick={() =>
+                      setShowSources(showSources === msg.id ? null : msg.id)
+                    }
+                    className="text-[10px] opacity-60 hover:opacity-100 flex items-center gap-1 ml-2"
+                  >
+                    <Info className="h-3 w-3" />
+                    {msg.sources.length} sources
+                  </button>
+                )}
+              </div>
+              {msg.contextQuality && msg.role === 'assistant' && (
+                <Badge
+                  variant={
+                    msg.contextQuality === 'high'
+                      ? 'default'
+                      : msg.contextQuality === 'medium'
+                        ? 'secondary'
+                        : 'outline'
+                  }
+                  className="mt-1 text-[9px]"
+                >
+                  {msg.contextQuality} confidence
+                </Badge>
+              )}
             </div>
+            {/* Sources panel */}
+            {showSources === msg.id && msg.sources && (
+              <div className="max-w-[80%] mt-1 rounded-md bg-[hsl(var(--accent))] p-2 text-xs space-y-1">
+                {msg.sources.map((source, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <Badge variant="outline" className="text-[9px]">
+                      {source.type}
+                    </Badge>
+                    <span className="truncate">
+                      {source.title ?? source.excerpt ?? `Source #${i + 1}`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         ))}
         {sendMessage.isPending && (

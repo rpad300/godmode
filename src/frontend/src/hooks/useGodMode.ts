@@ -21,10 +21,13 @@ export const queryKeys = {
   chatHistory: ['chatHistory'] as const,
   teamAnalysis: ['teamAnalysis'] as const,
   graph: ['graph'] as const,
-  costs: ['costs'] as const,
+  costs: (period: string) => ['costs', period] as const,
   history: ['history'] as const,
   emails: ['emails'] as const,
   processStatus: ['processStatus'] as const,
+  adminStats: ['adminStats'] as const,
+  adminProviders: ['adminProviders'] as const,
+  adminAudit: ['adminAudit'] as const,
 };
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -93,6 +96,65 @@ export interface CleanupResult {
   graphCleaned?: boolean;
 }
 
+export interface ChatSource {
+  type: string;
+  id: string | number;
+  title?: string;
+  excerpt?: string;
+  score?: number;
+}
+
+export interface ChatResponse {
+  message?: string;
+  response: string;
+  sources: ChatSource[];
+  contextQuality?: 'high' | 'medium' | 'low' | 'none';
+}
+
+export interface Question {
+  id: string;
+  content?: string;
+  question?: string;
+  status: string;
+  priority?: string;
+  created_at?: string;
+  createdAt?: string;
+}
+
+export interface ActionItem {
+  id: string;
+  task: string;
+  assignee?: string;
+  dueDate?: string;
+  status: string;
+  priority?: string;
+}
+
+export interface Fact {
+  id: string;
+  content: string;
+  source?: string;
+  [key: string]: unknown;
+}
+
+export interface Decision {
+  id: string;
+  decision?: string;
+  content?: string;
+  status?: string;
+  [key: string]: unknown;
+}
+
+export interface CostSummary {
+  totalCost?: number;
+  total?: number;
+  breakdown?: Array<{ model?: string; name?: string; cost?: number; requests?: number }>;
+  models?: Array<{ model?: string; name?: string; cost?: number; requests?: number }>;
+  period?: string;
+  periodStart?: string;
+  periodEnd?: string;
+}
+
 // ── Dashboard ───────────────────────────────────────────────────────────────
 
 export function useDashboard() {
@@ -124,7 +186,7 @@ export function usePendingFiles() {
   return useQuery({
     queryKey: queryKeys.pendingFiles,
     queryFn: () => apiClient.get<PendingFile[]>('/api/files'),
-    refetchInterval: 10000, // Poll every 10 seconds
+    refetchInterval: 10000,
   });
 }
 
@@ -137,7 +199,6 @@ export function useProcessFiles() {
     mutationFn: (options?: { provider?: string; model?: string }) =>
       apiClient.post<ProcessResult>('/api/process', options),
     onSuccess: () => {
-      // Invalidate queries that will change after processing
       queryClient.invalidateQueries({ queryKey: queryKeys.pendingFiles });
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
       queryClient.invalidateQueries({ queryKey: queryKeys.stats });
@@ -154,7 +215,7 @@ export function useProcessStatus() {
   return useQuery({
     queryKey: queryKeys.processStatus,
     queryFn: () => apiClient.get<ProcessStatus>('/api/process/status'),
-    refetchInterval: 3000, // Poll while active
+    refetchInterval: 3000,
   });
 }
 
@@ -176,7 +237,6 @@ export function useResetData() {
     mutationFn: (options?: { clearArchived?: boolean }) =>
       apiClient.post<ResetResult>('/api/reset', options),
     onSuccess: () => {
-      // Invalidate all data queries after reset
       queryClient.invalidateQueries();
     },
   });
@@ -199,9 +259,10 @@ export function useUploadFiles() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (files: File[]) => {
+    mutationFn: ({ files, type }: { files: File[]; type: string }) => {
       const formData = new FormData();
       files.forEach((file) => formData.append('files', file));
+      formData.append('type', type);
       return apiClient.upload<{ success: boolean; files: string[] }>('/api/upload', formData);
     },
     onSuccess: () => {
@@ -229,7 +290,7 @@ export function useDeletePendingFile() {
 export function useQuestions() {
   return useQuery({
     queryKey: queryKeys.questions,
-    queryFn: () => apiClient.get<Array<Record<string, unknown>>>('/api/questions'),
+    queryFn: () => apiClient.get<Question[]>('/api/questions'),
   });
 }
 
@@ -238,7 +299,7 @@ export function useQuestions() {
 export function useFacts() {
   return useQuery({
     queryKey: queryKeys.facts,
-    queryFn: () => apiClient.get<Array<Record<string, unknown>>>('/api/facts'),
+    queryFn: () => apiClient.get<Fact[]>('/api/facts'),
   });
 }
 
@@ -256,7 +317,7 @@ export function useRisks() {
 export function useActions() {
   return useQuery({
     queryKey: queryKeys.actions,
-    queryFn: () => apiClient.get<Array<Record<string, unknown>>>('/api/actions'),
+    queryFn: () => apiClient.get<ActionItem[]>('/api/actions'),
   });
 }
 
@@ -265,7 +326,7 @@ export function useActions() {
 export function useDecisions() {
   return useQuery({
     queryKey: queryKeys.decisions,
-    queryFn: () => apiClient.get<Array<Record<string, unknown>>>('/api/decisions'),
+    queryFn: () => apiClient.get<Decision[]>('/api/decisions'),
   });
 }
 
@@ -280,15 +341,20 @@ export function useContacts() {
 
 // ── Chat ────────────────────────────────────────────────────────────────────
 
-export function useSendMessage() {
-  const queryClient = useQueryClient();
-
+export function useSendChatMessage() {
   return useMutation({
-    mutationFn: (message: string) =>
-      apiClient.post<{ response: string; sources?: unknown[] }>('/api/ask', { question: message }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.chatHistory });
-    },
+    mutationFn: ({
+      message,
+      history,
+    }: {
+      message: string;
+      history?: Array<{ role: string; content: string }>;
+    }) =>
+      apiClient.post<ChatResponse>('/api/chat', {
+        message,
+        history: history ?? [],
+        semantic: true,
+      }),
   });
 }
 
@@ -303,10 +369,10 @@ export function useTeamAnalysis() {
 
 // ── Costs ───────────────────────────────────────────────────────────────────
 
-export function useCosts() {
+export function useCosts(period: string = 'month') {
   return useQuery({
-    queryKey: queryKeys.costs,
-    queryFn: () => apiClient.get<Record<string, unknown>>('/api/costs'),
+    queryKey: queryKeys.costs(period),
+    queryFn: () => apiClient.get<CostSummary>(`/api/costs?period=${period}`),
   });
 }
 
@@ -325,5 +391,40 @@ export function useEmails() {
   return useQuery({
     queryKey: queryKeys.emails,
     queryFn: () => apiClient.get<Array<Record<string, unknown>>>('/api/emails'),
+  });
+}
+
+// ── Admin ───────────────────────────────────────────────────────────────────
+
+export function useAdminStats() {
+  return useQuery({
+    queryKey: queryKeys.adminStats,
+    queryFn: () => apiClient.get<Record<string, unknown>>('/api/admin/stats'),
+  });
+}
+
+export function useAdminProviders() {
+  return useQuery({
+    queryKey: queryKeys.adminProviders,
+    queryFn: () =>
+      apiClient.get<
+        Array<{ id: string; name: string; enabled: boolean; models: string[]; status?: string }>
+      >('/api/admin/providers'),
+  });
+}
+
+export function useAdminAuditLog() {
+  return useQuery({
+    queryKey: queryKeys.adminAudit,
+    queryFn: () =>
+      apiClient.get<
+        Array<{
+          id: string;
+          table_name: string;
+          operation: string;
+          changed_by_email?: string;
+          changed_at: string;
+        }>
+      >('/api/admin/audit'),
   });
 }

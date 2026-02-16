@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useMemo } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -16,12 +16,14 @@ import {
   Shield,
   Zap,
   Download,
+  Clipboard,
   Trash2,
   AlertCircle,
   Mic,
   MessageCircle,
   File,
   X,
+  Wrench,
 } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
@@ -38,8 +40,13 @@ import {
   useProcessFiles,
   useExportProject,
   useResetData,
+  useCleanupOrphans,
   useUploadFiles,
   useDeletePendingFile,
+  useQuestions,
+  useActions,
+  useFacts,
+  useDecisions,
   type PendingFile,
 } from '../../hooks/useGodMode';
 
@@ -71,19 +78,34 @@ const dropZones = [
   { type: 'conversations', label: 'Conversation', hint: 'WhatsApp, Slack, Teams', icon: MessageCircle },
 ];
 
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export function AppSidebar({ open, onClose }: AppSidebarProps) {
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const [cleanupDialogOpen, setCleanupDialogOpen] = useState(false);
   const [dragOverType, setDragOverType] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const activeDropZoneRef = useRef<string | null>(null);
+  const activeDropZoneRef = useRef<string>('documents');
 
   // Queries & mutations
   const { data: pendingFiles = [] } = usePendingFiles();
+  const { data: questions = [] } = useQuestions();
+  const { data: actions = [] } = useActions();
+  const { data: facts = [] } = useFacts();
+  const { data: decisions = [] } = useDecisions();
   const processFiles = useProcessFiles();
   const exportProject = useExportProject();
   const resetData = useResetData();
+  const cleanupOrphans = useCleanupOrphans();
   const uploadFiles = useUploadFiles();
   const deletePendingFile = useDeletePendingFile();
+
+  // suppress unused var warning — exportProject is available for server-side export
+  void exportProject;
 
   // ── Process Files ────────────────────────────────────────────────────────
   const handleProcessFiles = useCallback(() => {
@@ -91,10 +113,58 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
     processFiles.mutate(undefined);
   }, [pendingFiles.length, processFiles]);
 
-  // ── Export ────────────────────────────────────────────────────────────────
-  const handleExport = useCallback(() => {
-    exportProject.mutate({ includeEmbeddings: false });
-  }, [exportProject]);
+  // ── Export Knowledge (file download) ──────────────────────────────────────
+  const handleExportKnowledge = useCallback(() => {
+    const knowledge = {
+      facts: facts ?? [],
+      decisions: decisions ?? [],
+      exportedAt: new Date().toISOString(),
+    };
+    const blob = new Blob([JSON.stringify(knowledge, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'godmode-knowledge-export.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [facts, decisions]);
+
+  // ── Export Knowledge (clipboard) ──────────────────────────────────────────
+  const handleCopyKnowledge = useCallback(async () => {
+    const knowledge = {
+      facts: facts ?? [],
+      decisions: decisions ?? [],
+    };
+    await navigator.clipboard.writeText(JSON.stringify(knowledge, null, 2));
+  }, [facts, decisions]);
+
+  // ── Copy Overdue ──────────────────────────────────────────────────────────
+  const handleCopyOverdue = useCallback(async () => {
+    const now = new Date();
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    const overdueActions = (actions ?? []).filter((a) => {
+      if (a.status === 'completed') return false;
+      if (!a.dueDate) return false;
+      return new Date(a.dueDate) < now;
+    });
+
+    const overdueQuestions = (questions ?? []).filter((q) => {
+      if (q.status === 'resolved' || q.status === 'answered' || q.status === 'dismissed') return false;
+      const createdAt = q.created_at ?? q.createdAt;
+      if (!createdAt) return false;
+      return new Date(createdAt) < sevenDaysAgo;
+    });
+
+    const overdue = {
+      actions: overdueActions,
+      questions: overdueQuestions,
+      exportedAt: now.toISOString(),
+    };
+
+    await navigator.clipboard.writeText(JSON.stringify(overdue, null, 2));
+    alert(`Copied ${overdueActions.length} actions and ${overdueQuestions.length} questions`);
+  }, [actions, questions]);
 
   // ── Reset Data ────────────────────────────────────────────────────────────
   const handleResetConfirm = useCallback(() => {
@@ -103,14 +173,21 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
     });
   }, [resetData]);
 
+  // ── Cleanup Orphans ───────────────────────────────────────────────────────
+  const handleCleanupConfirm = useCallback(() => {
+    cleanupOrphans.mutate(undefined, {
+      onSettled: () => setCleanupDialogOpen(false),
+    });
+  }, [cleanupOrphans]);
+
   // ── File Drop ─────────────────────────────────────────────────────────────
   const handleDrop = useCallback(
-    (e: React.DragEvent, _type: string) => {
+    (e: React.DragEvent, type: string) => {
       e.preventDefault();
       setDragOverType(null);
       const files = Array.from(e.dataTransfer.files);
       if (files.length > 0) {
-        uploadFiles.mutate(files);
+        uploadFiles.mutate({ files, type });
       }
     },
     [uploadFiles]
@@ -134,7 +211,7 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(e.target.files || []);
       if (files.length > 0) {
-        uploadFiles.mutate(files);
+        uploadFiles.mutate({ files, type: activeDropZoneRef.current });
       }
       e.target.value = '';
     },
@@ -148,6 +225,22 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
     },
     [deletePendingFile]
   );
+
+  // Memoize overdue counts for badge
+  const overdueCount = useMemo(() => {
+    const now = new Date();
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const a = (actions ?? []).filter((item) => {
+      if (item.status === 'completed') return false;
+      return item.dueDate ? new Date(item.dueDate) < now : false;
+    }).length;
+    const q = (questions ?? []).filter((item) => {
+      if (item.status === 'resolved' || item.status === 'answered') return false;
+      const createdAt = item.created_at ?? item.createdAt;
+      return createdAt ? new Date(createdAt) < sevenDaysAgo : false;
+    }).length;
+    return a + q;
+  }, [actions, questions]);
 
   return (
     <>
@@ -218,11 +311,17 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
                   <li
                     key={`${file.folder}/${file.filename}`}
                     className="flex items-center justify-between text-xs py-1 px-1 rounded hover:bg-[hsl(var(--accent))]"
+                    title={`${file.filename} (${formatFileSize(file.size)})`}
                   >
-                    <span className="truncate mr-2">{file.filename}</span>
+                    <div className="min-w-0 flex-1">
+                      <span className="truncate block">{file.filename}</span>
+                      <span className="text-[10px] text-[hsl(var(--muted-foreground))]">
+                        {formatFileSize(file.size)}
+                      </span>
+                    </div>
                     <button
                       onClick={() => handleDeleteFile(file)}
-                      className="shrink-0 text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--destructive))]"
+                      className="shrink-0 ml-1 text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--destructive))]"
                     >
                       <X className="h-3 w-3" />
                     </button>
@@ -278,28 +377,38 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
             <Button
               variant="secondary"
               className="flex-1"
-              onClick={handleExport}
-              disabled={exportProject.isPending}
+              onClick={handleExportKnowledge}
             >
               <Download className="h-4 w-4" />
-              {exportProject.isPending ? 'Exporting...' : 'Export'}
+              Export
+            </Button>
+            <Button
+              variant="secondary"
+              size="icon"
+              onClick={handleCopyKnowledge}
+              title="Copy knowledge to clipboard"
+            >
+              <Clipboard className="h-4 w-4" />
             </Button>
           </div>
           <Button
             variant="secondary"
             className="w-full"
-            onClick={() => {
-              // Copy overdue items
-              const el = document.createElement('textarea');
-              el.value = JSON.stringify({ overdue: 'items' }); // placeholder
-              document.body.appendChild(el);
-              el.select();
-              document.execCommand('copy');
-              document.body.removeChild(el);
-            }}
+            onClick={handleCopyOverdue}
           >
             <AlertCircle className="h-4 w-4" />
             Copy Overdue
+            {overdueCount > 0 && (
+              <Badge variant="destructive" className="ml-1 text-[10px]">{overdueCount}</Badge>
+            )}
+          </Button>
+          <Button
+            variant="secondary"
+            className="w-full"
+            onClick={() => setCleanupDialogOpen(true)}
+          >
+            <Wrench className="h-4 w-4" />
+            Clean Orphans
           </Button>
           <Button
             variant="destructive"
@@ -340,6 +449,27 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
             disabled={resetData.isPending}
           >
             {resetData.isPending ? 'Resetting...' : 'Reset Data'}
+          </Button>
+        </DialogFooter>
+      </Dialog>
+
+      {/* Cleanup Orphans Confirmation Dialog */}
+      <Dialog open={cleanupDialogOpen} onClose={() => setCleanupDialogOpen(false)}>
+        <DialogHeader>
+          <DialogTitle>Clean Orphan Data</DialogTitle>
+          <DialogDescription>
+            This will remove orphaned data entries that are not linked to any documents. Continue?
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setCleanupDialogOpen(false)}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleCleanupConfirm}
+            disabled={cleanupOrphans.isPending}
+          >
+            {cleanupOrphans.isPending ? 'Cleaning...' : 'Clean Orphans'}
           </Button>
         </DialogFooter>
       </Dialog>
