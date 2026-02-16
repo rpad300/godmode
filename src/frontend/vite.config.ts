@@ -1,25 +1,44 @@
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
+import { copyFileSync, existsSync } from 'fs';
+import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
+
+// Plugin to copy static HTML pages (landing, terms, privacy) to build output
+function copyStaticPages() {
+  const pages = ['landing.html', 'terms.html', 'privacy.html'];
+  return {
+    name: 'copy-static-pages',
+    closeBundle() {
+      const outDir = resolve(__dirname, '../public');
+      for (const page of pages) {
+        const src = resolve(__dirname, page);
+        if (existsSync(src)) {
+          copyFileSync(src, resolve(outDir, page));
+        }
+      }
+    },
+  };
+}
 
 export default defineConfig({
-  root: resolve(__dirname),
-  
+  root: resolve(__dirname, 'src'),
+
+  plugins: [react(), tailwindcss(), copyStaticPages()],
+
   build: {
     // Output directly to src/public for the server to serve
-    outDir: '../public',
+    outDir: '../../public',
     emptyOutDir: true,
     rollupOptions: {
       input: {
-        main: resolve(__dirname, 'index.html'),
-        landing: resolve(__dirname, 'landing.html'),
-        terms: resolve(__dirname, 'terms.html'),
-        privacy: resolve(__dirname, 'privacy.html'),
+        main: resolve(__dirname, 'src/index.html'),
       },
     },
     // Generate source maps for debugging
     sourcemap: true,
   },
-  
+
   server: {
     port: 5173,
     // Proxy API requests to backend
@@ -30,16 +49,14 @@ export default defineConfig({
       },
     },
   },
-  
+
   resolve: {
     alias: {
-      '@': resolve(__dirname),
-      '@components': resolve(__dirname, 'components'),
-      '@services': resolve(__dirname, 'services'),
-      '@stores': resolve(__dirname, 'stores'),
-      '@utils': resolve(__dirname, 'utils'),
-      '@types': resolve(__dirname, 'types'),
-      '@styles': resolve(__dirname, 'styles'),
+      '@': resolve(__dirname, 'src'),
+      '@components': resolve(__dirname, 'src/components'),
+      '@hooks': resolve(__dirname, 'src/hooks'),
+      '@lib': resolve(__dirname, 'src/lib'),
+      '@pages': resolve(__dirname, 'src/pages'),
     },
   },
 });
