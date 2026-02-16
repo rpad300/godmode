@@ -11,6 +11,7 @@ const systemConfig = require('../../supabase/system');
 const secrets = require('../../supabase/secrets');
 const projectsSupabase = require('../../supabase/projects');
 const { getAdminClient } = require('../../supabase/client');
+const sync = require('../../integrations/googleDrive/sync');
 
 async function requireSuperAdmin(supabase, req, res) {
     const authResult = await supabase.auth.verifyRequest(req);
@@ -53,11 +54,35 @@ async function handleGoogleDrive(ctx) {
                 return r.success && !!r.value;
             })();
             const bootstrappedAt = config && config.bootstrappedAt ? config.bootstrappedAt : null;
+            const admin = getAdminClient();
+
+            // Get projects missing configuration
+            const { data: pendingProjects } = await admin
+                .from('projects')
+                .select('id, name')
+                .or('settings.is.null,settings->googleDrive->projectFolderId.is.null')
+                .order('name');
+
+            // Get configured projects
+            const { data: configuredRaw } = await admin
+                .from('projects')
+                .select('id, name, settings')
+                .not('settings->googleDrive->projectFolderId', 'is', null)
+                .order('name');
+
+            const configuredProjects = (configuredRaw || []).map(p => ({
+                id: p.id,
+                name: p.name,
+                folderId: p.settings?.googleDrive?.projectFolderId
+            }));
+
             jsonResponse(res, {
                 enabled: !!(config && (config.enabled === true || config === true)),
                 rootFolderId: (config && config.rootFolderId) || '',
                 hasSystemCredentials: !!hasSystemCredentials,
-                bootstrappedAt: bootstrappedAt || null
+                bootstrappedAt: bootstrappedAt || null,
+                pendingProjects: pendingProjects || [],
+                configuredProjects
             });
         } catch (e) {
             log.warn({ event: 'google_drive_config_get_error', reason: e?.message }, 'GET config error');
@@ -132,27 +157,29 @@ async function handleGoogleDrive(ctx) {
             let failed = 0;
             for (const project of projects) {
                 try {
-                    const ownerName = sanitizeFolderName(ownerUsername[project.owner_id] || 'user');
-                    const projectName = sanitizeFolderName(project.name || 'project');
-                    const projectIdShort = (project.id || '').replace(/-/g, '').substring(0, 8);
-                    const mainFolderName = `${ownerName}-${projectName}-${projectIdShort}`;
-                    const mainFolderId = await drive.ensureFolder(client, client.rootFolderId, mainFolderName);
-                    const uploadsId = await drive.ensureFolder(client, mainFolderId, 'uploads');
-                    const newtranscriptsId = await drive.ensureFolder(client, mainFolderId, 'newtranscripts');
-                    const archivedId = await drive.ensureFolder(client, mainFolderId, 'archived');
-                    const exportsId = await drive.ensureFolder(client, mainFolderId, 'exports');
-                    const googleDriveSettings = {
-                        projectFolderId: mainFolderId,
-                        folders: {
-                            uploads: uploadsId,
-                            newtranscripts: newtranscriptsId,
-                            archived: archivedId,
-                            exports: exportsId
-                        },
-                        bootstrappedAt: new Date().toISOString()
-                    };
-                    await projectsSupabase.updateSettings(project.id, { googleDrive: googleDriveSettings });
-                    done++;
+                    const ownerUsernameStr = ownerUsername[project.owner_id];
+                    const result = await drive.initializeProjectFolder(project, ownerUsernameStr);
+
+                    if (result) {
+                        try {
+                            const newSettings = {
+                                ...(project.settings || {}), // Assuming we had fetched settings, but we didn't in line 114. We should probably fetch it or just merge what we have.
+                                // Actually, projects.updateSettings does a merge.
+                                googleDrive: result
+                            };
+                            await projectsSupabase.updateSettings(project.id, { googleDrive: result });
+                            done++;
+                        } catch (updateErr) {
+                            // If update fails
+                            log.warn({ event: 'google_drive_bootstrap_update_failed', projectId: project.id, reason: updateErr.message }, 'Failed to update project settings');
+                            failed++;
+                        }
+                    } else {
+                        // drive.initializeProjectFolder returned null (e.g. not enabled)
+                        // In this context (bootstrap-all), it might mean system config is wrong, but client check at top should catch that.
+                        // It also logs its own errors.
+                        failed++;
+                    }
                 } catch (err) {
                     log.warn({ event: 'google_drive_bootstrap_failed', projectId: project.id, reason: err.message }, 'Bootstrap failed for project');
                     failed++;
@@ -188,6 +215,146 @@ async function handleGoogleDrive(ctx) {
             });
         } catch (e) {
             log.warn({ event: 'google_drive_bootstrap_all_error', reason: e?.message }, 'bootstrap-all error');
+            jsonResponse(res, { error: e.message }, 500);
+        }
+        return true;
+    }
+
+    const sync = require('../../integrations/googleDrive/sync');
+
+    // ... (existing imports)
+
+    // ... (existing code)
+
+    // POST /api/google-drive/sync – Manual sync trigger
+    if (pathname === '/api/google-drive/sync' && req.method === 'POST') {
+        const body = await parseBody(req);
+        const { projectId } = body;
+
+        if (!projectId) {
+            jsonResponse(res, { error: 'Project ID required' }, 400);
+            return true;
+        }
+
+        try {
+            // Check permissions (must be member)
+            const { data: member } = await supabase
+                .from('project_members')
+                .select('role')
+                .eq('project_id', projectId)
+                .eq('user_id', authResult.user.id)
+                .single();
+
+            if (!member) {
+                jsonResponse(res, { error: 'Access denied' }, 403);
+                return true;
+            }
+
+            const stats = await sync.syncProject(projectId);
+
+            // Update last sync in settings
+            const { data: project } = await projectsSupabase.getProject(projectId);
+            if (project) {
+                const newSettings = {
+                    ...(project.settings || {}),
+                    googleDrive: {
+                        ...(project.settings?.googleDrive || {}),
+                        lastSync: new Date().toISOString(),
+                        lastSyncStats: stats
+                    }
+                };
+                await projectsSupabase.updateSettings(projectId, { googleDrive: newSettings.googleDrive });
+            }
+
+            jsonResponse(res, { success: true, stats });
+        } catch (e) {
+            log.error({ event: 'drive_manual_sync_error', projectId, error: e.message }, 'Manual sync failed');
+            jsonResponse(res, { error: e.message }, 500);
+        }
+        return true;
+    }
+
+    // GET /api/google-drive/stats – Sync stats
+    if (pathname === '/api/google-drive/stats' && req.method === 'GET') {
+        const projectId = req.searchParams.get('projectId');
+        if (!projectId) {
+            jsonResponse(res, { error: 'Project ID required' }, 400);
+            return true;
+        }
+
+        try {
+            // Check permissions
+            const { data: member } = await supabase
+                .from('project_members')
+                .select('role')
+                .eq('project_id', projectId)
+                .eq('user_id', authResult.user.id)
+                .single();
+
+            if (!member) {
+                jsonResponse(res, { error: 'Access denied' }, 403);
+                return true;
+            }
+
+            const { data: project } = await projectsSupabase.getProject(projectId);
+            const driveSettings = project?.settings?.googleDrive || {};
+
+            // Get total imported documents count from DB
+            const { count, error } = await supabase
+                .from('documents')
+                .select('*', { count: 'exact', head: true })
+                .eq('project_id', projectId)
+                .not('metadata->>drive_file_id', 'is', null);
+
+            jsonResponse(res, {
+                connected: !!driveSettings.projectFolderId,
+                lastSync: driveSettings.lastSync || null,
+                importedCount: count || 0,
+                folders: driveSettings.folders || {}
+            });
+        } catch (e) {
+            jsonResponse(res, { error: e.message }, 500);
+        }
+        return true;
+    }
+
+    // POST /api/google-drive/config – Update sync settings (frequency, monitored folders)
+    if (pathname === '/api/google-drive/config' && req.method === 'POST') {
+        const body = await parseBody(req);
+        const { projectId, syncFrequency, autoSync } = body;
+
+        if (!projectId) {
+            jsonResponse(res, { error: 'Project ID required' }, 400);
+            return true;
+        }
+
+        try {
+            // Check permissions
+            const { data: member } = await supabase
+                .from('project_members')
+                .select('role')
+                .eq('project_id', projectId)
+                .eq('user_id', authResult.user.id)
+                .single();
+
+            if (!member || !['owner', 'admin'].includes(member.role)) {
+                jsonResponse(res, { error: 'Access denied' }, 403);
+                return true;
+            }
+
+            const { data: project } = await projectsSupabase.getProject(projectId);
+            const newSettings = {
+                ...(project.settings || {}),
+                googleDrive: {
+                    ...(project.settings?.googleDrive || {}),
+                    syncFrequency: syncFrequency || 'hourly',
+                    autoSync: autoSync !== undefined ? autoSync : true
+                }
+            };
+
+            await projectsSupabase.updateSettings(projectId, { googleDrive: newSettings.googleDrive });
+            jsonResponse(res, { success: true, settings: newSettings.googleDrive });
+        } catch (e) {
             jsonResponse(res, { error: e.message }, 500);
         }
         return true;

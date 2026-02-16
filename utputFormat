@@ -1,0 +1,11 @@
+HTTP/1.1 500 Internal Server Error
+Content-Type: application/json
+Access-Control-Allow-Origin: *
+X-Response-Time: 6ms
+X-Request-Id: req-mlo8k6yt-wxbgj9n
+Date: Sun, 15 Feb 2026 21:06:46 GMT
+Connection: keep-alive
+Keep-Alive: timeout=305
+Transfer-Encoding: chunked
+
+{"error":"Expected property name or '}' in JSON at position 1 (line 1 column 2)"}

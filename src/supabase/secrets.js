@@ -22,7 +22,8 @@ const PROVIDERS = {
     genspark: { prefix: '', name: 'Genspark' },
     kimi: { prefix: '', name: 'Kimi' },
     minimax: { prefix: '', name: 'MiniMax' },
-    graph: { prefix: '', name: 'Graph' }
+    graph: { prefix: '', name: 'Graph' },
+    google_drive: { prefix: '{', name: 'Google Drive (JSON)' }
 };
 
 /**
@@ -41,7 +42,7 @@ function maskApiKey(key) {
  */
 function detectProvider(key) {
     if (!key) return null;
-    
+
     for (const [providerId, config] of Object.entries(PROVIDERS)) {
         if (config.prefix && key.startsWith(config.prefix)) {
             return providerId;
@@ -71,7 +72,7 @@ async function setSecret({
     if (scope === 'project' && !projectId) {
         return { success: false, error: 'Project ID required for project-scoped secrets' };
     }
-    
+
     if (scope === 'system' && projectId) {
         return { success: false, error: 'System secrets cannot have a project ID' };
     }
@@ -79,11 +80,11 @@ async function setSecret({
     try {
         // Auto-detect provider if not specified
         const detectedProvider = provider || detectProvider(value);
-        
+
         // Encrypt the value using pgcrypto function
         const { data: encrypted, error: encryptError } = await supabase
             .rpc('encrypt_secret', { p_value: value, p_key: ENCRYPTION_KEY });
-        
+
         if (encryptError) {
             log.warn({ event: 'secrets_encryption_error', reason: encryptError?.message }, 'Encryption error');
             return { success: false, error: encryptError?.message || 'Failed to encrypt secret' };
@@ -99,13 +100,13 @@ async function setSecret({
             .select('id')
             .eq('scope', scope)
             .eq('name', name);
-        
+
         if (scope === 'project') {
             query = query.eq('project_id', projectId);
         } else {
             query = query.is('project_id', null);
         }
-        
+
         const { data: existing } = await query.maybeSingle();
         if (existing?.id) {
             existingId = existing.id;
@@ -113,7 +114,7 @@ async function setSecret({
 
         let secret;
         let error;
-        
+
         if (existingId) {
             // Update existing secret
             const result = await supabase
@@ -183,7 +184,7 @@ async function getSecret(scope, name, projectId = null) {
             .select('id, encrypted_value, provider, is_valid')
             .eq('scope', scope)
             .eq('name', name);
-        
+
         if (scope === 'project') {
             query = query.eq('project_id', projectId);
         } else {
@@ -215,8 +216,8 @@ async function getSecret(scope, name, projectId = null) {
             .update({ last_used_at: new Date().toISOString() })
             .eq('id', secret.id);
 
-        return { 
-            success: true, 
+        return {
+            success: true,
             value: decrypted,
             provider: secret.provider
         };
@@ -242,7 +243,7 @@ async function getSecretInfo(scope, name, projectId = null) {
             .select('id, scope, project_id, name, provider, masked_value, is_valid, last_used_at, created_at, updated_at')
             .eq('scope', scope)
             .eq('name', name);
-        
+
         if (scope === 'project') {
             query = query.eq('project_id', projectId);
         } else {
@@ -280,7 +281,7 @@ async function listSecrets(scope, projectId = null) {
             .select('id, scope, project_id, name, provider, masked_value, is_valid, last_used_at, created_at, updated_at')
             .eq('scope', scope)
             .order('name');
-        
+
         if (scope === 'project' && projectId) {
             query = query.eq('project_id', projectId);
         } else if (scope === 'system') {
@@ -313,7 +314,7 @@ async function deleteSecret(scope, name, projectId = null) {
             .delete()
             .eq('scope', scope)
             .eq('name', name);
-        
+
         if (scope === 'project') {
             query = query.eq('project_id', projectId);
         } else {
@@ -346,7 +347,7 @@ async function markSecretInvalid(scope, name, projectId = null) {
             .update({ is_valid: false, updated_at: new Date().toISOString() })
             .eq('scope', scope)
             .eq('name', name);
-        
+
         if (scope === 'project') {
             query = query.eq('project_id', projectId);
         } else {
@@ -370,7 +371,7 @@ async function markSecretInvalid(scope, name, projectId = null) {
  */
 async function validateSecret(scope, name, projectId = null) {
     const result = await getSecret(scope, name, projectId);
-    
+
     if (!result.success) {
         return result;
     }
@@ -392,31 +393,31 @@ async function validateSecret(scope, name, projectId = null) {
  */
 async function getProviderApiKey(provider, projectId = null) {
     const name = `${provider}_api_key`;
-    
+
     // Try project secret first
     if (projectId) {
         const projectResult = await getSecret('project', name, projectId);
         if (projectResult.success && projectResult.value) {
-            return { 
-                success: true, 
-                value: projectResult.value, 
+            return {
+                success: true,
+                value: projectResult.value,
                 source: 'project',
-                provider 
+                provider
             };
         }
     }
-    
+
     // Fall back to system secret
     const systemResult = await getSecret('system', name);
     if (systemResult.success && systemResult.value) {
-        return { 
-            success: true, 
-            value: systemResult.value, 
+        return {
+            success: true,
+            value: systemResult.value,
             source: 'system',
-            provider 
+            provider
         };
     }
-    
+
     return { success: false, error: `No API key found for ${provider}` };
 }
 
@@ -425,7 +426,7 @@ async function getProviderApiKey(provider, projectId = null) {
  */
 async function setProviderApiKey(provider, value, scope = 'system', projectId = null, userId = null) {
     const name = `${provider}_api_key`;
-    
+
     return setSecret({
         scope,
         projectId,
@@ -449,7 +450,7 @@ async function getConfiguredProviders(projectId = null) {
     try {
         // Get system secrets
         const { success: sysSuccess, secrets: systemSecrets } = await listSecrets('system');
-        
+
         // Get project secrets if projectId provided
         let projectSecrets = [];
         if (projectId) {
@@ -461,16 +462,16 @@ async function getConfiguredProviders(projectId = null) {
 
         // Build providers status
         const providers = {};
-        
+
         for (const [providerId, config] of Object.entries(PROVIDERS)) {
             const keyName = `${providerId}_api_key`;
-            
+
             // Check project first, then system
             const projectKey = projectSecrets.find(s => s.name === keyName);
             const systemKey = systemSecrets.find(s => s.name === keyName);
-            
+
             const activeKey = projectKey || systemKey;
-            
+
             providers[providerId] = {
                 name: config.name,
                 isConfigured: !!activeKey,

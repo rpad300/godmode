@@ -101,6 +101,35 @@ async function handleAudit(ctx) {
         return true;
     }
 
+    // GET /api/admin/audit/logs - List audit logs (superadmin)
+    if (pathname === '/api/admin/audit/logs' && req.method === 'GET') {
+        const token = supabase.auth.extractToken(req);
+        const userResult = await supabase.auth.getUser(token);
+
+        if (!userResult.success) {
+            jsonResponse(res, { error: 'Authentication required' }, 401);
+            return true;
+        }
+
+        const isSuperAdmin = await supabase.auth.isSuperAdmin(userResult.user.id);
+        if (!isSuperAdmin) {
+            jsonResponse(res, { error: 'Superadmin access required' }, 403);
+            return true;
+        }
+
+        const urlParsed = parsedUrl || parseUrl(req.url);
+        const result = await supabase.audit.listAuditLogs({
+            page: parseInt(urlParsed.query?.page) || 1,
+            limit: parseInt(urlParsed.query?.limit) || 50,
+            search: urlParsed.query?.search || '',
+            filter: urlParsed.query?.filter || 'all'
+        });
+
+        if (result.success) jsonResponse(res, result);
+        else jsonResponse(res, { error: result.error }, 500);
+        return true;
+    }
+
     return false;
 }
 

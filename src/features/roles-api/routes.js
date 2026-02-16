@@ -15,7 +15,7 @@ function isRolesApiRoute(pathname) {
 }
 
 async function handleRolesApi(ctx) {
-    const { req, res, pathname, storage, config } = ctx;
+    const { req, res, pathname, storage, config, supabase } = ctx;
 
     if (!isRolesApiRoute(pathname)) return false;
 
@@ -190,6 +190,33 @@ async function handleRolesApi(ctx) {
         if (pathname === '/api/roles/users' && req.method === 'GET') {
             const { getCollaborativeRoles } = require('../../roles');
             const collaborative = getCollaborativeRoles({ dataDir });
+
+            // Sync authenticated user if present
+            if (supabase && req.headers.authorization) {
+                try {
+                    const token = req.headers.authorization.replace('Bearer ', '');
+                    const { user, error } = await supabase.auth.getUser(token);
+
+                    if (user && !error) {
+                        const existingUser = collaborative.getUsers().find(u => u.email === user.email);
+                        if (!existingUser) {
+                            // Add authenticated user if missing
+                            const role = user.email === 'system@godmode.local' ? 'superadmin' : 'user';
+                            collaborative.addUser({
+                                id: user.id,
+                                email: user.email,
+                                name: user.user_metadata?.username || user.user_metadata?.display_name || user.email.split('@')[0],
+                                role: role,
+                                rolePrompt: role === 'superadmin' ? 'You are the super admin.' : 'You are a standard user.',
+                                status: 'active'
+                            });
+                        }
+                    }
+                } catch (e) {
+                    // Ignore auth errors, just return public list
+                }
+            }
+
             const users = collaborative.getUsers();
             const stats = collaborative.getStats();
             jsonResponse(res, { ok: true, users, stats });
@@ -202,6 +229,29 @@ async function handleRolesApi(ctx) {
             const { getCollaborativeRoles } = require('../../roles');
             const collaborative = getCollaborativeRoles({ dataDir });
             const result = collaborative.addUser(body);
+            jsonResponse(res, { ok: result.success, ...result });
+            return true;
+        }
+
+        // PUT /api/roles/users/:id
+        const userUpdateMatch = pathname.match(/^\/api\/roles\/users\/([^/]+)$/);
+        if (userUpdateMatch && req.method === 'PUT') {
+            const userId = userUpdateMatch[1];
+            const body = await parseBody(req);
+            const { getCollaborativeRoles } = require('../../roles');
+            const collaborative = getCollaborativeRoles({ dataDir });
+            const result = collaborative.updateUser(userId, body);
+            jsonResponse(res, { ok: result.success, ...result });
+            return true;
+        }
+
+        // DELETE /api/roles/users/:id
+        const userDeleteMatch = pathname.match(/^\/api\/roles\/users\/([^/]+)$/);
+        if (userDeleteMatch && req.method === 'DELETE') {
+            const userId = userDeleteMatch[1];
+            const { getCollaborativeRoles } = require('../../roles');
+            const collaborative = getCollaborativeRoles({ dataDir });
+            const result = collaborative.removeUser(userId);
             jsonResponse(res, { ok: result.success, ...result });
             return true;
         }

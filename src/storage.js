@@ -179,7 +179,7 @@ class Storage {
         if (!project) {
             throw new Error(`Project not found: ${projectId}`);
         }
-        
+
         this.projectsData.defaultProjectId = projectId;
         this.saveProjects();
         log.debug({ event: 'storage_default_project', projectName: project.name, projectId }, 'Default project set');
@@ -481,6 +481,157 @@ class Storage {
 
         log.debug({ event: 'storage_migration_complete' }, 'Migration complete');
     }
+    // ==================== Analytics & Dashboard ====================
+
+    getStats() {
+        if (!this.currentProjectId) return {};
+        const stats = this.getProjectStats(this.currentProjectId);
+        return stats;
+    }
+
+    getStatsHistory(days = 30) {
+        if (!this.statsHistory) {
+            this.loadStatsHistory();
+        }
+        return this.statsHistory.slice(-days);
+    }
+
+    loadStatsHistory() {
+        if (fs.existsSync(this.statsHistoryPath)) {
+            try {
+                const data = JSON.parse(fs.readFileSync(this.statsHistoryPath, 'utf8'));
+                this.statsHistory = data.history || [];
+            } catch (e) {
+                this.statsHistory = [];
+            }
+        } else {
+            this.statsHistory = [];
+        }
+    }
+
+    getTrends(days = 7) {
+        // Calculate trends based on history or snapshots
+        // For now, return a placeholder or simple calculation
+        return [
+            { metric: 'facts', trend: '+0', up: true },
+            { metric: 'actions', trend: '+0', up: true },
+            { metric: 'risks', trend: '0', up: false }
+        ];
+    }
+
+    getTrendInsights() {
+        return [];
+    }
+
+    getWeeklyActivity() {
+        const activity = {
+            Mon: { facts: 0, actions: 0, questions: 0 },
+            Tue: { facts: 0, actions: 0, questions: 0 },
+            Wed: { facts: 0, actions: 0, questions: 0 },
+            Thu: { facts: 0, actions: 0, questions: 0 },
+            Fri: { facts: 0, actions: 0, questions: 0 },
+            Sat: { facts: 0, actions: 0, questions: 0 },
+            Sun: { facts: 0, actions: 0, questions: 0 }
+        };
+
+        const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        const now = new Date();
+        const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+        // Helper to check date range and increment
+        const processItems = (items, type) => {
+            items.forEach(item => {
+                const date = item.created_at ? new Date(item.created_at) : (item.date ? new Date(item.date) : null);
+                if (date && date >= oneWeekAgo && date <= now) {
+                    const dayName = days[date.getDay()];
+                    if (activity[dayName]) {
+                        activity[dayName][type]++;
+                    }
+                }
+            });
+        };
+
+        if (this.knowledge) {
+            processItems(this.knowledge.facts || [], 'facts');
+            processItems(this.knowledge.action_items || [], 'actions');
+        }
+        if (this.questions) {
+            processItems(this.questions.items || [], 'questions');
+        }
+
+        // Convert to array format for Recharts
+        return Object.entries(activity).map(([day, counts]) => ({
+            day,
+            ...counts
+        }));
+    }
+
+    getRecentActivity(limit = 10) {
+        const events = [];
+
+        // Add Facts
+        if (this.knowledge && this.knowledge.facts) {
+            this.knowledge.facts.forEach(f => {
+                events.push({
+                    id: f.id || `fact-${Math.random()}`,
+                    type: 'fact',
+                    action: 'Captured Fact',
+                    description: f.content?.substring(0, 50) + (f.content?.length > 50 ? '...' : ''),
+                    timestamp: f.created_at || new Date().toISOString(),
+                    status: 'success'
+                });
+            });
+        }
+
+        // Add Actions
+        if (this.knowledge && this.knowledge.action_items) {
+            this.knowledge.action_items.forEach(a => {
+                events.push({
+                    id: a.id || `action-${Math.random()}`,
+                    type: 'action',
+                    action: 'Created Action',
+                    description: a.title,
+                    timestamp: a.created_at || new Date().toISOString(),
+                    status: 'warning' // Just a visual indicator
+                });
+            });
+        }
+
+        // Add Questions
+        if (this.questions && this.questions.items) {
+            this.questions.items.forEach(q => {
+                events.push({
+                    id: q.id || `question-${Math.random()}`,
+                    type: 'question',
+                    action: 'Raised Question',
+                    description: q.text?.substring(0, 50) + (q.text?.length > 50 ? '...' : ''),
+                    timestamp: q.created_at || new Date().toISOString(),
+                    status: 'error' // Visual indicator for question (often yellow/red)
+                });
+            });
+        }
+
+        // Add File Processed Logs
+        if (this.history && this.history.file_logs) {
+            this.history.file_logs.forEach(l => {
+                events.push({
+                    id: l.id || `log-${Math.random()}`,
+                    type: 'file',
+                    action: 'Processed File',
+                    description: l.filename,
+                    timestamp: l.timestamp,
+                    status: l.status === 'success' ? 'success' : 'error',
+                    duration: l.processing_time_ms ? `${Math.round(l.processing_time_ms / 1000)}s` : null,
+                    factsFound: l.facts_extracted
+                });
+            });
+        }
+
+        // Sort by timestamp desc
+        events.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+        return events.slice(0, limit);
+    }
 
     /**
      * Helper to copy directory recursively
@@ -542,12 +693,12 @@ class Storage {
     migrateHistoryFromDocuments() {
         // Always sync file_logs with documents
         let synced = 0;
-        
+
         for (const doc of this.documents.items) {
             if (doc.status === 'processed') {
                 // Check if this document already has a file_log
                 const existingLog = this.history.file_logs.find(l => l.document_id === doc.id);
-                
+
                 if (!existingLog) {
                     this.history.file_logs.push({
                         id: doc.id,
@@ -571,7 +722,7 @@ class Storage {
                 }
             }
         }
-        
+
         // Create initial session if needed
         if (this.documents.items.length > 0 && this.history.sessions.length === 0) {
             this.history.sessions.push({
@@ -585,7 +736,7 @@ class Storage {
                 errors: 0
             });
         }
-        
+
         if (synced > 0) {
             this.saveHistory();
             log.debug({ event: 'storage_synced_file_logs', synced }, 'Synced missing file logs from documents');
@@ -812,7 +963,7 @@ class Storage {
             return null;
         }
     }
-    
+
     /**
      * Check if a document already exists (by hash, or fallback to name+size)
      * Hash is the most reliable method - catches same content with different names
@@ -828,9 +979,9 @@ class Storage {
                 );
                 if (existingByHash) {
                     log.debug({ event: 'storage_duplicate_hash', filename, existing: existingByHash.name || existingByHash.filename }, 'Found by hash');
-                    return { 
-                        exists: true, 
-                        document: existingByHash, 
+                    return {
+                        exists: true,
+                        document: existingByHash,
                         method: 'hash',
                         hash: hash
                     };
@@ -839,11 +990,11 @@ class Storage {
                 return this._checkByNameAndSize(filename, fileSize, hash);
             }
         }
-        
+
         // Fallback: Check by filename and size
         return this._checkByNameAndSize(filename, fileSize, null);
     }
-    
+
     _checkByNameAndSize(filename, fileSize, hash) {
         // Only consider documents that were successfully processed
         // Failed documents (status != 'processed') should be retried
@@ -852,14 +1003,14 @@ class Storage {
             d.file_size === fileSize &&
             d.status === 'processed'
         );
-        
+
         if (existing) {
             log.debug({ event: 'storage_duplicate_name_size', filename }, 'Found by name+size');
         }
-        
-        return { 
-            exists: !!existing, 
-            document: existing || null, 
+
+        return {
+            exists: !!existing,
+            document: existing || null,
             method: existing ? 'name_size' : null,
             hash: hash  // Pass hash for storage
         };
@@ -867,13 +1018,13 @@ class Storage {
 
     addDocument(doc) {
         const id = Date.now();
-        
+
         // Calculate hash if path provided and not already included
         let contentHash = doc.content_hash || null;
         if (!contentHash && doc.path) {
             contentHash = this.calculateFileHash(doc.path);
         }
-        
+
         const newDoc = {
             id,
             ...doc,
@@ -882,7 +1033,7 @@ class Storage {
         };
         this.documents.items.push(newDoc);
         this.saveDocuments();
-        
+
         // Also create a file_log entry for tracking
         const existingLog = this.history.file_logs.find(l => l.document_id === id);
         if (!existingLog) {
@@ -906,10 +1057,10 @@ class Storage {
             });
             this.saveHistory();
         }
-        
+
         return id;
     }
-    
+
     /**
      * Update file log with extraction results and AI metadata
      */
@@ -923,11 +1074,11 @@ class Storage {
             if (results.risks !== undefined) log.risks_extracted = results.risks;
             if (results.actions !== undefined) log.actions_extracted = results.actions;
             if (results.people !== undefined) log.people_extracted = results.people;
-            
+
             // Update AI metadata
             if (results.ai_title) log.ai_title = results.ai_title;
             if (results.ai_summary) log.ai_summary = results.ai_summary;
-            
+
             log.status = 'success';
             this.saveHistory();
         }
@@ -947,14 +1098,14 @@ class Storage {
             ? this.documents.items.filter(d => d.status === status)
             : this.documents.items;
     }
-    
+
     /**
      * Get a document by ID
      */
     getDocumentById(id) {
         return this.documents.items.find(d => d.id === id);
     }
-    
+
     /**
      * Delete a document and ALL related data (cascade delete)
      * This removes: document record, content file, related facts/decisions/risks/actions/people, 
@@ -984,7 +1135,7 @@ class Storage {
             },
             errors: []
         };
-        
+
         try {
             // Find the document
             const doc = this.documents.items.find(d => d.id === documentId);
@@ -992,12 +1143,12 @@ class Storage {
                 results.errors.push(`Document ${documentId} not found`);
                 return results;
             }
-            
+
             results.document = { id: doc.id, name: doc.name || doc.filename };
             const docName = (doc.name || doc.filename || '').replace(/\.[^/.]+$/, '').toLowerCase();
-            
+
             log.debug({ event: 'storage_cascade_delete_start', docName: doc.name || doc.filename }, 'Starting cascade delete');
-            
+
             // 1. Delete related facts
             const factsToDelete = this.knowledge.facts.filter(f => {
                 const source = (f.source_file || f.meeting || '').toLowerCase();
@@ -1009,7 +1160,7 @@ class Storage {
                 results.deleted.facts = factsToDelete.length;
                 log.debug({ event: 'storage_cascade_facts', count: factsToDelete.length }, 'Removed facts');
             }
-            
+
             // 2. Delete related decisions
             const decisionsToDelete = this.knowledge.decisions.filter(d => {
                 const source = (d.source_file || d.source || d.meeting || '').toLowerCase();
@@ -1021,7 +1172,7 @@ class Storage {
                 results.deleted.decisions = decisionsToDelete.length;
                 log.debug({ event: 'storage_cascade_decisions', count: decisionsToDelete.length }, 'Removed decisions');
             }
-            
+
             // 3. Delete related risks
             const risksToDelete = this.knowledge.risks.filter(r => {
                 const source = (r.source_file || r.meeting || '').toLowerCase();
@@ -1033,7 +1184,7 @@ class Storage {
                 results.deleted.risks = risksToDelete.length;
                 log.debug({ event: 'storage_cascade_risks', count: risksToDelete.length }, 'Removed risks');
             }
-            
+
             // 4. Delete related action items
             const actionsToDelete = (this.knowledge.action_items || []).filter(a => {
                 const source = (a.source_file || a.meeting || '').toLowerCase();
@@ -1045,7 +1196,7 @@ class Storage {
                 results.deleted.actions = actionsToDelete.length;
                 log.debug({ event: 'storage_cascade_actions', count: actionsToDelete.length }, 'Removed action items');
             }
-            
+
             // 5. Delete related people (only those exclusively from this document and not contacts)
             const peopleToDelete = this.knowledge.people.filter(p => {
                 if (p.isContact) return false; // Never auto-delete contacts
@@ -1058,7 +1209,7 @@ class Storage {
                 results.deleted.people = peopleToDelete.length;
                 log.debug({ event: 'storage_cascade_people', count: peopleToDelete.length }, 'Removed people');
             }
-            
+
             // 6. Delete related questions
             const questionsToDelete = this.questions.items.filter(q => {
                 const source = (q.source_file || q.meeting || '').toLowerCase();
@@ -1070,12 +1221,12 @@ class Storage {
                 results.deleted.questions = questionsToDelete.length;
                 log.debug({ event: 'storage_cascade_questions', count: questionsToDelete.length }, 'Removed questions');
             }
-            
+
             // 7. Delete file log entry
             const logsBefore = this.history.file_logs.length;
             this.history.file_logs = this.history.file_logs.filter(l => l.document_id !== documentId);
             results.deleted.fileLogs = logsBefore - this.history.file_logs.length;
-            
+
             // 8. Delete content file
             if (doc.content_path && fs.existsSync(doc.content_path)) {
                 try {
@@ -1086,7 +1237,7 @@ class Storage {
                     results.errors.push(`Failed to delete content file: ${e.message}`);
                 }
             }
-            
+
             // 9. Delete archived file (optional)
             if (!keepArchive && doc.archived_path && fs.existsSync(doc.archived_path)) {
                 try {
@@ -1097,7 +1248,7 @@ class Storage {
                     results.errors.push(`Failed to delete archived file: ${e.message}`);
                 }
             }
-            
+
             // 10. Remove embeddings for this document
             if (this.embeddings && this.embeddings.documents) {
                 const embeddingsBefore = this.embeddings.documents.length;
@@ -1111,7 +1262,7 @@ class Storage {
                     log.debug({ event: 'storage_cascade_embeddings', count: results.deleted.embeddings }, 'Removed embeddings');
                 }
             }
-            
+
             // 11. Remove from documents list
             if (softDelete) {
                 doc.status = 'deleted';
@@ -1119,37 +1270,37 @@ class Storage {
             } else {
                 this.documents.items = this.documents.items.filter(d => d.id !== documentId);
             }
-            
+
             // Save all changes
             this.saveKnowledge();
             this.saveQuestions();
             this.saveDocuments();
             this.saveHistory();
-            
+
             results.success = true;
             log.debug({ event: 'storage_cascade_complete', docName: doc.name || doc.filename }, 'Cascade delete complete');
-            
+
             // 12. Sync with Graph DB (async, don't wait)
             this._syncDocumentDeletionToGraph(documentId, doc.name || doc.filename).catch(e => {
                 log.warn({ event: 'storage_cascade_graph_sync_error', reason: e.message }, 'Graph sync error');
             });
-            
+
             // 13. Clean any remaining orphan data
             const orphanStats = this.cleanOrphanData();
             if (Object.values(orphanStats).some(v => v > 0)) {
                 log.debug({ event: 'storage_cascade_orphans', orphanStats }, 'Additional orphans cleaned');
                 results.deleted.orphans = orphanStats;
             }
-            
+
             return results;
-            
+
         } catch (error) {
             results.errors.push(error.message);
             log.warn({ event: 'storage_cascade_error', reason: error.message }, 'Cascade delete error');
             return results;
         }
     }
-    
+
     /**
      * Sync document deletion to Graph DB
      */
@@ -1158,7 +1309,7 @@ class Storage {
         if (!graphProvider || !graphProvider.connected) {
             return { skipped: true, reason: 'Graph not connected' };
         }
-        
+
         try {
             const { getGraphSync } = require('./sync/GraphSync');
             const graphSync = getGraphSync(graphProvider);
@@ -1185,13 +1336,13 @@ class Storage {
             projectId: this.currentProjectId,
             importedAt: new Date().toISOString()
         };
-        
+
         // Don't store rawText in main storage to save space (it's in messages)
         // but keep it if explicitly provided
         if (!conv.rawText) {
             delete conv.rawText;
         }
-        
+
         this.conversations.items.push(conv);
         this.saveConversations();
         return conv.id;
@@ -1204,20 +1355,20 @@ class Storage {
      */
     getConversations(filter = null) {
         let items = this.conversations.items;
-        
+
         if (filter) {
             if (filter.sourceApp) {
                 items = items.filter(c => c.sourceApp === filter.sourceApp);
             }
             if (filter.participant) {
-                items = items.filter(c => 
-                    c.participants.some(p => 
+                items = items.filter(c =>
+                    c.participants.some(p =>
                         p.toLowerCase().includes(filter.participant.toLowerCase())
                     )
                 );
             }
         }
-        
+
         return items;
     }
 
@@ -1239,7 +1390,7 @@ class Storage {
     updateConversation(id, updates) {
         const conv = this.conversations.items.find(c => c.id === id);
         if (!conv) return false;
-        
+
         // Only allow updating certain fields
         const allowedFields = ['title', 'channelName', 'workspaceName', 'participants'];
         for (const field of allowedFields) {
@@ -1247,7 +1398,7 @@ class Storage {
                 conv[field] = updates[field];
             }
         }
-        
+
         this.saveConversations();
         return true;
     }
@@ -1260,7 +1411,7 @@ class Storage {
     deleteConversation(id) {
         const index = this.conversations.items.findIndex(c => c.id === id);
         if (index === -1) return false;
-        
+
         this.conversations.items.splice(index, 1);
         this.saveConversations();
         return true;
@@ -1274,12 +1425,12 @@ class Storage {
         const items = this.conversations.items;
         const bySource = {};
         let totalMessages = 0;
-        
+
         for (const conv of items) {
             bySource[conv.sourceApp] = (bySource[conv.sourceApp] || 0) + 1;
             totalMessages += conv.messageCount || 0;
         }
-        
+
         return {
             total: items.length,
             bySource,
@@ -1297,7 +1448,7 @@ class Storage {
     addContact(contact) {
         const id = contact.id || require('crypto').randomUUID();
         const now = new Date().toISOString();
-        
+
         const newContact = {
             id,
             name: contact.name || '',
@@ -1319,7 +1470,7 @@ class Storage {
             createdAt: now,
             updatedAt: now
         };
-        
+
         this.contacts.items.push(newContact);
         this.saveContacts();
         return id;
@@ -1333,9 +1484,9 @@ class Storage {
     addContactActivity(contactId, activity) {
         const contact = this.contacts.items.find(c => c.id === contactId);
         if (!contact) return false;
-        
+
         if (!contact.activity) contact.activity = [];
-        
+
         // Check if already exists
         const exists = contact.activity.some(a => a.type === activity.type && a.id === activity.id);
         if (!exists) {
@@ -1356,7 +1507,7 @@ class Storage {
      */
     trackContactsFromConversation(conversation) {
         if (!conversation.participants) return;
-        
+
         for (const participantName of conversation.participants) {
             const contact = this.findContactByName(participantName);
             if (contact) {
@@ -1376,12 +1527,12 @@ class Storage {
      */
     getUnmatchedParticipants() {
         const allParticipants = new Set();
-        
+
         // Collect from conversations
         for (const conv of (this.conversations.items || [])) {
             (conv.participants || []).forEach(p => allParticipants.add(p));
         }
-        
+
         // Filter out those already in contacts
         const unmatched = [];
         for (const name of allParticipants) {
@@ -1389,7 +1540,7 @@ class Storage {
                 unmatched.push(name);
             }
         }
-        
+
         return unmatched.sort();
     }
 
@@ -1400,21 +1551,21 @@ class Storage {
      */
     getContacts(filter = null) {
         let items = this.contacts.items || [];
-        
+
         if (filter) {
             if (filter.organization) {
-                items = items.filter(c => 
+                items = items.filter(c =>
                     c.organization?.toLowerCase().includes(filter.organization.toLowerCase())
                 );
             }
             if (filter.tag) {
-                items = items.filter(c => 
+                items = items.filter(c =>
                     c.tags?.some(t => t.toLowerCase() === filter.tag.toLowerCase())
                 );
             }
             if (filter.search) {
                 const q = filter.search.toLowerCase();
-                items = items.filter(c => 
+                items = items.filter(c =>
                     c.name?.toLowerCase().includes(q) ||
                     c.email?.toLowerCase().includes(q) ||
                     c.role?.toLowerCase().includes(q) ||
@@ -1422,7 +1573,7 @@ class Storage {
                 );
             }
         }
-        
+
         return items.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     }
 
@@ -1443,7 +1594,7 @@ class Storage {
     findContactByName(name) {
         if (!name) return null;
         const normalizedName = name.toLowerCase().trim();
-        
+
         return this.contacts.items.find(c => {
             if (c.name?.toLowerCase().trim() === normalizedName) return true;
             if (c.aliases?.some(a => a.toLowerCase().trim() === normalizedName)) return true;
@@ -1463,18 +1614,18 @@ class Storage {
     updateContact(id, updates) {
         const contact = this.contacts.items.find(c => c.id === id);
         if (!contact) return false;
-        
+
         const allowedFields = [
             'name', 'email', 'role', 'rolePrompt', 'organization', 'department',
             'phone', 'linkedin', 'timezone', 'photoUrl', 'tags', 'notes', 'aliases'
         ];
-        
+
         for (const field of allowedFields) {
             if (updates[field] !== undefined) {
                 contact[field] = updates[field];
             }
         }
-        
+
         contact.updatedAt = new Date().toISOString();
         this.saveContacts();
         return true;
@@ -1488,7 +1639,7 @@ class Storage {
     deleteContact(id) {
         const index = this.contacts.items.findIndex(c => c.id === id);
         if (index === -1) return false;
-        
+
         this.contacts.items.splice(index, 1);
         this.saveContacts();
         return true;
@@ -1501,16 +1652,16 @@ class Storage {
      */
     getContactsContextForAI(names = null) {
         let contacts = this.contacts.items;
-        
+
         // If names provided, filter and match
         if (names && names.length > 0) {
             contacts = names
                 .map(name => this.findContactByName(name))
                 .filter(Boolean);
         }
-        
+
         if (contacts.length === 0) return '';
-        
+
         const contextLines = contacts.map(c => {
             const lines = [`**${c.name}**`];
             if (c.role) lines.push(`  Role: ${c.role}`);
@@ -1520,7 +1671,7 @@ class Storage {
             if (c.notes) lines.push(`  Notes: ${c.notes}`);
             return lines.join('\n');
         });
-        
+
         return `## Known Participants Context\n\n${contextLines.join('\n\n')}`;
     }
 
@@ -1533,7 +1684,7 @@ class Storage {
         const byOrg = {};
         const allTags = new Set();
         const byTeam = {};
-        
+
         for (const c of items) {
             if (c.organization) {
                 byOrg[c.organization] = (byOrg[c.organization] || 0) + 1;
@@ -1543,9 +1694,9 @@ class Storage {
                 byTeam[c.teamId] = (byTeam[c.teamId] || 0) + 1;
             }
         }
-        
+
         const teams = this.contacts.teams || [];
-        
+
         return {
             total: items.length,
             byOrganization: byOrg,
@@ -1564,7 +1715,7 @@ class Storage {
      */
     addTeam(team) {
         if (!this.contacts.teams) this.contacts.teams = [];
-        
+
         const id = require('crypto').randomUUID();
         const newTeam = {
             id,
@@ -1573,7 +1724,7 @@ class Storage {
             color: team.color || '#6366f1',
             createdAt: new Date().toISOString()
         };
-        
+
         this.contacts.teams.push(newTeam);
         this.saveContacts();
         return id;
@@ -1606,11 +1757,11 @@ class Storage {
         if (!this.contacts.teams) return false;
         const team = this.contacts.teams.find(t => t.id === id);
         if (!team) return false;
-        
+
         if (updates.name !== undefined) team.name = updates.name;
         if (updates.description !== undefined) team.description = updates.description;
         if (updates.color !== undefined) team.color = updates.color;
-        
+
         this.saveContacts();
         return true;
     }
@@ -1624,14 +1775,14 @@ class Storage {
         if (!this.contacts.teams) return false;
         const index = this.contacts.teams.findIndex(t => t.id === id);
         if (index === -1) return false;
-        
+
         // Remove team assignments from contacts
         for (const contact of this.contacts.items) {
             if (contact.teamId === id) {
                 contact.teamId = null;
             }
         }
-        
+
         this.contacts.teams.splice(index, 1);
         this.saveContacts();
         return true;
@@ -1658,9 +1809,9 @@ class Storage {
     addContactRelationship(fromContactId, toContactId, type) {
         const contact = this.contacts.items.find(c => c.id === fromContactId);
         if (!contact) return false;
-        
+
         if (!contact.relationships) contact.relationships = [];
-        
+
         // Check if relationship already exists
         const exists = contact.relationships.some(r => r.contactId === toContactId && r.type === type);
         if (!exists) {
@@ -1680,10 +1831,10 @@ class Storage {
     removeContactRelationship(fromContactId, toContactId, type) {
         const contact = this.contacts.items.find(c => c.id === fromContactId);
         if (!contact || !contact.relationships) return false;
-        
+
         const index = contact.relationships.findIndex(r => r.contactId === toContactId && r.type === type);
         if (index === -1) return false;
-        
+
         contact.relationships.splice(index, 1);
         this.saveContacts();
         return true;
@@ -1697,7 +1848,7 @@ class Storage {
     getContactWithRelationships(id) {
         const contact = this.getContactById(id);
         if (!contact) return null;
-        
+
         const expanded = { ...contact };
         expanded.expandedRelationships = (contact.relationships || []).map(r => {
             const relatedContact = this.getContactById(r.contactId);
@@ -1711,7 +1862,7 @@ class Storage {
                 } : null
             };
         });
-        
+
         return expanded;
     }
 
@@ -1725,28 +1876,28 @@ class Storage {
         const items = this.contacts.items;
         const duplicates = [];
         const checked = new Set();
-        
+
         for (let i = 0; i < items.length; i++) {
             if (checked.has(items[i].id)) continue;
-            
+
             const group = [items[i]];
-            
+
             for (let j = i + 1; j < items.length; j++) {
                 if (checked.has(items[j].id)) continue;
-                
+
                 // Check similarity
                 if (this._areContactsSimilar(items[i], items[j])) {
                     group.push(items[j]);
                     checked.add(items[j].id);
                 }
             }
-            
+
             if (group.length > 1) {
                 duplicates.push(group);
                 checked.add(items[i].id);
             }
         }
-        
+
         return duplicates;
     }
 
@@ -1759,29 +1910,29 @@ class Storage {
         if (a.email && b.email && a.email.toLowerCase() === b.email.toLowerCase()) {
             return true;
         }
-        
+
         // Same phone
         if (a.phone && b.phone) {
             const phoneA = a.phone.replace(/\D/g, '');
             const phoneB = b.phone.replace(/\D/g, '');
             if (phoneA === phoneB) return true;
         }
-        
+
         // Very similar names
         const nameA = (a.name || '').toLowerCase().trim();
         const nameB = (b.name || '').toLowerCase().trim();
-        
+
         if (nameA === nameB) return true;
-        
+
         // Check if one name contains the other (e.g., "John" vs "John Smith")
         if (nameA.includes(nameB) || nameB.includes(nameA)) {
             // Additional check: same organization
-            if (a.organization && b.organization && 
+            if (a.organization && b.organization &&
                 a.organization.toLowerCase() === b.organization.toLowerCase()) {
                 return true;
             }
         }
-        
+
         return false;
     }
 
@@ -1792,29 +1943,29 @@ class Storage {
      */
     mergeContacts(contactIds) {
         if (!contactIds || contactIds.length < 2) return null;
-        
+
         const primary = this.contacts.items.find(c => c.id === contactIds[0]);
         if (!primary) return null;
-        
+
         // Merge data from other contacts
         for (let i = 1; i < contactIds.length; i++) {
             const other = this.contacts.items.find(c => c.id === contactIds[i]);
             if (!other) continue;
-            
+
             // Merge fields (keep primary if exists, use other if not)
             ['email', 'phone', 'role', 'organization', 'department', 'linkedin', 'timezone', 'photoUrl', 'notes'].forEach(field => {
                 if (!primary[field] && other[field]) {
                     primary[field] = other[field];
                 }
             });
-            
+
             // Merge arrays
             ['tags', 'aliases'].forEach(field => {
                 if (other[field] && other[field].length > 0) {
                     primary[field] = [...new Set([...(primary[field] || []), ...other[field]])];
                 }
             });
-            
+
             // Merge activity
             if (other.activity && other.activity.length > 0) {
                 if (!primary.activity) primary.activity = [];
@@ -1824,7 +1975,7 @@ class Storage {
                     }
                 }
             }
-            
+
             // Merge relationships
             if (other.relationships && other.relationships.length > 0) {
                 if (!primary.relationships) primary.relationships = [];
@@ -1834,7 +1985,7 @@ class Storage {
                     }
                 }
             }
-            
+
             // Add other's name as alias if different
             if (other.name && other.name !== primary.name) {
                 if (!primary.aliases) primary.aliases = [];
@@ -1842,17 +1993,17 @@ class Storage {
                     primary.aliases.push(other.name);
                 }
             }
-            
+
             // Delete merged contact
             const index = this.contacts.items.findIndex(c => c.id === contactIds[i]);
             if (index !== -1) {
                 this.contacts.items.splice(index, 1);
             }
         }
-        
+
         primary.updatedAt = new Date().toISOString();
         this.saveContacts();
-        
+
         return primary.id;
     }
 
@@ -1878,7 +2029,7 @@ class Storage {
     exportContactsCSV() {
         const headers = ['Name', 'Email', 'Phone', 'Role', 'Organization', 'Department', 'LinkedIn', 'Timezone', 'Tags', 'Aliases', 'Notes'];
         const rows = [headers.join(',')];
-        
+
         for (const c of this.contacts.items) {
             const row = [
                 this._csvEscape(c.name),
@@ -1895,7 +2046,7 @@ class Storage {
             ];
             rows.push(row.join(','));
         }
-        
+
         return rows.join('\n');
     }
 
@@ -1916,10 +2067,10 @@ class Storage {
     importContactsJSON(data) {
         const contacts = data.contacts || [];
         const teams = data.teams || [];
-        
+
         let imported = 0;
         let skipped = 0;
-        
+
         // Import teams first
         for (const team of teams) {
             const exists = (this.contacts.teams || []).some(t => t.name === team.name);
@@ -1927,15 +2078,15 @@ class Storage {
                 this.addTeam(team);
             }
         }
-        
+
         // Import contacts
         for (const contact of contacts) {
             // Check if already exists by email or name
-            const exists = this.contacts.items.some(c => 
+            const exists = this.contacts.items.some(c =>
                 (c.email && contact.email && c.email.toLowerCase() === contact.email.toLowerCase()) ||
                 (c.name && contact.name && c.name.toLowerCase() === contact.name.toLowerCase())
             );
-            
+
             if (!exists) {
                 this.addContact(contact);
                 imported++;
@@ -1943,7 +2094,7 @@ class Storage {
                 skipped++;
             }
         }
-        
+
         return { imported, skipped };
     }
 
@@ -1955,21 +2106,21 @@ class Storage {
     importContactsCSV(csvContent) {
         const lines = csvContent.split('\n').filter(l => l.trim());
         if (lines.length < 2) return { imported: 0, skipped: 0, errors: ['No data rows found'] };
-        
+
         const headers = this._parseCSVLine(lines[0]).map(h => h.toLowerCase().trim());
-        
+
         let imported = 0;
         let skipped = 0;
         const errors = [];
-        
+
         for (let i = 1; i < lines.length; i++) {
             try {
                 const values = this._parseCSVLine(lines[i]);
                 const contact = {};
-                
+
                 headers.forEach((header, idx) => {
                     const value = values[idx] || '';
-                    
+
                     switch (header) {
                         case 'name': contact.name = value; break;
                         case 'email': contact.email = value; break;
@@ -1984,18 +2135,18 @@ class Storage {
                         case 'notes': contact.notes = value; break;
                     }
                 });
-                
+
                 if (!contact.name) {
                     errors.push(`Row ${i + 1}: Missing name`);
                     continue;
                 }
-                
+
                 // Check if exists
-                const exists = this.contacts.items.some(c => 
+                const exists = this.contacts.items.some(c =>
                     (c.email && contact.email && c.email.toLowerCase() === contact.email.toLowerCase()) ||
                     (c.name.toLowerCase() === contact.name.toLowerCase())
                 );
-                
+
                 if (!exists) {
                     this.addContact(contact);
                     imported++;
@@ -2006,7 +2157,7 @@ class Storage {
                 errors.push(`Row ${i + 1}: ${err.message}`);
             }
         }
-        
+
         return { imported, skipped, errors };
     }
 
@@ -2022,17 +2173,17 @@ class Storage {
         let added = 0;
         let updated = 0;
         let skipped = 0;
-        
+
         for (const person of people) {
             if (!person.name) continue;
-            
+
             // Use findContactByName which checks name + aliases + first name
             const existingContact = this.findContactByName(person.name);
-            
+
             if (existingContact) {
                 // Contact already exists - add activity/mention instead of duplicating
                 const sourceFile = person.source_file || person.meeting || 'document';
-                
+
                 // Add as activity (document mention)
                 const activityAdded = this.addContactActivity(existingContact.id, {
                     type: 'document',
@@ -2040,7 +2191,7 @@ class Storage {
                     title: `Mentioned in: ${sourceFile}`,
                     date: person.created_at || new Date().toISOString()
                 });
-                
+
                 // Update role/organization if empty and we have new info
                 let contactUpdated = false;
                 if (!existingContact.role && person.role) {
@@ -2055,7 +2206,7 @@ class Storage {
                     existingContact.updatedAt = new Date().toISOString();
                     this.saveContacts();
                 }
-                
+
                 if (activityAdded || contactUpdated) {
                     updated++;
                 } else {
@@ -2063,7 +2214,7 @@ class Storage {
                 }
                 continue;
             }
-            
+
             // Add as new contact
             // Ensure role is not the same as organization (common extraction error)
             let personRole = person.role || '';
@@ -2071,7 +2222,7 @@ class Storage {
             if (personRole && personOrg && personRole.toLowerCase() === personOrg.toLowerCase()) {
                 personRole = ''; // Clear role if it's just the org name repeated
             }
-            
+
             const newId = this.addContact({
                 name: person.name,
                 role: personRole,
@@ -2080,7 +2231,7 @@ class Storage {
                 notes: `Auto-imported from document processing${person.source_file ? ` (${person.source_file})` : ''}`,
                 tags: ['auto-extracted']
             });
-            
+
             // Add initial activity for the source document
             if (person.source_file) {
                 this.addContactActivity(newId, {
@@ -2090,10 +2241,10 @@ class Storage {
                     date: person.created_at || new Date().toISOString()
                 });
             }
-            
+
             added++;
         }
-        
+
         log.debug({ event: 'storage_contacts_synced', added, updated, skipped }, 'Synced people');
         return { added, updated, skipped, total: people.length };
     }
@@ -2102,10 +2253,10 @@ class Storage {
         const result = [];
         let current = '';
         let inQuotes = false;
-        
+
         for (let i = 0; i < line.length; i++) {
             const char = line[i];
-            
+
             if (char === '"') {
                 if (inQuotes && line[i + 1] === '"') {
                     current += '"';
@@ -2121,7 +2272,7 @@ class Storage {
             }
         }
         result.push(current);
-        
+
         return result;
     }
 
@@ -2360,18 +2511,18 @@ class Storage {
         if (!q) {
             return { success: false, error: 'Question not found' };
         }
-        
+
         // Update allowed fields
         if (updates.assigned_to !== undefined) q.assigned_to = updates.assigned_to;
         if (updates.priority !== undefined) q.priority = updates.priority;
         if (updates.content !== undefined) q.content = updates.content;
         if (updates.context !== undefined) q.context = updates.context;
-        
+
         // Handle status change (especially reopening)
         if (updates.status !== undefined) {
             const oldStatus = q.status;
             q.status = updates.status;
-            
+
             // If reopening a resolved question
             if (oldStatus === 'resolved' && updates.status === 'pending') {
                 q.reopened_at = new Date().toISOString();
@@ -2384,12 +2535,12 @@ class Storage {
                 this.logChange('update', 'question', id, `Reopened: ${q.content?.substring(0, 50)}`);
             }
         }
-        
+
         q.updated_at = new Date().toISOString();
-        
+
         this.logChange('update', 'question', id, `Updated: ${updates.assigned_to ? 'assigned to ' + updates.assigned_to : updates.status || 'modified'}`);
         this.saveQuestions();
-        
+
         return { success: true, question: q };
     }
 
@@ -2801,20 +2952,20 @@ class Storage {
         const knowledgeRelationships = this.knowledge.relationships || [];
         const contacts = this.contacts.items || [];
         const teams = this.contacts.teams || [];
-        
+
         // Create unified node map (merge contacts + knowledge people)
         const nameToNode = new Map(); // name.toLowerCase() -> node (for merging)
         const idToNode = new Map(); // id -> node
         const nodes = []; // Final array of unique nodes
-        
+
         // First, add all contacts (they have richer data)
         for (const contact of contacts) {
             const team = teams.find(t => t.id === contact.teamId);
             const nodeKey = contact.name.toLowerCase().trim();
-            
+
             // Skip if already processed (avoid duplicates)
             if (nameToNode.has(nodeKey)) continue;
-            
+
             const node = {
                 id: `contact_${contact.id}`,
                 contactId: contact.id,
@@ -2832,7 +2983,7 @@ class Storage {
                 image: contact.photoUrl || null,
                 color: team ? { background: team.color, border: team.color } : undefined
             };
-            
+
             // Use box shape if no photo
             if (!contact.photoUrl) {
                 node.shape = 'box';
@@ -2843,12 +2994,12 @@ class Storage {
                     node.color = { background: '#6366f1', border: '#4f46e5' };
                 }
             }
-            
+
             // Add to collections
             nodes.push(node);
             nameToNode.set(nodeKey, node);
             idToNode.set(contact.id, node);
-            
+
             // Also map aliases (but don't create new nodes)
             for (const alias of (contact.aliases || [])) {
                 const aliasKey = alias.toLowerCase().trim();
@@ -2857,11 +3008,11 @@ class Storage {
                 }
             }
         }
-        
+
         // Then add knowledge base people (if not already from contacts)
         for (const person of knowledgePeople) {
             const nameKey = person.name.toLowerCase().trim();
-            
+
             if (!nameToNode.has(nameKey)) {
                 const node = {
                     id: person.id,
@@ -2884,24 +3035,24 @@ class Storage {
                 idToNode.set(person.id, existingNode);
             }
         }
-        
+
         // Build edges
         const edges = [];
         const edgeSet = new Set(); // Prevent duplicate edges
-        
+
         // Add edges from contact relationships
         for (const contact of contacts) {
             const fromNode = idToNode.get(contact.id);
             if (!fromNode) continue;
-            
+
             for (const rel of (contact.relationships || [])) {
                 const toNode = idToNode.get(rel.contactId);
                 if (!toNode) continue;
-                
+
                 const edgeKey = `${fromNode.id}_${toNode.id}_${rel.type}`;
                 if (edgeSet.has(edgeKey)) continue;
                 edgeSet.add(edgeKey);
-                
+
                 const edgeStyle = this._getRelationshipStyle(rel.type);
                 edges.push({
                     from: fromNode.id,
@@ -2912,21 +3063,21 @@ class Storage {
                 });
             }
         }
-        
+
         // Add edges from knowledge relationships
         for (const rel of knowledgeRelationships) {
             const fromKey = rel.from.toLowerCase().trim();
             const toKey = rel.to.toLowerCase().trim();
-            
+
             const fromNode = nameToNode.get(fromKey);
             const toNode = nameToNode.get(toKey);
-            
+
             if (!fromNode || !toNode) continue;
-            
+
             const edgeKey = `${fromNode.id}_${toNode.id}_${rel.type}`;
             if (edgeSet.has(edgeKey)) continue;
             edgeSet.add(edgeKey);
-            
+
             const edgeStyle = this._getRelationshipStyle(rel.type);
             edges.push({
                 from: fromNode.id,
@@ -2936,7 +3087,7 @@ class Storage {
                 source: 'knowledge'
             });
         }
-        
+
         // Build team groups for legend
         const teamGroups = teams.map(t => ({
             id: `team_${t.id}`,
@@ -2944,21 +3095,21 @@ class Storage {
             color: t.color,
             memberCount: contacts.filter(c => c.teamId === t.id).length
         }));
-        
-        return { 
-            nodes, 
-            edges, 
+
+        return {
+            nodes,
+            edges,
             teams: teamGroups,
-            stats: { 
-                people: nodes.length, 
+            stats: {
+                people: nodes.length,
                 relationships: edges.length,
                 contacts: contacts.length,
                 knowledgePeople: knowledgePeople.length,
                 teams: teams.length
-            } 
+            }
         };
     }
-    
+
     /**
      * Build rich tooltip for org chart node
      * @private
@@ -2974,7 +3125,7 @@ class Storage {
         if (activityCount > 0) title += `\n💬 ${activityCount} activities`;
         return title;
     }
-    
+
     /**
      * Get edge style for relationship type
      * @private
@@ -3645,11 +3796,11 @@ class Storage {
      */
     recoverFromChangeLog() {
         const changeLog = this.knowledge.change_log || [];
-        
+
         if (changeLog.length === 0) {
             return { recovered: false, message: 'No change_log entries to recover from' };
         }
-        
+
         const stats = {
             facts: 0,
             decisions: 0,
@@ -3657,16 +3808,16 @@ class Storage {
             action_items: 0,
             questions: 0
         };
-        
+
         // Group entries by type (only 'add' actions)
         const addEntries = changeLog.filter(e => e.action === 'add');
-        
+
         // Recover facts
         const factEntries = addEntries.filter(e => e.type === 'fact');
         for (const entry of factEntries) {
             // Check if already exists
             if (this.knowledge.facts.some(f => f.id === entry.id)) continue;
-            
+
             this.knowledge.facts.push({
                 id: entry.id,
                 content: entry.summary,
@@ -3677,12 +3828,12 @@ class Storage {
             });
             stats.facts++;
         }
-        
+
         // Recover decisions
         const decisionEntries = addEntries.filter(e => e.type === 'decision');
         for (const entry of decisionEntries) {
             if (this.knowledge.decisions.some(d => d.id === entry.id)) continue;
-            
+
             this.knowledge.decisions.push({
                 id: entry.id,
                 title: entry.summary,
@@ -3694,12 +3845,12 @@ class Storage {
             });
             stats.decisions++;
         }
-        
+
         // Recover risks
         const riskEntries = addEntries.filter(e => e.type === 'risk');
         for (const entry of riskEntries) {
             if (this.knowledge.risks.some(r => r.id === entry.id)) continue;
-            
+
             this.knowledge.risks.push({
                 id: entry.id,
                 title: entry.summary,
@@ -3712,12 +3863,12 @@ class Storage {
             });
             stats.risks++;
         }
-        
+
         // Recover action items
         const actionEntries = addEntries.filter(e => e.type === 'action_item');
         for (const entry of actionEntries) {
             if (this.knowledge.action_items.some(a => a.id === entry.id)) continue;
-            
+
             this.knowledge.action_items.push({
                 id: entry.id,
                 description: entry.summary,
@@ -3728,12 +3879,12 @@ class Storage {
             });
             stats.action_items++;
         }
-        
+
         // Recover questions
         const questionEntries = addEntries.filter(e => e.type === 'question');
         for (const entry of questionEntries) {
             if (this.questions.items.some(q => q.id === entry.id)) continue;
-            
+
             this.questions.items.push({
                 id: entry.id,
                 content: entry.summary,
@@ -3744,7 +3895,7 @@ class Storage {
             });
             stats.questions++;
         }
-        
+
         // Save if anything was recovered
         const totalRecovered = Object.values(stats).reduce((a, b) => a + b, 0);
         if (totalRecovered > 0) {
@@ -3752,7 +3903,7 @@ class Storage {
             this.saveQuestions();
             log.debug({ event: 'storage_recovery', stats }, 'Recovered from change_log');
         }
-        
+
         return {
             recovered: totalRecovered > 0,
             stats,
@@ -3796,7 +3947,7 @@ class Storage {
             file_logs: [],
             updated_at: new Date().toISOString()
         };
-        
+
         // Also reset conversations
         this.conversations = {
             version: '1.0',
@@ -3804,7 +3955,7 @@ class Storage {
             updated_at: new Date().toISOString()
         };
         this.saveConversations();
-        
+
         this.saveAll();
         this.saveHistory();
 
@@ -3830,7 +3981,7 @@ class Storage {
 
         // Get valid source files from documents and conversations
         const validSources = new Set();
-        
+
         // Add document sources
         if (this.documents && this.documents.items) {
             this.documents.items.forEach(doc => {
@@ -3838,7 +3989,7 @@ class Storage {
                 if (doc.filename) validSources.add(doc.filename);
             });
         }
-        
+
         // Add conversation sources
         if (this.conversations && this.conversations.items) {
             this.conversations.items.forEach(conv => {
@@ -3929,7 +4080,7 @@ class Storage {
     }
 
     // Backward compatibility - no-op
-    close() {}
+    close() { }
     cleanupBadData() { return { decisions: 0, people: 0 }; }
     invalidateRAGCache() {
         // Clear embeddings cache
@@ -4001,20 +4152,20 @@ class Storage {
 
     getFileLogs(limit = 50) {
         const logs = this.history.file_logs || [];
-        
+
         // Calculate extraction counts per document based on source_file references
         const extractionCounts = this._calculateExtractionCountsPerDocument();
-        
+
         // Enrich logs with document info (filename, name, summary, counts)
         const enrichedLogs = logs.map(log => {
             // Find the corresponding document
             const doc = this.documents.items.find(d => d.id === log.document_id);
-            
+
             // Get counts for this document
             const docName = doc ? (doc.name || doc.filename) : log.filename;
             const baseName = docName ? docName.replace(/\.[^/.]+$/, '') : '';
             const counts = extractionCounts[baseName.toLowerCase()] || {};
-            
+
             if (doc) {
                 return {
                     ...log,
@@ -4033,7 +4184,7 @@ class Storage {
                     actions_extracted: counts.actions || log.actions_extracted || 0
                 };
             }
-            
+
             return {
                 ...log,
                 filename: log.filename || 'Unknown Document',
@@ -4045,28 +4196,28 @@ class Storage {
                 actions_extracted: counts.actions || log.actions_extracted || 0
             };
         });
-        
+
         // Sort by timestamp descending (most recent first)
         enrichedLogs.sort((a, b) => {
             const dateA = new Date(a.completed_at || a.timestamp || 0);
             const dateB = new Date(b.completed_at || b.timestamp || 0);
             return dateB - dateA;
         });
-        
+
         // Return limited results
         return enrichedLogs.slice(0, limit);
     }
-    
+
     /**
      * Calculate extraction counts per document based on source_file references
      */
     _calculateExtractionCountsPerDocument() {
         const counts = {};
-        
+
         // Helper to add count for a source
         const addCount = (sourceField, type) => {
             if (!sourceField) return;
-            
+
             // source_file can be comma-separated
             const sources = sourceField.split(',').map(s => s.trim().toLowerCase());
             sources.forEach(source => {
@@ -4078,24 +4229,24 @@ class Storage {
                 counts[baseName][type]++;
             });
         };
-        
+
         // Count facts
         (this.knowledge.facts || []).forEach(f => addCount(f.source_file || f.meeting, 'facts'));
-        
+
         // Count decisions
         (this.knowledge.decisions || []).forEach(d => addCount(d.source_file || d.meeting, 'decisions'));
-        
+
         // Count risks
         (this.knowledge.risks || []).forEach(r => addCount(r.source_file || r.meeting, 'risks'));
-        
+
         // Count people (from source_file if available)
         (this.knowledge.people || []).forEach(p => {
             if (p.source_file) addCount(p.source_file, 'people');
         });
-        
+
         // Count action items
         (this.knowledge.actionItems || []).forEach(a => addCount(a.source_file || a.meeting, 'actions'));
-        
+
         return counts;
     }
 
@@ -4388,23 +4539,23 @@ class Storage {
 
         try {
             const GraphFactory = require('./graph/GraphFactory');
-            
+
             const providerId = graphConfig.provider || 'supabase';
             const providerConfig = {
                 ...graphConfig[providerId],
                 graphName: graphConfig.graphName || 'godmode',
                 storage: this // Pass storage reference for JSON provider
             };
-            
+
             this.graphProvider = GraphFactory.createProvider(providerId, providerConfig);
             const connectResult = await this.graphProvider.connect();
-            
+
             if (!connectResult.ok) {
                 log.warn({ event: 'storage_graph_connect_failed', reason: connectResult.error }, 'Failed to connect to graph');
                 this.graphProvider = null;
                 return connectResult;
             }
-            
+
             log.debug({ event: 'storage_graph_connected', providerId }, 'Connected to graph database');
             return { ok: true };
         } catch (error) {
@@ -4438,13 +4589,13 @@ class Storage {
         }
 
         const GraphRAGEngine = require('./graphrag/GraphRAGEngine');
-        
+
         // Use multi-graph manager if enabled
         let multiGraphManager = null;
         if (options.multiGraph && this.graphProvider.switchGraph) {
             const { getMultiGraphManager } = require('./graph/MultiGraphManager');
             multiGraphManager = getMultiGraphManager(this.graphProvider);
-            
+
             // Initialize with project context
             const projectId = options.projectId || this.projectId || 'default';
             await multiGraphManager.initialize(projectId);
@@ -4461,7 +4612,7 @@ class Storage {
         // If using multi-graph, use the manager's sync method
         if (multiGraphManager && options.multiGraph) {
             const projectId = options.projectId || this.projectId || 'default';
-            
+
             // Prepare data by type
             const data = {
                 persons: this.knowledge.people || [],
@@ -4474,13 +4625,13 @@ class Storage {
                 risks: this.knowledge.risks || [],
                 tasks: this.knowledge.tasks || []
             };
-            
+
             return await multiGraphManager.syncData(data, projectId);
         }
 
         return await engine.syncToGraph();
     }
-    
+
     /**
      * Get the multi-graph manager instance
      * @returns {MultiGraphManager|null}
@@ -4492,7 +4643,7 @@ class Storage {
         const { getMultiGraphManager } = require('./graph/MultiGraphManager');
         return getMultiGraphManager(this.graphProvider);
     }
-    
+
     /**
      * Generate enriched embeddings using ontology
      * @returns {Promise<{ok: boolean, count: number, errors?: Array}>}
@@ -4534,7 +4685,7 @@ class Storage {
      */
     async syncFalkorDBGraphs(options = {}) {
         const { dryRun = false } = options;
-        
+
         if (!this.graphProvider || typeof this.graphProvider.listGraphs !== 'function') {
             return { ok: false, error: 'FalkorDB provider not available or does not support listGraphs' };
         }
@@ -4563,7 +4714,7 @@ class Storage {
             const validGraphNames = new Set();
             validGraphNames.add('godmode_default');
             validGraphNames.add('Godmode_default');
-            
+
             for (const projectId of validProjectIds) {
                 validGraphNames.add(`godmode_${projectId}`);
                 validGraphNames.add(`Godmode_${projectId}`);
@@ -4644,7 +4795,7 @@ class Storage {
             this.knowledge.facts = this.knowledge.facts.filter(fact => {
                 const createdAt = fact.created_at ? new Date(fact.created_at).getTime() : now;
                 const age = now - createdAt;
-                
+
                 if (age > factsMaxAge) {
                     if (archiveInsteadOfDelete) {
                         archived.facts.push({ ...fact, archived_at: new Date().toISOString() });
@@ -4654,7 +4805,7 @@ class Storage {
                 }
                 return true;
             });
-            
+
             if (cleaned.facts > 0) {
                 log.debug({ event: 'storage_cleaned_facts', count: cleaned.facts }, 'Cleaned old facts');
             }
@@ -4666,11 +4817,11 @@ class Storage {
             this.questions.items = this.questions.items.filter(question => {
                 // Only clean resolved questions
                 if (question.status !== 'resolved') return true;
-                
-                const resolvedAt = question.resolved_at ? new Date(question.resolved_at).getTime() : 
-                                   question.created_at ? new Date(question.created_at).getTime() : now;
+
+                const resolvedAt = question.resolved_at ? new Date(question.resolved_at).getTime() :
+                    question.created_at ? new Date(question.created_at).getTime() : now;
                 const age = now - resolvedAt;
-                
+
                 if (age > questionsMaxAge) {
                     if (archiveInsteadOfDelete) {
                         archived.questions.push({ ...question, archived_at: new Date().toISOString() });
@@ -4680,7 +4831,7 @@ class Storage {
                 }
                 return true;
             });
-            
+
             if (cleaned.questions > 0) {
                 log.debug({ event: 'storage_cleaned_questions', count: cleaned.questions }, 'Cleaned old resolved questions');
             }
@@ -4706,10 +4857,10 @@ class Storage {
     saveArchive(archived) {
         const fs = require('fs');
         const path = require('path');
-        
+
         const archiveFile = path.join(this.dataDir, 'archive.json');
         let existingArchive = { facts: [], questions: [], archivedAt: [] };
-        
+
         try {
             if (fs.existsSync(archiveFile)) {
                 existingArchive = JSON.parse(fs.readFileSync(archiveFile, 'utf-8'));
@@ -4752,9 +4903,9 @@ class Storage {
             }
         };
 
-        const memoryBytes = estimateSize(this.knowledge) + 
-                           estimateSize(this.questions) + 
-                           estimateSize(this.documents);
+        const memoryBytes = estimateSize(this.knowledge) +
+            estimateSize(this.questions) +
+            estimateSize(this.documents);
 
         return {
             counts: { facts, people, decisions, risks, questions, documents },

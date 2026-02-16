@@ -28,7 +28,7 @@ module.exports = {
     isConfigured: client.isConfigured,
     testConnection: client.testConnection,
     getConfigInfo: client.getConfigInfo,
-    
+
     // Auth
     auth: {
         register: auth.register,
@@ -47,7 +47,7 @@ module.exports = {
         requireAuth: auth.requireAuth,
         requireSuperAdmin: auth.requireSuperAdmin
     },
-    
+
     // OTP (One-Time Password)
     otp: {
         createOTP: otp.createOTP,
@@ -57,7 +57,7 @@ module.exports = {
         checkRateLimit: otp.checkRateLimit,
         getConfig: otp.getConfig
     },
-    
+
     // Email
     email: {
         isConfigured: email.isConfigured,
@@ -67,7 +67,7 @@ module.exports = {
         sendEmailConfirmation: email.sendEmailConfirmationEmail,
         sendNewDeviceLogin: email.sendNewDeviceLoginEmail
     },
-    
+
     // Invites
     invites: {
         createInvite: invites.createInvite,
@@ -77,7 +77,7 @@ module.exports = {
         getInviteByToken: invites.getInviteByToken,
         cleanupExpiredInvites: invites.cleanupExpiredInvites
     },
-    
+
     // Activity Log
     activity: {
         ACTION_TYPES: activity.ACTION_TYPES,
@@ -86,7 +86,7 @@ module.exports = {
         getProjectActivity: activity.getProjectActivity,
         getUserActivity: activity.getUserActivity
     },
-    
+
     // Members
     members: {
         getProjectMembers: members.getProjectMembers,
@@ -97,7 +97,7 @@ module.exports = {
         transferOwnership: members.transferOwnership,
         getUserProjects: members.getUserProjects
     },
-    
+
     // Comments
     comments: {
         createComment: comments.createComment,
@@ -107,7 +107,7 @@ module.exports = {
         resolveComment: comments.resolveComment,
         extractMentions: comments.extractMentions
     },
-    
+
     // Notifications
     notifications: {
         TYPES: notifications.NOTIFICATION_TYPES,
@@ -121,7 +121,7 @@ module.exports = {
         unwatchItem: notifications.unwatchItem,
         notifyWatchers: notifications.notifyWatchers
     },
-    
+
     // Search
     search: {
         users: search.searchUsers,
@@ -130,7 +130,7 @@ module.exports = {
         global: search.globalSearch,
         mentionSuggestions: search.getMentionSuggestions
     },
-    
+
     // API Keys
     apikeys: {
         PERMISSIONS: apikeys.PERMISSIONS,
@@ -144,7 +144,7 @@ module.exports = {
         getUsageStats: apikeys.getUsageStats,
         authenticate: apikeys.authenticateApiKey
     },
-    
+
     // Webhooks
     webhooks: {
         EVENTS: webhooks.WEBHOOK_EVENTS,
@@ -159,7 +159,7 @@ module.exports = {
         signPayload: webhooks.signPayload,
         verifySignature: webhooks.verifySignature
     },
-    
+
     // Audit
     audit: {
         FORMATS: audit.EXPORT_FORMATS,
@@ -168,9 +168,10 @@ module.exports = {
         listExports: audit.listExportJobs,
         download: audit.downloadExport,
         getSummary: audit.getAuditSummary,
-        cleanup: audit.cleanupExpiredExports
+        cleanup: audit.cleanupExpiredExports,
+        listAuditLogs: audit.listAuditLogs
     },
-    
+
     // Outbox (Graph Sync)
     outbox: {
         OPERATIONS: outbox.OPERATIONS,
@@ -189,7 +190,7 @@ module.exports = {
         getStats: outbox.getStats,
         cleanup: outbox.cleanup
     },
-    
+
     // Realtime
     realtime: {
         subscribeToProject: realtime.subscribeToProject,
@@ -204,7 +205,7 @@ module.exports = {
         getActiveSubscriptions: realtime.getActiveSubscriptions,
         getPresenceState: realtime.getPresenceState
     },
-    
+
     // Projects
     projects: {
         create: projects.createProject,
@@ -214,9 +215,11 @@ module.exports = {
         listForUser: projects.listUserProjects,
         getStats: projects.getProjectStats,
         updateSettings: projects.updateSettings,
-        clone: projects.cloneProject
+        clone: projects.cloneProject,
+        addProjectRole: projects.addProjectRole,
+        updateProjectRole: projects.updateProjectRole
     },
-    
+
     // Storage (replaces local JSON storage)
     SupabaseStorage,
     createSupabaseStorage

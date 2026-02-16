@@ -133,15 +133,27 @@ async function handleTeamAnalysis(ctx) {
         if (pathname === '/api/team-analysis/config' && req.method === 'GET') {
             const { data: project } = await storage.supabase
                 .from('projects')
-                .select('team_analysis_access, team_analysis_enabled')
+                .select('settings, team_analysis_enabled')
                 .eq('id', projectId)
                 .single();
+
+            const settings = project?.settings || {};
+            const teamAnalysisConfig = settings.teamAnalysis || {
+                analysisFrequency: 'weekly',
+                includePersonality: true,
+                includeSentiment: true,
+                includeCommunication: true,
+                includeCollaboration: true,
+                minMeetingsForAnalysis: 3,
+                sentimentThreshold: -0.3
+            };
+
+            // Backwards compatibility with the boolean column if needed, 
+            // but primarily relying on settings now.
+
             jsonResponse(res, {
                 ok: true,
-                config: {
-                    enabled: project?.team_analysis_enabled ?? true,
-                    access: project?.team_analysis_access ?? 'admin_only'
-                }
+                config: teamAnalysisConfig
             });
             return true;
         }
@@ -149,14 +161,98 @@ async function handleTeamAnalysis(ctx) {
         // PUT /api/team-analysis/config
         if (pathname === '/api/team-analysis/config' && req.method === 'PUT') {
             const body = await parseBody(req);
+
+            // Fetch current settings first to merge
+            const { data: project } = await storage.supabase
+                .from('projects')
+                .select('settings')
+                .eq('id', projectId)
+                .single();
+
+            const currentSettings = project?.settings || {};
+            const newSettings = {
+                ...currentSettings,
+                teamAnalysis: {
+                    ...currentSettings.teamAnalysis,
+                    ...body // Merge new config
+                }
+            };
+
             await storage.supabase
                 .from('projects')
                 .update({
-                    team_analysis_enabled: body.enabled,
-                    team_analysis_access: body.access
+                    settings: newSettings,
+                    // Keep the legacy column in sync just in case, active if any feature is enabled
+                    team_analysis_enabled: body.includePersonality || body.includeSentiment || body.includeCommunication || body.includeCollaboration
                 })
                 .eq('id', projectId);
+
             jsonResponse(res, { ok: true, message: 'Configuration updated' });
+            return true;
+        }
+
+        // GET /api/team-analysis/admin/projects
+        // Returns list of all projects with their team analysis status
+        if (pathname === '/api/team-analysis/admin/projects' && req.method === 'GET') {
+            // Get all projects
+            const { data: projects, error: projError } = await storage.supabase
+                .from('projects')
+                .select('id, name, created_at, team_analysis_enabled')
+                .order('name');
+
+            if (projError) throw new Error(projError.message);
+
+            // Get all team analysis records to map timestamps
+            const { data: analyses, error: analysisError } = await storage.supabase
+                .from('team_analysis')
+                .select('project_id, last_analysis_at');
+
+            if (analysisError) throw new Error(analysisError.message);
+
+            // Map analysis data to projects
+            const analysisMap = new Map();
+            analyses?.forEach(a => analysisMap.set(a.project_id, a.last_analysis_at));
+
+            const result = projects.map(p => ({
+                id: p.id,
+                name: p.name,
+                isEnabled: p.team_analysis_enabled,
+                lastAnalysisAt: analysisMap.get(p.id) || null
+            }));
+
+            jsonResponse(res, { ok: true, projects: result });
+            return true;
+        }
+
+        // POST /api/team-analysis/admin/projects/:projectId/analyze
+        // Trigger analysis for a specific project
+        const adminAnalyzeMatch = pathname.match(/^\/api\/team-analysis\/admin\/projects\/([^/]+)\/analyze$/);
+        if (adminAnalyzeMatch && req.method === 'POST') {
+            const targetProjectId = adminAnalyzeMatch[1];
+            const body = await parseBody(req);
+
+            const { getTeamAnalyzer } = require('../../team-analysis');
+            const teamAnalyzer = getTeamAnalyzer({ supabase: storage.supabase, config });
+
+            // Check if project exists and has team analysis enabled
+            const { data: project } = await storage.supabase
+                .from('projects')
+                .select('team_analysis_enabled, settings')
+                .eq('id', targetProjectId)
+                .single();
+
+            if (!project) {
+                jsonResponse(res, { error: 'Project not found' }, 404);
+                return true;
+            }
+
+            // Note: We allow analyzing even if disabled in settings, as this is an admin manual trigger
+
+            const analysis = await teamAnalyzer.analyzeTeamDynamics(targetProjectId, {
+                forceReanalysis: body.forceReanalysis || true
+            });
+
+            jsonResponse(res, { ok: true, analysis });
             return true;
         }
     } catch (error) {

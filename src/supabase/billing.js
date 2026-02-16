@@ -211,7 +211,7 @@ async function calculateBillableCost(projectId, providerCostUsd, totalTokens) {
     // Get exchange rate from service
     const exchangeRateResult = await getExchangeRate();
     const rate = exchangeRateResult.rate;
-    
+
     const client = getAdminClient() || getClient();
     if (!client) {
         // Fallback: no markup, just use exchange rate
@@ -282,19 +282,19 @@ async function calculateAndRecordCost({
 }) {
     // Calculate billable cost
     const costResult = await calculateBillableCost(projectId, providerCostUsd, tokens);
-    
+
     // Debit balance (atomic)
     const debitResult = await debitProjectBalance(
-        projectId, 
+        projectId,
         costResult.billable_cost_eur,
         requestId,
         `AI usage: ${provider}/${model} - ${context || 'request'}`
     );
-    
+
     if (!debitResult.success && debitResult.reason !== 'Insufficient balance') {
         log.warn({ event: 'billing_debit_failed_nonblocking', reason: debitResult.reason }, 'Debit failed (non-blocking)');
     }
-    
+
     // Update period usage
     await updatePeriodUsage(
         projectId,
@@ -304,7 +304,7 @@ async function calculateAndRecordCost({
         costResult.billable_cost_eur,
         costResult.period_key
     );
-    
+
     return {
         billable_cost_eur: costResult.billable_cost_eur,
         provider_cost_eur: costResult.provider_cost_eur,
@@ -508,6 +508,7 @@ async function getAllProjectsBilling() {
             tokens_this_period: parseInt(row.tokens_this_period) || 0,
             billable_cost_this_period: parseFloat(row.billable_cost_this_period) || 0,
             is_blocked: row.is_blocked,
+            status: row.status, // Raw status ('active' | 'blocked')
             current_tier_name: row.current_tier_name
         }));
     } catch (error) {
@@ -588,14 +589,15 @@ async function setGlobalPricingConfig({ fixedMarkupPercent, periodType, usdToEur
     try {
         const { error } = await client
             .from('pricing_configs')
-            .update({
+            .upsert({
                 fixed_markup_percent: fixedMarkupPercent,
                 period_type: periodType,
                 usd_to_eur_rate: usdToEurRate,
                 updated_by: updatedBy,
-                updated_at: new Date().toISOString()
-            })
-            .eq('scope', 'global');
+                updated_at: new Date().toISOString(),
+                scope: 'global',
+                is_active: true
+            }, { onConflict: 'scope' });
 
         if (error) throw error;
         return { success: true };
@@ -812,32 +814,32 @@ module.exports = {
     debitProjectBalance,
     creditProjectBalance,
     setProjectUnlimited,
-    
+
     // Cost calculation
     calculateBillableCost,
     calculateAndRecordCost,
     updatePeriodUsage,
-    
+
     // Notifications
     notifyBalanceInsufficient,
     checkAndNotifyLowBalance,
-    
+
     // Summaries
     getProjectBillingSummary,
     getAllProjectsBilling,
     getBalanceTransactions,
-    
+
     // Pricing configuration
     getGlobalPricingConfig,
     setGlobalPricingConfig,
     getProjectPricingOverride,
     setProjectPricingOverride,
     deleteProjectPricingOverride,
-    
+
     // Pricing tiers
     getPricingTiers,
     setPricingTiers,
-    
+
     // Exchange rate
     getExchangeRate,
     getExchangeRateConfig: async () => {
@@ -852,7 +854,7 @@ module.exports = {
         const service = getExchangeRateService();
         return service ? await service.refreshExchangeRate() : null;
     },
-    
+
     // Utilities
     getCurrentPeriodKey
 };

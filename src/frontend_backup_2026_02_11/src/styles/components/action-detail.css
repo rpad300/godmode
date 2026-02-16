@@ -1,0 +1,500 @@
+/**
+ * Action Detail View Styles
+ * Extends question-detail-view (shared layout); action-specific overrides
+ */
+
+/* Project in breadcrumb and as badge */
+.action-detail-view .breadcrumb-project {
+  color: var(--text-muted);
+  font-weight: 500;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action-detail-view .project-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
+.action-detail-view.question-detail-view .action-main .action-task-text {
+  font-size: var(--font-size-base);
+  line-height: 1.6;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.action-detail-view .detail-actions {
+  display: flex;
+  gap: var(--space-md);
+  margin-top: var(--space-xl);
+  padding-top: var(--space-lg);
+  border-top: 1px solid var(--border);
+}
+
+.action-detail-view .detail-actions .btn {
+  min-height: 40px;
+  padding: 10px 20px;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  border-width: 1px;
+  border-style: solid;
+  appearance: none;
+}
+
+.action-detail-view .detail-actions .btn-secondary {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border-color: var(--border);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.action-detail-view .detail-actions .btn-danger {
+  background: var(--error);
+  color: white;
+  border-color: var(--error);
+}
+
+/* Action suggestions panel (view + edit) – align with risk-detail */
+.action-detail-view .action-suggestions-panel.suggestions-panel-sota {
+  margin-top: var(--space-md);
+}
+
+/* Inline edit form – align with risk-detail-edit-form */
+.action-detail-view .action-detail-edit-form {
+  margin-top: var(--space-md);
+  padding: var(--space-lg);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+}
+
+/* AI suggest button in edit form – same as risk-detail */
+.action-detail-view .action-detail-edit-form .btn-ai-suggest {
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.action-detail-view .action-detail-edit-form .btn-ai-suggest:hover:not(:disabled) {
+  background: var(--bg-secondary);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Implementing decision section */
+.action-detail-view .action-decision-display {
+  margin-bottom: var(--space-sm);
+}
+
+.action-detail-view .action-decision-actions {
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.action-detail-view .action-decision-picker {
+  margin-top: var(--space-md);
+  padding: var(--space-md);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  max-height: 200px;
+  overflow: auto;
+}
+
+.action-detail-view .action-decision-picker .picker-search {
+  margin-bottom: var(--space-sm);
+}
+
+.action-detail-view .action-decision-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.action-detail-view .action-decision-item {
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+}
+
+.action-detail-view .action-decision-item:hover {
+  background: var(--bg-card);
+  transform: translateX(4px);
+  transition: all 0.2s ease;
+}
+
+.action-detail-view .decision-link {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.action-detail-view .decision-link:hover {
+  text-decoration: underline;
+}
+
+.action-detail-view .action-detail-edit-form .detail-actions {
+  margin-top: var(--space-lg);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.action-detail-view .action-detail-edit-form .detail-actions .btn {
+  min-height: 40px;
+  padding: 10px 20px;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  border-width: 1px;
+  border-style: solid;
+  appearance: none;
+}
+
+.action-detail-view .action-detail-edit-form .detail-actions .btn-primary {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+.action-detail-view .action-detail-edit-form .detail-actions .btn-secondary {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border-color: var(--border);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.action-detail-view .action-detail-edit-form .detail-actions .btn-danger {
+  background: var(--error);
+  color: white;
+  border-color: var(--error);
+}
+
+/* Structured description (Task, Size, DoD, Acceptance criteria) */
+.action-detail-view .action-description-structured {
+  margin-top: var(--space-md);
+}
+
+.action-detail-view .action-description-body {
+  font-size: var(--font-size-sm);
+}
+
+.action-detail-view .action-description-dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 0 0 12px;
+}
+
+.action-detail-view .action-description-dl dt {
+  margin: 0;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.action-detail-view .action-description-dl dd {
+  margin: 0;
+}
+
+.action-detail-view .action-description-text,
+.action-detail-view .action-dod,
+.action-detail-view .action-ac {
+  margin-top: 10px;
+}
+
+.action-detail-view .action-description-text p,
+.action-detail-view .action-checklist {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+.action-detail-view .action-checklist li {
+  margin-bottom: 2px;
+}
+
+/* Definition of Done with checkmarks (toggle) */
+.action-detail-view .action-dod-list {
+  list-style: none;
+  padding-left: 0;
+}
+
+.action-detail-view .action-dod-list .dod-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.action-detail-view .dod-item-toggle {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.action-detail-view .dod-item-toggle:hover {
+  border-color: var(--color-primary);
+  background: var(--color-surface-hover);
+}
+
+.action-detail-view .dod-item.dod-done .dod-item-text {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+.action-detail-view .dod-item-text {
+  flex: 1;
+}
+
+/* Timeline: title row with Restore button */
+.action-detail-view .timeline-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.action-detail-view .timeline-title-row .timeline-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.action-detail-view .action-restore-btn {
+  flex-shrink: 0;
+}
+
+/* Timeline uses #timeline-content + .timeline-content; styles from question-detail.css apply */
+
+/* Inline meta (Due date, Status) below assignment */
+.action-detail-view .action-meta-inline {
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border);
+}
+
+.action-detail-view .action-detail-edit-form .action-form label {
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+  display: block;
+}
+
+.action-detail-view .action-detail-edit-form .action-form textarea,
+.action-detail-view .action-detail-edit-form .action-form select,
+.action-detail-view .action-detail-edit-form .action-form input[type="text"],
+.action-detail-view .action-detail-edit-form .action-form input[type="date"] {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  background: var(--input-bg, var(--bg-primary));
+  color: var(--text-primary);
+}
+
+.action-detail-view .action-detail-edit-form .form-group {
+  margin-bottom: var(--space-md);
+}
+
+.action-detail-view .action-detail-edit-form .form-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+}
+
+.action-detail-view .action-detail-edit-form .form-row .form-group {
+  flex: 1;
+  min-width: 120px;
+}
+
+/* Assignee contact picker in edit form */
+.action-detail-view .action-assignee-picker-wrap {
+  position: relative;
+}
+
+.action-detail-view .action-assignee-picker-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--input-bg, var(--bg-primary));
+  cursor: pointer;
+  min-height: 40px;
+}
+
+.action-detail-view .action-assignee-picker-trigger:hover {
+  border-color: var(--accent, #667eea);
+}
+
+.action-detail-view .action-assignee-picker-value {
+  flex: 1;
+  text-align: left;
+  font-size: var(--font-size-sm);
+}
+
+.action-detail-view .action-assignee-picker-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  padding: var(--space-sm);
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.15));
+  z-index: 100;
+  max-height: 280px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.action-detail-view .action-assignee-picker-search {
+  margin-bottom: var(--space-sm);
+}
+
+.action-detail-view .action-assignee-picker-search input {
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+}
+
+.action-detail-view .action-assignee-picker-list {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.action-detail-view .action-assignee-card-picker {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.action-detail-view .action-assignee-card-picker:hover,
+.action-detail-view .action-assignee-card-picker.selected {
+  background: var(--bg-secondary);
+  border-color: var(--border);
+}
+
+.action-detail-view .action-assignee-card-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: white;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.action-detail-view .action-assignee-card-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.action-detail-view .action-assignee-card-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.action-detail-view .action-assignee-card-name {
+  font-weight: 600;
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+}
+
+.action-detail-view .action-assignee-card-role {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+/* Similar actions list */
+.action-detail-view .action-similar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.action-detail-view .action-similar-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg-secondary, #f9fafb);
+  border: 1px solid var(--border-light, #f3f4f6);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.action-detail-view .action-similar-card:hover {
+  background: var(--bg-card);
+  border-color: var(--border);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+.action-detail-view .action-similar-card .action-similar-status {
+  flex-shrink: 0;
+}
+
+.action-detail-view .action-similar-card .action-similar-task {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

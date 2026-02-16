@@ -10,6 +10,7 @@ const llm = require('../llm');
 const { getOntologyManager, getRelationInference, getEmbeddingEnricher } = require('../ontology');
 const { getQueryCache, getSyncTracker } = require('../utils');
 const { getCypherGenerator } = require('./CypherGenerator');
+const crypto = require('crypto');
 
 const log = logger.child({ module: 'graphrag-engine' });
 
@@ -17,39 +18,51 @@ class GraphRAGEngine {
     constructor(options = {}) {
         this.graphProvider = options.graphProvider;
         this.storage = options.storage;
-        
+
         // Multi-graph support
         this.multiGraphManager = options.multiGraphManager || null;
-        
+
         // AI-powered Cypher generation
         this.useCypherGenerator = options.useCypherGenerator !== false;
         this.currentProjectId = options.projectId || null;
-        
+
         // LLM configuration - should come from admin config, no hardcoded defaults
         this.embeddingProvider = options.embeddingProvider || null;
         this.embeddingModel = options.embeddingModel || null;
         this.llmProvider = options.llmProvider || null;
         this.llmModel = options.llmModel || null;
-        
+
         if (!this.llmProvider) {
             log.warn({ event: 'graphrag_no_llm' }, 'No LLM provider specified - should be passed from admin config');
         }
-        
+
         // Configuration from app config
         this.llmConfig = options.llmConfig || {};
-        
+
         // Ontology integration
         this.ontology = options.ontology || getOntologyManager();
         this.relationInference = options.relationInference || getRelationInference();
         this.embeddingEnricher = options.embeddingEnricher || getEmbeddingEnricher();
-        
+
         // Enable ontology features
         this.useOntology = options.useOntology !== false;
-        
+
         // Cache for query results
         this.queryCache = options.queryCache || getQueryCache();
         this.enableCache = options.enableCache !== false;
         this.cacheTTL = options.cacheTTL || 5 * 60 * 1000; // 5 minutes default
+    }
+
+    /**
+     * Generate a deterministic ID based on content
+     * @param {string} label 
+     * @param {string} uniqueVal 
+     */
+    generateDeterministicId(label, uniqueVal) {
+        if (!uniqueVal) return null;
+        // Include project ID in seed to keep nodes project-scoped (unless shared)
+        const seed = `${this.currentProjectId || 'default'}:${label}:${uniqueVal.toLowerCase().trim()}`;
+        return crypto.createHash('md5').update(seed).digest('hex');
     }
 
     /**
@@ -69,6 +82,617 @@ class GraphRAGEngine {
         if (this.multiGraphManager) {
             this.multiGraphManager.currentProjectId = projectId;
         }
+        // Also update graph provider context if supported
+        if (this.graphProvider && typeof this.graphProvider.setProjectContext === 'function') {
+            this.graphProvider.setProjectContext(projectId);
+        }
+    }
+
+    /**
+     * Sync data to graph database
+     * @param {object} data - { documents, people, teams, sprints, actions, etc. }
+     * @param {object} options - { computeSimilarity: boolean }
+     * @returns {Promise<{nodes: number, edges: number, errors: Array}>}
+     */
+    async syncToGraph(data, options = {}) {
+        const startTime = Date.now();
+        const results = { nodes: 0, edges: 0, errors: [] };
+
+        if (!this.graphProvider) {
+            return { ...results, error: 'No graph provider configured' };
+        }
+
+        log.info({
+            event: 'graphrag_sync_start',
+            counts: Object.keys(data).reduce((acc, k) => ({ ...acc, [k]: data[k]?.length || 0 }), {}),
+            projectId: this.currentProjectId
+        }, 'Starting graph sync');
+
+        // Update status to syncing
+        if (this.graphProvider && typeof this.graphProvider.updateSyncStatus === 'function') {
+            await this.graphProvider.updateSyncStatus({
+                sync_status: 'syncing',
+                last_connected_at: new Date().toISOString()
+            });
+        }
+
+        try {
+            // 0. GRAPH CLEARING (If requested)
+            if (options.clear) {
+                log.info({ event: 'graphrag_clearing_graph' }, 'Clearing graph execution for full resync');
+                if (this.graphProvider.clear) {
+                    await this.graphProvider.clear();
+                } else if (this.graphProvider.deleteGraph) {
+                    await this.graphProvider.deleteGraph(this.graphProvider.currentGraphName || 'default');
+                }
+            }
+
+            // ID Mapping: Old ID -> New Deterministic ID
+            const idMap = new Map();
+
+            // Helper to sync nodes batch
+            const syncNodes = async (label, items, mapper, deterministicKey = null) => {
+                if (!items || items.length === 0) return;
+
+                const nodes = items.map(item => {
+                    const mapped = mapper(item);
+
+                    // V3 Plan: Use explicit UUID from source if available (item.id)
+                    // Only fallback to deterministic hash if no ID exists (e.g. for external data)
+                    if (item.id) {
+                        mapped.id = item.id;
+                        idMap.set(item.id, item.id);
+                    } else if (deterministicKey && item[deterministicKey]) {
+                        const newId = this.generateDeterministicId(label, item[deterministicKey]);
+                        if (newId) {
+                            idMap.set(item.id, newId); // Map original ID to new ID
+                            mapped.id = newId;
+                        }
+                    }
+                    return mapped;
+                });
+
+                const result = await this.graphProvider.createNodesBatch(label, nodes);
+
+                if (result.ok) {
+                    results.nodes += result.created;
+                } else {
+                    results.errors.push(...(result.errors || []));
+                    log.warn({ event: 'graphrag_sync_nodes_error', label, error: result.errors }, 'Failed to sync nodes');
+                }
+            };
+
+            // Helper to create relationship object
+            const createRel = (fromOriginalId, toOriginalId, type, props = {}) => {
+                const fromId = idMap.get(fromOriginalId) || fromOriginalId;
+                const toId = idMap.get(toOriginalId) || toOriginalId;
+
+                if (!fromId || !toId) return null;
+
+                return {
+                    fromId,
+                    toId,
+                    type,
+                    properties: { ...props, updated_at: new Date().toISOString() }
+                };
+            };
+
+            // Helper to scan text for mentions
+            const extractMentionsFromText = (text, contacts, sourceId, excludeContactIds = []) => {
+                if (!text || !contacts) return [];
+                const mentions = [];
+                const lowerText = text.toLowerCase();
+                const excludeSet = new Set(excludeContactIds.map(String));
+
+                for (const contact of contacts) {
+                    if (excludeSet.has(String(contact.id))) continue;
+
+                    const names = [contact.name, ...(contact.aliases || [])].filter(Boolean);
+                    for (const name of names) {
+                        if (name.length < 3) continue; // Skip short names
+                        if (lowerText.includes(name.toLowerCase())) {
+                            mentions.push(createRel(sourceId, contact.id, 'MENTIONS', { match_type: 'text_scan', matched_name: name }));
+                            break; // Match first valid name variant per contact
+                        }
+                    }
+                }
+                return mentions;
+            };
+
+            // ==================== PHASE 1: NODES ====================
+
+            // 1. Project Node
+            if (data.project) {
+                await syncNodes('Project', [data.project], p => ({
+                    id: p.id,
+                    name: p.name,
+                    status: p.status,
+                    description: p.description,
+                    ...p.metadata
+                }), 'id'); // Project ID is usually stable
+            }
+
+            // 2. Sprint Nodes
+            await syncNodes('Sprint', data.sprints, s => ({
+                id: s.id,
+                name: s.name,
+                status: s.status,
+                goal: s.goal,
+                start_date: s.startDate,
+                end_date: s.endDate,
+                ...s.metadata
+            }), 'name');
+
+            // 3. UserStory Nodes
+            await syncNodes('UserStory', data.userStories, s => ({
+                id: s.id,
+                title: s.title,
+                status: s.status,
+                story_points: s.storyPoints,
+                description: s.description,
+                ...s.metadata
+            }), 'title');
+
+            // 4. Task Nodes (mapped from Actions)
+            await syncNodes('Task', data.actions, a => ({
+                id: a.id,
+                title: a.title,
+                status: a.status,
+                priority: a.priority,
+                description: a.description,
+                dueDate: a.dueDate,
+                ...a.metadata
+            }), 'title');
+
+            // 5. Document Nodes
+            await syncNodes('Document', data.documents, d => ({
+                id: d.id,
+                title: d.title,
+                type: d.type,
+                url: d.url,
+                lastModified: d.lastModified,
+                author_contact_id: d.author_contact_id, // Pass through for edge creation
+                ...d.metadata
+            }), 'url'); // URL is a better deterministic key for documents
+
+            // V3: Document Attribution (AUTHORED_BY)
+            if (data.documents) {
+                for (const doc of data.documents) {
+                    if (doc.author_contact_id) {
+                        const rel = createRel(doc.id, doc.author_contact_id, 'AUTHORED_BY', { certainty: 'explicit' });
+                        if (rel) relationships.push(rel);
+                    }
+                }
+            }
+
+            // 6. Teams
+            await syncNodes('Team', data.teams, t => ({
+                id: t.id,
+                name: t.name,
+                description: t.description,
+                ...t.metadata
+            }), 'name');
+
+            // 7. People
+            await syncNodes('Person', data.people, p => ({
+                id: p.id,
+                name: p.name,
+                role: p.role,
+                email: p.email,
+                avatar: p.avatar,
+                ...p.metadata
+            }), 'email'); // Email is best deterministic key for people
+
+            // 8. Facts
+            await syncNodes('Fact', data.facts, f => ({
+                id: f.id,
+                content: f.content,
+                source: f.source,
+                category: f.category,
+                ...f.metadata
+            }), 'content');
+
+            // 9. Decisions
+            await syncNodes('Decision', data.decisions, d => ({
+                id: d.id,
+                title: d.title,
+                status: d.status,
+                impact: d.impact,
+                rationale: d.rationale,
+                ...d.metadata
+            }), 'title');
+
+            // 10. Risks
+            await syncNodes('Risk', data.risks, r => ({
+                id: r.id,
+                title: r.title,
+                status: r.status,
+                severity: r.severity,
+                probability: r.probability,
+                mitigation: r.mitigation,
+                ...r.metadata
+            }), 'title');
+
+            // 11. Emails
+            await syncNodes('Email', data.emails, e => ({
+                id: e.id,
+                subject: e.subject,
+                from_name: e.fromName,
+                from_email: e.fromEmail,
+                date_sent: e.dateSent,
+                ...e.metadata
+            }), 'id'); // Emails usually have unique IDs
+
+            // 12. CalendarEvents
+            await syncNodes('CalendarEvent', data.events, e => ({
+                id: e.id,
+                title: e.title,
+                start_at: e.start,
+                end_at: e.end,
+                location: e.location,
+                type: e.type,
+                ...e.metadata
+            }), 'id');
+
+            // 13. Questions
+            await syncNodes('Question', data.questions, q => ({
+                id: q.id,
+                content: q.text, // Schema uses 'content', data uses 'text' often
+                status: q.status,
+                answer: q.answer,
+                ...q.metadata
+            }), 'text');
+
+
+            // ==================== PHASE 2: RELATIONSHIPS ====================
+            const relationships = [];
+
+            // 15: BELONGS_TO_PROJECT (All -> Project)
+            if (data.project) {
+                const projectId = data.project.id;
+                // Helper to link all items of a collection to project
+                const linkToProject = (items) => {
+                    if (!items) return;
+                    for (const item of items) {
+                        const rel = createRel(item.id, projectId, 'BELONGS_TO_PROJECT');
+                        if (rel) relationships.push(rel);
+                    }
+                };
+
+                linkToProject(data.sprints);
+                linkToProject(data.userStories);
+                linkToProject(data.actions);
+                linkToProject(data.documents);
+                linkToProject(data.teams);
+                linkToProject(data.people); // Maybe? People might belong to Org, not Project directly. But for Project View it helps.
+                linkToProject(data.risks);
+                linkToProject(data.decisions);
+                linkToProject(data.facts);
+                linkToProject(data.questions);
+            }
+
+            // 16: MEMBER_OF_TEAM (Person -> Team)
+            if (data.teams) {
+                for (const team of data.teams) {
+                    if (team.members && Array.isArray(team.members)) {
+                        for (const memberId of team.members) {
+                            const rel = createRel(memberId, team.id, 'MEMBER_OF_TEAM');
+                            if (rel) relationships.push(rel);
+                        }
+                    }
+                    if (team.leadId) {
+                        const rel = createRel(team.leadId, team.id, 'LEADS_TEAM');
+                        if (rel) relationships.push(rel);
+                    }
+                }
+            }
+
+            // 17-20: Work Layer
+            // ASSIGNED_TO (Task -> Person)
+            if (data.actions) {
+                for (const task of data.actions) {
+                    if (task.assigneeId) {
+                        const rel = createRel(task.id, task.assigneeId, 'ASSIGNED_TO');
+                        if (rel) relationships.push(rel);
+                    }
+                    // PLANNED_IN (Task -> Sprint)
+                    if (task.sprintId) {
+                        const rel = createRel(task.id, task.sprintId, 'PLANNED_IN');
+                        if (rel) relationships.push(rel);
+                    }
+                    // PARENT_OF (Task -> Task) - if subtasks supported
+                    if (task.parentId) {
+                        const rel = createRel(task.parentId, task.id, 'PARENT_OF'); // Parent -> Child
+                        if (rel) relationships.push(rel);
+                    }
+                    // IMPLEMENTS (Task -> UserStory)
+                    if (task.storyId) {
+                        const rel = createRel(task.id, task.storyId, 'IMPLEMENTS');
+                        if (rel) relationships.push(rel);
+                    }
+                }
+            }
+
+            // UserStory -> Sprint
+            if (data.userStories) {
+                for (const story of data.userStories) {
+                    if (story.sprintId) {
+                        const rel = createRel(story.id, story.sprintId, 'PLANNED_IN');
+                        if (rel) relationships.push(rel);
+                    }
+                }
+            }
+
+            // 21-23: Knowledge Layer
+            // EXTRACTED_FROM (Fact/Decision/Risk -> Document)
+            const linkExtraction = (items) => {
+                if (!items) return;
+                for (const item of items) {
+                    if (item.sourceDocId) {
+                        const rel = createRel(item.id, item.sourceDocId, 'EXTRACTED_FROM');
+                        if (rel) relationships.push(rel);
+                    }
+                }
+            };
+            linkExtraction(data.facts);
+            linkExtraction(data.decisions);
+            linkExtraction(data.risks);
+            linkExtraction(data.questions);
+
+            // MENTIONED_IN (Person -> Document) - if we have mentions data
+            // (Skipping for now unless data provided)
+
+            // 23. Text Entity Extraction (MENTIONS) - Relations #41-45
+            // Scans task/content text for Contact names
+            if (data.people) {
+                const contacts = data.people.filter(p => p.label === 'Contact' || p.role); // Filter to potential contacts
+
+                const scanAndLink = (items, textFields, ownerField, statedByField = null) => {
+                    if (!items) return;
+                    for (const item of items) {
+                        // V3: Check explicit FKs first (High Confidence)
+                        if (statedByField && item[statedByField]) {
+                            // Use 'MENTIONS' or explicit semantic type? 
+                            // facts.stated_by -> MENTIONS/ATTRIBUTED_TO? 
+                            // Let's stick to MENTIONS for now or a new type.
+                            // Actually, for Facts/Risks, it's usually "REPORTED_BY" or "STATED_BY".
+                            // But createRel handles generic types. 
+                            // If it's a Fact, stated_by_contact_id -> HAS_SOURCE / ATTRIBUTED_TO
+                            // Let's us MENTIONS with property { type: 'attribution' }
+                            const rel = createRel(item.id, item[statedByField], 'MENTIONS', { type: 'explicit_attribution' });
+                            if (rel) relationships.push(rel);
+                        }
+
+                        // Also scan text (Lower Confidence, but good for finding *other* people mentioned)
+                        const text = textFields.map(field => item[field]).join(' ');
+                        const exclude = [];
+                        if (item[ownerField]) exclude.push(item[ownerField]);
+                        if (statedByField && item[statedByField]) exclude.push(item[statedByField]);
+
+                        const mentions = extractMentionsFromText(text, contacts, item.id, exclude);
+                        relationships.push(...mentions);
+
+                        // V3: Email Lineage (DERIVED_FROM)
+                        if (item.source_email_id) {
+                            const rel = createRel(item.id, item.source_email_id, 'DERIVED_FROM');
+                            if (rel) relationships.push(rel);
+                        }
+                    }
+                };
+
+                scanAndLink(data.actions, ['title', 'description'], 'assigneeId');
+                scanAndLink(data.decisions, ['title', 'rationale'], 'ownerId'); // ownerId/madeById
+                scanAndLink(data.risks, ['title', 'mitigation'], 'ownerId', 'reported_by_contact_id');
+                scanAndLink(data.questions, ['text', 'answer'], 'assignedToId');
+                scanAndLink(data.facts, ['content'], 'source', 'stated_by_contact_id');
+            }
+
+            // 24-27: Communication Layer
+            if (data.emails) {
+                for (const email of data.emails) {
+                    if (email.fromPersonId) {
+                        const rel = createRel(email.id, email.fromPersonId, 'SENT_BY');
+                        if (rel) relationships.push(rel);
+                    }
+                    // SENT_TO, HAS_ATTACHMENT...
+                }
+            }
+
+            if (data.events) {
+                for (const event of data.events) {
+                    // LINKED_TO (CalendarEvent -> Document/Action)
+                    if (event.linkedDocId) {
+                        const rel = createRel(event.id, event.linkedDocId, 'LINKED_TO');
+                        if (rel) relationships.push(rel);
+                    }
+                    if (event.linkedActionId) {
+                        const rel = createRel(event.id, event.linkedActionId, 'LINKED_TO');
+                        if (rel) relationships.push(rel);
+                    }
+
+                    // INVOLVES (CalendarEvent -> Contact) - V3: Uses calendar_event_contacts
+                    if (event.calendar_event_contacts && Array.isArray(event.calendar_event_contacts)) {
+                        for (const contactLink of event.calendar_event_contacts) {
+                            const rel = createRel(event.id, contactLink.contact_id, 'INVOLVES', { role: contactLink.role });
+                            if (rel) relationships.push(rel);
+                        }
+                    } else if (event.linkedContactIds && Array.isArray(event.linkedContactIds)) {
+                        // Fallback to legacy array if join table empty
+                        for (const contactId of event.linkedContactIds) {
+                            const rel = createRel(event.id, contactId, 'INVOLVES');
+                            if (rel) relationships.push(rel);
+                        }
+                    } else if (event.attendees && Array.isArray(event.attendees)) {
+                        // Fallback to attendees
+                        for (const personId of event.attendees) {
+                            const rel = createRel(event.id, personId, 'INVOLVES');
+                            if (rel) relationships.push(rel);
+                        }
+                    }
+                }
+            }
+
+            // Sync collected relationships
+            if (relationships.length > 0) {
+                const result = await this.graphProvider.createRelationshipsBatch(relationships);
+                if (result.ok) {
+                    results.edges += result.created;
+                } else {
+                    results.errors.push(...(result.errors || []));
+                    log.warn({ event: 'graphrag_sync_edges_error', error: result.errors }, 'Failed to sync edges');
+                }
+            }
+
+            // ==================== PHASE 3: ENTITY LINKS (New V3) ====================
+            if (data.entityLinks && data.entityLinks.length > 0) {
+                const entityLinks = [];
+                for (const link of data.entityLinks) {
+                    // Map link_type to UpperSnakeCase edge type
+                    const edgeType = link.link_type.toUpperCase();
+                    // Map from/to types to node labels (simple usually, but let's be safe)
+                    // The graph provider's createRelationshipsBatch handles ID resolution if we provide IDs
+
+                    // We need to resolve the "Graph ID" for these entities.
+                    // Since we used deterministic IDs or original IDs in Phase 1, we can try to resolve them.
+                    const rel = createRel(link.from_entity_id, link.to_entity_id, edgeType, {
+                        source: link.source,
+                        confidence: link.confidence,
+                        metadata: link.metadata
+                    });
+
+                    if (rel) {
+                        entityLinks.push(rel);
+                    }
+                }
+
+                if (entityLinks.length > 0) {
+                    const linkResult = await this.graphProvider.createRelationshipsBatch(entityLinks);
+                    if (linkResult.ok) {
+                        results.edges += linkResult.created;
+                        log.info({ event: 'graphrag_sync_entity_links', count: linkResult.created }, 'Synced entity links');
+                    }
+                }
+            }
+
+            // 28: SIMILAR_TO (Semantic)
+            if (options.computeSimilarity) {
+                const simResult = await this.computeSimilarityEdges();
+                results.edges += simResult.created;
+                log.info({ event: 'graphrag_similarity_edges', created: simResult.created }, 'Computed similarity edges');
+            }
+
+            // Reconcile Stale Entries (Full Resync Only)
+            if (options.clear && this.graphProvider.pruneStale) {
+                // Since this was a full "clear" start, we don't strictly *need* pruneStale 
+                // because we wiped the graph.
+                // But if options.clear was FALSE, we might want to prune.
+                // However, the GraphProvider.clear() was called at start.
+                // So everything is fresh.
+                // If we implemented incremental sync, pruneStale would be used here.
+            } else if (!options.clear && this.graphProvider.pruneStale) {
+                // Incremental Sync: Prune anything not touched in this sync?
+                // That requires tracking what WAS touched.
+                // For now, let's skip complex reconciliation in this MVP step.
+            }
+
+        } catch (error) {
+            log.error({ event: 'graphrag_sync_error', error: error.message, stack: error.stack }, 'Sync failed');
+            results.errors.push(error.message);
+
+            // Update status to failed
+            if (this.graphProvider && typeof this.graphProvider.updateSyncStatus === 'function') {
+                await this.graphProvider.updateSyncStatus({
+                    sync_status: 'failed',
+                    health_status: 'error',
+                    error: error.message
+                });
+            }
+        }
+
+        const duration = Date.now() - startTime;
+        log.info({ event: 'graphrag_sync_complete', duration, results }, 'Graph sync completed');
+
+        // Update status to idle (completed) with fresh stats
+        if (this.graphProvider && typeof this.graphProvider.getStats === 'function' && typeof this.graphProvider.updateSyncStatus === 'function') {
+            log.info('Fetching graph stats for final status update...');
+            const stats = await this.graphProvider.getStats();
+            log.info({ event: 'graphrag_sync_stats', stats }, 'Graph stats fetched');
+
+            const updateResult = await this.graphProvider.updateSyncStatus({
+                sync_status: 'idle',
+                node_count: stats.ok ? stats.nodeCount : results.nodes,
+                edge_count: stats.ok ? stats.edgeCount : results.edges,
+                last_synced_at: new Date().toISOString(),
+                health_status: 'healthy',
+                error: null
+            });
+            log.info({ event: 'graphrag_sync_status_update', result: updateResult }, 'Status update result');
+            if (!updateResult.ok) {
+                console.error('FAILED TO UPDATE SYNC STATUS:', updateResult.error);
+            }
+        }
+
+        return results;
+    }
+
+    /**
+     * Compute semantic similarity edges between nodes
+     * @param {number} threshold - Similarity threshold (0.0 - 1.0)
+     * @returns {Promise<{created: number}>}
+     */
+    async computeSimilarityEdges(threshold = 0.8) {
+        if (!this.graphProvider || !this.graphProvider.supabase) {
+            log.warn('GraphProvider or Supabase client not available for similarity computation');
+            return { created: 0 };
+        }
+
+        let createdCount = 0;
+
+        // Define mapping for similarity tables
+        const mappings = [
+            { label: 'Fact', table: 'fact_similarities', fromCol: 'fact_id', toCol: 'similar_fact_id' },
+            { label: 'Decision', table: 'decision_similarities', fromCol: 'decision_id', toCol: 'similar_decision_id' },
+            { label: 'Question', table: 'question_similarities', fromCol: 'question_id', toCol: 'similar_question_id' }
+        ];
+
+        for (const map of mappings) {
+            try {
+                // Query similarity table directly
+                const { data: similarities, error } = await this.graphProvider.supabase
+                    .from(map.table)
+                    .select('*')
+                    .gte('similarity_score', threshold);
+
+                if (error) {
+                    log.error({ event: 'graphrag_similarity_error', table: map.table, error }, 'Failed to fetch similarities');
+                    continue;
+                }
+
+                if (!similarities || similarities.length === 0) continue;
+
+                // Prepare relationships batch
+                const relationships = similarities.map(s => ({
+                    fromId: s[map.fromCol],
+                    toId: s[map.toCol],
+                    type: 'SIMILAR_TO',
+                    properties: {
+                        score: s.similarity_score,
+                        source_table: map.table
+                    }
+                }));
+
+                // Batch create
+                const result = await this.graphProvider.createRelationshipsBatch(relationships);
+                if (result.ok) {
+                    createdCount += result.created;
+                }
+
+            } catch (err) {
+                log.error({ event: 'graphrag_similarity_exception', table: map.table, error: err.message }, 'Exception computing similarities');
+            }
+        }
+
+        return { created: createdCount };
     }
 
     /**
@@ -79,7 +703,7 @@ class GraphRAGEngine {
      */
     async query(userQuery, options = {}) {
         const startTime = Date.now();
-        
+
         // Check cache first (unless disabled)
         if (this.enableCache && !options.noCache) {
             const cached = this.queryCache.getQuery(userQuery);
@@ -91,19 +715,19 @@ class GraphRAGEngine {
                 };
             }
         }
-        
+
         // 1. Classify query type with ontology analysis
         const queryAnalysis = this.classifyQuery(userQuery);
         const queryType = queryAnalysis.type;
         log.debug({ event: 'graphrag_query_type', queryType, entityHints: queryAnalysis.entityHints.length, relationHints: queryAnalysis.relationHints.length }, 'Query type');
-        
+
         // 2. Execute appropriate search strategy
         let results = [];
         let aiGeneratedCypher = null;
-        
+
         // Check if graph provider is available and connected
         const graphAvailable = this.graphProvider && this.graphProvider.connected;
-        
+
         if (graphAvailable) {
             // ============ AI-POWERED CYPHER GENERATION ============
             // Try AI-generated Cypher query first (most intelligent approach)
@@ -115,16 +739,16 @@ class GraphRAGEngine {
                         llmConfig: this.llmConfig,
                         ontology: this.ontology
                     });
-                    
+
                     const generated = await cypherGen.generate(userQuery, {
                         provider: this.llmProvider,
                         model: this.llmModel
                     });
-                    
+
                     if (generated.cypher && generated.confidence >= 0.3) {
                         aiGeneratedCypher = generated;
                         log.debug({ event: 'graphrag_cypher_generated', confidence: generated.confidence, cypherPreview: generated.cypher.substring(0, 100) }, 'AI generated Cypher');
-                        
+
                         const cypherResult = await this.graphProvider.query(generated.cypher);
                         if (cypherResult.ok && cypherResult.results?.length > 0) {
                             results = cypherResult.results.map(r => ({
@@ -141,7 +765,7 @@ class GraphRAGEngine {
                     log.warn({ event: 'graphrag_cypher_failed', reason: error.message }, 'AI Cypher generation failed');
                 }
             }
-            
+
             // ============ ONTOLOGY PATTERN MATCHING ============
             // If AI generation didn't work, try ontology pattern matching
             if (results.length === 0 && queryAnalysis.matchedPattern?.cypher) {
@@ -162,7 +786,7 @@ class GraphRAGEngine {
         } else {
             log.debug({ event: 'graphrag_fallback_search' }, 'Graph provider not available, using fallback search');
         }
-        
+
         // ============ FALLBACK SEARCH ============
         // If graph queries didn't work or graph not available, use hybrid search
         if (results.length === 0) {
@@ -179,15 +803,15 @@ class GraphRAGEngine {
                     break;
             }
         }
-        
+
         log.debug({ event: 'graphrag_found_items', count: results.length }, 'Found relevant items');
-        
+
         // 3. Generate response using LLM
         const response = await this.generateResponse(userQuery, results, options);
-        
+
         const latencyMs = Date.now() - startTime;
         log.debug({ event: 'graphrag_latency', latencyMs }, 'Total latency');
-        
+
         const result = {
             answer: response.answer,
             sources: response.sources,
@@ -207,15 +831,15 @@ class GraphRAGEngine {
             graphAvailable,
             latencyMs
         };
-        
+
         // Cache the result
         if (this.enableCache && result.sources.length > 0) {
             this.queryCache.setQuery(userQuery, result, { ttl: this.cacheTTL });
         }
-        
+
         return result;
     }
-    
+
     /**
      * Format a graph result for display
      * @param {object} result - Raw graph result
@@ -223,7 +847,7 @@ class GraphRAGEngine {
      */
     formatGraphResult(result) {
         if (!result) return '';
-        
+
         // Handle node results
         if (result.properties) {
             const props = result.properties;
@@ -234,12 +858,12 @@ class GraphRAGEngine {
             if (props.status) extra.push(props.status);
             return extra.length > 0 ? `${name} (${extra.join(', ')})` : name;
         }
-        
+
         // Handle array of nodes
         if (Array.isArray(result)) {
             return result.map(r => this.formatGraphResult(r)).join(', ');
         }
-        
+
         return JSON.stringify(result);
     }
 
@@ -250,7 +874,7 @@ class GraphRAGEngine {
      */
     inferNodeType(result) {
         if (!result) return 'Entity';
-        
+
         // Check for direct labels property
         if (result.labels && result.labels.length > 0) {
             return result.labels[0];
@@ -258,7 +882,7 @@ class GraphRAGEngine {
         if (result._labels && result._labels.length > 0) {
             return result._labels[0];
         }
-        
+
         // Check nested node objects
         for (const key of Object.keys(result)) {
             const val = result[key];
@@ -267,7 +891,7 @@ class GraphRAGEngine {
                 if (val._labels?.length > 0) return val._labels[0];
             }
         }
-        
+
         // Try to infer from properties
         if (result.properties || result._properties) {
             const props = result.properties || result._properties;
@@ -276,7 +900,7 @@ class GraphRAGEngine {
             if (props.content && props.type) return 'Document';
             if (props.status && props.priority) return 'Task';
         }
-        
+
         return 'Entity';
     }
 
@@ -294,7 +918,7 @@ class GraphRAGEngine {
             relationHints: [],
             matchedPattern: null
         };
-        
+
         // Try ontology pattern matching first
         if (this.useOntology) {
             const patternMatch = this.ontology.matchQueryPattern(query);
@@ -303,13 +927,13 @@ class GraphRAGEngine {
                 result.type = 'structural'; // Ontology patterns are typically structural
                 log.debug({ event: 'graphrag_pattern_matched', patternName: patternMatch.patternName }, 'Matched ontology pattern');
             }
-            
+
             // Get entity and relation hints from ontology
             const hints = this.ontology.extractEntityHints(query);
             result.entityHints = hints.entityHints || [];
             result.relationHints = hints.relationHints || [];
         }
-        
+
         // If no ontology pattern matched, use rule-based classification
         if (!result.matchedPattern) {
             // Structural patterns - relationship/graph queries
@@ -326,7 +950,7 @@ class GraphRAGEngine {
                 /lista|listar|list|show all/i,
                 /pessoas|people|members|team/i
             ];
-            
+
             // Semantic patterns - meaning/content queries
             const semanticPatterns = [
                 /o que (sabemos|é|significa|quer dizer)/i,
@@ -337,7 +961,7 @@ class GraphRAGEngine {
                 /porque|por que|why/i,
                 /informação sobre|about|regarding/i
             ];
-            
+
             // Check structural patterns
             for (const pattern of structuralPatterns) {
                 if (pattern.test(q)) {
@@ -345,7 +969,7 @@ class GraphRAGEngine {
                     break;
                 }
             }
-            
+
             // Check semantic patterns (only if not already structural)
             if (result.type !== 'structural') {
                 for (const pattern of semanticPatterns) {
@@ -356,7 +980,7 @@ class GraphRAGEngine {
                 }
             }
         }
-        
+
         return result;
     }
 
@@ -369,13 +993,13 @@ class GraphRAGEngine {
     async structuralSearch(query, queryAnalysis = {}) {
         const results = [];
         const q = query.toLowerCase();
-        
+
         // Extract entities from query (enhanced with ontology hints)
         const entities = this.extractEntities(query, queryAnalysis);
-        
+
         // Detect "list all" type queries
         const isListQuery = /quem (são|sao|é|e)|who (are|is)|list|listar|mostrar|show|todas as|all the|pessoas|people|members|team/i.test(q);
-        
+
         // Determine which entity types to search based on query
         let targetTypes = [];
         if (/pessoas|people|quem|who|team|members|equipa/i.test(q)) targetTypes.push('Person');
@@ -386,12 +1010,12 @@ class GraphRAGEngine {
         if (/tarefas?|tasks?|todos?/i.test(q)) targetTypes.push('Task');
         if (/tecnologias?|tech|technologies?/i.test(q)) targetTypes.push('Technology');
         if (/clientes?|clients?/i.test(q)) targetTypes.push('Client');
-        
+
         // If no specific type detected but it's a list query, default to Person
         if (targetTypes.length === 0 && isListQuery) {
             targetTypes.push('Person');
         }
-        
+
         // Add entity hints from ontology
         if (queryAnalysis.entityHints?.length > 0) {
             for (const hint of queryAnalysis.entityHints) {
@@ -400,10 +1024,10 @@ class GraphRAGEngine {
                 }
             }
         }
-        
+
         // Check if this is a cross-project query
         const isCrossProjectQuery = /across projects|multiple projects|all projects|cross.?project|em todos os projetos|varios projetos/i.test(q);
-        
+
         // Search for target types in graph - PARALLEL for better performance
         if (this.graphProvider && this.graphProvider.connected && targetTypes.length > 0) {
             // Run all type searches in parallel
@@ -428,7 +1052,7 @@ class GraphRAGEngine {
             });
 
             const searchResults = await Promise.all(searchPromises);
-            
+
             // Process results and deduplicate
             const seen = new Set();
             for (const result of searchResults) {
@@ -437,7 +1061,7 @@ class GraphRAGEngine {
                     const key = node.properties.name || node.properties.title || node.id;
                     if (seen.has(key)) continue;
                     seen.add(key);
-                    
+
                     // For cross-project results, include project info
                     const nodeData = {
                         type: result.type.toLowerCase(),
@@ -445,28 +1069,28 @@ class GraphRAGEngine {
                         data: node.properties,
                         source: result.crossProject ? 'graph_cross_project' : 'graph_type_search'
                     };
-                    
+
                     // Add project context for shared entities
                     if (node.properties?.projects?.length > 0) {
                         nodeData.projects = node.properties.projects;
                     }
-                    
+
                     results.push(nodeData);
                 }
             }
         }
-        
+
         if (this.graphProvider && this.graphProvider.connected) {
             // Use graph database for structural queries
             for (const entity of entities) {
                 // Find person nodes
                 const personResult = await this.graphProvider.findNodes('Person', {}, { limit: 100 });
-                
+
                 if (personResult.ok) {
-                    const matchingPerson = personResult.nodes.find(n => 
+                    const matchingPerson = personResult.nodes.find(n =>
                         n.properties.name?.toLowerCase().includes(entity.toLowerCase())
                     );
-                    
+
                     if (matchingPerson) {
                         results.push({
                             type: 'person',
@@ -474,14 +1098,14 @@ class GraphRAGEngine {
                             data: matchingPerson.properties,
                             source: 'graph'
                         });
-                        
+
                         // Traverse relationships
                         const pathResult = await this.graphProvider.traversePath(
                             matchingPerson.id,
                             ['REPORTS_TO', 'MANAGES', 'LEADS', 'MEMBER_OF'],
                             2
                         );
-                        
+
                         if (pathResult.ok && pathResult.paths.length > 0) {
                             results.push({
                                 type: 'relationship',
@@ -494,17 +1118,17 @@ class GraphRAGEngine {
                 }
             }
         }
-        
+
         // Fall back to storage if graph not available or no results
         if (results.length === 0 && this.storage) {
             const people = this.storage.getPeople();
             const relationships = this.storage.getRelationships();
-            
+
             for (const entity of entities) {
-                const matchingPeople = people.filter(p => 
+                const matchingPeople = people.filter(p =>
                     p.name?.toLowerCase().includes(entity.toLowerCase())
                 );
-                
+
                 for (const person of matchingPeople) {
                     results.push({
                         type: 'person',
@@ -512,12 +1136,12 @@ class GraphRAGEngine {
                         data: person,
                         source: 'storage'
                     });
-                    
-                    const relatedRels = relationships.filter(r => 
+
+                    const relatedRels = relationships.filter(r =>
                         r.from?.toLowerCase() === person.name?.toLowerCase() ||
                         r.to?.toLowerCase() === person.name?.toLowerCase()
                     );
-                    
+
                     for (const rel of relatedRels) {
                         results.push({
                             type: 'relationship',
@@ -529,7 +1153,7 @@ class GraphRAGEngine {
                 }
             }
         }
-        
+
         return results;
     }
 
@@ -541,27 +1165,27 @@ class GraphRAGEngine {
      */
     async semanticSearch(query, queryAnalysis = {}) {
         const results = [];
-        
+
         // Enrich query with ontology context for better matching
         let enrichedQuery = query;
         if (this.useOntology && this.embeddingEnricher) {
             enrichedQuery = this.embeddingEnricher.enrichQuery(query, queryAnalysis);
             log.debug({ event: 'graphrag_enriched_query' }, 'Enriched query for semantic search');
         }
-        
+
         if (!this.storage) {
             return results;
         }
-        
+
         // Check if storage supports Supabase vector search
         const embeddingsData = this.storage.loadEmbeddings();
         const isSupabaseMode = embeddingsData?.isSupabaseMode === true;
-        
+
         if (isSupabaseMode && this.storage.searchWithEmbedding) {
             // ==================== SUPABASE VECTOR SEARCH ====================
             // Use Supabase match_embeddings RPC for vector search
             log.debug({ event: 'graphrag_supabase_vector' }, 'Using Supabase vector search');
-            
+
             try {
                 // Generate query embedding
                 const embResult = await llm.embed({
@@ -570,17 +1194,17 @@ class GraphRAGEngine {
                     texts: [enrichedQuery],
                     providerConfig: this.getProviderConfig(this.embeddingProvider)
                 });
-                
+
                 if (embResult.success && embResult.embeddings?.[0]) {
                     const queryEmbedding = embResult.embeddings[0];
-                    
+
                     // Use Supabase hybrid search
                     const supabaseResults = await this.storage.searchWithEmbedding(
-                        query, 
-                        queryEmbedding, 
+                        query,
+                        queryEmbedding,
                         { limit: 15, threshold: 0.5, useHybrid: true }
                     );
-                    
+
                     for (const item of supabaseResults) {
                         results.push({
                             type: item.type,
@@ -590,7 +1214,7 @@ class GraphRAGEngine {
                             source: 'supabase_vector'
                         });
                     }
-                    
+
                     log.debug({ event: 'graphrag_vector_results', count: results.length }, 'Supabase vector search returned results');
                 }
             } catch (e) {
@@ -605,7 +1229,7 @@ class GraphRAGEngine {
                 texts: [enrichedQuery],
                 providerConfig: this.getProviderConfig(this.embeddingProvider)
             });
-            
+
             if (embResult.success && embResult.embeddings?.[0]) {
                 const queryEmbedding = embResult.embeddings[0];
                 const { cosineSimilarity } = require('../utils/vectorSimilarity');
@@ -618,7 +1242,7 @@ class GraphRAGEngine {
                     }))
                     .sort((a, b) => b.similarity - a.similarity)
                     .slice(0, 10);
-                
+
                 for (const item of scored) {
                     results.push({
                         type: item.type,
@@ -630,11 +1254,11 @@ class GraphRAGEngine {
                 }
             }
         }
-        
+
         // Fall back to keyword search if embeddings not available or insufficient
         if (results.length < 5) {
             const searchResults = this.storage.search(query, { limit: 10 });
-            
+
             for (const fact of searchResults.facts || []) {
                 results.push({
                     type: 'fact',
@@ -643,7 +1267,7 @@ class GraphRAGEngine {
                     source: 'keyword'
                 });
             }
-            
+
             for (const decision of searchResults.decisions || []) {
                 results.push({
                     type: 'decision',
@@ -652,7 +1276,7 @@ class GraphRAGEngine {
                     source: 'keyword'
                 });
             }
-            
+
             for (const question of searchResults.questions || []) {
                 results.push({
                     type: 'question',
@@ -662,7 +1286,7 @@ class GraphRAGEngine {
                 });
             }
         }
-        
+
         return results;
     }
 
@@ -678,11 +1302,11 @@ class GraphRAGEngine {
             this.structuralSearch(query, queryAnalysis),
             this.semanticSearch(query, queryAnalysis)
         ]);
-        
+
         // Merge and deduplicate results
         const merged = [];
         const seen = new Set();
-        
+
         // Prioritize structural results
         for (const result of structuralResults) {
             const key = `${result.type}:${result.content?.substring(0, 50)}`;
@@ -691,7 +1315,7 @@ class GraphRAGEngine {
                 merged.push({ ...result, searchType: 'structural' });
             }
         }
-        
+
         // Add semantic results
         for (const result of semanticResults) {
             const key = `${result.type}:${result.content?.substring(0, 50)}`;
@@ -700,7 +1324,7 @@ class GraphRAGEngine {
                 merged.push({ ...result, searchType: 'semantic' });
             }
         }
-        
+
         // Sort by relevance (similarity if available, otherwise structural first)
         merged.sort((a, b) => {
             if (a.similarity && b.similarity) {
@@ -711,7 +1335,7 @@ class GraphRAGEngine {
             }
             return 0;
         });
-        
+
         return merged.slice(0, 15);
     }
 
@@ -729,7 +1353,7 @@ class GraphRAGEngine {
                 sources: []
             };
         }
-        
+
         // Group results by type for better context organization
         const groupedResults = {};
         for (const r of results) {
@@ -737,20 +1361,20 @@ class GraphRAGEngine {
             if (!groupedResults[type]) groupedResults[type] = [];
             groupedResults[type].push(r);
         }
-        
+
         // Build structured context
         const contextParts = [];
         let sourceIndex = 1;
         const sourceMap = new Map();
-        
+
         for (const [type, items] of Object.entries(groupedResults)) {
             const typeLabel = this.getTypeLabel(type);
             contextParts.push(`\n### ${typeLabel}:`);
-            
+
             for (const item of items) {
                 const tag = `[${sourceIndex}]`;
                 sourceMap.set(sourceIndex, item);
-                
+
                 // Format content based on type
                 let content = item.content;
                 if (item.data) {
@@ -758,19 +1382,19 @@ class GraphRAGEngine {
                         content = `${item.data.name} - ${item.data.role || 'sem cargo'} (${item.data.organization})`;
                     }
                 }
-                
+
                 contextParts.push(`${tag} ${content}`);
                 sourceIndex++;
             }
         }
-        
+
         const context = contextParts.join('\n');
-        
+
         // Detect query language
         const isPortuguese = /[áàâãéèêíïóôõöúçñ]|quem|qual|como|onde|quando|porque/i.test(query);
-        
+
         // Generate response using LLM with improved prompt
-        const systemPrompt = isPortuguese 
+        const systemPrompt = isPortuguese
             ? `Você é um assistente inteligente que responde a perguntas baseado em informação de uma base de conhecimento.
 
 REGRAS:
@@ -811,7 +1435,7 @@ ${isPortuguese ? 'Responda de forma completa e estruturada:' : 'Answer completel
             maxTokens: 1500, // More tokens for complete answers
             providerConfig: this.getProviderConfig(this.llmProvider)
         });
-        
+
         if (!llmResult.success) {
             log.warn({ event: 'graphrag_llm_error', reason: llmResult.error }, 'LLM error');
             return {
@@ -819,7 +1443,7 @@ ${isPortuguese ? 'Responda de forma completa e estruturada:' : 'Answer completel
                 sources: []
             };
         }
-        
+
         // Build sources list
         const sources = results.map((r, i) => ({
             index: i + 1,
@@ -828,13 +1452,13 @@ ${isPortuguese ? 'Responda de forma completa e estruturada:' : 'Answer completel
             source: r.source,
             data: r.data
         }));
-        
+
         return {
             answer: llmResult.text,
             sources
         };
     }
-    
+
     /**
      * Get human-readable label for entity type
      * @param {string} type 
@@ -865,14 +1489,14 @@ ${isPortuguese ? 'Responda de forma completa e estruturada:' : 'Answer completel
      */
     extractEntities(query, queryAnalysis = {}) {
         const entities = [];
-        
+
         // Use ontology-based extraction if available
         if (this.useOntology && this.relationInference) {
             try {
                 const extracted = this.relationInference.extractWithHeuristics(query, {
                     existingEntities: this.getKnownEntities()
                 });
-                
+
                 for (const entity of extracted.entities) {
                     const name = entity.name || entity.title || entity.code;
                     if (name && name.length > 2) {
@@ -883,13 +1507,13 @@ ${isPortuguese ? 'Responda de forma completa e estruturada:' : 'Answer completel
                 log.warn({ event: 'graphrag_ontology_extraction_failed', reason: error.message }, 'Ontology extraction failed');
             }
         }
-        
+
         // Fallback: Simple regex patterns for names
         const patterns = [
             /(?:do|da|de|pelo|pela|the|of)\s+([A-Z][a-záàâãéèêíïóôõöúçñ]+(?:\s+[A-Z][a-záàâãéèêíïóôõöúçñ]+)*)/g,
             /([A-Z][a-záàâãéèêíïóôõöúçñ]+(?:\s+[A-Z][a-záàâãéèêíïóôõöúçñ]+)+)/g
         ];
-        
+
         for (const pattern of patterns) {
             let match;
             while ((match = pattern.exec(query)) !== null) {
@@ -898,35 +1522,35 @@ ${isPortuguese ? 'Responda de forma completa e estruturada:' : 'Answer completel
                 }
             }
         }
-        
+
         // Remove duplicates
         return [...new Set(entities)];
     }
-    
+
     /**
      * Get known entities from storage for matching
      * @returns {Array}
      */
     getKnownEntities() {
         if (!this.storage) return [];
-        
+
         const entities = [];
-        
+
         // Add people
         for (const person of this.storage.knowledge?.people || []) {
             entities.push({ _type: 'Person', ...person });
         }
-        
+
         // Add projects if available
         for (const project of this.storage.knowledge?.projects || []) {
             entities.push({ _type: 'Project', ...project });
         }
-        
+
         // Add technologies if available
         for (const tech of this.storage.knowledge?.technologies || []) {
             entities.push({ _type: 'Technology', ...tech });
         }
-        
+
         return entities;
     }
 
@@ -939,407 +1563,8 @@ ${isPortuguese ? 'Responda de forma completa e estruturada:' : 'Answer completel
         return this.llmConfig?.providers?.[providerId] || {};
     }
 
-    /**
-     * Sync data from storage to graph database
-     * Uses ontology for validation and relationship inference
-     * Supports incremental sync (only changed entities)
-     * @param {object} options - Sync options
-     * @param {boolean} options.incremental - Only sync changed entities (default: true)
-     * @param {boolean} options.createIndexes - Create indexes after sync (default: false)
-     * @returns {Promise<{ok: boolean, synced: object, errors: Array}>}
-     */
-    async syncToGraph(options = {}) {
-        if (!this.graphProvider || !this.storage) {
-            return { ok: false, errors: ['Graph provider or storage not configured'] };
-        }
-        
-        const incremental = options.incremental !== false;
-        const createIndexes = options.createIndexes === true;
-        const syncTracker = incremental ? getSyncTracker({ dataDir: this.storage.dataDir }) : null;
-        
-        const synced = { nodes: 0, relationships: 0, inferred: 0, skipped: 0 };
-        const errors = [];
-        
-        log.debug({ event: 'graphrag_sync_start', incremental }, 'Starting sync to graph database');
-        
-        // Check if provider supports batch operations
-        const supportsBatch = typeof this.graphProvider.createNodesBatch === 'function';
-        
-        if (supportsBatch) {
-            // ===== OPTIMIZED BATCH SYNC =====
-            log.debug({ event: 'graphrag_batch_sync' }, 'Using batch operations for faster sync');
-            
-            // Prepare all nodes by type
-            const nodesByType = {
-                Fact: [],
-                Person: [],
-                Decision: [],
-                Risk: [],
-                Task: [],
-                Question: []
-            };
-            
-            // Collect Facts
-            for (const fact of this.storage.knowledge.facts || []) {
-                if (syncTracker && !syncTracker.needsSync('fact', fact)) {
-                    synced.skipped++;
-                    continue;
-                }
-                nodesByType.Fact.push({
-                    id: `fact_${fact.id}`,
-                    content: fact.content,
-                    category: fact.category,
-                    confidence: fact.confidence || 0.8,
-                    source: fact.source_file
-                });
-                if (syncTracker) syncTracker.markSynced('fact', fact);
-            }
-            
-            // Collect People
-            for (const person of this.storage.knowledge.people || []) {
-                if (syncTracker && !syncTracker.needsSync('person', person)) {
-                    synced.skipped++;
-                    continue;
-                }
-                nodesByType.Person.push({
-                    id: `person_${person.id}`,
-                    name: person.name,
-                    role: person.role,
-                    organization: person.organization,
-                    email: person.email,
-                    avatar_url: person.avatar_url || person.avatarUrl || person.photo_url || person.photoUrl,
-                    phone: person.phone,
-                    department: person.department
-                });
-                if (syncTracker) syncTracker.markSynced('person', person);
-            }
-            
-            // Collect Decisions
-            for (const decision of this.storage.knowledge.decisions || []) {
-                nodesByType.Decision.push({
-                    id: `decision_${decision.id}`,
-                    title: decision.content?.substring(0, 100) || 'Decision',
-                    description: decision.content,
-                    date: decision.decision_date,
-                    status: 'approved'
-                });
-            }
-            
-            // Collect Risks
-            for (const risk of this.storage.knowledge.risks || []) {
-                nodesByType.Risk.push({
-                    id: `risk_${risk.id}`,
-                    title: risk.content?.substring(0, 100) || 'Risk',
-                    description: risk.content,
-                    severity: risk.impact || 'medium',
-                    probability: risk.likelihood || 'medium',
-                    status: risk.status || 'identified'
-                });
-            }
-            
-            // Collect Tasks
-            for (const task of this.storage.knowledge.tasks || []) {
-                nodesByType.Task.push({
-                    id: `task_${task.id}`,
-                    title: task.content?.substring(0, 100) || task.title || 'Task',
-                    description: task.content,
-                    status: task.status || 'todo',
-                    priority: task.priority || 'medium',
-                    dueDate: task.due_date
-                });
-            }
-            
-            // Collect Questions
-            const questions = this.storage.questions?.items || this.storage.getQuestions?.() || [];
-            for (const question of questions) {
-                nodesByType.Question.push({
-                    id: `question_${question.id}`,
-                    content: question.content,
-                    context: question.context || '',
-                    priority: question.priority || 'medium',
-                    status: question.status || 'pending',
-                    answer: question.answer || '',
-                    answer_source: question.answer_source || '',
-                    assigned_to: question.assigned_to || '',
-                    source_file: question.source_file || '',
-                    created_at: question.created_at || new Date().toISOString(),
-                    resolved_at: question.resolved_at || ''
-                });
-            }
-            
-            // Batch create all nodes in parallel
-            const batchPromises = Object.entries(nodesByType)
-                .filter(([_, nodes]) => nodes.length > 0)
-                .map(async ([type, nodes]) => {
-                    const result = await this.graphProvider.createNodesBatch(type, nodes);
-                    return { type, ...result };
-                });
-            
-            const batchResults = await Promise.all(batchPromises);
-            
-            for (const result of batchResults) {
-                synced.nodes += result.created || 0;
-                if (result.errors?.length > 0) {
-                    errors.push(...result.errors.map(e => ({ type: result.type, ...e })));
-                }
-            }
-            
-        } else {
-            // ===== FALLBACK: Individual sync (slower) =====
-            // Sync Facts
-            for (const fact of this.storage.knowledge.facts || []) {
-                if (syncTracker && !syncTracker.needsSync('fact', fact)) {
-                    synced.skipped++;
-                    continue;
-                }
-                const nodeData = {
-                    id: `fact_${fact.id}`,
-                    content: fact.content,
-                    category: fact.category,
-                    confidence: fact.confidence || 0.8,
-                    source: fact.source_file,
-                    created_at: new Date().toISOString()
-                };
-                const result = await this.graphProvider.createNode('Fact', nodeData);
-                if (result.ok) {
-                    synced.nodes++;
-                    if (syncTracker) syncTracker.markSynced('fact', fact);
-                }
-                else errors.push({ type: 'fact', id: fact.id, error: result.error });
-            }
-            
-            // Sync People
-            for (const person of this.storage.knowledge.people || []) {
-                if (syncTracker && !syncTracker.needsSync('person', person)) {
-                    synced.skipped++;
-                    continue;
-                }
-                const nodeData = {
-                    id: `person_${person.id}`,
-                    name: person.name,
-                    role: person.role,
-                    organization: person.organization,
-                    email: person.email,
-                    skills: person.skills || [],
-                    created_at: new Date().toISOString()
-                };
-                const result = await this.graphProvider.createNode('Person', nodeData);
-                if (result.ok) {
-                    synced.nodes++;
-                    if (syncTracker) syncTracker.markSynced('person', person);
-                }
-                else errors.push({ type: 'person', id: person.id, error: result.error });
-            }
-            
-            // Sync Decisions
-            for (const decision of this.storage.knowledge.decisions || []) {
-                const nodeData = {
-                    id: `decision_${decision.id}`,
-                    title: decision.content?.substring(0, 100) || 'Decision',
-                    description: decision.content,
-                    date: decision.decision_date,
-                    status: 'approved',
-                    created_at: new Date().toISOString()
-                };
-                const result = await this.graphProvider.createNode('Decision', nodeData);
-                if (result.ok) synced.nodes++;
-                else errors.push({ type: 'decision', id: decision.id, error: result.error });
-            }
-            
-            // Sync Risks
-            for (const risk of this.storage.knowledge.risks || []) {
-                const nodeData = {
-                    id: `risk_${risk.id}`,
-                    title: risk.content?.substring(0, 100) || 'Risk',
-                    description: risk.content,
-                    severity: risk.impact || 'medium',
-                    probability: risk.likelihood || 'medium',
-                    status: risk.status || 'identified',
-                    created_at: new Date().toISOString()
-                };
-                const result = await this.graphProvider.createNode('Risk', nodeData);
-                if (result.ok) synced.nodes++;
-                else errors.push({ type: 'risk', id: risk.id, error: result.error });
-            }
-        }
-        
-        // Sync Tasks (outside batch for now due to questions merge)
-        for (const task of this.storage.knowledge.tasks || []) {
-            const nodeData = {
-                id: `task_${task.id}`,
-                title: task.content?.substring(0, 100) || task.title || 'Task',
-                description: task.content,
-                status: task.status || 'todo',
-                priority: task.priority || 'medium',
-                dueDate: task.due_date,
-                created_at: new Date().toISOString()
-            };
-            
-            const result = await this.graphProvider.createNode('Task', nodeData);
-            if (result.ok) synced.nodes++;
-            else errors.push({ type: 'task', id: task.id, error: result.error });
-        }
-        
-        // Sync Questions as Tasks
-        for (const question of this.storage.questions?.items || []) {
-            const nodeData = {
-                id: `question_${question.id}`,
-                title: question.content?.substring(0, 100) || 'Question',
-                description: question.content,
-                status: question.status || 'todo',
-                priority: question.priority || 'medium',
-                created_at: new Date().toISOString()
-            };
-            
-            const result = await this.graphProvider.createNode('Task', nodeData);
-            if (result.ok) synced.nodes++;
-            else errors.push({ type: 'question', id: question.id, error: result.error });
-        }
-        
-        // Sync Relationships with ontology validation
-        for (const rel of this.storage.knowledge.relationships || []) {
-            const fromPerson = (this.storage.knowledge.people || []).find(
-                p => p.name?.toLowerCase() === rel.from?.toLowerCase()
-            );
-            const toPerson = (this.storage.knowledge.people || []).find(
-                p => p.name?.toLowerCase() === rel.to?.toLowerCase()
-            );
-            
-            if (fromPerson && toPerson) {
-                // Map relationship type to ontology type
-                const relType = this.mapRelationType(rel.type);
-                
-                // Validate relationship if ontology enabled
-                if (this.useOntology) {
-                    const validation = this.ontology.validateRelation(relType, 'Person', 'Person', {});
-                    if (!validation.valid) {
-                        log.debug({ event: 'graphrag_validation_warnings', relType, errors: validation.errors }, 'Relationship validation warnings');
-                    }
-                }
-                
-                const result = await this.graphProvider.createRelationship(
-                    `person_${fromPerson.id}`,
-                    `person_${toPerson.id}`,
-                    relType,
-                    { context: rel.context, strength: 0.7 }
-                );
-                if (result.ok) synced.relationships++;
-                else errors.push({ type: 'relationship', from: rel.from, to: rel.to, error: result.error });
-            }
-        }
-        
-        // Auto-create relationships based on data patterns
-        log.debug({ event: 'graphrag_creating_relationships' }, 'Creating relationships from data patterns');
-        
-        // 1. People in same organization -> WORKS_WITH
-        const people = this.storage.knowledge.people || [];
-        const orgGroups = {};
-        for (const person of people) {
-            const org = person.organization;
-            if (org) {
-                if (!orgGroups[org]) orgGroups[org] = [];
-                orgGroups[org].push(person);
-            }
-        }
-        
-        for (const [org, members] of Object.entries(orgGroups)) {
-            if (members.length > 1) {
-                // Connect first person to others (avoid n^2 connections)
-                const first = members[0];
-                for (let i = 1; i < Math.min(members.length, 10); i++) {
-                    const other = members[i];
-                    const result = await this.graphProvider.createRelationship(
-                        `person_${first.id}`,
-                        `person_${other.id}`,
-                        'WORKS_WITH',
-                        { organization: org, inferred: true }
-                    );
-                    if (result.ok) synced.relationships++;
-                }
-            }
-        }
-        
-        // 2. Facts mentioning people -> MENTIONED_IN
-        const facts = this.storage.knowledge.facts || [];
-        for (const fact of facts) {
-            const content = (fact.content || '').toLowerCase();
-            for (const person of people) {
-                const name = (person.name || '').toLowerCase();
-                if (name && content.includes(name)) {
-                    const result = await this.graphProvider.createRelationship(
-                        `person_${person.id}`,
-                        `fact_${fact.id}`,
-                        'MENTIONED_IN',
-                        { inferred: true }
-                    );
-                    if (result.ok) synced.relationships++;
-                }
-            }
-        }
-        
-        // 3. Decisions with owners -> OWNS
-        const decisions = this.storage.knowledge.decisions || [];
-        for (const decision of decisions) {
-            if (decision.owner) {
-                const owner = people.find(p => 
-                    p.name?.toLowerCase() === decision.owner?.toLowerCase() ||
-                    p.id === decision.owner
-                );
-                if (owner) {
-                    const result = await this.graphProvider.createRelationship(
-                        `person_${owner.id}`,
-                        `decision_${decision.id}`,
-                        'OWNS',
-                        { inferred: true }
-                    );
-                    if (result.ok) synced.relationships++;
-                }
-            }
-        }
-        
-        // 4. Risks with contacts -> RESPONSIBLE_FOR
-        const risks = this.storage.knowledge.risks || [];
-        for (const risk of risks) {
-            const contacts = risk.contacts || risk.stakeholders || [];
-            for (const contactId of contacts) {
-                const person = people.find(p => p.id === contactId || p.name === contactId);
-                if (person) {
-                    const result = await this.graphProvider.createRelationship(
-                        `person_${person.id}`,
-                        `risk_${risk.id}`,
-                        'RESPONSIBLE_FOR',
-                        { inferred: true }
-                    );
-                    if (result.ok) synced.relationships++;
-                }
-            }
-        }
-        
-        // Run ontology inference rules if enabled
-        if (this.useOntology && this.relationInference) {
-            log.debug({ event: 'graphrag_inference_start' }, 'Running ontology inference rules');
-            const inferenceResult = await this.relationInference.runInferenceRules(this.graphProvider);
-            synced.inferred = inferenceResult.relationshipsCreated;
-            log.debug({ event: 'graphrag_inference_complete', rulesApplied: inferenceResult.rulesApplied, relationshipsCreated: inferenceResult.relationshipsCreated }, 'Inference complete');
-        }
-        
-        // Create indexes if requested
-        if (createIndexes && typeof this.graphProvider.createOntologyIndexes === 'function') {
-            log.debug({ event: 'graphrag_creating_indexes' }, 'Creating ontology indexes');
-            const indexResult = await this.graphProvider.createOntologyIndexes();
-            synced.indexes = indexResult.created;
-        }
-        
-        // Mark sync complete for incremental tracking
-        if (syncTracker) {
-            syncTracker.markSyncComplete();
-        }
-        
-        log.debug({ event: 'graphrag_sync_complete', nodes: synced.nodes, relationships: synced.relationships, inferred: synced.inferred, skipped: synced.skipped, errors: errors.length }, 'Sync complete');
-        
-        return { ok: errors.length === 0, synced, errors };
-    }
-    
+
+
     /**
      * Map storage relationship types to ontology types
      * @param {string} type - Original relationship type
@@ -1359,10 +1584,10 @@ ${isPortuguese ? 'Responda de forma completa e estruturada:' : 'Answer completel
             'member_of': 'WORKS_ON',
             'member of': 'WORKS_ON'
         };
-        
+
         return mapping[type?.toLowerCase()] || 'RELATED_TO';
     }
-    
+
     /**
      * Generate enriched embeddings for all entities using ontology
      * @returns {Promise<{ok: boolean, count: number, errors: Array}>}
@@ -1371,26 +1596,26 @@ ${isPortuguese ? 'Responda de forma completa e estruturada:' : 'Answer completel
         if (!this.storage || !this.useOntology) {
             return { ok: false, count: 0, errors: ['Storage or ontology not available'] };
         }
-        
+
         const embeddings = [];
         const errors = [];
-        
+
         log.debug({ event: 'graphrag_embeddings_start' }, 'Generating enriched embeddings with ontology');
-        
+
         // Generate embeddings for each entity type
         const entities = this.getKnownEntities();
-        
+
         for (const entity of entities) {
             try {
                 const enrichedText = this.embeddingEnricher.enrichEntity(entity._type, entity, {});
-                
+
                 const embResult = await llm.embed({
                     provider: this.embeddingProvider,
                     model: this.embeddingModel,
                     texts: [enrichedText],
                     providerConfig: this.getProviderConfig(this.embeddingProvider)
                 });
-                
+
                 if (embResult.success && embResult.embeddings?.[0]) {
                     embeddings.push({
                         id: entity.id,
@@ -1404,11 +1629,11 @@ ${isPortuguese ? 'Responda de forma completa e estruturada:' : 'Answer completel
                 errors.push({ id: entity.id, type: entity._type, error: error.message });
             }
         }
-        
+
         // Save enriched embeddings
         if (embeddings.length > 0) {
             const existingEmbeddings = this.storage.loadEmbeddings() || { embeddings: [] };
-            
+
             // Merge with existing, preferring new enriched ones
             const merged = [...embeddings];
             for (const existing of existingEmbeddings.embeddings) {
@@ -1417,7 +1642,7 @@ ${isPortuguese ? 'Responda de forma completa e estruturada:' : 'Answer completel
                     merged.push(existing);
                 }
             }
-            
+
             this.storage.saveEmbeddings({
                 embeddings: merged,
                 model: this.embeddingModel,
@@ -1425,9 +1650,9 @@ ${isPortuguese ? 'Responda de forma completa e estruturada:' : 'Answer completel
                 ontology_enriched: true
             });
         }
-        
+
         log.debug({ event: 'graphrag_embeddings_complete', count: embeddings.length, errors: errors.length }, 'Generated enriched embeddings');
-        
+
         return { ok: errors.length === 0, count: embeddings.length, errors };
     }
 
@@ -1454,7 +1679,7 @@ ${isPortuguese ? 'Responda de forma completa e estruturada:' : 'Answer completel
         try {
             // Search shared entities (People, Technologies, Clients, Organizations)
             const sharedTypes = this.ontology.getSharedEntityTypes();
-            
+
             for (const entityType of sharedTypes) {
                 const searchResult = await this.multiGraphManager.findNodes(entityType, {}, { limit: 50 });
                 if (searchResult.ok && searchResult.nodes?.length > 0) {
@@ -1517,7 +1742,7 @@ ${isPortuguese ? 'Responda de forma completa e estruturada:' : 'Answer completel
         }
 
         // Find matching person
-        const person = searchResult.nodes?.find(n => 
+        const person = searchResult.nodes?.find(n =>
             n.properties?.name?.toLowerCase().includes(personName.toLowerCase())
         );
 

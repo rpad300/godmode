@@ -3,8 +3,10 @@
  * Full project lifecycle management in Supabase
  */
 
+const drive = require('../integrations/googleDrive/drive');
 const { logger } = require('../logger');
 const { getAdminClient } = require('./client');
+const crypto = require('crypto');
 
 const log = logger.child({ module: 'projects' });
 
@@ -64,6 +66,40 @@ async function createProject({
             .select()
             .maybeSingle();
 
+        // AUTOMATIC DRIVE FOLDER CREATION
+        try {
+            // Get owner username for folder naming
+            const { data: profile } = await supabase
+                .from('user_profiles')
+                .select('username')
+                .eq('id', ownerId)
+                .single();
+
+            const ownerUsername = profile?.username;
+
+            // Initialize Drive folder
+            const driveSettings = await drive.initializeProjectFolder(project, ownerUsername);
+
+            if (driveSettings) {
+                // Update project settings with Drive info
+                const newSettings = {
+                    ...(project.settings || {}),
+                    googleDrive: driveSettings
+                };
+
+                await supabase
+                    .from('projects')
+                    .update({ settings: newSettings })
+                    .eq('id', project.id);
+
+                project.settings = newSettings; // Update local object
+                log.info({ event: 'project_drive_initialized', projectId: project.id }, 'Initialized Drive folders');
+            }
+        } catch (driveErr) {
+            log.warn({ event: 'project_drive_init_error', projectId: project.id, reason: driveErr.message }, 'Failed to auto-create Drive folders');
+            // Do not fail the project creation
+        }
+
         return { success: true, project };
     } catch (error) {
         log.warn({ event: 'projects_create_error', reason: error?.message }, 'Create error');
@@ -111,7 +147,7 @@ async function updateProject(projectId, updates) {
 
     const allowedFields = ['name', 'description', 'settings'];
     const filteredUpdates = {};
-    
+
     for (const field of allowedFields) {
         if (updates[field] !== undefined) {
             filteredUpdates[field] = updates[field];
@@ -362,6 +398,102 @@ async function cloneProject(sourceProjectId, newName, ownerId) {
     }
 }
 
+/**
+ * Add a role to project settings
+ */
+async function addProjectRole(projectId, role) {
+    const supabase = getAdminClient();
+    if (!supabase) {
+        return { success: false, error: 'Supabase not configured' };
+    }
+
+    try {
+        // Get current settings
+        const { data: project } = await supabase
+            .from('projects')
+            .select('settings')
+            .eq('id', projectId)
+            .single();
+
+        const currentSettings = project?.settings || {};
+        const currentRoles = currentSettings.roles || [];
+
+        // Add new role
+        const existingRoleIndex = currentRoles.findIndex(r => r.name === role.name);
+        let newRoles;
+
+        if (existingRoleIndex >= 0) {
+            // Role exists, update it to be active
+            newRoles = [...currentRoles];
+            newRoles[existingRoleIndex] = { ...newRoles[existingRoleIndex], ...role, active: true };
+        } else {
+            newRoles = [...currentRoles, { ...role, id: role.id || crypto.randomUUID(), active: true }];
+        }
+
+        // Update settings
+        const { error } = await supabase
+            .from('projects')
+            .update({ settings: { ...currentSettings, roles: newRoles } })
+            .eq('id', projectId);
+
+        if (error) throw error;
+
+        log.info({
+            event: 'debug_add_role',
+            projectId,
+            roleName: role.name,
+            newRolesCount: newRoles.length,
+            wasDuplicate: existingRoleIndex >= 0
+        }, 'DEBUG: Role added/updated in DB');
+
+        return { success: true, roles: newRoles };
+    } catch (error) {
+        log.warn({ event: 'projects_add_role_error', reason: error?.message }, 'Add role error');
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Update a role in project settings
+ */
+async function updateProjectRole(projectId, roleId, updates) {
+    const supabase = getAdminClient();
+    if (!supabase) {
+        return { success: false, error: 'Supabase not configured' };
+    }
+
+    try {
+        const { data: project } = await supabase
+            .from('projects')
+            .select('settings')
+            .eq('id', projectId)
+            .single();
+
+        const currentSettings = project?.settings || {};
+        const currentRoles = currentSettings.roles || [];
+
+        const roleIndex = currentRoles.findIndex(r => r.id === roleId);
+        if (roleIndex === -1) {
+            return { success: false, error: 'Role not found' };
+        }
+
+        const updatedRoles = [...currentRoles];
+        updatedRoles[roleIndex] = { ...updatedRoles[roleIndex], ...updates };
+
+        const { error } = await supabase
+            .from('projects')
+            .update({ settings: { ...currentSettings, roles: updatedRoles } })
+            .eq('id', projectId);
+
+        if (error) throw error;
+
+        return { success: true, roles: updatedRoles };
+    } catch (error) {
+        log.warn({ event: 'projects_update_role_error', projectId, roleId, reason: error?.message }, 'Error updating project role');
+        return { success: false, error: error.message };
+    }
+}
+
 module.exports = {
     createProject,
     getProject,
@@ -370,5 +502,7 @@ module.exports = {
     listUserProjects,
     getProjectStats,
     updateSettings,
-    cloneProject
+    cloneProject,
+    addProjectRole,
+    updateProjectRole
 };

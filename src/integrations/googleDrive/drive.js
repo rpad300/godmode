@@ -12,6 +12,31 @@ const log = logger.child({ module: 'google-drive' });
 
 const SECRET_NAME = 'GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON';
 const CONFIG_KEY = 'google_drive';
+const MAX_DOWNLOAD_SIZE_BYTES = 50 * 1024 * 1024; // 50MB limit for in-memory buffers
+const RETRY_OPTIONS = { retries: 3, factor: 2, minTimeout: 1000 };
+
+/**
+ * Simple retry wrapper
+ */
+async function withRetry(fn, operationName = 'drive_operation') {
+    let lastError;
+    for (let attempt = 1; attempt <= RETRY_OPTIONS.retries; attempt++) {
+        try {
+            return await fn();
+        } catch (err) {
+            lastError = err;
+            const isRetryable = err.code === 429 || err.code >= 500 || err.message.includes('network') || err.message.includes('socket');
+
+            if (!isRetryable) throw err;
+            if (attempt === RETRY_OPTIONS.retries) throw err;
+
+            const delay = RETRY_OPTIONS.minTimeout * Math.pow(RETRY_OPTIONS.factor, attempt - 1);
+            log.warn({ event: 'drive_retry', operation: operationName, attempt, delay, error: err.message }, 'Retrying Drive operation');
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+    }
+    throw lastError;
+}
 
 let systemClientCache = null;
 
@@ -20,30 +45,41 @@ let systemClientCache = null;
  * Uses system_config key 'google_drive' and system secret GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON.
  */
 async function getDriveClientForSystem() {
-    const { value: config } = await systemConfig.getSystemConfig(CONFIG_KEY);
-    const enabled = config && (config.enabled === true || config === true);
-    if (!enabled) return null;
-    const rootFolderId = config && config.rootFolderId;
-    if (!rootFolderId) return null;
+    // Ensure subscription (lazy init)
+    ensureConfigSubscription();
 
-    const result = await secrets.getSecret('system', SECRET_NAME);
-    if (!result.success || !result.value) {
-        log.warn({ event: 'google_drive_missing_credentials' }, 'Missing system credentials (GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON)');
-        return null;
-    }
+    // Cache Check
+    if (systemClientCache) return systemClientCache;
 
     try {
+        let config = null;
+        try {
+            const configResult = await systemConfig.getSystemConfig(CONFIG_KEY);
+            config = configResult ? configResult.value : null;
+        } catch (e) {
+            log.warn({ event: 'drive_config_load_failed', error: e.message }, 'Failed to load system config');
+            return null;
+        }
+
+        const enabled = config && (config.enabled === true || config === true);
+        if (!enabled) return null;
+        const rootFolderId = config && config.rootFolderId;
+        if (!rootFolderId) return null;
+
+        const result = await secrets.getSecret('system', SECRET_NAME);
+        if (!result.success || !result.value) {
+            log.warn({ event: 'google_drive_missing_credentials' }, 'Missing system credentials (GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON)');
+            return null;
+        }
+
         const json = typeof result.value === 'string' ? JSON.parse(result.value) : result.value;
         const auth = new google.auth.GoogleAuth({
             credentials: json,
             scopes: ['https://www.googleapis.com/auth/drive.file', 'https://www.googleapis.com/auth/drive']
         });
         const drive = google.drive({ version: 'v3', auth });
-        if (!systemClientCache) systemClientCache = { drive, rootFolderId };
-        else {
-            systemClientCache.drive = drive;
-            systemClientCache.rootFolderId = rootFolderId;
-        }
+
+        systemClientCache = { drive, rootFolderId };
         return systemClientCache;
     } catch (err) {
         log.warn({ event: 'google_drive_system_client_failed', reason: err.message }, 'Failed to create system client');
@@ -95,21 +131,24 @@ async function getDriveClientForRead(projectId) {
  */
 async function uploadFile(client, buffer, mimeType, parentFolderId, filename) {
     if (!client || !client.drive) throw new Error('Invalid Drive client');
-    const drive = client.drive;
-    const res = await drive.files.create({
-        requestBody: {
-            name: filename,
-            parents: [parentFolderId]
-        },
-        media: {
-            mimeType: mimeType || 'application/octet-stream',
-            body: require('stream').Readable.from(buffer)
-        },
-        fields: 'id, webViewLink'
-    });
-    const file = res.data;
-    if (!file || !file.id) throw new Error('Drive upload did not return file id');
-    return { id: file.id, webViewLink: file.webViewLink || null };
+
+    return withRetry(async () => {
+        const drive = client.drive;
+        const res = await drive.files.create({
+            requestBody: {
+                name: filename,
+                parents: [parentFolderId]
+            },
+            media: {
+                mimeType: mimeType || 'application/octet-stream',
+                body: require('stream').Readable.from(buffer)
+            },
+            fields: 'id, webViewLink'
+        });
+        const file = res.data;
+        if (!file || !file.id) throw new Error('Drive upload did not return file id');
+        return { id: file.id, webViewLink: file.webViewLink || null };
+    }, 'uploadFile');
 }
 
 /**
@@ -119,14 +158,41 @@ async function uploadFile(client, buffer, mimeType, parentFolderId, filename) {
  */
 async function downloadFile(client, fileId) {
     if (!client || !client.drive) throw new Error('Invalid Drive client');
-    const res = await client.drive.files.get(
-        { fileId, alt: 'media' },
-        { responseType: 'stream' }
-    );
-    const stream = res.data;
-    const chunks = [];
-    for await (const chunk of stream) chunks.push(chunk);
-    return Buffer.concat(chunks);
+
+    return withRetry(async () => {
+        // 1. Check file size
+        try {
+            const meta = await client.drive.files.get({
+                fileId,
+                fields: 'size, name'
+            });
+            const size = parseInt(meta.data.size || '0', 10);
+            if (size > MAX_DOWNLOAD_SIZE_BYTES) {
+                throw new Error(`File too large (${(size / 1024 / 1024).toFixed(2)}MB). Max allowed: ${(MAX_DOWNLOAD_SIZE_BYTES / 1024 / 1024)}MB`);
+            }
+        } catch (err) {
+            if (err.message.includes('File too large')) throw err;
+            log.warn({ event: 'drive_metadata_check_failed', fileId, err: err.message }, 'Skipping size check due to error');
+        }
+
+        const res = await client.drive.files.get(
+            { fileId, alt: 'media' },
+            { responseType: 'stream' }
+        );
+        const stream = res.data;
+        const chunks = [];
+        let downloadedBytes = 0;
+
+        for await (const chunk of stream) {
+            downloadedBytes += chunk.length;
+            if (downloadedBytes > MAX_DOWNLOAD_SIZE_BYTES) {
+                stream.destroy();
+                throw new Error(`Stream download exceeded size limit (${(MAX_DOWNLOAD_SIZE_BYTES / 1024 / 1024)}MB)`);
+            }
+            chunks.push(chunk);
+        }
+        return Buffer.concat(chunks);
+    }, 'downloadFile');
 }
 
 /**
@@ -138,24 +204,31 @@ async function downloadFile(client, fileId) {
  */
 async function ensureFolder(client, parentId, name) {
     if (!client || !client.drive) throw new Error('Invalid Drive client');
-    const drive = client.drive;
-    const list = await drive.files.list({
-        q: `'${parentId}' in parents and name = '${name.replace(/'/g, "\\'")}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
-        fields: 'files(id, name)',
-        pageSize: 1
-    });
-    const files = list.data.files || [];
-    if (files.length > 0) return files[0].id;
-    const create = await drive.files.create({
-        requestBody: {
-            name,
-            mimeType: 'application/vnd.google-apps.folder',
-            parents: [parentId]
-        },
-        fields: 'id'
-    });
-    if (!create.data || !create.data.id) throw new Error('Failed to create folder: ' + name);
-    return create.data.id;
+
+    return withRetry(async () => {
+        const drive = client.drive;
+        // Fix: Sanitize parentId to prevent injection
+        const safeParentId = parentId.replace(/'/g, "\\'");
+        const safeName = name.replace(/'/g, "\\'");
+
+        const list = await drive.files.list({
+            q: `'${safeParentId}' in parents and name = '${safeName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+            fields: 'files(id, name)',
+            pageSize: 1
+        });
+        const files = list.data.files || [];
+        if (files.length > 0) return files[0].id;
+        const create = await drive.files.create({
+            requestBody: {
+                name,
+                mimeType: 'application/vnd.google-apps.folder',
+                parents: [parentId]
+            },
+            fields: 'id'
+        });
+        if (!create.data || !create.data.id) throw new Error('Failed to create folder: ' + name);
+        return create.data.id;
+    }, 'ensureFolder');
 }
 
 /**
@@ -163,6 +236,82 @@ async function ensureFolder(client, parentId, name) {
  */
 function clearSystemClientCache() {
     systemClientCache = null;
+    log.info({ event: 'drive_cache_cleared' }, 'System client cache cleared');
+}
+
+// Config subscription state
+let isConfigSubscribed = false;
+
+/**
+ * Ensure we are subscribed to config changes.
+ * Lazy init to avoid module load ordering issues.
+ */
+function ensureConfigSubscription() {
+    if (isConfigSubscribed) return;
+
+    try {
+        if (systemConfig && systemConfig.onConfigChange) {
+            systemConfig.onConfigChange((key) => {
+                if (key === CONFIG_KEY) {
+                    clearSystemClientCache();
+                }
+            });
+            isConfigSubscribed = true;
+            log.debug({ event: 'drive_config_subscribed' }, 'Subscribed to system config changes');
+        }
+    } catch (e) {
+        log.warn({ event: 'drive_config_subscribe_failed', error: e.message }, 'Failed to subscribe to config changes');
+    }
+}
+
+// Helper to sanitize folder names
+function sanitizeFolderName(s) {
+    if (!s || typeof s !== 'string') return 'project';
+    return s.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 50);
+}
+
+/**
+ * Initialize project folder structure in Google Drive.
+ * @param {object} project - Project object { id, name, owner_id }
+ * @param {string} ownerUsername - Username of the project owner
+ * @returns {Promise<object|null>} Settings object with Google Drive IDs, or null if failed/disabled
+ */
+async function initializeProjectFolder(project, ownerUsername) {
+    try {
+        const client = await getDriveClientForSystem();
+        if (!client || !client.drive || !client.rootFolderId) {
+            log.info({ event: 'drive_init_skipped', projectId: project.id }, 'Google Drive not enabled or configured');
+            return null;
+        }
+
+        const ownerName = sanitizeFolderName(ownerUsername || 'user');
+        const projectName = sanitizeFolderName(project.name || 'project');
+        const projectIdShort = (project.id || '').replace(/-/g, '').substring(0, 8);
+
+        const mainFolderName = `${ownerName}-${projectName}-${projectIdShort}`;
+
+        log.info({ event: 'drive_init_start', projectId: project.id, folderName: mainFolderName }, 'Creating project folders in Drive');
+
+        const mainFolderId = await ensureFolder(client, client.rootFolderId, mainFolderName);
+        const uploadsId = await ensureFolder(client, mainFolderId, 'uploads');
+        const newtranscriptsId = await ensureFolder(client, mainFolderId, 'newtranscripts');
+        const archivedId = await ensureFolder(client, mainFolderId, 'archived');
+        const exportsId = await ensureFolder(client, mainFolderId, 'exports');
+
+        return {
+            projectFolderId: mainFolderId,
+            folders: {
+                uploads: uploadsId,
+                newtranscripts: newtranscriptsId,
+                archived: archivedId,
+                exports: exportsId
+            },
+            bootstrappedAt: new Date().toISOString()
+        };
+    } catch (err) {
+        log.warn({ event: 'drive_init_failed', projectId: project.id, reason: err.message }, 'Failed to initialize project folders');
+        return null; // Don't throw, just return null so project creation doesn't fail
+    }
 }
 
 module.exports = {
@@ -172,6 +321,7 @@ module.exports = {
     uploadFile,
     downloadFile,
     ensureFolder,
+    initializeProjectFolder,
     clearSystemClientCache,
     CONFIG_KEY,
     SECRET_NAME

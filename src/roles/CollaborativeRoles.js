@@ -54,7 +54,7 @@ class CollaborativeRoles {
         if (existingUser) {
             return { success: false, error: 'User already exists' };
         }
-        
+
         const newUser = {
             id: user.id || `user_${Date.now()}`,
             name: user.name,
@@ -66,11 +66,11 @@ class CollaborativeRoles {
             lastActive: new Date().toISOString(),
             status: 'active'
         };
-        
+
         this.data.users.push(newUser);
         this.logActivity('user_added', { userId: newUser.id, name: newUser.name });
         this.save();
-        
+
         return { success: true, user: newUser };
     }
 
@@ -82,18 +82,18 @@ class CollaborativeRoles {
         if (!user) {
             return { success: false, error: 'User not found' };
         }
-        
+
         const allowedFields = ['name', 'role', 'rolePrompt', 'permissions', 'status'];
         allowedFields.forEach(field => {
             if (updates[field] !== undefined) {
                 user[field] = updates[field];
             }
         });
-        
+
         user.lastActive = new Date().toISOString();
         this.logActivity('user_updated', { userId, updates: Object.keys(updates) });
         this.save();
-        
+
         return { success: true, user };
     }
 
@@ -105,11 +105,11 @@ class CollaborativeRoles {
         if (index === -1) {
             return { success: false, error: 'User not found' };
         }
-        
+
         const removed = this.data.users.splice(index, 1)[0];
         this.logActivity('user_removed', { userId, name: removed.name });
         this.save();
-        
+
         return { success: true, removed };
     }
 
@@ -118,17 +118,17 @@ class CollaborativeRoles {
      */
     getUsers(options = {}) {
         const { status = null, role = null } = options;
-        
+
         let users = this.data.users;
-        
+
         if (status) {
             users = users.filter(u => u.status === status);
         }
-        
+
         if (role) {
             users = users.filter(u => u.role?.toLowerCase().includes(role.toLowerCase()));
         }
-        
+
         return users;
     }
 
@@ -155,11 +155,11 @@ class CollaborativeRoles {
             expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days
             status: 'pending'
         };
-        
+
         this.data.invitations.push(inv);
         this.logActivity('invitation_created', { invitationId: inv.id, email: inv.email });
         this.save();
-        
+
         return { success: true, invitation: inv };
     }
 
@@ -171,17 +171,17 @@ class CollaborativeRoles {
         if (!inv) {
             return { success: false, error: 'Invitation not found' };
         }
-        
+
         if (inv.status !== 'pending') {
             return { success: false, error: 'Invitation already used' };
         }
-        
+
         if (new Date(inv.expiresAt) < new Date()) {
             inv.status = 'expired';
             this.save();
             return { success: false, error: 'Invitation expired' };
         }
-        
+
         // Create user from invitation
         const result = this.addUser({
             id: user.id,
@@ -191,14 +191,14 @@ class CollaborativeRoles {
             rolePrompt: inv.rolePrompt,
             permissions: inv.permissions
         });
-        
+
         if (result.success) {
             inv.status = 'accepted';
             inv.acceptedAt = new Date().toISOString();
             this.logActivity('invitation_accepted', { invitationId, userId: result.user.id });
             this.save();
         }
-        
+
         return result;
     }
 
@@ -206,8 +206,8 @@ class CollaborativeRoles {
      * Get pending invitations
      */
     getPendingInvitations() {
-        return this.data.invitations.filter(i => 
-            i.status === 'pending' && 
+        return this.data.invitations.filter(i =>
+            i.status === 'pending' &&
             new Date(i.expiresAt) > new Date()
         );
     }
@@ -217,7 +217,7 @@ class CollaborativeRoles {
      */
     getUsersByRole() {
         const byRole = {};
-        
+
         this.data.users.forEach(user => {
             const role = user.role || 'Unassigned';
             if (!byRole[role]) {
@@ -225,7 +225,7 @@ class CollaborativeRoles {
             }
             byRole[role].push(user);
         });
-        
+
         return byRole;
     }
 
@@ -234,12 +234,12 @@ class CollaborativeRoles {
      */
     getRoleDistribution() {
         const distribution = {};
-        
+
         this.data.users.forEach(user => {
             const role = user.role || 'Unassigned';
             distribution[role] = (distribution[role] || 0) + 1;
         });
-        
+
         return Object.entries(distribution)
             .map(([role, count]) => ({ role, count }))
             .sort((a, b) => b.count - a.count);
@@ -251,7 +251,7 @@ class CollaborativeRoles {
     hasPermission(userId, permission) {
         const user = this.getUser(userId);
         if (!user) return false;
-        
+
         return user.permissions.includes(permission) || user.permissions.includes('admin');
     }
 
@@ -264,7 +264,7 @@ class CollaborativeRoles {
             action,
             data
         });
-        
+
         // Keep last 500 entries
         if (this.data.activityLog.length > 500) {
             this.data.activityLog = this.data.activityLog.slice(-500);
@@ -276,13 +276,13 @@ class CollaborativeRoles {
      */
     getActivityLog(options = {}) {
         const { limit = 50, action = null } = options;
-        
+
         let log = this.data.activityLog;
-        
+
         if (action) {
             log = log.filter(l => l.action === action);
         }
-        
+
         return log.slice(-limit).reverse();
     }
 
@@ -293,7 +293,7 @@ class CollaborativeRoles {
         const users = this.data.users;
         const activeUsers = users.filter(u => u.status === 'active');
         const pendingInvitations = this.getPendingInvitations();
-        
+
         return {
             totalUsers: users.length,
             activeUsers: activeUsers.length,
@@ -306,9 +306,11 @@ class CollaborativeRoles {
 
 // Singleton
 let instance = null;
-function getCollaborativeRoles(options) {
+function getCollaborativeRoles(options = {}) {
     if (!instance) {
         instance = new CollaborativeRoles(options);
+    } else if (options.dataDir && instance.dataDir !== options.dataDir) {
+        instance.setDataDir(options.dataDir);
     }
     return instance;
 }

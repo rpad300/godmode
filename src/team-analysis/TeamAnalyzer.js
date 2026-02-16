@@ -61,14 +61,14 @@ class TeamAnalyzer {
         // Get person details - try people table first, then contacts
         let person = null;
         let aliases = [];
-        
+
         // Try people table first
         const { data: personData, error: personError } = await this.supabase
             .from('people')
             .select('*')
             .eq('id', personId)
             .single();
-        
+
         if (!personError && personData) {
             person = personData;
         } else {
@@ -78,7 +78,7 @@ class TeamAnalyzer {
                 .select('*')
                 .eq('id', personId)
                 .single();
-            
+
             if (!contactError && contactData) {
                 // Map contact fields to person format
                 person = {
@@ -116,7 +116,7 @@ class TeamAnalyzer {
         const transcriptIds = transcripts.map(t => t.id);
         const existingTranscriptIds = existingProfile?.transcripts_analyzed || [];
         const newTranscriptIds = transcriptIds.filter(id => !existingTranscriptIds.includes(id));
-        
+
         if (existingProfile && !forceReanalysis && newTranscriptIds.length === 0) {
             log.debug({ event: 'team_analyzer_profile_up_to_date', personName: person.name }, 'Profile is up to date');
             return existingProfile;
@@ -135,16 +135,16 @@ class TeamAnalyzer {
         // Calculate total stats
         const totalInterventions = allInterventions.reduce((sum, t) => sum + (t.interventionCount || 0), 0);
         const totalWords = allInterventions.reduce((sum, t) => sum + (t.totalWordCount || 0), 0);
-        
+
         log.debug({ event: 'team_analyzer_extracted', personName: person.name, totalInterventions, totalWords }, 'Extracted interventions');
 
         // Get existing evidence
         const existingEvidence = await this.getExistingEvidence(projectId, existingProfile?.id);
 
         // Decide analysis type
-        const shouldUseIncremental = useIncrementalAnalysis && 
-            existingProfile && 
-            existingProfile.profile_data && 
+        const shouldUseIncremental = useIncrementalAnalysis &&
+            existingProfile &&
+            existingProfile.profile_data &&
             newTranscriptIds.length > 0 &&
             newTranscriptIds.length < transcriptIds.length; // Has some history
 
@@ -154,7 +154,7 @@ class TeamAnalyzer {
         if (shouldUseIncremental) {
             // INCREMENTAL ANALYSIS: Only analyze new transcripts
             log.debug({ event: 'team_analyzer_incremental', personName: person.name, newCount: newTranscriptIds.length }, 'Running incremental analysis');
-            
+
             const newInterventions = allInterventions.filter(t => newTranscriptIds.includes(t.documentId));
             profileData = await this.runIncrementalAnalysis(
                 person.name,
@@ -164,13 +164,13 @@ class TeamAnalyzer {
                 objective
             );
             analysisType = 'incremental';
-            
+
             // Merge incremental results with existing profile
             profileData = this.mergeIncrementalResults(existingProfile.profile_data, profileData);
         } else {
             // FULL ANALYSIS: Analyze all interventions
             log.debug({ event: 'team_analyzer_full', personName: person.name }, 'Running full analysis');
-            
+
             profileData = await this.runFullAnalysis(
                 allInterventions,
                 person.name,
@@ -239,7 +239,7 @@ class TeamAnalyzer {
         // Format interventions for prompt (with token limit)
         const allIntervs = allInterventions.flatMap(t => t.interventions || []);
         const formatted = this.interventionExtractor.formatForPrompt(allIntervs, { maxTokens: 12000 });
-        
+
         log.debug({ event: 'team_analyzer_formatted', includedCount: formatted.includedCount, totalCount: formatted.totalCount, estimatedTokens: formatted.estimatedTokens }, 'Formatted interventions');
 
         // Build prompt
@@ -279,7 +279,7 @@ class TeamAnalyzer {
         // Format new interventions
         const newIntervs = newInterventions.flatMap(t => t.interventions || []);
         const formatted = this.interventionExtractor.formatForPrompt(newIntervs, { maxTokens: 8000 });
-        
+
         log.debug({ event: 'team_analyzer_incremental_formatted', includedCount: formatted.includedCount }, 'Formatted new interventions for incremental analysis');
 
         // Get incremental prompt template
@@ -295,7 +295,7 @@ class TeamAnalyzer {
         }
 
         // Format existing evidence for prompt
-        const evidenceSummary = existingEvidence?.slice(0, 20).map(e => 
+        const evidenceSummary = existingEvidence?.slice(0, 20).map(e =>
             `[${e.evidence_type}] "${e.quote.substring(0, 100)}..." -> ${e.supports_trait}`
         ).join('\n') || 'None';
 
@@ -333,7 +333,7 @@ class TeamAnalyzer {
      */
     mergeIncrementalResults(existingProfile, incrementalResults) {
         const merged = { ...existingProfile };
-        
+
         // Update confidence level if changed
         if (incrementalResults.profile_updates?.confidence_level_change?.new) {
             merged.confidence_level = incrementalResults.profile_updates.confidence_level_change.new;
@@ -341,7 +341,7 @@ class TeamAnalyzer {
 
         // Merge each section based on update status
         const updates = incrementalResults.profile_updates || {};
-        
+
         // Communication identity
         if (updates.communication_identity?.status === 'refined' && updates.communication_identity.updates) {
             merged.communication_identity = {
@@ -349,7 +349,7 @@ class TeamAnalyzer {
                 ...updates.communication_identity.updates
             };
         }
-        
+
         // Motivations
         if (updates.motivations_and_priorities) {
             const mp = updates.motivations_and_priorities;
@@ -368,7 +368,7 @@ class TeamAnalyzer {
                 ];
             }
         }
-        
+
         // Behavior under pressure
         if (updates.behavior_under_pressure?.new_observations?.length > 0) {
             merged.behavior_under_pressure = [
@@ -376,7 +376,7 @@ class TeamAnalyzer {
                 ...updates.behavior_under_pressure.new_observations
             ];
         }
-        
+
         // Influence tactics
         if (updates.influence_tactics?.new_tactics?.length > 0) {
             merged.influence_tactics = [
@@ -384,7 +384,7 @@ class TeamAnalyzer {
                 ...updates.influence_tactics.new_tactics
             ];
         }
-        
+
         // Vulnerabilities
         if (updates.vulnerabilities) {
             merged.vulnerabilities = merged.vulnerabilities || {};
@@ -401,7 +401,7 @@ class TeamAnalyzer {
                 ];
             }
         }
-        
+
         // Warning signs
         if (updates.warning_signs?.new_signs?.length > 0) {
             merged.early_warning_signs = [
@@ -424,7 +424,7 @@ class TeamAnalyzer {
      */
     async getExistingEvidence(projectId, profileId) {
         if (!profileId) return [];
-        
+
         try {
             const { data } = await this.supabase
                 .from('profile_evidence')
@@ -432,7 +432,7 @@ class TeamAnalyzer {
                 .eq('profile_id', profileId)
                 .order('is_primary', { ascending: false })
                 .limit(50);
-            
+
             return data || [];
         } catch (error) {
             return [];
@@ -444,7 +444,7 @@ class TeamAnalyzer {
      */
     async saveEvidence(projectId, profileId, personId, evidenceList) {
         if (!evidenceList?.length) return;
-        
+
         const records = evidenceList.map(e => ({
             project_id: projectId,
             profile_id: profileId,
@@ -462,7 +462,7 @@ class TeamAnalyzer {
             await this.supabase
                 .from('profile_evidence')
                 .insert(records);
-            
+
             log.debug({ event: 'team_analyzer_evidence_saved', count: records.length }, 'Saved evidence pieces');
         } catch (error) {
             log.warn({ event: 'team_analyzer_evidence_save_failed', reason: error.message }, 'Failed to save evidence');
@@ -552,12 +552,12 @@ Provide your analysis as JSON with:
             const existingMemberIds = existingAnalysis.members_included || [];
             const sameMembers = memberIds.length === existingMemberIds.length &&
                 memberIds.every(id => existingMemberIds.includes(id));
-            
+
             if (sameMembers) {
                 // Check if any profile was updated after the analysis
                 const latestProfileUpdate = Math.max(...profiles.map(p => new Date(p.last_analysis_at)));
                 const analysisDate = new Date(existingAnalysis.last_analysis_at);
-                
+
                 if (latestProfileUpdate <= analysisDate) {
                     log.debug({ event: 'team_analyzer_team_up_to_date' }, 'Team analysis is up to date');
                     return existingAnalysis;
@@ -587,7 +587,7 @@ Provide your analysis as JSON with:
         if (!response.success) {
             throw new Error(`LLM call failed: ${response.error}`);
         }
-        
+
         let analysisData;
         try {
             analysisData = JSON.parse(response.text);
@@ -656,7 +656,7 @@ Provide your analysis as JSON with:
             try {
                 // Find person by name - try people table first, then contacts
                 let personId = null;
-                
+
                 // Try people table
                 const { data: person } = await this.supabase
                     .from('people')
@@ -675,7 +675,7 @@ Provide your analysis as JSON with:
                         .eq('project_id', projectId)
                         .ilike('name', name)
                         .single();
-                    
+
                     if (contact) {
                         personId = contact.id;
                     }
@@ -721,7 +721,7 @@ Provide your analysis as JSON with:
      */
     async getTranscriptsForPerson(projectId, personName, aliases = []) {
         log.debug({ event: 'team_analyzer_get_transcripts', projectId, personName, aliases: aliases.join(', ') || 'none' }, 'getTranscriptsForPerson');
-        
+
         // Get all transcripts for the project (include filepath for fallback reading)
         const { data: documents, error } = await this.supabase
             .from('documents')
@@ -735,9 +735,9 @@ Provide your analysis as JSON with:
             log.error({ event: 'team_analyzer_fetch_documents_error', reason: error.message }, 'Error fetching documents');
             throw new Error(`Failed to fetch transcripts: ${error.message}`);
         }
-        
+
         log.debug({ event: 'team_analyzer_transcripts_found', count: documents?.length || 0 }, 'Found transcripts in project');
-        
+
         // Try to load content from file if not in DB
         const drive = require('../integrations/googleDrive/drive');
         for (const doc of documents) {
@@ -776,7 +776,7 @@ Provide your analysis as JSON with:
                     log.warn({ event: 'team_analyzer_load_file_failed', reason: e.message }, 'Could not load content from file');
                 }
             }
-            log.debug({ event: 'team_analyzer_doc_info', filename: doc.filename, contentLength: doc.content?.length || 0, people: doc.extraction_result?.people?.map(p=>p.name).join(', ') || 'none' }, 'Document info');
+            log.debug({ event: 'team_analyzer_doc_info', filename: doc.filename, contentLength: doc.content?.length || 0, people: doc.extraction_result?.people?.map(p => p.name).join(', ') || 'none' }, 'Document info');
         }
 
         // Filter transcripts where person appears
@@ -796,10 +796,10 @@ Provide your analysis as JSON with:
         for (const doc of documents) {
             const content = doc.content || '';
             const extraction = doc.extraction_result || {};
-            
+
             // Check if person is in participants
             const people = extraction.people || [];
-            const isParticipant = people.some(p => 
+            const isParticipant = people.some(p =>
                 nameVariants.some(v => p.name?.toLowerCase().includes(v))
             );
 
@@ -828,17 +828,17 @@ Provide your analysis as JSON with:
     generateNameVariants(name) {
         const parts = name.toLowerCase().split(/\s+/);
         const variants = [name.toLowerCase()];
-        
+
         // First name only
         if (parts.length > 0) {
             variants.push(parts[0]);
         }
-        
+
         // Last name only
         if (parts.length > 1) {
             variants.push(parts[parts.length - 1]);
         }
-        
+
         // Initials + last name (e.g., "J. Smith", "J Smith")
         if (parts.length > 1) {
             variants.push(`${parts[0][0]}. ${parts[parts.length - 1]}`);
@@ -902,8 +902,8 @@ Provide your analysis as JSON with:
 
         // Format individual profiles
         const individualProfiles = profiles.map(p => ({
-            name: p.person?.name,
-            role: p.person?.role,
+            name: p.contact?.name || p.person?.name,
+            role: p.contact?.role || p.person?.role,
             communication_style: p.communication_style,
             dominant_motivation: p.dominant_motivation,
             influence_score: p.influence_score,
@@ -915,7 +915,7 @@ Provide your analysis as JSON with:
             }
         }));
 
-        const teamMembers = profiles.map(p => p.person?.name).join(', ');
+        const teamMembers = profiles.map(p => p.contact?.name || p.person?.name).filter(Boolean).join(', ');
 
         // Replace placeholders
         const prompt = template
@@ -934,7 +934,7 @@ Provide your analysis as JSON with:
      */
     calculateSummaryMetrics(profileData, transcripts, allInterventions = []) {
         let influenceScore = 50; // Base score
-        
+
         // Adjust based on influence tactics
         const tacticCount = profileData.influence_tactics?.length || 0;
         influenceScore += tacticCount * 5;
@@ -942,7 +942,7 @@ Provide your analysis as JSON with:
         // Adjust based on power analysis
         const powerFactors = profileData.power_analysis || [];
         for (const factor of powerFactors) {
-            if (factor.assessment?.toLowerCase().includes('high') || 
+            if (factor.assessment?.toLowerCase().includes('high') ||
                 factor.assessment?.toLowerCase().includes('strong')) {
                 influenceScore += 10;
             }
@@ -958,8 +958,8 @@ Provide your analysis as JSON with:
 
         // Calculate additional metrics
         const totalInterventions = allInterventions.reduce((sum, t) => sum + (t.interventionCount || 0), 0);
-        const avgWordsPerIntervention = totalInterventions > 0 
-            ? Math.round(totalWords / totalInterventions) 
+        const avgWordsPerIntervention = totalInterventions > 0
+            ? Math.round(totalWords / totalInterventions)
             : 0;
 
         return {
@@ -980,13 +980,13 @@ Provide your analysis as JSON with:
 
         // Check for risk-averse indicators
         const riskAverseIndicators = ['ambiguity', 'conflict', 'uncertainty', 'change', 'risk'];
-        const riskAverseCount = avoids.filter(a => 
+        const riskAverseCount = avoids.filter(a =>
             riskAverseIndicators.some(i => a.toLowerCase().includes(i))
         ).length;
 
         // Check for risk-seeking indicators
         const riskSeekingIndicators = ['innovation', 'challenge', 'speed', 'growth', 'opportunity'];
-        const riskSeekingCount = values.filter(v => 
+        const riskSeekingCount = values.filter(v =>
             riskSeekingIndicators.some(i => v.toLowerCase().includes(i))
         ).length;
 
@@ -1029,7 +1029,7 @@ Provide your analysis as JSON with:
     async syncBehavioralRelationshipsFromTeamAnalysis(projectId, analysisData, profiles) {
         // Create multiple mappings to find person IDs
         const nameToPersonId = {};
-        
+
         // Map by real name (e.g., "alexander lee" -> contact_id)
         for (const profile of profiles) {
             const name = profile.contact?.name || profile.person?.name;
@@ -1042,7 +1042,7 @@ Provide your analysis as JSON with:
                 }
             }
         }
-        
+
         // Map by Person_N pattern (e.g., "person_1" -> first profile's contact_id)
         profiles.forEach((profile, index) => {
             nameToPersonId[`person_${index + 1}`] = profile.contact_id;
@@ -1079,7 +1079,7 @@ Provide your analysis as JSON with:
             if (typeof members === 'string') {
                 members = members.split(/\s+/).filter(m => m.trim());
             }
-            
+
             for (let i = 0; i < members.length; i++) {
                 for (let j = i + 1; j < members.length; j++) {
                     const person1Id = resolvePersonId(members[i]);
@@ -1103,7 +1103,7 @@ Provide your analysis as JSON with:
             if (typeof between === 'string') {
                 between = between.split(/\s+/).filter(m => m.trim());
             }
-            
+
             if (between.length >= 2) {
                 const person1Id = resolvePersonId(between[0]);
                 const person2Id = resolvePersonId(between[1]);

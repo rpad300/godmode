@@ -39,7 +39,7 @@ class StorageCompat {
         this.dataDir = dataDir;
         this._supabase = supabaseStorage;
         this._isSupabaseMode = !!supabaseStorage;
-        
+
         // In-memory cache for sync access
         this._cache = {
             facts: [],
@@ -55,24 +55,24 @@ class StorageCompat {
             config: null,
             lastRefresh: 0
         };
-        
+
         // Current project context
         this.currentProjectId = null;
         this.currentProjectName = null;
-        
+
         // Graph provider
         this.graphProvider = null;
-        
+
         // Projects cache
         this._projectsCache = null;
-        
+
         // For backwards compatibility with old Storage class
         this.knowledge = { facts: [], decisions: [], risks: [], people: [], relationships: [], change_log: [] };
         this.questions = { items: [] };
         this.documents = { items: [] };
         this.contacts = { items: [], teams: [], relationships: [] };
         this.conversations = { items: [] };
-        
+
         // Similarity threshold
         this.similarityThreshold = 0.90;
     }
@@ -93,23 +93,23 @@ class StorageCompat {
                 // Get projects from Supabase
                 const projects = await this._supabase.listProjects();
                 this._projectsCache = projects;
-                
+
                 if (projects && projects.length > 0) {
                     // Use first project as current (or find the one marked as current)
                     const currentProject = projects.find(p => p.isCurrent) || projects[0];
                     this.currentProjectId = currentProject.id;
                     this.currentProjectName = currentProject.name;
-                    
+
                     // Set project in Supabase storage
                     await this._supabase.setProject(currentProject.id);
-                    
+
                     log.info({ event: 'storage_init_project', projectId: currentProject.id, projectName: currentProject.name }, 'Using Supabase project');
                 } else {
                     log.info({ event: 'storage_init_no_projects' }, 'No projects found in Supabase');
                     this.currentProjectId = null;
                     this.currentProjectName = null;
                 }
-                
+
                 await this._refreshCache();
                 log.info({ event: 'storage_init_complete', mode: 'supabase' }, 'Initialized in Supabase mode');
             } catch (e) {
@@ -117,7 +117,7 @@ class StorageCompat {
                 this._isSupabaseMode = false;
             }
         }
-        
+
         // Fallback: Load from local projects.json if not in Supabase mode or no Supabase projects
         if (!this._isSupabaseMode || !this.currentProjectId) {
             try {
@@ -134,7 +134,7 @@ class StorageCompat {
                 log.warn({ event: 'storage_load_projects_failed', err: e.message }, 'Could not load projects.json');
             }
         }
-        
+
         return this;
     }
 
@@ -284,6 +284,52 @@ class StorageCompat {
         return { removed: { facts: 0, people: 0 } };
     }
 
+    // ==================== Trends & Stats (Missing Implementation Fix) ====================
+
+    getStats() {
+        // Return flat structure expected by dashboard/routes.js
+        const stats = this.getDataStats();
+        return {
+            facts: stats.counts.facts,
+            decisions: stats.counts.decisions,
+            risks: stats.counts.risks,
+            questions: stats.counts.questions,
+            people: stats.counts.people,
+            documents: stats.counts.documents, // getDataStats returns number, routes.js handles object or number
+            actions: stats.counts.actions
+        };
+    }
+
+    recordDailyStats() {
+        // No-op for now to prevent crash
+    }
+
+    getTrends(days = 7) {
+        // Return placeholder trends to prevent crash
+        const now = new Date();
+        const trends = [];
+        for (let i = 0; i < days; i++) {
+            const date = new Date(now);
+            date.setDate(date.getDate() - i);
+            trends.push({
+                date: date.toISOString().split('T')[0],
+                facts: 0,
+                decisions: 0,
+                risks: 0,
+                actions: 0
+            });
+        }
+        return trends.reverse();
+    }
+
+    getTrendInsights() {
+        return [];
+    }
+
+    getStatsHistory(days = 30) {
+        return this.getTrends(days);
+    }
+
     // ==================== Project Management ====================
 
     async switchProject(projectId, projectName = null) {
@@ -302,7 +348,7 @@ class StorageCompat {
 
     getCurrentProject() {
         if (!this.currentProjectId) return null;
-        
+
         // Try to get full project info from cache
         if (this._projectsCache) {
             const project = this._projectsCache.find(p => p.id === this.currentProjectId);
@@ -315,9 +361,9 @@ class StorageCompat {
                 };
             }
         }
-        
-        return { 
-            id: this.currentProjectId, 
+
+        return {
+            id: this.currentProjectId,
             name: this.currentProjectName || 'Default Project',
             userRole: '',
             userRolePrompt: ''
@@ -329,9 +375,9 @@ class StorageCompat {
      */
     async getCurrentProjectWithRole() {
         if (!this.currentProjectId) return null;
-        
+
         const project = this.getCurrentProject();
-        
+
         // Get member role from Supabase
         if (this._isSupabaseMode && this._supabase) {
             try {
@@ -345,7 +391,7 @@ class StorageCompat {
                 // Use cached role
             }
         }
-        
+
         return project;
     }
 
@@ -599,6 +645,16 @@ class StorageCompat {
         return [];
     }
 
+    /**
+     * Get the graph provider
+     */
+    getGraphProvider() {
+        if (this._supabase && typeof this._supabase.getGraphProvider === 'function') {
+            return this._supabase.getGraphProvider();
+        }
+        return this.graphProvider || null;
+    }
+
     async getUserStory(id) {
         if (this._supabase && typeof this._supabase.getUserStory === 'function') {
             return await this._supabase.getUserStory(id);
@@ -710,10 +766,10 @@ class StorageCompat {
 
     async updateQuestion(id, updates) {
         // Find question in cache first (handles both UUID and numeric IDs)
-        let idx = this._cache.questions.findIndex(q => 
+        let idx = this._cache.questions.findIndex(q =>
             q.id === id || String(q.id) === String(id)
         );
-        
+
         if (this._supabase) {
             try {
                 const result = await this._supabase.updateQuestion(id, updates);
@@ -735,13 +791,13 @@ class StorageCompat {
                 return { success: false, ok: false, error: e.message };
             }
         }
-        
+
         // Fallback: update in cache only (non-Supabase mode)
         if (idx !== -1) {
             this._cache.questions[idx] = { ...this._cache.questions[idx], ...updates };
             return { success: true, ok: true, question: this._cache.questions[idx] };
         }
-        
+
         return { success: false, ok: false, error: 'Question not found' };
     }
 
@@ -755,7 +811,7 @@ class StorageCompat {
             resolved_at: new Date().toISOString(),
             answer_source: source
         };
-        
+
         return await this.updateQuestion(id, updates);
     }
 
@@ -770,7 +826,7 @@ class StorageCompat {
             status: 'pending',
             priority: 'medium'
         };
-        
+
         return await this.addQuestion(question);
     }
 
@@ -808,7 +864,7 @@ class StorageCompat {
 
     getDocumentById(id) {
         // Support both UUID and numeric IDs
-        return this._cache.documents.find(d => 
+        return this._cache.documents.find(d =>
             d.id === id || String(d.id) === String(id)
         );
     }
@@ -833,7 +889,7 @@ class StorageCompat {
                 content_length: doc.content_length,
                 summary: doc.summary || doc.ai_summary
             };
-            
+
             try {
                 const result = await this._supabase.addDocument(normalizedDoc);
                 this._cache.documents.unshift(result);
@@ -884,7 +940,7 @@ class StorageCompat {
                 // Fallback to cache-only update
             }
         }
-        
+
         // Fallback: update cache only
         const doc = this._cache.documents.find(d => d.id === id || String(d.id) === String(id));
         if (doc) {
@@ -906,23 +962,23 @@ class StorageCompat {
      */
     async deleteDocument(documentId, options = {}) {
         log.debug({ event: 'delete_document_start', documentId }, 'deleteDocument called');
-        
+
         if (this._supabase) {
             try {
                 const result = await this._supabase.deleteDocument(documentId, options);
-                
+
                 // Remove from cache
-                const idx = this._cache.documents.findIndex(d => 
+                const idx = this._cache.documents.findIndex(d =>
                     d.id === documentId || String(d.id) === String(documentId)
                 );
                 if (idx !== -1) {
                     this._cache.documents.splice(idx, 1);
                     this.documents.items = this._cache.documents;
                 }
-                
+
                 // Refresh cache to reflect cascade deletes
                 await this._refreshCache();
-                
+
                 log.debug({ event: 'delete_document_success', documentId, deleted: result.deleted }, 'Document deleted with cascade');
                 return result;
             } catch (error) {
@@ -930,14 +986,14 @@ class StorageCompat {
                 throw error;
             }
         }
-        
+
         // Fallback for non-Supabase mode (just remove from cache)
         const idx = this._cache.documents.findIndex(d => d.id === documentId);
         if (idx !== -1) {
             const doc = this._cache.documents.splice(idx, 1)[0];
             return { deleted: { document: 1 }, document: doc };
         }
-        
+
         return { deleted: { document: 0 }, error: 'Document not found' };
     }
 
@@ -961,22 +1017,22 @@ class StorageCompat {
     async addContact(contact) {
         // Validate for duplicates by email (if email provided)
         if (contact.email) {
-            const existingByEmail = this._cache.contacts.find(c => 
+            const existingByEmail = this._cache.contacts.find(c =>
                 c.email?.toLowerCase() === contact.email?.toLowerCase()
             );
             if (existingByEmail) {
                 throw new Error(`Contact with email "${contact.email}" already exists`);
             }
         }
-        
+
         // Check for duplicate by name (case-insensitive)
-        const existingByName = this._cache.contacts.find(c => 
+        const existingByName = this._cache.contacts.find(c =>
             c.name?.toLowerCase().trim() === contact.name?.toLowerCase().trim()
         );
         if (existingByName) {
             throw new Error(`Contact "${contact.name}" already exists`);
         }
-        
+
         if (this._supabase) {
             const result = await this._supabase.addContact(contact);
             this._cache.contacts.push(result);
@@ -987,14 +1043,14 @@ class StorageCompat {
     }
 
     findContactByName(name) {
-        return this._cache.contacts.find(c => 
+        return this._cache.contacts.find(c =>
             c.name?.toLowerCase() === name?.toLowerCase()
         );
     }
 
     findContactByEmail(email) {
         if (!email) return null;
-        return this._cache.contacts.find(c => 
+        return this._cache.contacts.find(c =>
             c.email?.toLowerCase() === email?.toLowerCase()
         );
     }
@@ -1006,14 +1062,14 @@ class StorageCompat {
     findContactByNameOrAlias(name) {
         if (!name) return null;
         const searchName = name.toLowerCase().trim();
-        
+
         return this._cache.contacts.find(c => {
             // Check main name
             if (c.name?.toLowerCase().trim() === searchName) return true;
-            
+
             // Check aliases
             if (c.aliases && Array.isArray(c.aliases)) {
-                return c.aliases.some(alias => 
+                return c.aliases.some(alias =>
                     alias?.toLowerCase().trim() === searchName
                 );
             }
@@ -1027,10 +1083,10 @@ class StorageCompat {
      */
     async linkParticipantToContact(participantName, contactId) {
         log.debug({ event: 'link_participant_start', participantName, contactId }, 'linkParticipantToContact');
-        
+
         // Try cache first, but also query Supabase directly to be sure
         let contact = this.getContactById(contactId);
-        
+
         // If not in cache and we have Supabase, fetch directly
         if (!contact && this._supabase) {
             log.debug({ event: 'link_participant_fetch_contact' }, 'Contact not in cache, fetching from Supabase');
@@ -1049,18 +1105,18 @@ class StorageCompat {
                 log.warn({ event: 'link_participant_fetch_failed', err: e.message }, 'Failed to fetch contact from Supabase');
             }
         }
-        
+
         if (!contact) {
             log.warn({ event: 'contact_not_found', contactId }, 'Contact not found');
             throw new Error('Contact not found');
         }
-        
+
         // Don't add if it's already the main name
         if (contact.name?.toLowerCase().trim() === participantName?.toLowerCase().trim()) {
             log.debug({ event: 'link_participant_skip_name_match' }, 'Name matches contact name, skipping');
             return { linked: false, reason: 'Name matches contact name' };
         }
-        
+
         // Check if alias already exists
         const aliases = contact.aliases || [];
         const normalizedName = participantName.trim();
@@ -1068,10 +1124,10 @@ class StorageCompat {
             log.debug({ event: 'link_participant_skip_alias_exists' }, 'Alias already exists, skipping');
             return { linked: false, reason: 'Alias already exists' };
         }
-        
+
         // Add alias
         const updatedAliases = [...aliases, normalizedName];
-        
+
         if (this._supabase) {
             try {
                 log.debug({ event: 'link_participant_update_aliases' }, 'Updating contact aliases in Supabase');
@@ -1081,13 +1137,13 @@ class StorageCompat {
                 throw e;
             }
         }
-        
+
         // Update cache
         const cacheIdx = this._cache.contacts.findIndex(c => c.id === contactId);
         if (cacheIdx !== -1) {
             this._cache.contacts[cacheIdx].aliases = updatedAliases;
         }
-        
+
         log.debug({ event: 'link_participant_success', participantName, contactId, aliasCount: updatedAliases.length }, 'Linked participant to contact');
         return { linked: true, contactId, contactName: contact.name, alias: normalizedName };
     }
@@ -1098,23 +1154,23 @@ class StorageCompat {
      */
     async unlinkParticipant(participantName) {
         log.debug({ event: 'unlink_participant_start', participantName }, 'unlinkParticipant');
-        
+
         if (!participantName) {
             return { unlinked: false, reason: 'No participant name provided' };
         }
-        
+
         const normalizedName = participantName.trim().toLowerCase();
-        
+
         // Find the contact that has this alias - check cache first
         let contact = this._cache.contacts.find(c => {
             if (c.aliases && Array.isArray(c.aliases)) {
-                return c.aliases.some(alias => 
+                return c.aliases.some(alias =>
                     alias?.toLowerCase().trim() === normalizedName
                 );
             }
             return false;
         });
-        
+
         // If not in cache and we have Supabase, search directly
         if (!contact && this._supabase) {
             log.debug({ event: 'unlink_participant_search' }, 'Alias not found in cache, searching Supabase');
@@ -1125,11 +1181,11 @@ class StorageCompat {
                     .select('*')
                     .eq('project_id', projectId)
                     .is('deleted_at', null);
-                
+
                 if (contacts) {
                     contact = contacts.find(c => {
                         if (c.aliases && Array.isArray(c.aliases)) {
-                            return c.aliases.some(alias => 
+                            return c.aliases.some(alias =>
                                 alias?.toLowerCase().trim() === normalizedName
                             );
                         }
@@ -1140,17 +1196,17 @@ class StorageCompat {
                 log.warn({ event: 'unlink_participant_search_failed', err: e.message }, 'Failed to search contacts in Supabase');
             }
         }
-        
+
         if (!contact) {
             log.debug({ event: 'unlink_participant_not_found' }, 'No linked contact found for alias');
             return { unlinked: false, reason: 'No linked contact found' };
         }
-        
+
         // Remove the alias
         const updatedAliases = (contact.aliases || []).filter(
             a => a?.toLowerCase().trim() !== normalizedName
         );
-        
+
         if (this._supabase) {
             try {
                 log.debug({ event: 'unlink_participant_remove_alias' }, 'Removing alias from contact in Supabase');
@@ -1160,13 +1216,13 @@ class StorageCompat {
                 throw e;
             }
         }
-        
+
         // Update cache
         const cacheIdx = this._cache.contacts.findIndex(c => c.id === contact.id);
         if (cacheIdx !== -1) {
             this._cache.contacts[cacheIdx].aliases = updatedAliases;
         }
-        
+
         log.debug({ event: 'unlink_participant_success', participantName, contactId: contact.id }, 'Unlinked participant from contact');
         return { unlinked: true, contactId: contact.id, contactName: contact.name };
     }
@@ -1177,7 +1233,7 @@ class StorageCompat {
     getUnmatchedParticipants() {
         const people = this._cache.people || [];
         const contacts = this._cache.contacts || [];
-        
+
         // Build a set of all known names (contact names + all aliases)
         const knownNames = new Set();
         for (const c of contacts) {
@@ -1188,15 +1244,15 @@ class StorageCompat {
                 }
             }
         }
-        
+
         log.debug({ event: 'get_unmatched_participants', peopleCount: people.length, contactsCount: contacts.length, knownNamesCount: knownNames.size }, 'getUnmatchedParticipants');
-        
+
         // Filter people not in known names
         const unmatched = people.filter(p => {
             const name = p.name?.toLowerCase().trim();
             return name && !knownNames.has(name);
         });
-        
+
         log.debug({ event: 'get_unmatched_result', unmatchedCount: unmatched.length }, 'Unmatched count');
         return unmatched;
     }
@@ -1212,10 +1268,10 @@ class StorageCompat {
     async updateContact(id, updates) {
         const idx = this._cache.contacts.findIndex(c => c.id === id);
         if (idx === -1) return false;
-        
+
         // Update cache
         this._cache.contacts[idx] = { ...this._cache.contacts[idx], ...updates };
-        
+
         // Persist to Supabase
         if (this._supabase) {
             try {
@@ -1243,7 +1299,7 @@ class StorageCompat {
         const contacts = this._cache.contacts || [];
         const people = this._cache.people || [];
         const teams = this.contacts?.teams || [];
-        
+
         // Count by organization
         const byOrg = {};
         contacts.forEach(c => {
@@ -1275,6 +1331,28 @@ class StorageCompat {
     // NOTE: getUnmatchedParticipants is defined earlier (with alias support)
     // Do not duplicate here
 
+    // NOTE: getUnmatchedParticipants is defined earlier (with alias support)
+    // Do not duplicate here
+
+    /**
+     * Find contact by name or alias
+     */
+    async findContactByNameOrAlias(name) {
+        if (!name) return null;
+
+        if (this._supabase && this._supabase.findContactByNameOrAlias) {
+            return await this._supabase.findContactByNameOrAlias(name);
+        }
+
+        const contacts = this._cache.contacts || [];
+        const normalized = name.toLowerCase().trim();
+
+        return contacts.find(c =>
+            (c.name && c.name.toLowerCase().trim() === normalized) ||
+            (c.aliases && c.aliases.some(a => a.toLowerCase().trim() === normalized))
+        ) || null;
+    }
+
     async findDuplicateContacts() {
         // Use Supabase version if available
         if (this._isSupabaseMode && this._supabase) {
@@ -1285,7 +1363,7 @@ class StorageCompat {
                 // Fall through to local version
             }
         }
-        
+
         // Fallback to local version
         const contacts = this._cache.contacts || [];
         const groups = [];
@@ -1293,13 +1371,13 @@ class StorageCompat {
 
         for (let i = 0; i < contacts.length; i++) {
             if (seen.has(contacts[i].id)) continue;
-            
+
             const name1 = (contacts[i].name || '').toLowerCase().trim();
             const duplicates = [contacts[i]];
 
             for (let j = i + 1; j < contacts.length; j++) {
                 if (seen.has(contacts[j].id)) continue;
-                
+
                 const name2 = (contacts[j].name || '').toLowerCase().trim();
                 // Simple similarity check - same name or one contains the other
                 if (name1 === name2 || name1.includes(name2) || name2.includes(name1)) {
@@ -1320,10 +1398,10 @@ class StorageCompat {
     getContactWithRelationships(id) {
         const contact = this.getContactById(id);
         if (!contact) return null;
-        
+
         // Get relationships from cache or return empty
         const relationships = this.contacts?.relationships || [];
-        const contactRels = relationships.filter(r => 
+        const contactRels = relationships.filter(r =>
             r.fromContactId === id || r.toContactId === id
         );
 
@@ -1346,11 +1424,11 @@ class StorageCompat {
                 throw e;
             }
         }
-        
+
         // Fallback for non-Supabase mode
         if (!this.contacts) this.contacts = { items: [], teams: [], relationships: [] };
         if (!this.contacts.relationships) this.contacts.relationships = [];
-        
+
         const rel = {
             id: `rel-${Date.now()}`,
             from_contact_id: fromId,
@@ -1378,11 +1456,11 @@ class StorageCompat {
                 return false;
             }
         }
-        
+
         // Fallback
         if (!this.contacts?.relationships) return false;
-        
-        const idx = this.contacts.relationships.findIndex(r => 
+
+        const idx = this.contacts.relationships.findIndex(r =>
             r.from_contact_id === fromId && r.to_contact_id === toId && r.relationship_type === type
         );
         if (idx === -1) return false;
@@ -1412,7 +1490,7 @@ class StorageCompat {
             cp => cp.contact_id === contactId && cp.project_id === projectId
         );
         if (existing) return existing;
-        
+
         const link = {
             id: `cp-${Date.now()}`,
             contact_id: contactId,
@@ -1460,21 +1538,21 @@ class StorageCompat {
         if (this._supabase) {
             return await this._supabase.findOrCreateContact(personData);
         }
-        
+
         // Fallback: Simple match by name only
         if (!personData?.name) {
             return { contact: null, action: 'skipped', confidence: 0 };
         }
-        
-        const existingContact = this._cache.contacts?.find(c => 
+
+        const existingContact = this._cache.contacts?.find(c =>
             c.name?.toLowerCase() === personData.name.toLowerCase() ||
             (personData.email && c.email?.toLowerCase() === personData.email.toLowerCase())
         );
-        
+
         if (existingContact) {
             return { contact: existingContact, action: 'matched', confidence: 0.8 };
         }
-        
+
         // Create new contact
         try {
             const newContact = await this.addContact({
@@ -1501,11 +1579,11 @@ class StorageCompat {
         const result = [];
         for (const team of teams) {
             const members = team.members || [];
-            const isMember = members.some(m => 
+            const isMember = members.some(m =>
                 m.contact_id === contactId || m.contactId === contactId || m.contact?.id === contactId
             );
             if (isMember) {
-                const member = members.find(m => 
+                const member = members.find(m =>
                     m.contact_id === contactId || m.contactId === contactId || m.contact?.id === contactId
                 );
                 result.push({
@@ -1550,7 +1628,7 @@ class StorageCompat {
 
     async mergeContacts(contactIds) {
         if (!contactIds || contactIds.length < 2) return null;
-        
+
         // Use Supabase version if available
         if (this._isSupabaseMode && this._supabase) {
             try {
@@ -1560,7 +1638,7 @@ class StorageCompat {
                 throw error;
             }
         }
-        
+
         // Fallback to local version
         const contacts = contactIds.map(id => this.getContactById(id)).filter(Boolean);
         if (contacts.length < 2) return null;
@@ -1643,7 +1721,7 @@ class StorageCompat {
         for (let i = 1; i < lines.length; i++) {
             const values = lines[i].match(/("([^"]|"")*"|[^,]*)/g) || [];
             const contact = {};
-            
+
             headers.forEach((h, idx) => {
                 let val = (values[idx] || '').trim().replace(/^"|"$/g, '').replace(/""/g, '"');
                 if (h === 'tags' && val) {
@@ -1683,13 +1761,13 @@ class StorageCompat {
     async addTeam(team) {
         // Check for duplicate name first
         const existingTeams = await this.getTeams();
-        const duplicate = existingTeams.find(t => 
+        const duplicate = existingTeams.find(t =>
             t.name?.toLowerCase().trim() === team.name?.toLowerCase().trim()
         );
         if (duplicate) {
             throw new Error(`Team "${team.name}" already exists`);
         }
-        
+
         if (this._supabase) {
             try {
                 const result = await this._supabase.addTeam(team);
@@ -1703,7 +1781,7 @@ class StorageCompat {
         // Fallback to memory
         if (!this.contacts) this.contacts = { items: [], teams: [], relationships: [] };
         if (!this.contacts.teams) this.contacts.teams = [];
-        
+
         const newTeam = {
             id: `team-${Date.now()}`,
             name: team.name,
@@ -1760,7 +1838,7 @@ class StorageCompat {
         const idx = this.contacts.teams.findIndex(t => t.id === id);
         if (idx === -1) return false;
         this.contacts.teams.splice(idx, 1);
-        
+
         // Also remove team from all contacts
         for (const contact of this._cache.contacts || []) {
             if (contact.teamId === id) {
@@ -1950,7 +2028,7 @@ class StorageCompat {
     }
 
     // ==================== Save Methods (No-op in Supabase mode) ====================
-    
+
     saveKnowledge() {
         log.debug({ event: 'save_knowledge_noop' }, 'saveKnowledge (no-op in Supabase mode)');
     }
@@ -1993,8 +2071,22 @@ class StorageCompat {
      * Sync people to contacts - stub
      */
     async syncPeopleToContacts() {
-        // No-op - contacts sync is optional feature
+        if (this._supabase && this._supabase.syncPeopleToContacts) {
+            return await this._supabase.syncPeopleToContacts();
+        }
+        // No-op - contacts sync is optional feature in legacy mode
         return { synced: 0 };
+    }
+
+    /**
+     * Track contacts from conversation
+     */
+    async trackContactsFromConversation(conversation) {
+        if (this._supabase && this._supabase.trackContactsFromConversation) {
+            return await this._supabase.trackContactsFromConversation(conversation);
+        }
+        // No-op in legacy mode
+        return;
     }
 
     /**
@@ -2028,7 +2120,7 @@ class StorageCompat {
         if (personId) {
             return this._cache.questions.filter(q => q.assignee === personId || q.createdBy === personId);
         }
-        
+
         // Otherwise, group all questions by person
         const byPerson = {};
         for (const q of this._cache.questions || []) {
@@ -2048,7 +2140,7 @@ class StorageCompat {
         if (category) {
             return this._cache.risks.filter(r => r.category === category);
         }
-        
+
         // Group risks by impact for the UI
         const risks = this._cache.risks || [];
         const grouped = {
@@ -2056,7 +2148,7 @@ class StorageCompat {
             'Medium Impact': [],
             'Low Impact': []
         };
-        
+
         risks.forEach(r => {
             const impact = (r.impact || 'medium').toLowerCase();
             if (impact === 'high' || impact === 'critical') {
@@ -2067,12 +2159,12 @@ class StorageCompat {
                 grouped['Low Impact'].push(r);
             }
         });
-        
+
         // Remove empty categories
         Object.keys(grouped).forEach(key => {
             if (grouped[key].length === 0) delete grouped[key];
         });
-        
+
         return grouped;
     }
 
@@ -2086,20 +2178,20 @@ class StorageCompat {
         const knowledgePeople = this._cache.people || [];
         const knowledgeRelationships = this._cache.relationships || [];
         const contactRelationships = this._cache.contactRelationships || [];
-        
+
         // Create unified node map (merge contacts + knowledge people)
         const nameToNode = new Map(); // name.toLowerCase() -> node (for merging)
         const idToNode = new Map(); // id -> node
         const nodes = []; // Final array of unique nodes
-        
+
         // First, add all contacts (they have richer data)
         for (const contact of contacts) {
             const team = teams.find(t => t.id === contact.team_id || t.id === contact.teamId);
             const nodeKey = contact.name.toLowerCase().trim();
-            
+
             // Skip if already processed (avoid duplicates)
             if (nameToNode.has(nodeKey)) continue;
-            
+
             const node = {
                 id: `contact_${contact.id}`,
                 contactId: contact.id,
@@ -2117,12 +2209,12 @@ class StorageCompat {
                 font: { color: '#ffffff' },
                 color: team ? { background: team.color, border: team.color } : { background: '#6366f1', border: '#4f46e5' }
             };
-            
+
             // Add to collections
             nodes.push(node);
             nameToNode.set(nodeKey, node);
             idToNode.set(contact.id, node);
-            
+
             // Also map aliases
             const aliases = contact.aliases || [];
             for (const alias of aliases) {
@@ -2132,12 +2224,12 @@ class StorageCompat {
                 }
             }
         }
-        
+
         // Then add knowledge base people (if not already from contacts)
         for (const person of knowledgePeople) {
             const nameKey = (person.name || '').toLowerCase().trim();
             if (!nameKey) continue;
-            
+
             if (!nameToNode.has(nameKey)) {
                 const node = {
                     id: person.id,
@@ -2160,26 +2252,26 @@ class StorageCompat {
                 idToNode.set(person.id, existingNode);
             }
         }
-        
+
         // Build edges
         const edges = [];
         const edgeSet = new Set(); // Prevent duplicate edges
-        
+
         // Add edges from contact relationships (from separate table)
         for (const rel of contactRelationships) {
             const fromContactId = rel.from_contact_id;
             const toContactId = rel.to_contact_id;
             const relType = rel.relationship_type || rel.type || 'works_with';
-            
+
             const fromNode = idToNode.get(fromContactId);
             const toNode = idToNode.get(toContactId);
-            
+
             if (!fromNode || !toNode) continue;
-            
+
             const edgeKey = `${fromNode.id}_${toNode.id}_${relType}`;
             if (edgeSet.has(edgeKey)) continue;
             edgeSet.add(edgeKey);
-            
+
             const edgeStyle = this._getRelationshipStyle(relType);
             edges.push({
                 from: fromNode.id,
@@ -2189,23 +2281,23 @@ class StorageCompat {
                 source: 'contact'
             });
         }
-        
+
         // Also check for embedded relationships in contacts (legacy support)
         for (const contact of contacts) {
             const fromNode = idToNode.get(contact.id);
             if (!fromNode) continue;
-            
+
             const relationships = contact.relationships || [];
             for (const rel of relationships) {
                 const toContactId = rel.contact_id || rel.contactId || rel.to_contact_id;
                 const toNode = idToNode.get(toContactId);
                 if (!toNode) continue;
-                
+
                 const relType = rel.relationship_type || rel.type || 'works_with';
                 const edgeKey = `${fromNode.id}_${toNode.id}_${relType}`;
                 if (edgeSet.has(edgeKey)) continue;
                 edgeSet.add(edgeKey);
-                
+
                 const edgeStyle = this._getRelationshipStyle(relType);
                 edges.push({
                     from: fromNode.id,
@@ -2216,23 +2308,23 @@ class StorageCompat {
                 });
             }
         }
-        
+
         // Add edges from knowledge relationships
         for (const rel of knowledgeRelationships) {
             // Support both old format (from/to) and new format (from_name/to_name)
             const fromKey = (rel.from_name || rel.from || rel.from_entity || '').toLowerCase().trim();
             const toKey = (rel.to_name || rel.to || rel.to_entity || '').toLowerCase().trim();
             const relType = rel.relationship_type || rel.type || 'works_with';
-            
+
             const fromNode = nameToNode.get(fromKey);
             const toNode = nameToNode.get(toKey);
-            
+
             if (!fromNode || !toNode) continue;
-            
+
             const edgeKey = `${fromNode.id}_${toNode.id}_${relType}`;
             if (edgeSet.has(edgeKey)) continue;
             edgeSet.add(edgeKey);
-            
+
             const edgeStyle = this._getRelationshipStyle(relType);
             edges.push({
                 from: fromNode.id,
@@ -2242,7 +2334,7 @@ class StorageCompat {
                 source: 'knowledge'
             });
         }
-        
+
         // Build team groups for legend
         const teamGroups = teams.map(t => ({
             id: `team_${t.id}`,
@@ -2250,21 +2342,21 @@ class StorageCompat {
             color: t.color,
             memberCount: contacts.filter(c => c.team_id === t.id || c.teamId === t.id).length
         }));
-        
-        return { 
-            nodes, 
-            edges, 
+
+        return {
+            nodes,
+            edges,
             teams: teamGroups,
-            stats: { 
-                people: nodes.length, 
+            stats: {
+                people: nodes.length,
                 relationships: edges.length,
                 contacts: contacts.length,
                 knowledgePeople: knowledgePeople.length,
                 teams: teams.length
-            } 
+            }
         };
     }
-    
+
     /**
      * Build rich tooltip for org chart node
      * @private
@@ -2278,7 +2370,7 @@ class StorageCompat {
         if (contact.phone) title += `\n📞 ${contact.phone}`;
         return title;
     }
-    
+
     /**
      * Get edge style for relationship type
      * @private
@@ -2368,33 +2460,33 @@ class StorageCompat {
     getFileLogs(limit = 50) {
         // Return documents as file logs (documents are the file logs in Supabase mode)
         const docs = this._cache.documents || [];
-        
+
         // Sort by processed_at or created_at descending
         const sorted = [...docs].sort((a, b) => {
             const dateA = new Date(a.processed_at || a.created_at || 0);
             const dateB = new Date(b.processed_at || b.created_at || 0);
             return dateB - dateA;
         });
-        
+
         // Transform to file log format expected by frontend
         return sorted.slice(0, limit).map(doc => ({
             // IDs
             id: doc.id,
             document_id: doc.id,
-            
+
             // Names
             filename: doc.filename || doc.name || 'Unknown',
             ai_title: doc.title || doc.ai_title || null,
             ai_summary: doc.summary || doc.ai_summary || null,
-            
+
             // Timestamps
             completed_at: doc.processed_at || doc.created_at,
             created_at: doc.created_at,
-            
+
             // Status and method (database uses 'completed', frontend expects 'success')
             status: (doc.status === 'processed' || doc.status === 'completed') ? 'success' : (doc.status || 'pending'),
             method: doc.method || doc.source || 'document',
-            
+
             // Extracted counts (from stats or individual fields)
             facts_extracted: doc.facts_count || doc.stats?.facts || 0,
             decisions_extracted: doc.decisions_count || doc.stats?.decisions || 0,
@@ -2402,7 +2494,7 @@ class StorageCompat {
             risks_extracted: doc.risks_count || doc.stats?.risks || 0,
             actions_extracted: doc.actions_count || doc.stats?.actions || 0,
             people_extracted: doc.people_count || doc.stats?.people || 0,
-            
+
             // Additional metadata
             file_size: doc.file_size || 0,
             processing_time: doc.processing_time || 0,
@@ -2425,17 +2517,17 @@ class StorageCompat {
 
         try {
             const SupabaseGraphProvider = require('./graph/providers/supabase');
-            
+
             const graphName = `godmode_${this.currentProjectId || 'default'}`;
-            
+
             this.graphProvider = new SupabaseGraphProvider({
                 supabase: this._supabase.supabase,
                 graphName: graphName,
                 projectId: this.currentProjectId
             });
-            
+
             const connectResult = await this.graphProvider.connect();
-            
+
             if (!connectResult.ok) {
                 log.warn({ event: 'graph_connect_failed', error: connectResult.error }, 'Failed to connect to Supabase graph');
                 this.graphProvider = null;
@@ -2450,12 +2542,7 @@ class StorageCompat {
         }
     }
 
-    /**
-     * Get graph provider instance
-     */
-    getGraphProvider() {
-        return this.graphProvider || null;
-    }
+
 
     /**
      * Sync graphs with Supabase projects
@@ -2466,7 +2553,7 @@ class StorageCompat {
      */
     async syncGraphs(options = {}) {
         const { dryRun = false } = options;
-        
+
         if (!this.graphProvider) {
             return { ok: false, error: 'Graph provider not available' };
         }
@@ -2480,7 +2567,7 @@ class StorageCompat {
                 return { ok: false, error: graphsResult.error || 'Failed to list graphs' };
             }
             const allGraphs = graphsResult.graphs || [];
-            
+
             // 2. Get valid project IDs
             const projects = await this.listProjects();
             const validProjectIds = (projects || []).map(p => p.id);
@@ -2512,7 +2599,7 @@ class StorageCompat {
             return { ok: false, error: error.message };
         }
     }
-    
+
     // Alias for backward compatibility
     async syncFalkorDBGraphs(options = {}) {
         return this.syncGraphs(options);
@@ -2549,7 +2636,7 @@ class StorageCompat {
 
         try {
             const synced = { nodes: 0, relationships: 0, contacts: 0, teams: 0 };
-            
+
             // 1. Sync GraphRAG data (facts, decisions, risks, etc)
             const GraphRAGEngine = require('./graphrag/GraphRAGEngine');
             const graphRAG = new GraphRAGEngine({
@@ -2557,17 +2644,17 @@ class StorageCompat {
                 graphProvider: this.graphProvider,
                 projectId: this.currentProjectId
             });
-            
+
             const graphResult = await graphRAG.syncToGraph({
                 useOntology: options.useOntology !== false,
                 projectId: this.currentProjectId
             });
-            
+
             if (graphResult.synced) {
                 synced.nodes += graphResult.synced.nodes || 0;
                 synced.relationships += graphResult.synced.relationships || 0;
             }
-            
+
             // 2. Sync Contacts directly to graph
             const contacts = await this.getContacts?.() || this.contacts?.items || [];
             for (const contact of contacts) {
@@ -2590,7 +2677,7 @@ class StorageCompat {
                     // Ignore individual failures
                 }
             }
-            
+
             // 3. Sync Teams directly to graph
             const teams = await this.getTeams?.() || [];
             for (const team of teams) {
@@ -2608,7 +2695,7 @@ class StorageCompat {
                     // Ignore individual failures
                 }
             }
-            
+
             // 4. Sync Contact-Team relationships (MEMBER_OF)
             for (const contact of contacts) {
                 // Get team memberships
@@ -2621,7 +2708,7 @@ class StorageCompat {
                 } else if (contact.teamId) {
                     teamIds.push(contact.teamId);
                 }
-                
+
                 for (const teamId of teamIds) {
                     try {
                         await this.graphProvider.createRelationship(
@@ -2633,7 +2720,7 @@ class StorageCompat {
                     }
                 }
             }
-            
+
             // 5. Sync Contact-Contact relationships from Supabase
             try {
                 const contactRelations = await this.getContactRelationships?.() || this._cache?.contactRelationships || [];
@@ -2642,7 +2729,7 @@ class StorageCompat {
                         const relType = (rel.relationship_type || rel.type || 'KNOWS').toUpperCase().replace(/\s+/g, '_');
                         const fromId = rel.from_contact_id || rel.from || rel.fromId;
                         const toId = rel.to_contact_id || rel.to || rel.toId;
-                        
+
                         if (fromId && toId) {
                             await this.graphProvider.createRelationship(
                                 fromId, toId, relType,
@@ -2657,7 +2744,7 @@ class StorageCompat {
             } catch (e) {
                 log.warn({ event: 'sync_contact_relationships_warning', reason: e.message }, 'Contact relationships sync warning');
             }
-            
+
             // 6. Sync Facts to graph (use prefixed IDs for consistency)
             const facts = this.knowledge?.facts || [];
             for (const fact of facts) {
@@ -2675,7 +2762,7 @@ class StorageCompat {
                     // Ignore
                 }
             }
-            
+
             log.info({ event: 'sync_to_graph_done', nodes: synced.nodes, relationships: synced.relationships }, 'syncToGraph completed');
             return { ok: true, synced };
         } catch (error) {
@@ -2740,7 +2827,7 @@ class StorageCompat {
      */
     getOverdueActions() {
         const now = new Date();
-        return this._cache.actions.filter(a => 
+        return this._cache.actions.filter(a =>
             a.dueDate && new Date(a.dueDate) < now && a.status !== 'completed'
         );
     }
@@ -2751,19 +2838,19 @@ class StorageCompat {
     searchKnowledge(query) {
         const q = query.toLowerCase();
         const results = [];
-        
+
         this._cache.facts.forEach(f => {
             if (f.content?.toLowerCase().includes(q)) {
                 results.push({ type: 'fact', item: f });
             }
         });
-        
+
         this._cache.decisions.forEach(d => {
             if (d.content?.toLowerCase().includes(q) || d.title?.toLowerCase().includes(q)) {
                 results.push({ type: 'decision', item: d });
             }
         });
-        
+
         return results;
     }
 
@@ -2798,10 +2885,10 @@ class StorageCompat {
                 return (history || []).map(h => {
                     // Extract details - could be JSON object or null
                     const details = h.details || {};
-                    
+
                     // Get title from joined documents table (prefer AI title over filename)
                     const docTitle = h.documents?.title || h.documents?.filename || details.title || details.filename || null;
-                    
+
                     return {
                         timestamp: h.created_at,
                         action: h.action,
@@ -2927,7 +3014,7 @@ class StorageCompat {
         if (this._projectsCache) {
             return this._projectsCache;
         }
-        
+
         try {
             const projectsPath = path.join(this.dataDir, 'projects.json');
             if (fs.existsSync(projectsPath)) {
@@ -2963,6 +3050,18 @@ class StorageCompat {
      */
     getConversations() {
         return this._cache.conversations || [];
+    }
+
+    /**
+     * Get contact mentions
+     * @param {string} contactId
+     * @returns {Promise<Array>}
+     */
+    async getContactMentions(contactId) {
+        if (this._isSupabaseMode && this._supabase) {
+            return await this._supabase.getContactMentions(contactId);
+        }
+        return [];
     }
 
     // ==================== Chat Sessions (Main Chat) ====================
@@ -3124,11 +3223,11 @@ class StorageCompat {
         for (const contact of contacts) {
             const name = contact.name;
             if (!name) continue;
-            
+
             // Check if contact's role/organization matches the question category for bonus relevance
             const roleText = `${contact.role || ''} ${contact.organization || ''} ${(contact.tags || []).join(' ')}`.toLowerCase();
             let relevance = 1; // Base relevance for all contacts
-            
+
             // Category-specific bonus
             if (category === 'Legal' && (roleText.includes('legal') || roleText.includes('law') || roleText.includes('compliance'))) {
                 relevance = 5;
@@ -3146,7 +3245,7 @@ class StorageCompat {
                     relevance = 2; // All contacts get base relevance for General
                 }
             }
-            
+
             // Always add contacts to the map
             if (!expertiseMap[name]) {
                 expertiseMap[name] = { total: relevance, byCategory: {}, resolved: relevance, isContact: true };
@@ -3159,16 +3258,16 @@ class StorageCompat {
         for (const person of people) {
             const name = person.name;
             if (!name) continue;
-            
+
             const roleText = `${person.role || ''} ${person.organization || ''}`.toLowerCase();
             let relevance = 0;
-            
+
             if (category === 'Legal' && (roleText.includes('legal') || roleText.includes('law'))) {
                 relevance = 2;
             } else if (category === 'Technical' && (roleText.includes('tech') || roleText.includes('engineer'))) {
                 relevance = 2;
             }
-            
+
             if (relevance > 0) {
                 if (!expertiseMap[name]) {
                     expertiseMap[name] = { total: relevance, byCategory: {}, resolved: relevance, isContact: false };
@@ -3198,7 +3297,7 @@ class StorageCompat {
                 } else if (stats.total > 0) {
                     reason = `Active participant (${stats.total} items)`;
                 }
-                
+
                 suggestions.push({
                     person,
                     score: Math.max(score, categoryCount > 0 ? 30 : 10),
@@ -3242,15 +3341,15 @@ class StorageCompat {
         if (this._isSupabaseMode && this._supabase) {
             try {
                 const result = await this._supabase.updateProject(projectId, updates);
-                
+
                 // Update local cache if this is the current project
                 if (projectId === this.currentProjectId) {
                     if (updates.name) this.currentProjectName = updates.name;
                 }
-                
+
                 // Invalidate projects cache
                 this._projectsCache = null;
-                
+
                 return {
                     id: result.id,
                     name: result.name,
@@ -3263,7 +3362,7 @@ class StorageCompat {
                 throw e;
             }
         }
-        
+
         // Fallback to local
         try {
             const projectsPath = path.join(path.dirname(this.dataDir), 'projects.json');
@@ -3288,12 +3387,12 @@ class StorageCompat {
         if (this.currentProjectId) {
             return this.currentProjectId;
         }
-        
+
         // Try from cache
         if (this._projectsCache && this._projectsCache.length > 0) {
             return this._projectsCache[0].id;
         }
-        
+
         return null;
     }
 
@@ -3321,7 +3420,7 @@ class StorageCompat {
                 log.warn({ event: 'get_member_role_error', reason: e.message }, 'getMemberRole error');
             }
         }
-        
+
         // Fallback: get from project (legacy)
         const project = await this.getProject(pid);
         return {
@@ -3352,17 +3451,17 @@ class StorageCompat {
                         .single();
                     uid = owner?.user_id;
                 }
-                
+
                 if (!uid) {
                     throw new Error('No owner found for project');
                 }
-                
+
                 return await this._supabase.updateMemberRole(pid, updates, uid);
             } catch (e) {
                 log.warn({ event: 'update_member_role_error', reason: e.message }, 'updateMemberRole error');
             }
         }
-        
+
         // Fallback: update project (legacy)
         return this.updateProject(pid, updates);
     }
@@ -3378,35 +3477,35 @@ class StorageCompat {
                     .from('project_members')
                     .delete()
                     .eq('project_id', projectId);
-                
+
                 if (error) log.warn({ event: 'delete_project_members_error', reason: error.message }, 'Error deleting project members');
-                
+
                 const { error: projectError } = await this._supabase.supabase
                     .from('projects')
                     .delete()
                     .eq('id', projectId);
-                
+
                 if (projectError) {
                     log.warn({ event: 'delete_project_error', reason: projectError.message }, 'Error deleting project');
                     return false;
                 }
-                
+
                 // Invalidate cache
                 this._projectsCache = null;
-                
+
                 // If this was the current project, clear it
                 if (projectId === this.currentProjectId) {
                     this.currentProjectId = null;
                     this.currentProjectName = null;
                 }
-                
+
                 return true;
             } catch (e) {
                 log.warn({ event: 'delete_project_error', reason: e.message }, 'deleteProject error');
                 return false;
             }
         }
-        
+
         // Fallback to local
         try {
             const projectsPath = path.join(path.dirname(this.dataDir), 'projects.json');
@@ -3432,29 +3531,29 @@ class StorageCompat {
      * @param {string} userRole
      * @param {string} [companyId] - optional; used when creating via Supabase (user flow uses createProject with auth)
      */
-    async createProject(name, userRole = '', companyId = null) {
+    async createProject(name, userRole = '', companyId = null, ownerId = null, accessToken = null) {
         if (this._isSupabaseMode && this._supabase) {
             try {
                 // Try to create via Supabase (createProjectWithServiceKey resolves company for system user)
-                const project = await this._supabase.createProject(name, userRole, companyId);
-                
+                const project = await this._supabase.createProject(name, userRole, companyId, ownerId, accessToken);
+
                 // Update current project
                 this.currentProjectId = project.id;
                 this.currentProjectName = project.name;
-                
+
                 // Create local directories
                 const projectDir = path.join(path.dirname(this.dataDir), project.id);
                 fs.mkdirSync(path.join(projectDir, 'files'), { recursive: true });
                 fs.mkdirSync(path.join(projectDir, 'archived'), { recursive: true });
                 fs.mkdirSync(path.join(projectDir, 'temp'), { recursive: true });
-                
+
                 return project;
             } catch (e) {
                 log.warn({ event: 'create_project_supabase_failed', reason: e.message }, 'Supabase createProject failed');
                 throw e;
             }
         }
-        
+
         // Fallback to local creation
         const projectId = this._generateId();
         const project = {
@@ -3464,7 +3563,7 @@ class StorageCompat {
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
         };
-        
+
         // Save to local projects.json
         const projectsPath = path.join(path.dirname(this.dataDir), 'projects.json');
         let data = { projects: [], current: null };
@@ -3472,19 +3571,19 @@ class StorageCompat {
             if (fs.existsSync(projectsPath)) {
                 data = JSON.parse(fs.readFileSync(projectsPath, 'utf8'));
             }
-        } catch (e) {}
-        
+        } catch (e) { }
+
         data.projects.push(project);
         data.current = projectId;
         fs.writeFileSync(projectsPath, JSON.stringify(data, null, 2));
-        
+
         // Create directories
         const projectDir = path.join(path.dirname(this.dataDir), projectId);
         fs.mkdirSync(path.join(projectDir, 'files'), { recursive: true });
-        
+
         this.currentProjectId = projectId;
         this.currentProjectName = project.name;
-        
+
         return project;
     }
 
@@ -3757,6 +3856,37 @@ class StorageCompat {
     }
 
     /**
+     * Get all unique contact roles
+     * @returns {Promise<Array>}
+     */
+    async getContactRoles() {
+        if (this._supabase) {
+            const pid = this.currentProjectId;
+            if (!pid) return [];
+
+            const { data, error } = await this.supabase
+                .from('contacts')
+                .select('role')
+                .eq('project_id', pid)
+                .not('role', 'is', null);
+
+            if (error) {
+                log.warn({ event: 'storage_get_roles_error', reason: error.message }, 'Error getting roles');
+                return [];
+            }
+
+            // Get unique roles
+            const roles = [...new Set(data.map(c => c.role).filter(r => r && r.trim().length > 0))];
+            return roles.sort().map(r => ({ id: r, name: r }));
+        }
+
+        // Fallback for local storage
+        const contacts = this._cache.contacts || [];
+        const roles = [...new Set(contacts.map(c => c.role).filter(r => r && r.trim().length > 0))];
+        return roles.sort().map(r => ({ id: r, name: r }));
+    }
+
+    /**
      * Get ontology changes history
      * @param {Object} options - Filter options
      * @returns {Promise<Array>}
@@ -4004,7 +4134,7 @@ class StorageCompat {
                     .from('embeddings')
                     .select('*', { count: 'exact', head: true })
                     .eq('project_id', this.currentProjectId);
-                
+
                 const embeddingCount = error ? 0 : (count ?? 0);
                 return {
                     indexed: embeddingCount > 0,
@@ -4159,13 +4289,26 @@ class StorageCompat {
             }
             return;
         }
-        const LegacyStorage = require('../storage');
+        const LegacyStorage = require('./storage');
         const legacy = new LegacyStorage(this.dataDir);
         legacy.loadProjects();
         if (this.currentProjectId) {
             legacy.switchProject(this.currentProjectId);
         }
         legacy.reset();
+    }
+
+    /**
+     * Close storage connection
+     */
+    close() {
+        if (this._isSupabaseMode && this._supabase && typeof this._supabase.close === 'function') {
+            try {
+                this._supabase.close();
+            } catch (e) {
+                log.warn({ event: 'storage_close_error', err: e.message }, 'Error closing supabase storage');
+            }
+        }
     }
 }
 
@@ -4175,7 +4318,7 @@ class StorageCompat {
  */
 async function createCompatStorage(dataDir) {
     let supabaseStorage = null;
-    
+
     try {
         // Try to initialize Supabase storage
         if (supabaseHelper && process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY) {
@@ -4190,10 +4333,10 @@ async function createCompatStorage(dataDir) {
     } catch (e) {
         log.warn({ event: 'storage_supabase_unavailable', err: e.message }, 'Supabase not available');
     }
-    
+
     const compat = new StorageCompat(dataDir, supabaseStorage);
     await compat.init();
-    
+
     return compat;
 }
 
@@ -4203,7 +4346,7 @@ async function createCompatStorage(dataDir) {
  */
 function createSyncCompatStorage(dataDir) {
     let supabaseStorage = null;
-    
+
     try {
         if (supabaseHelper && process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY) {
             if (!supabaseHelper.isStorageInitialized()) {
@@ -4216,7 +4359,7 @@ function createSyncCompatStorage(dataDir) {
     } catch (e) {
         // Ignore - will use local storage fallback
     }
-    
+
     return new StorageCompat(dataDir, supabaseStorage);
 }
 

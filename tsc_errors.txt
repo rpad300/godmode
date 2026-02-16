@@ -1,0 +1,63 @@
+src/frontend/components/AdminPanel.ts(901,26): error TS2339: Property 'config' does not exist on type 'ApiResponse<{ ok: boolean; config: { enabled: boolean; access: string; }; }>'.
+src/frontend/components/AdminPanel.ts(902,26): error TS2339: Property 'config' does not exist on type 'ApiResponse<{ ok: boolean; config: { enabled: boolean; access: string; }; }>'.
+src/frontend/components/AdminPanel.ts(948,26): error TS2339: Property 'enabled' does not exist on type 'ApiResponse<GoogleDriveState>'.
+src/frontend/components/AdminPanel.ts(949,31): error TS2339: Property 'rootFolderId' does not exist on type 'ApiResponse<GoogleDriveState>'.
+src/frontend/components/AdminPanel.ts(950,39): error TS2339: Property 'hasSystemCredentials' does not exist on type 'ApiResponse<GoogleDriveState>'.
+src/frontend/components/AdminPanel.ts(951,33): error TS2339: Property 'bootstrappedAt' does not exist on type 'ApiResponse<GoogleDriveState>'.
+src/frontend/components/AdminPanel.ts(3171,28): error TS2339: Property 'message' does not exist on type 'ApiResponse<{ success: boolean; message?: string | undefined; projectsCount?: number | undefined; }>'.
+src/frontend/components/AdminPanel.ts(3171,67): error TS2339: Property 'projectsCount' does not exist on type 'ApiResponse<{ success: boolean; message?: string | undefined; projectsCount?: number | undefined; }>'.
+src/frontend/components/Chat.ts(192,9): error TS2698: Spread types may only be created from object types.
+src/frontend/components/Chat.ts(193,9): error TS2698: Spread types may only be created from object types.
+src/frontend/components/Chat.ts(342,44): error TS2345: Argument of type '(contextContactId?: string | null | undefined) => Promise<void>' is not assignable to parameter of type '(e: PointerEvent) => void'.
+  Types of parameters 'contextContactId' and 'e' are incompatible.
+    Type 'PointerEvent' is not assignable to type 'string'.
+src/frontend/components/CostsDashboard.ts(63,8): error TS2345: Argument of type 'Element' is not assignable to parameter of type 'Document | HTMLElement | Window'.
+  Type 'Element' is not assignable to type 'HTMLElement | Window'.
+    Type 'Element' is missing the following properties from type 'HTMLElement': accessKey, accessKeyLabel, autocapitalize, autocorrect, and 129 more.
+src/frontend/components/CostsDashboard.ts(68,8): error TS2345: Argument of type 'Element' is not assignable to parameter of type 'Document | HTMLElement | Window'.
+  Type 'Element' is not assignable to type 'HTMLElement | Window'.
+    Type 'Element' is missing the following properties from type 'HTMLElement': accessKey, accessKeyLabel, autocapitalize, autocorrect, and 129 more.
+src/frontend/components/CostsDashboard.ts(78,8): error TS2345: Argument of type 'Element' is not assignable to parameter of type 'Document | HTMLElement | Window'.
+  Type 'Element' is not assignable to type 'HTMLElement | Window'.
+    Type 'Element' is missing the following properties from type 'HTMLElement': accessKey, accessKeyLabel, autocapitalize, autocorrect, and 129 more.
+src/frontend/components/decisions/DecisionDetailView.ts(944,20): error TS2339: Property 'getActions' does not exist on type '{ getAll: (status?: string | undefined, sprintId?: string | undefined, decisionId?: string | null | undefined) => Promise<Action[]>; get: (id: string | number) => Promise<...>; ... 15 more ...; getSimilar: (id: string | number) => Promise<...>; }'.
+src/frontend/components/decisions/DecisionDetailView.ts(944,80): error TS7006: Parameter 'actions' implicitly has an 'any' type.
+src/frontend/components/decisions/DecisionDetailView.ts(950,15): error TS7006: Parameter 'a' implicitly has an 'any' type.
+src/frontend/components/decisions/DecisionDetailView.ts(963,42): error TS7006: Parameter 'a' implicitly has an 'any' type.
+src/frontend/components/DocumentsPanel.ts(947,10): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(type: keyof ElementEventMap, listener: (this: Element, ev: Event) => any, options?: boolean | AddEventListenerOptions | undefined): void', gave the following error.
+    Argument of type '"keydown"' is not assignable to parameter of type 'keyof ElementEventMap'.
+  Overload 2 of 2, '(type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions | undefined): void', gave the following error.
+    Argument of type '(e: KeyboardEvent) => void' is not assignable to parameter of type 'EventListenerOrEventListenerObject'.
+      Type '(e: KeyboardEvent) => void' is not assignable to type 'EventListener'.
+        Types of parameters 'e' and 'evt' are incompatible.
+          Type 'Event' is missing the following properties from type 'KeyboardEvent': altKey, charCode, code, ctrlKey, and 17 more.
+src/frontend/components/DocumentsPanel.ts(1203,9): error TS2353: Object literal may only specify known properties, and 'responseType' does not exist in type 'RequestInit'.
+src/frontend/components/graph/GraphCanvas.ts(553,103): error TS2339: Property 'substring' does not exist on type '{}'.
+src/frontend/components/graph/GraphVisualization.ts(286,17): error TS2304: Cannot find name 'fetchWithProject'.
+src/frontend/components/graph/OntologyViewer.ts(612,14): error TS2339: Property 'examples' does not exist on type 'OntologyEntityType'.
+src/frontend/components/graph/OntologyViewer.ts(612,33): error TS2339: Property 'examples' does not exist on type 'OntologyEntityType'.
+src/frontend/components/graph/OntologyViewer.ts(616,20): error TS2339: Property 'examples' does not exist on type 'OntologyEntityType'.
+src/frontend/components/graph/OntologyViewer.ts(616,33): error TS7006: Parameter 'ex' implicitly has an 'any' type.
+src/frontend/components/graph/OntologyViewer.ts(721,70): error TS2352: Conversion of type 'OntologyEntityType' to type 'Record<string, unknown>' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Index signature for type 'string' is missing in type 'OntologyEntityType'.
+src/frontend/components/graph/OntologyViewer.ts(750,22): error TS2352: Conversion of type 'OntologyEntityType' to type 'Record<string, unknown>' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Index signature for type 'string' is missing in type 'OntologyEntityType'.
+src/frontend/components/graph/OntologyViewer.ts(765,19): error TS2352: Conversion of type 'OntologyRelationType' to type 'Record<string, unknown>' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Index signature for type 'string' is missing in type 'OntologyRelationType'.
+src/frontend/components/modals/ActionModal.ts(43,49): error TS2322: Type '(string | { text: string; done?: boolean | undefined; })[]' is not assignable to type 'string[]'.
+  Type 'string | { text: string; done?: boolean | undefined; }' is not assignable to type 'string'.
+    Type '{ text: string; done?: boolean | undefined; }' is not assignable to type 'string'.
+src/frontend/components/modals/ActionModal.ts(202,138): error TS18048: 'action' is possibly 'undefined'.
+src/frontend/components/modals/CompaniesModal.ts(92,74): error TS2322: Type 'string' is not assignable to type 'CSSStyleDeclaration'.
+src/frontend/components/modals/DocumentPreviewModal.ts(892,26): error TS2339: Property 'content' does not exist on type '{ document?: { content?: string | undefined; } | undefined; } | { content?: string | undefined; }'.
+  Property 'content' does not exist on type '{ document?: { content?: string | undefined; } | undefined; }'.
+src/frontend/components/modals/DocumentPreviewModal.ts(1569,17): error TS18046: 'response.data' is of type 'unknown'.
+src/frontend/components/modals/DocumentPreviewModal.ts(1574,27): error TS18046: 'response.data' is of type 'unknown'.
+src/frontend/components/modals/DocumentPreviewModal.ts(2884,13): error TS2304: Cannot find name 'fetchWithProject'.
+src/frontend/components/modals/KrispManager.ts(68,3): error TS2739: Type '{ activeTab: TabId; transcripts: never[]; quarantine: never[]; mappings: never[]; loading: false; selectedTranscript: null; mcpMeetings: never[]; importedIds: Set<string>; selectedMeetings: Set<...>; importFilters: { ...; }; }' is missing the following properties from type 'KrispManagerState': projects, selectedProjectId
+src/frontend/components/modals/KrispManager.ts(1438,5): error TS2322: Type '{ meeting_id: string; name: string; date: string; speakers: string[]; attendees: string[]; meeting_notes: { key_points: string[]; action_items: unknown[]; }; }[]' is not assignable to type 'McpMeeting[]'.
+  Type '{ meeting_id: string; name: string; date: string; speakers: string[]; attendees: string[]; meeting_notes: { key_points: string[]; action_items: unknown[]; }; }' is not assignable to type 'McpMeeting'.
+    The types of 'meeting_notes.action_items' are incompatible between these types.
+      Type 'unknown[]' is not assignable to type 'string[]'.
+        Type 'unknown' is not assignable to type 'string'.

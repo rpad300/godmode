@@ -1,0 +1,88 @@
+/* View Transitions API Animations */
+
+/* Default: Cross-fade */
+::view-transition-old(root),
+::view-transition-new(root) {
+    animation-duration: 0.3s;
+    animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Slide Effect (Optional class to be toggled on root) */
+.vt-slide::view-transition-old(root) {
+    animation-name: slide-out-left;
+}
+
+.vt-slide::view-transition-new(root) {
+    animation-name: slide-in-right;
+}
+
+/* Back navigation slide (Reverse) */
+.vt-slide-back::view-transition-old(root) {
+    animation-name: slide-out-right;
+    mix-blend-mode: normal;
+}
+
+.vt-slide-back::view-transition-new(root) {
+    animation-name: slide-in-left;
+    mix-blend-mode: normal;
+}
+
+/* Keyframes */
+@keyframes slide-out-left {
+    from {
+        transform: translateX(0);
+        opacity: 1;
+    }
+
+    to {
+        transform: translateX(-20%);
+        opacity: 0;
+    }
+}
+
+@keyframes slide-in-right {
+    from {
+        transform: translateX(20%);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+@keyframes slide-out-right {
+    from {
+        transform: translateX(0);
+        opacity: 1;
+    }
+
+    to {
+        transform: translateX(20%);
+        opacity: 0;
+    }
+}
+
+@keyframes slide-in-left {
+    from {
+        transform: translateX(-20%);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+/* Reduced Motion Preference */
+@media (prefers-reduced-motion: reduce) {
+
+    ::view-transition-old(root),
+    ::view-transition-new(root) {
+        animation: none;
+        mix-blend-mode: normal;
+        display: none;
+    }
+}

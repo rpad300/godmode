@@ -11,6 +11,10 @@
 const { parseBody, parseUrl } = require('../../server/request');
 const { getLogger } = require('../../server/requestContext');
 const { jsonResponse } = require('../../server/response');
+const os = require('os');
+const { exec } = require('child_process');
+const util = require('util');
+const execAsync = util.promisify(exec);
 
 async function requireSuperAdmin(supabase, req, res) {
     const authResult = await supabase.auth.verifyRequest(req);
@@ -70,6 +74,106 @@ async function handleSystemAdmin(ctx) {
         return true;
     }
 
+    // GET /api/system/stats
+    if (pathname === '/api/system/stats' && req.method === 'GET') {
+        if (!supabase || !supabase.isConfigured()) { jsonResponse(res, { error: 'Database not configured' }, 503); return true; }
+        const authResult = await requireSuperAdmin(supabase, req, res);
+        if (!authResult) return true;
+
+        try {
+            // Memory Usage
+            const totalMem = os.totalmem();
+            const freeMem = os.freemem();
+            const usedMem = totalMem - freeMem;
+            const memUsage = Math.round((usedMem / totalMem) * 100);
+
+            // CPU Usage (Windows specific method via PowerShell, fallback to os.loadavg)
+            let cpuUsage = 0;
+            try {
+                if (process.platform === 'win32') {
+                    const { stdout } = await execAsync('powershell -Command "Get-CimInstance Win32_Processor | Select-Object -ExpandProperty LoadPercentage"');
+                    const load = parseInt(stdout.trim(), 10);
+                    if (!isNaN(load)) {
+                        cpuUsage = load;
+                    }
+                } else {
+                    const cpus = os.cpus();
+                    const load = os.loadavg()[0];
+                    cpuUsage = Math.min(Math.round((load / cpus.length) * 100), 100);
+                }
+            } catch (e) {
+                log.warn({ event: 'system_stats_cpu_error', error: e.message }, 'Failed to get CPU usage');
+            }
+
+            // Disk Usage (Windows specific method via PowerShell)
+            let diskUsage = 0;
+            let totalDisk = 0;
+            let freeDisk = 0;
+            const storageBreakdown = [];
+
+            try {
+                if (process.platform === 'win32') {
+                    // Get-CimInstance Win32_LogicalDisk | Select-Object DeviceID, Size, FreeSpace, VolumeName | ConvertTo-Json
+                    const { stdout } = await execAsync('powershell -Command "Get-CimInstance Win32_LogicalDisk | Select-Object DeviceID, Size, FreeSpace, VolumeName | ConvertTo-Json"');
+
+                    let disks = [];
+                    try {
+                        const parsed = JSON.parse(stdout);
+                        disks = Array.isArray(parsed) ? parsed : [parsed];
+                    } catch (parseError) {
+                        log.warn({ event: 'system_stats_disk_parse_error', error: parseError.message, stdout }, 'Failed to parse disk JSON');
+                    }
+
+                    for (const disk of disks) {
+                        if (disk.Size > 0) {
+                            totalDisk += disk.Size;
+                            freeDisk += disk.FreeSpace;
+                            storageBreakdown.push({
+                                category: disk.DeviceID || disk.VolumeName || 'Unknown',
+                                sizeMB: Math.round(disk.Size / (1024 * 1024)),
+                                freeMB: Math.round(disk.FreeSpace / (1024 * 1024)),
+                                color: 'hsl(200 100% 55%)'
+                            });
+                        }
+                    }
+                }
+            } catch (e) {
+                log.warn({ event: 'system_stats_disk_error', error: e.message }, 'Failed to get Disk usage');
+            }
+
+            const finalStorage = storageBreakdown.map(d => ({
+                category: d.category,
+                size: d.sizeMB,
+                color: 'hsl(200 100% 55%)'
+            }));
+
+            if (totalDisk > 0) {
+                diskUsage = Math.round(((totalDisk - freeDisk) / totalDisk) * 100);
+            }
+
+            if (finalStorage.length === 0) {
+                finalStorage.push({ category: 'System', size: 1000, color: 'hsl(200 100% 55%)' });
+            }
+
+            const totalStorageMB = Math.round(totalDisk / (1024 * 1024)) || 1000;
+
+            jsonResponse(res, {
+                cpu: cpuUsage,
+                ram: memUsage,
+                disk: diskUsage,
+                latency: 12, // Mock latency for now
+                storageBreakdown: finalStorage,
+                totalStorage: totalStorageMB,
+                timestamp: new Date().toISOString()
+            });
+
+        } catch (e) {
+            log.warn({ event: 'system_stats_error', reason: e.message }, 'Error fetching system stats');
+            jsonResponse(res, { error: e.message }, 500);
+        }
+        return true;
+    }
+
     // GET /api/system/config
     if (pathname === '/api/system/config' && req.method === 'GET') {
         try {
@@ -94,8 +198,35 @@ async function handleSystemAdmin(ctx) {
         return true;
     }
 
-    // PUT /api/system/config/:key
+    // GET /api/system/config/:key
     const configKeyMatch = pathname.match(/^\/api\/system\/config\/([^/]+)$/);
+    if (configKeyMatch && req.method === 'GET') {
+        const key = configKeyMatch[1];
+        try {
+            if (supabase && supabase.isConfigured()) {
+                const systemConfig = require('../../supabase/system');
+                const result = await systemConfig.getSystemConfig(key);
+                // Return just the value property as requested by frontend
+                jsonResponse(res, { success: true, value: result.value });
+            } else {
+                // Fallback to in-memory config if not configured
+                let value = null;
+                if (key === 'llm') value = config.llm || {};
+                else if (key === 'processing') value = config.processing || {};
+                else if (key === 'prompts') value = config.prompts || {};
+                else if (key === 'llm_pertask') value = config.llm?.perTask || {};
+                else value = config[key];
+
+                jsonResponse(res, { success: true, value });
+            }
+        } catch (e) {
+            log.warn({ event: 'system_admin_config_get_key_error', key, reason: e.message }, 'Error getting config key');
+            jsonResponse(res, { error: e.message }, 500);
+        }
+        return true;
+    }
+
+    // PUT /api/system/config/:key
     if (configKeyMatch && req.method === 'PUT') {
         const key = configKeyMatch[1];
         const body = await parseBody(req);
@@ -107,12 +238,26 @@ async function handleSystemAdmin(ctx) {
                 const result = await systemConfig.setSystemConfig(key, body.value, authResult.user.id);
                 if (!result.success) { jsonResponse(res, { error: result.error }, 500); return true; }
                 if (key === 'llm_pertask') config.llm.perTask = body.value;
+                if (key === 'llm') {
+                    // Deep merge or replace to ensure we don't lose runtime state
+                    // The body.value should be the source of truth for persisted settings
+                    if (body.value) {
+                        // If body.value has providers, update them
+                        if (body.value.providers) {
+                            config.llm.providers = body.value.providers;
+                        }
+                        // If body.value has other props, update them
+                        // We avoid replacing config.llm entirely because it might have other internal props
+                        Object.assign(config.llm, body.value);
+                    }
+                }
                 if (key === 'prompts') config.prompts = body.value;
                 if (key === 'processing') {
                     config.chunkSize = body.value.chunkSize;
                     config.chunkOverlap = body.value.chunkOverlap;
                     config.similarityThreshold = body.value.similarityThreshold;
                     config.pdfToImages = body.value.pdfToImages;
+                    config.processing = body.value; // Update the whole object reference too
                 }
                 if (key === 'graph') config.graph = body.value;
                 if (key === 'routing') config.llm.routing = body.value;
@@ -196,16 +341,50 @@ async function handleSystemAdmin(ctx) {
     if (pathname === '/api/system/prompts' && req.method === 'GET') {
         try {
             if (supabase && supabase.isConfigured()) {
-                const admin = supabase.getAdminClient();
-                const { data: prompts, error } = await admin.from('system_prompts').select('id, key, name, description, category, prompt_template, uses_ontology, is_active').eq('is_active', true).order('key');
-                if (error) { log.warn({ event: 'system_admin_prompts_error', reason: error.message }, 'Error fetching prompts'); jsonResponse(res, { prompts: [] }); return true; }
-                jsonResponse(res, { prompts: prompts || [] });
+                const promptsService = require('../../supabase/prompts');
+                const prompts = await promptsService.getAllPrompts();
+
+                if (!prompts) {
+                    jsonResponse(res, { templates: [] });
+                    return true;
+                }
+
+                // Map to frontend structure
+                const templates = Object.values(prompts).map(p => {
+                    // Extract variables from template {{VAR}}
+                    const variables = [...new Set((p.prompt_template.match(/\{\{([A-Z_]+)\}\}/g) || []).map(v => v.replace(/\{\{|\}\}/g, '')))];
+
+                    return {
+                        id: p.key,
+                        name: p.name || p.key,
+                        category: p.category || 'System',
+                        prompt: p.prompt_template,
+                        variables: variables,
+                        lastModified: p.updated_at ? new Date(p.updated_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+                        isActive: p.is_active !== false,
+                        description: p.description
+                    };
+                });
+
+                jsonResponse(res, { templates });
             } else {
-                jsonResponse(res, { prompts: [] });
+                // Fallback to defaults from system.js if no DB
+                const config = require('../../server').config || {};
+                const systemConfig = config.prompts || {};
+                const templates = Object.entries(systemConfig).map(([key, value]) => ({
+                    id: key,
+                    name: key.charAt(0).toUpperCase() + key.slice(1),
+                    category: 'System',
+                    prompt: value,
+                    variables: [],
+                    lastModified: new Date().toISOString().split('T')[0],
+                    isActive: true
+                }));
+                jsonResponse(res, { templates });
             }
         } catch (e) {
             log.warn({ event: 'system_admin_prompts_error', reason: e.message }, 'Error fetching prompts');
-            jsonResponse(res, { prompts: [] });
+            jsonResponse(res, { error: e.message }, 500);
         }
         return true;
     }
@@ -215,21 +394,36 @@ async function handleSystemAdmin(ctx) {
     if (promptKeyMatch && req.method === 'PUT') {
         const key = promptKeyMatch[1];
         const body = await parseBody(req);
+
         try {
-            if (!supabase || !supabase.isConfigured()) { jsonResponse(res, { error: 'Database not configured' }, 503); return true; }
-            const authResult = await requireSuperAdmin(supabase, req, res);
-            if (!authResult) return true;
-            const admin = supabase.getAdminClient();
-            const { data, error } = await admin.from('system_prompts').update({ prompt_template: body.prompt_template, updated_at: new Date().toISOString(), updated_by: authResult.user.id }).eq('key', key).select().single();
-            if (error) { log.warn({ event: 'system_admin_prompt_update_error', reason: error.message }, 'Error updating prompt'); jsonResponse(res, { error: error.message }, 400); return true; }
-            try { require('../../supabase/prompts').clearCache(); } catch (_) {}
-            jsonResponse(res, { success: true, prompt: data });
+            if (supabase && supabase.isConfigured()) {
+                const authResult = await requireSuperAdmin(supabase, req, res);
+                if (!authResult) return true;
+
+                const promptsService = require('../../supabase/prompts');
+                const result = await promptsService.savePrompt(key, body.prompt, authResult.user.id);
+
+                if (!result.success) {
+                    jsonResponse(res, { error: result.error }, 500);
+                    return true;
+                }
+
+                jsonResponse(res, { success: true, prompt: result.prompt });
+            } else {
+                // Update in-memory config
+                const config = require('../../server').config || {};
+                if (!config.prompts) config.prompts = {};
+                config.prompts[key] = body.prompt;
+                jsonResponse(res, { success: true });
+            }
         } catch (e) {
-            log.warn({ event: 'system_admin_prompt_update_error', reason: e.message }, 'Error updating prompt');
+            log.warn({ event: 'system_admin_prompt_save_error', key, reason: e.message }, 'Error saving prompt');
             jsonResponse(res, { error: e.message }, 500);
         }
         return true;
     }
+
+
 
     // GET /api/system/prompts/:key/versions
     const versionsMatch = pathname.match(/^\/api\/system\/prompts\/([^/]+)\/versions$/);
@@ -266,7 +460,7 @@ async function handleSystemAdmin(ctx) {
             const admin = supabase.getAdminClient();
             const { data, error } = await admin.rpc('restore_prompt_version', { p_prompt_key: key, p_version: version });
             if (error) { log.warn({ event: 'system_admin_restore_error', reason: error.message }, 'Error restoring version'); jsonResponse(res, { error: error.message }, 400); return true; }
-            try { require('../../supabase/prompts').clearCache(); } catch (_) {}
+            try { require('../../supabase/prompts').clearCache(); } catch (_) { }
             jsonResponse(res, data || { success: true });
         } catch (e) {
             log.warn({ event: 'system_admin_restore_error', reason: e.message }, 'Error restoring version');
@@ -290,6 +484,165 @@ async function handleSystemAdmin(ctx) {
             jsonResponse(res, { version: data });
         } catch (e) {
             log.warn({ event: 'system_admin_version_error', reason: e.message }, 'Error fetching version');
+            jsonResponse(res, { error: e.message }, 500);
+        }
+        return true;
+    }
+
+    // ==================== User Management API ====================
+
+    // GET /api/system/users
+    if (pathname === '/api/system/users' && req.method === 'GET') {
+        if (!supabase || !supabase.isConfigured()) { jsonResponse(res, { error: 'Database not configured' }, 503); return true; }
+        const authResult = await requireSuperAdmin(supabase, req, res);
+        if (!authResult) return true;
+
+        try {
+            const admin = supabase.getAdminClient();
+
+            // Fetch users from auth.users (pagination support can be added later)
+            const { data: { users }, error: authError } = await admin.auth.admin.listUsers();
+            if (authError) throw authError;
+
+            // Fetch profiles
+            const { data: profiles, error: profileError } = await admin.from('user_profiles').select('*');
+            if (profileError) throw profileError;
+
+            // Merge data
+            const systemUsers = users.map(u => {
+                const profile = profiles.find(p => p.id === u.id);
+                return {
+                    id: u.id,
+                    email: u.email,
+                    name: profile?.display_name || profile?.username || u.user_metadata?.username || u.email?.split('@')[0],
+                    role: profile?.role || 'user',
+                    status: u.banned_until ? 'banned' : (u.email_confirmed_at ? 'active' : 'pending'),
+                    lastActive: u.last_sign_in_at,
+                    joinedAt: u.created_at,
+                    avatar: profile?.avatar_url
+                };
+            });
+
+            jsonResponse(res, {
+                ok: true,
+                users: systemUsers,
+                stats: {
+                    totalUsers: systemUsers.length,
+                    activeUsers: systemUsers.filter(u => u.status === 'active').length,
+                    pendingInvitations: systemUsers.filter(u => u.status === 'pending').length
+                }
+            });
+        } catch (e) {
+            log.warn({ event: 'system_admin_users_error', reason: e.message }, 'Error fetching users');
+            jsonResponse(res, { error: e.message }, 500);
+        }
+        return true;
+    }
+
+    // POST /api/system/users (Invite/Create)
+    if (pathname === '/api/system/users' && req.method === 'POST') {
+        if (!supabase || !supabase.isConfigured()) { jsonResponse(res, { error: 'Database not configured' }, 503); return true; }
+        const authResult = await requireSuperAdmin(supabase, req, res);
+        if (!authResult) return true;
+
+        const body = await parseBody(req);
+        try {
+            const admin = supabase.getAdminClient();
+
+            // Create user in Supabase Auth
+            const { data: { user }, error: createError } = await admin.auth.admin.createUser({
+                email: body.email,
+                password: body.password || undefined, // Optional if email confirm enabled
+                email_confirm: true, // Auto-confirm if admin creates
+                user_metadata: {
+                    username: body.name,
+                    display_name: body.name
+                }
+            });
+
+            if (createError) throw createError;
+
+            // Create profile
+            if (user) {
+                await admin.from('user_profiles').upsert({
+                    id: user.id,
+                    username: body.name,
+                    display_name: body.name,
+                    role: body.role || 'user'
+                });
+            }
+
+            jsonResponse(res, { ok: true, user });
+        } catch (e) {
+            log.warn({ event: 'system_admin_user_create_error', reason: e.message }, 'Error creating user');
+            jsonResponse(res, { error: e.message }, 500);
+        }
+        return true;
+    }
+
+    // PUT /api/system/users/:id (Update)
+    const userUpdateMatch = pathname.match(/^\/api\/system\/users\/([^/]+)$/);
+    if (userUpdateMatch && req.method === 'PUT') {
+        if (!supabase || !supabase.isConfigured()) { jsonResponse(res, { error: 'Database not configured' }, 503); return true; }
+        const authResult = await requireSuperAdmin(supabase, req, res);
+        if (!authResult) return true;
+
+        const userId = userUpdateMatch[1];
+        const body = await parseBody(req);
+
+        try {
+            const admin = supabase.getAdminClient();
+
+            // Update Auth Data (if needed)
+            if (body.password || body.email || body.status) {
+                const updates = {};
+                if (body.password) updates.password = body.password;
+                if (body.email) updates.email = body.email;
+                if (body.status === 'banned') updates.ban_duration = '876000h'; // 100 years
+                if (body.status === 'active') updates.ban_duration = 'none';
+
+                if (Object.keys(updates).length > 0) {
+                    const { error: authError } = await admin.auth.admin.updateUserById(userId, updates);
+                    if (authError) throw authError;
+                }
+            }
+
+            // Update Profile Data
+            const profileUpdates = {};
+            if (body.role) profileUpdates.role = body.role;
+            if (body.name) {
+                profileUpdates.display_name = body.name;
+                profileUpdates.username = body.name;
+            }
+
+            if (Object.keys(profileUpdates).length > 0) {
+                const { error: profileError } = await admin.from('user_profiles').update(profileUpdates).eq('id', userId);
+                if (profileError) throw profileError;
+            }
+
+            jsonResponse(res, { ok: true });
+        } catch (e) {
+            log.warn({ event: 'system_admin_user_update_error', reason: e.message }, 'Error updating user');
+            jsonResponse(res, { error: e.message }, 500);
+        }
+        return true;
+    }
+
+    // DELETE /api/system/users/:id
+    const userDeleteMatch = pathname.match(/^\/api\/system\/users\/([^/]+)$/);
+    if (userDeleteMatch && req.method === 'DELETE') {
+        if (!supabase || !supabase.isConfigured()) { jsonResponse(res, { error: 'Database not configured' }, 503); return true; }
+        const authResult = await requireSuperAdmin(supabase, req, res);
+        if (!authResult) return true;
+
+        const userId = userDeleteMatch[1];
+        try {
+            const admin = supabase.getAdminClient();
+            const { error } = await admin.auth.admin.deleteUser(userId);
+            if (error) throw error;
+            jsonResponse(res, { ok: true });
+        } catch (e) {
+            log.warn({ event: 'system_admin_user_delete_error', reason: e.message }, 'Error deleting user');
             jsonResponse(res, { error: e.message }, 500);
         }
         return true;

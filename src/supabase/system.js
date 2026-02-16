@@ -16,6 +16,9 @@ const DEFAULTS = {
         vision: { provider: 'ollama', model: null },
         embeddings: { provider: 'ollama', model: null }
     },
+    llm: {
+        providers: {}
+    },
     prompts: {
         document: '',
         vision: '',
@@ -26,7 +29,9 @@ const DEFAULTS = {
         chunkSize: 4000,
         chunkOverlap: 200,
         similarityThreshold: 0.90,
-        pdfToImages: true
+        pdfToImages: true,
+        autoProcess: true,
+        temperature: 0.7
     },
     graph: {
         enabled: false,
@@ -75,10 +80,55 @@ let configCache = null;
 let cacheExpiry = null;
 const CACHE_TTL_MS = 60000; // 1 minute
 
+// Config change listeners
+const configChangeCallbacks = [];
+
+/**
+ * Register a callback for config changes
+ * @returns {Function} Unsubscribe function
+ */
+function onConfigChange(callback) {
+    if (typeof callback === 'function') {
+        configChangeCallbacks.push(callback);
+
+        // Return unsubscribe function
+        return () => {
+            const index = configChangeCallbacks.indexOf(callback);
+            if (index > -1) {
+                configChangeCallbacks.splice(index, 1);
+            }
+        };
+    }
+    return () => { }; // No-op unsubscribe if invalid callback
+}
+
+/**
+ * Notify listeners
+ */
+function notifyConfigChange(key, value) {
+    for (const callback of configChangeCallbacks) {
+        try {
+            callback(key, value);
+        } catch (e) {
+            log.error({ event: 'config_change_callback_error', error: e.message }, 'Error in config change callback');
+        }
+    }
+}
+
 /**
  * Get a system config value by key
  */
 async function getSystemConfig(key) {
+    // 1. Check cache first (optimization)
+    if (configCache && cacheExpiry && Date.now() < cacheExpiry) {
+        // We have a valid cache, use it if the key exists
+        // Note: getAllSystemConfigs loads everything. If key isn't in cache but IS in defaults,
+        // it means it's not in DB. If it's not in defaults either, it's invalid key.
+        // For safety, we can return from cache if it exists there, otherwise fall back to DB/Defaults logic below?
+        // Actually getAllSystemConfigs merges with defaults. So if cache is valid, it has the definitive value.
+        return { success: true, value: configCache[key], source: 'cache' };
+    }
+
     const supabase = getAdminClient();
     if (!supabase) {
         // Return default if no Supabase
@@ -163,7 +213,8 @@ async function setSystemConfig(key, value, userId = null, description = null) {
             .upsert({
                 key,
                 value,
-                description: description || DEFAULTS[key] ? `System default for ${key}` : null,
+                // Fix operator precedence: ensure default description is only used if description is null/undefined
+                description: description || (DEFAULTS[key] ? `System default for ${key}` : null),
                 updated_by: userId,
                 updated_at: new Date().toISOString()
             }, { onConflict: 'key' })
@@ -175,6 +226,8 @@ async function setSystemConfig(key, value, userId = null, description = null) {
         // Invalidate cache
         configCache = null;
         cacheExpiry = null;
+
+        notifyConfigChange(key, value);
 
         return { success: true, config: data };
     } catch (error) {
@@ -203,6 +256,8 @@ async function deleteSystemConfig(key) {
         // Invalidate cache
         configCache = null;
         cacheExpiry = null;
+
+        notifyConfigChange(key, null); // Value is null for deletion
 
         return { success: true };
     } catch (error) {
@@ -316,11 +371,11 @@ async function getPresets() {
 async function applyPreset(presetName, userId = null) {
     const presets = await getPresets();
     const preset = presets[presetName];
-    
+
     if (!preset) {
         return { success: false, error: `Preset '${presetName}' not found` };
     }
-    
+
     return setLLMConfig(preset, userId);
 }
 
@@ -339,45 +394,90 @@ function invalidateCache() {
 async function getEffectiveConfig(projectId, projectConfig = null) {
     // Get system defaults
     const { configs: systemConfigs } = await getAllSystemConfigs();
-    
+
     if (!projectConfig) {
         return systemConfigs;
     }
-    
+
     // Merge with project overrides
-    const effective = { ...systemConfigs };
-    
-    // LLM per-task: check useSystemDefaults flags
+    // Start with deep copy of system configs to avoid mutation
+    const effective = deepMerge({}, systemConfigs);
+
+    // LLM per-task: merge but respect useSystemDefaults
     if (projectConfig.llm_pertask) {
+        // First deep merge the project config
+        effective.llm_pertask = deepMerge(effective.llm_pertask, projectConfig.llm_pertask);
+
+        // Then handle useSystemDefaults revert logic
         const defaults = projectConfig.llm_pertask.useSystemDefaults || {};
-        effective.llm_pertask = {
-            text: defaults.text ? systemConfigs.llm_pertask?.text : (projectConfig.llm_pertask.text || systemConfigs.llm_pertask?.text),
-            vision: defaults.vision ? systemConfigs.llm_pertask?.vision : (projectConfig.llm_pertask.vision || systemConfigs.llm_pertask?.vision),
-            embeddings: defaults.embeddings ? systemConfigs.llm_pertask?.embeddings : (projectConfig.llm_pertask.embeddings || systemConfigs.llm_pertask?.embeddings)
-        };
+        if (defaults.text) effective.llm_pertask.text = systemConfigs.llm_pertask.text;
+        if (defaults.vision) effective.llm_pertask.vision = systemConfigs.llm_pertask.vision;
+        if (defaults.embeddings) effective.llm_pertask.embeddings = systemConfigs.llm_pertask.embeddings;
+
+        // Cleanup metadata
+        delete effective.llm_pertask.useSystemDefaults;
     }
-    
-    // Processing settings: merge
+
+    // Processing settings: map 'processing_settings' -> 'processing' and deep merge
     if (projectConfig.processing_settings) {
-        effective.processing = { ...systemConfigs.processing, ...projectConfig.processing_settings };
+        effective.processing = deepMerge(effective.processing, projectConfig.processing_settings);
     }
-    
-    // Prompts: project overrides non-empty prompts
+
+    // Prompts: merge non-empty prompts
     if (projectConfig.prompts) {
-        effective.prompts = { ...systemConfigs.prompts };
+        effective.prompts = deepMerge(effective.prompts, projectConfig.prompts);
+        // Ensure we don't have empty strings overriding system prompts if that was the intent of the loop logic?
+        // Original logic:
+        // for (const [key, value] of Object.entries(projectConfig.prompts)) {
+        //     if (value && value.trim()) {
+        //         effective.prompts[key] = value;
+        //     }
+        // }
+        // Deep merge overwrites everything present. If project has empty string, it overwrites.
+        // Let's stick to deepMerge for simplicity as standard behavior, or restore the specific loop if "non-empty" is critical.
+        // User asked for "Deep merge", usually implies standard merge behavior. 
+        // But let's be safe and keep the specific logic for prompts if it was intended to handle empty/nulls via filtering.
+        // Actually, let's keep the loop for prompts to be safe, but apply it to the effective object.
         for (const [key, value] of Object.entries(projectConfig.prompts)) {
-            if (value && value.trim()) {
+            if (value && typeof value === 'string' && value.trim()) {
                 effective.prompts[key] = value;
             }
         }
     }
-    
-    // Graph config: project overrides if enabled
+
+    // Graph config: map 'graph_config' -> 'graph' and deep merge if enabled
     if (projectConfig.graph_config && projectConfig.graph_config.enabled) {
-        effective.graph = projectConfig.graph_config;
+        effective.graph = deepMerge(effective.graph, projectConfig.graph_config);
     }
-    
+
     return effective;
+}
+
+/**
+ * Simple deep merge utility
+ */
+function deepMerge(target, source) {
+    if (!source) return target;
+    const output = { ...target };
+
+    if (isObject(target) && isObject(source)) {
+        Object.keys(source).forEach(key => {
+            if (isObject(source[key])) {
+                if (!(key in target)) {
+                    Object.assign(output, { [key]: source[key] });
+                } else {
+                    output[key] = deepMerge(target[key], source[key]);
+                }
+            } else {
+                Object.assign(output, { [key]: source[key] });
+            }
+        });
+    }
+    return output;
+}
+
+function isObject(item) {
+    return (item && typeof item === 'object' && !Array.isArray(item));
 }
 
 module.exports = {
@@ -401,5 +501,6 @@ module.exports = {
     getPresets,
     applyPreset,
     invalidateCache,
+    onConfigChange,
     getEffectiveConfig
 };

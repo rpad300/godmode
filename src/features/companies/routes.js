@@ -297,6 +297,149 @@ Devolve UM ÚNICO objeto JSON com as chaves: "primary_color" (hex, ex: "#1a1a2e"
         return true;
     }
 
+    const DEFAULT_TEMPLATES = {
+        a4: `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{COMPANY_NAME}} - Report</title>
+    <style>
+        :root {
+            --primary: {{PRIMARY_COLOR}};
+            --secondary: {{SECONDARY_COLOR}};
+            --text: #333333;
+            --bg: #ffffff;
+            --page-width: 210mm;
+            --page-height: 297mm;
+        }
+        @page { size: A4; margin: 0; }
+        body { margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #eee; color: var(--text); }
+        .page {
+            width: var(--page-width);
+            height: var(--page-height);
+            background: var(--bg);
+            margin: 0 auto;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        .header { background: var(--primary); height: 80px; display: flex; align-items: center; justify-content: space-between; padding: 0 40px; color: white; }
+        .logo { height: 50px; background: rgba(255,255,255,0.9); padding: 5px; border-radius: 4px; }
+        .footer { position: absolute; bottom: 0; width: 100%; height: 50px; border-top: 1px solid #ddd; display: flex; align-items: center; justify-content: center; font-size: 12px; color: #777; }
+        .content { padding: 40px; }
+        h1 { color: var(--primary); }
+        h2 { color: var(--secondary); border-bottom: 2px solid var(--secondary); padding-bottom: 5px; margin-top: 30px; }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <div class="header">
+            <h1 style="color: white; margin: 0; font-size: 24px;">{{COMPANY_NAME}}</h1>
+            <img src="{{LOGO_URL}}" alt="Logo" class="logo" />
+        </div>
+        <div class="content">
+            <h1>Relatório de Análise</h1>
+            <p>Gerado para <strong>{{COMPANY_NAME}}</strong></p>
+            <div style="margin-top: 20px;">
+                {{REPORT_DATA}}
+            </div>
+        </div>
+        <div class="footer">
+            {{COMPANY_NAME}} &copy; 2024 - Confidential
+        </div>
+    </div>
+</body>
+</html>`,
+        ppt: `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{COMPANY_NAME}} - Presentation</title>
+    <style>
+        :root {
+            --primary: {{PRIMARY_COLOR}};
+            --secondary: {{SECONDARY_COLOR}};
+            --slide-bg: #ffffff;
+            --text: #333333;
+            --slide-width: 297mm; /* A4 Landscape */
+            --slide-height: 210mm;
+        }
+        @page { size: A4 landscape; margin: 0; }
+        body { margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #eee; color: var(--text); }
+        .slide {
+            width: var(--slide-width);
+            height: var(--slide-height);
+            background: var(--slide-bg);
+            margin: 0 auto 20px auto;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+        }
+        .slide-header { height: 15%; background: linear-gradient(90deg, var(--primary) 0%, var(--secondary) 100%); display: flex; align-items: center; justify-content: space-between; padding: 0 40px; }
+        .slide-title { color: white; font-size: 28px; font-weight: bold; margin: 0; }
+        .logo { height: 40px; background: rgba(255,255,255,0.9); padding: 5px; border-radius: 4px; }
+        .slide-content { flex: 1; padding: 40px; display: flex; flex-direction: column; }
+        .slide-footer { height: 8%; border-top: 1px solid #ddd; display: flex; align-items: center; justify-content: space-between; padding: 0 40px; font-size: 14px; color: #666; }
+        h2 { color: var(--primary); margin-top: 0; }
+        
+        /* Cover Slide Style */
+        .slide.cover { justify-content: center; align-items: center; text-align: center; background: url('https://source.unsplash.com/random/1600x900/?office') no-repeat center center; background-size: cover; position: relative; }
+        .slide.cover::before { content: ''; position: absolute; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.7); z-index: 1; }
+        .slide.cover > * { z-index: 2; color: white; }
+        .slide.cover h1 { font-size: 48px; margin-bottom: 20px; text-transform: uppercase; letter-spacing: 2px; }
+        .slide.cover p { font-size: 24px; opacity: 0.9; }
+        .slide.cover img.logo { height: 80px; margin-bottom: 20px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3)); background: rgba(255,255,255,0.9); padding: 10px; border-radius: 8px; }
+    </style>
+</head>
+<body>
+    <!-- Cover Slide -->
+    <div class="slide cover">
+        <img src="{{LOGO_URL}}" alt="Logo" class="logo" />
+        <h1>{{COMPANY_NAME}}</h1>
+        <p>Strategic Overview & Analysis</p>
+    </div>
+
+    <!-- Agenda Slide -->
+    <div class="slide">
+        <div class="slide-header">
+            <h1 class="slide-title">Agenda</h1>
+            <img src="{{LOGO_URL}}" alt="Logo" class="logo" />
+        </div>
+        <div class="slide-content">
+            <ul>
+                <li>Executive Summary</li>
+                <li>Market Analysis</li>
+                <li>Strategic Recommendations</li>
+            </ul>
+        </div>
+        <div class="slide-footer">
+            <span>{{COMPANY_NAME}}</span>
+            <span>Page 1</span>
+        </div>
+    </div>
+
+    <!-- Content Slide Placeholder -->
+    <div class="slide">
+        <div class="slide-header">
+            <h1 class="slide-title">Analysis Data</h1>
+            <img src="{{LOGO_URL}}" alt="Logo" class="logo" />
+        </div>
+        <div class="slide-content">
+            {{REPORT_DATA}}
+        </div>
+        <div class="slide-footer">
+            <span>{{COMPANY_NAME}}</span>
+            <span>Page 2</span>
+        </div>
+    </div>
+</body>
+</html>`
+    };
+
     // GET /api/companies/:id/templates/:type
     const getTplMatch = pathname.match(/^\/api\/companies\/([^/]+)\/templates\/(a4|ppt)$/);
     if (getTplMatch && req.method === 'GET') {
@@ -305,8 +448,14 @@ Devolve UM ÚNICO objeto JSON com as chaves: "primary_color" (hex, ex: "#1a1a2e"
         const canRead = await canReadCompany(adminClient, id, user.id);
         if (!canRead) { jsonResponse(res, { error: 'Forbidden' }, 403); return true; }
         const result = await companiesModule.getTemplate(id, type);
-        if (result.success) jsonResponse(res, { html: result.html });
-        else jsonResponse(res, { error: result.error }, 400);
+
+        // Use default template if none exists
+        let html = result.success ? result.html : null;
+        if (!html) {
+            html = DEFAULT_TEMPLATES[type] || '';
+        }
+
+        jsonResponse(res, { html });
         return true;
     }
 

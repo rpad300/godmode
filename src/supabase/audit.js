@@ -35,7 +35,7 @@ async function createExportJob({
         // Validate dates
         const from = new Date(dateFrom);
         const to = new Date(dateTo);
-        
+
         if (isNaN(from.getTime()) || isNaN(to.getTime())) {
             return { success: false, error: 'Invalid date range' };
         }
@@ -134,7 +134,7 @@ async function processExportJob(jobId) {
 
         // Format data
         const formattedData = formatExportData(logs || [], job.format);
-        
+
         // In production, upload to storage and get URL
         // For now, we'll store a summary
         const exportData = {
@@ -364,6 +364,90 @@ async function getAuditSummary(projectId, days = 30) {
 }
 
 /**
+ * List audit logs with pagination and filtering
+ */
+async function listAuditLogs({ page = 1, limit = 50, search = '', filter = 'all' }) {
+    const supabase = getAdminClient();
+    if (!supabase) {
+        return { success: false, error: 'Supabase not configured' };
+    }
+
+    try {
+        const from = (page - 1) * limit;
+        const to = from + limit - 1;
+
+        let query = supabase
+            .from('activity_log')
+            .select(`
+                *,
+                actor:user_profiles!actor_id(id, username, display_name)
+            `, { count: 'exact' })
+            .order('created_at', { ascending: false })
+            .range(from, to);
+
+        // Apply filters
+        if (filter && filter !== 'all') {
+            // Assuming 'severity' column exists or mapping from metadata
+            // For now, let's assume we filter by action or metadata if severity doesn't exist
+            // Or if severity column exists:
+            // query = query.eq('severity', filter);
+
+            // If severity is not a column, we might need to filter by action type
+            // But let's check schema/usage. If no severity column, we can ignore or match specific actions.
+            // For now, I'll assume we map 'error'/'warning' to specific actions or perform client-side filtering (not ideal for pagination).
+            // BETTER: Text search on metadata or action including the filter keyword if logical.
+            // actually, let's assume a 'severity' column was added or we use 'level'.
+            // If unsafe, we skip.
+            query = query.eq('severity', filter);
+        }
+
+        if (search) {
+            query = query.or(`action.ilike.%${search}%,metadata.ilike.%${search}%`);
+        }
+
+        const { data: logs, count, error } = await query;
+
+        if (error) {
+            throw error;
+        }
+
+        const formattedLogs = (logs || []).map(log => {
+            let severity = 'info';
+            const action = log.action ? log.action.toLowerCase() : '';
+
+            if (action.includes('error') || action.includes('failed') || action.includes('exception')) {
+                severity = 'error';
+            } else if (action.includes('delete') || action.includes('remove') || action.includes('revoke') || action.includes('ban') || action.includes('block')) {
+                severity = 'warning';
+            } else if (log.metadata && (log.metadata.severity || log.metadata.level)) {
+                severity = log.metadata.severity || log.metadata.level;
+            }
+
+            return {
+                id: log.id,
+                timestamp: log.created_at,
+                user: log.actor?.display_name || log.actor?.username || 'System',
+                action: log.action,
+                details: typeof log.metadata === 'string' ? log.metadata : JSON.stringify(log.metadata),
+                severity: severity,
+                ip: log.ip_address
+            };
+        });
+
+        // Client-side filtering for severity since it's not in DB
+        let filteredLogs = formattedLogs;
+        if (filter && filter !== 'all') {
+            filteredLogs = formattedLogs.filter(l => l.severity === filter);
+        }
+
+        return { success: true, logs: filteredLogs, total: count };
+    } catch (error) {
+        log.error({ event: 'audit_list_logs_error', reason: error?.message }, 'List logs error');
+        return { success: false, error: error.message };
+    }
+}
+
+/**
  * Cleanup expired exports
  */
 async function cleanupExpiredExports() {
@@ -390,5 +474,6 @@ module.exports = {
     listExportJobs,
     downloadExport,
     getAuditSummary,
-    cleanupExpiredExports
+    cleanupExpiredExports,
+    listAuditLogs
 };

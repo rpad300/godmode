@@ -1,0 +1,104 @@
+{
+  "name": "godmode",
+  "version": "1.0.0",
+  "description": "GodMode - AI-powered document processing",
+  "author": "",
+  "main": "src/server.js",
+  "bin": "src/server.js",
+  "scripts": {
+    "kill:3005": "powershell -Command \"$p=Get-NetTCPConnection -LocalPort 3005 -ErrorAction SilentlyContinue; if($p){$p | ForEach-Object {Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue}}; Write-Host 'Port 3005 cleared'\"",
+    "restart": "npm run kill:3005 && npm run build:frontend && node scripts/start-and-open.js",
+    "start": "set NODE_PATH=./node_modules && node src/server.js",
+    "start:open": "npm run kill:3005 && node scripts/start-and-open.js",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "set NODE_PATH=./node_modules && node --watch src/server.js --dev",
+    "dev:frontend": "vite --config src/frontend/vite.config.ts --open",
+    "build:frontend": "vite build --config src/frontend/vite.config.ts",
+    "build": "npm run build:frontend && pkg . --targets node18-win-x64 --output dist/GodMode.exe",
+    "build:all": "npm run build:frontend && pkg . --targets node18-win-x64,node18-linux-x64,node18-macos-x64 --output dist/GodMode",
+    "test": "jest",
+    "test:unit": "jest --selectProjects unit",
+    "test:integration": "jest --selectProjects integration",
+    "test:coverage": "jest --coverage",
+    "test:watch": "jest --watch",
+    "llm:preflight": "node scripts/llm-preflight.js",
+    "llm:preflight:live": "node scripts/llm-preflight.js --live",
+    "llm:preflight:auto": "node scripts/llm-preflight.js --live --auto",
+    "benchmark": "node scripts/benchmark.js health",
+    "benchmark:all": "node scripts/benchmark.js all"
+  },
+  "pkg": {
+    "scripts": [
+      "src/server.js",
+      "src/server/**/*.js",
+      "src/supabase/**/*.js",
+      "src/utils/**/*.js",
+      "src/services/**/*.js",
+      "src/middleware/**/*.js",
+      "src/llm/**/*.js",
+      "src/graph/**/*.js",
+      "src/graphrag/**/*.js",
+      "src/*.js"
+    ],
+    "assets": [
+      "src/public/**/*",
+      "node_modules/better-sqlite3/**/*",
+      "node_modules/open/xdg-open"
+    ],
+    "targets": [
+      "node18-win-x64"
+    ],
+    "outputPath": "dist"
+  },
+  "dependencies": {
+    "@js-temporal/polyfill": "^0.5.1",
+    "@supabase/functions-js": "^2.93.3",
+    "@supabase/mcp-server-supabase": "^0.6.3",
+    "@supabase/node-fetch": "^2.6.13",
+    "@supabase/postgrest-js": "^2.93.3",
+    "@supabase/realtime-js": "^2.93.3",
+    "@supabase/storage-js": "^2.93.3",
+    "@supabase/supabase-js": "^2.93.3",
+    "@types/lodash": "4.17.23",
+    "@types/lodash-es": "4.17.12",
+    "better-sqlite3": "^9.4.3",
+    "dotenv": "^17.2.4",
+    "falkordb": "^6.6.0",
+    "googleapis": "^144.0.0",
+    "lodash": "4.17.23",
+    "lodash-es": "4.17.23",
+    "mailparser": "^3.9.3",
+    "marked": "^17.0.1",
+    "modern-normalize": "^3.0.1",
+    "msgreader": "^1.0.1",
+    "open": "^10.0.0",
+    "pdf-parse": "^1.1.1",
+    "pdf-to-img": "^5.0.0",
+    "pg": "^8.17.2",
+    "pino": "^9.14.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/dompurify": "^3.0.5",
+    "concurrently": "^9.2.1",
+    "jest": "^29.7.0",
+    "pkg": "^5.8.1",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1",
+    "@falkordb/canvas": "^0.0.29",
+    "chart.js": "^4.5.1",
+    "dompurify": "^3.3.1",
+    "html2pdf.js": "^0.14.0",
+    "vis-network": "^10.0.2"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "keywords": [
+    "document-processing",
+    "ollama",
+    "ai",
+    "knowledge-base"
+  ],
+  "license": "MIT"
+}

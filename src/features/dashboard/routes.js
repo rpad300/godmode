@@ -47,6 +47,13 @@ async function handleDashboard(ctx) {
             return deadline < today;
         });
 
+        const actionsByStatus = {
+            completed: allActions.filter(a => a.status === 'completed').length,
+            in_progress: allActions.filter(a => a.status === 'in_progress').length,
+            pending: allActions.filter(a => a.status === 'pending').length,
+            overdue: overdueActions.length
+        };
+
         const activeQuestions = allQuestions.filter(q =>
             q.status !== 'resolved' &&
             q.status !== 'dismissed' &&
@@ -86,8 +93,16 @@ async function handleDashboard(ctx) {
         };
         const factsVerifiedCount = allFacts.filter(f => f.verified === true).length;
 
-        const trends = storage.getTrends(7);
-        const trendInsights = storage.getTrendInsights();
+        const trends = storage.getTrends ? storage.getTrends(7) : [];
+        const trendInsights = storage.getTrendInsights ? storage.getTrendInsights() : [];
+
+        // New Aggregations
+        const weeklyActivity = storage.getWeeklyActivity ? storage.getWeeklyActivity() : [];
+        const recentHistory = storage.getRecentActivity ? storage.getRecentActivity(10) : [];
+
+        // Sprint Placeholder (until Sprints are fully implemented)
+        const sprints = storage.getSprints ? storage.getSprints() : [];
+        const activeSprint = sprints.find(s => s.status === 'active') || null;
 
         jsonResponse(res, {
             documents: stats.documents || { total: 0, processed: 0, pending: 0 },
@@ -101,12 +116,18 @@ async function handleDashboard(ctx) {
             totalPeople: allPeople.length,
             questionsByPriority,
             risksByImpact,
+            actionsByStatus,
             overdueActions: overdueActions.length,
             overdueItems: overdueActions.slice(0, 5),
             questionAging,
             oldestQuestions,
             trends,
-            trendInsights
+            trendInsights,
+            recentRisks: allRisks.slice(0, 5),
+            recentActions: allActions.slice(0, 5),
+            recentHistory,
+            weeklyActivity,
+            activeSprint
         });
         return true;
     }

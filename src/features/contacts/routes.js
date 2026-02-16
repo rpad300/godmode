@@ -14,12 +14,59 @@ const { jsonResponse } = require('../../server/response');
  * @returns {Promise<boolean>} - true if route was handled, false otherwise
  */
 async function handleContacts(ctx) {
-    const { req, res, pathname, storage, llm } = ctx;
+    const { req, res, pathname, storage, llm, supabase } = ctx;
     const log = getLogger().child({ module: 'contacts' });
-    
+
     // Quick check - if not a contacts route, return false immediately
     if (!pathname.startsWith('/api/contacts')) {
         return false;
+    }
+
+    // GET /api/contacts/roles - Get all unique contact roles
+    if (pathname === '/api/contacts/roles' && req.method === 'GET') {
+        try {
+            const projectId = req.headers['x-project-id'];
+            if (projectId && storage._supabase) storage._supabase.setProject(projectId);
+
+            const roles = await storage.getContactRoles();
+            jsonResponse(res, { ok: true, roles });
+        } catch (error) {
+            jsonResponse(res, { ok: false, error: error.message }, 500);
+        }
+        return true;
+    }
+
+    // POST /api/contacts/roles - Add a new role
+    if (pathname === '/api/contacts/roles' && req.method === 'POST') {
+        const body = await parseBody(req);
+        jsonResponse(res, { ok: true, role: { id: body.name, name: body.name } });
+        return true;
+    }
+
+    // GET /api/contacts/metadata/companies - Get companies for dropdown (using admin client to bypass RLS)
+    if (pathname === '/api/contacts/metadata/companies' && req.method === 'GET') {
+        try {
+            let companies = [];
+            // Use admin client if available to ensure we get the list regardless of restrictive RLS
+            // This is safe because it's just a name/id list for a dropdown
+            if (supabase && supabase.isConfigured()) {
+                const client = supabase.getAdminClient();
+                const { data, error } = await client
+                    .from('companies')
+                    .select('id, name, logo_url')
+                    .order('name');
+                if (!error) {
+                    companies = data;
+                }
+            } else {
+                // Fallback to storage method (might return empty if auth fails)
+                companies = await storage.getCompanies();
+            }
+            jsonResponse(res, { ok: true, companies });
+        } catch (error) {
+            jsonResponse(res, { ok: false, error: error.message }, 500);
+        }
+        return true;
     }
 
     // POST /api/contacts - Create contact
@@ -27,12 +74,12 @@ async function handleContacts(ctx) {
         const body = await parseBody(req);
         const projectId = body?.project_id || body?.projectId || req.headers['x-project-id'];
         if (projectId && storage._supabase) storage._supabase.setProject(projectId);
-        
+
         if (!body.name || typeof body.name !== 'string') {
             jsonResponse(res, { ok: false, error: 'name is required' }, 400);
             return true;
         }
-        
+
         try {
             const result = await storage.addContact(body);
             const contactId = result?.id || result;
@@ -50,41 +97,41 @@ async function handleContacts(ctx) {
             } catch (syncErr) {
                 log.warn({ event: 'contacts_graph_sync_warning', reason: syncErr.message }, 'Graph sync warning');
             }
-            
-            jsonResponse(res, { 
-                ok: true, 
-                id: contactId, 
+
+            jsonResponse(res, {
+                ok: true,
+                id: contactId,
                 contact: { id: contactId, name: body.name },
-                graphSynced 
+                graphSynced
             });
         } catch (error) {
             jsonResponse(res, { ok: false, error: error.message }, 500);
         }
         return true;
     }
-    
+
     // GET /api/contacts - List contacts
     if (pathname === '/api/contacts' && req.method === 'GET') {
         try {
             const parsedUrl = parseUrl(req.url);
             const projectId = parsedUrl.query?.project_id || req.headers['x-project-id'];
             if (projectId && storage._supabase) storage._supabase.setProject(projectId);
-            
+
             const filter = {};
             if (parsedUrl.query.organization) filter.organization = parsedUrl.query.organization;
             if (parsedUrl.query.tag) filter.tag = parsedUrl.query.tag;
             if (parsedUrl.query.search) filter.search = parsedUrl.query.search;
-            
+
             const contacts = await storage.getContacts(Object.keys(filter).length > 0 ? filter : null);
-            
+
             // Enrich contacts with ALL team memberships (N:N)
             const allTeams = await storage.getTeams() || [];
             const enrichedContacts = contacts.map(c => {
                 // Find ALL teams this contact belongs to
-                const memberTeams = allTeams.filter(t => 
-                    t.members?.some(m => 
-                        m.contact?.id === c.id || 
-                        m.contactId === c.id || 
+                const memberTeams = allTeams.filter(t =>
+                    t.members?.some(m =>
+                        m.contact?.id === c.id ||
+                        m.contactId === c.id ||
                         m.contact_id === c.id
                     )
                 ).map(t => ({
@@ -92,10 +139,10 @@ async function handleContacts(ctx) {
                     name: t.name,
                     color: t.color || 'var(--accent)'
                 }));
-                
+
                 // Primary team (first one) for backwards compatibility
                 const primaryTeam = memberTeams[0] || null;
-                
+
                 return {
                     ...c,
                     teams: memberTeams, // Array of all teams
@@ -104,20 +151,20 @@ async function handleContacts(ctx) {
                     teamColor: primaryTeam?.color || null
                 };
             });
-            
+
             jsonResponse(res, { ok: true, contacts: enrichedContacts, total: enrichedContacts.length });
         } catch (error) {
             jsonResponse(res, { ok: false, error: error.message }, 500);
         }
         return true;
     }
-    
+
     // GET /api/contacts/stats - Get contact statistics
     if (pathname === '/api/contacts/stats' && req.method === 'GET') {
         try {
             const projectId = req.headers['x-project-id'];
             if (projectId && storage._supabase) storage._supabase.setProject(projectId);
-            
+
             const stats = storage.getContactStats();
             jsonResponse(res, { ok: true, ...stats });
         } catch (error) {
@@ -125,14 +172,14 @@ async function handleContacts(ctx) {
         }
         return true;
     }
-    
+
     // GET /api/contacts/:id - Get single contact
     const contactGetMatch = pathname.match(/^\/api\/contacts\/([a-f0-9\-]+)$/);
     if (contactGetMatch && req.method === 'GET') {
         const contactId = contactGetMatch[1];
         const projectId = req.headers['x-project-id'];
         if (projectId && storage._supabase) storage._supabase.setProject(projectId);
-        
+
         try {
             const contact = storage.getContactById(contactId);
             if (!contact) {
@@ -145,7 +192,7 @@ async function handleContacts(ctx) {
         }
         return true;
     }
-    
+
     // PUT /api/contacts/:id - Update contact
     const contactPutMatch = pathname.match(/^\/api\/contacts\/([a-f0-9\-]+)$/);
     if (contactPutMatch && req.method === 'PUT') {
@@ -153,19 +200,19 @@ async function handleContacts(ctx) {
         const body = await parseBody(req);
         const projectId = body?.project_id || body?.projectId || req.headers['x-project-id'];
         if (projectId && storage._supabase) storage._supabase.setProject(projectId);
-        
+
         try {
             // Get current contact to check team changes
             const currentContact = storage.getContactById(contactId);
             const oldTeamId = currentContact?.teamId;
             const newTeamId = body.teamId;
-            
+
             const success = await storage.updateContact(contactId, body);
             if (!success) {
                 jsonResponse(res, { ok: false, error: 'Contact not found' }, 404);
                 return true;
             }
-            
+
             // Handle team membership changes
             if (oldTeamId !== newTeamId) {
                 // Remove from old team
@@ -195,8 +242,8 @@ async function handleContacts(ctx) {
                          SET c.name = $name, c.email = $email, c.role = $role,
                              c.organization = $organization, c.timezone = $timezone,
                              c.entity_type = 'Contact', c.updated_at = datetime()`,
-                        { 
-                            id: contactId, 
+                        {
+                            id: contactId,
                             name: body.name || currentContact?.name,
                             email: body.email || null,
                             role: body.role || null,
@@ -204,7 +251,7 @@ async function handleContacts(ctx) {
                             timezone: body.timezone || null
                         }
                     );
-                    
+
                     // Update team relationship
                     if (newTeamId) {
                         await graphProvider.query(
@@ -229,31 +276,31 @@ async function handleContacts(ctx) {
             } catch (syncErr) {
                 log.warn({ event: 'contacts_graph_sync_warning', reason: syncErr.message }, 'Graph sync warning');
             }
-            
+
             jsonResponse(res, { ok: true, message: 'Contact updated', graphSynced });
         } catch (error) {
             jsonResponse(res, { ok: false, error: error.message }, 500);
         }
         return true;
     }
-    
+
     // DELETE /api/contacts/:id - Delete contact
     const contactDeleteMatch = pathname.match(/^\/api\/contacts\/([a-f0-9\-]+)$/);
     if (contactDeleteMatch && req.method === 'DELETE') {
         const contactId = contactDeleteMatch[1];
         const projectId = req.headers['x-project-id'];
         if (projectId && storage._supabase) storage._supabase.setProject(projectId);
-        
+
         try {
             // Get contact info before deleting
             const contact = storage.getContact(contactId);
-            
+
             const success = storage.deleteContact(contactId);
             if (!success) {
                 jsonResponse(res, { ok: false, error: 'Contact not found' }, 404);
                 return true;
             }
-            
+
             // Sync with graph - remove from FalkorDB
             try {
                 const { getGraphSync } = require('../../sync');
@@ -262,7 +309,7 @@ async function handleContacts(ctx) {
             } catch (syncErr) {
                 log.warn({ event: 'contacts_graph_sync_warning', reason: syncErr.message }, 'Graph sync warning');
             }
-            
+
             log.debug({ event: 'contacts_deleted', contactId }, 'Deleted contact');
             jsonResponse(res, { ok: true, message: 'Contact deleted', graphSynced: true });
         } catch (error) {
@@ -270,20 +317,20 @@ async function handleContacts(ctx) {
         }
         return true;
     }
-    
+
     // POST /api/contacts/match - Match names to contacts
     if (pathname === '/api/contacts/match' && req.method === 'POST') {
         const body = await parseBody(req);
         const projectId = body?.project_id || body?.projectId || req.headers['x-project-id'];
         if (projectId && storage._supabase) storage._supabase.setProject(projectId);
-        
+
         const { names } = body;
-        
+
         if (!names || !Array.isArray(names)) {
             jsonResponse(res, { ok: false, error: 'names array is required' }, 400);
             return true;
         }
-        
+
         try {
             const matches = names.map(name => {
                 const contact = storage.findContactByName(name);
@@ -298,9 +345,9 @@ async function handleContacts(ctx) {
                     } : null
                 };
             });
-            
-            jsonResponse(res, { 
-                ok: true, 
+
+            jsonResponse(res, {
+                ok: true,
                 matches,
                 matchedCount: matches.filter(m => m.matched).length,
                 unmatchedCount: matches.filter(m => !m.matched).length
@@ -316,7 +363,7 @@ async function handleContacts(ctx) {
         try {
             const projectId = req.headers['x-project-id'];
             if (projectId && storage._supabase) storage._supabase.setProject(projectId);
-            
+
             const unmatched = storage.getUnmatchedParticipants();
             jsonResponse(res, { ok: true, unmatched, total: unmatched.length });
         } catch (error) {
@@ -331,15 +378,15 @@ async function handleContacts(ctx) {
         const projectId = body?.project_id || body?.projectId || req.headers['x-project-id'];
         log.debug({ event: 'contacts_link_participant', participantName: body?.participantName, contactId: body?.contactId, projectId }, 'link-participant');
         if (projectId && storage._supabase) storage._supabase.setProject(projectId);
-        
+
         if (!body.participantName || !body.contactId) {
             jsonResponse(res, { ok: false, error: 'participantName and contactId are required' }, 400);
             return true;
         }
-        
+
         try {
             const result = await storage.linkParticipantToContact(body.participantName, body.contactId);
-            
+
             // Sync with FalkorDB - create alias relationship
             if (result.linked) {
                 try {
@@ -358,7 +405,7 @@ async function handleContacts(ctx) {
                     log.warn({ event: 'contacts_graph_sync_warning', reason: syncErr.message }, 'Graph sync warning');
                 }
             }
-            
+
             jsonResponse(res, { ok: true, ...result });
         } catch (error) {
             jsonResponse(res, { ok: false, error: error.message }, 500);
@@ -371,16 +418,16 @@ async function handleContacts(ctx) {
         const body = await parseBody(req);
         const projectId = body?.project_id || body?.projectId || req.headers['x-project-id'];
         if (projectId && storage._supabase) storage._supabase.setProject(projectId);
-        
+
         if (!body.participantName) {
             jsonResponse(res, { ok: false, error: 'participantName is required' }, 400);
             return true;
         }
-        
+
         try {
             // Remove alias from contact if exists
             const result = await storage.unlinkParticipant(body.participantName);
-            
+
             // Sync with FalkorDB - remove alias relationship
             if (result.unlinked) {
                 try {
@@ -397,7 +444,7 @@ async function handleContacts(ctx) {
                     log.warn({ event: 'contacts_graph_sync_warning', reason: syncErr.message }, 'Graph sync warning');
                 }
             }
-            
+
             jsonResponse(res, { ok: true, ...result });
         } catch (error) {
             jsonResponse(res, { ok: false, error: error.message }, 500);
@@ -410,14 +457,14 @@ async function handleContacts(ctx) {
         const parsedUrl = parseUrl(req.url);
         const projectId = parsedUrl.query?.project_id || req.headers['x-project-id'];
         if (projectId && storage._supabase) storage._supabase.setProject(projectId);
-        
+
         const name = parsedUrl.query.name;
-        
+
         if (!name) {
             jsonResponse(res, { ok: false, error: 'name query parameter is required' }, 400);
             return true;
         }
-        
+
         try {
             const contact = storage.findContactByNameOrAlias(name);
             jsonResponse(res, { ok: true, found: !!contact, contact });
@@ -432,7 +479,7 @@ async function handleContacts(ctx) {
         try {
             const projectId = req.headers['x-project-id'];
             if (projectId && storage._supabase) storage._supabase.setProject(projectId);
-            
+
             const duplicates = await storage.findDuplicateContacts();
             jsonResponse(res, { ok: true, duplicates, groups: duplicates.length });
         } catch (error) {
@@ -447,7 +494,7 @@ async function handleContacts(ctx) {
         try {
             const projectId = req.headers['x-project-id'];
             if (projectId && storage._supabase) storage._supabase.setProject(projectId);
-            
+
             const result = storage.syncPeopleToContacts();
             log.debug({ event: 'contacts_synced_people', added: result.added }, 'Synced people to contacts');
             jsonResponse(res, { ok: true, ...result });
@@ -462,14 +509,14 @@ async function handleContacts(ctx) {
         const body = await parseBody(req);
         const projectId = body?.project_id || body?.projectId || req.headers['x-project-id'];
         if (projectId && storage._supabase) storage._supabase.setProject(projectId);
-        
+
         const { contactIds } = body;
-        
+
         if (!contactIds || !Array.isArray(contactIds) || contactIds.length < 2) {
             jsonResponse(res, { ok: false, error: 'At least 2 contact IDs required' }, 400);
             return true;
         }
-        
+
         try {
             const mergedId = await storage.mergeContacts(contactIds);
             if (!mergedId) {
@@ -489,7 +536,7 @@ async function handleContacts(ctx) {
         try {
             const projectId = req.headers['x-project-id'];
             if (projectId && storage._supabase) storage._supabase.setProject(projectId);
-            
+
             const data = storage.exportContactsJSON();
             res.writeHead(200, {
                 'Content-Type': 'application/json',
@@ -507,7 +554,7 @@ async function handleContacts(ctx) {
         try {
             const projectId = req.headers['x-project-id'];
             if (projectId && storage._supabase) storage._supabase.setProject(projectId);
-            
+
             const csv = storage.exportContactsCSV();
             res.writeHead(200, {
                 'Content-Type': 'text/csv',
@@ -525,7 +572,7 @@ async function handleContacts(ctx) {
         const body = await parseBody(req);
         const projectId = body?.project_id || body?.projectId || req.headers['x-project-id'];
         if (projectId && storage._supabase) storage._supabase.setProject(projectId);
-        
+
         try {
             const result = storage.importContactsJSON(body);
             jsonResponse(res, { ok: true, ...result });
@@ -540,12 +587,12 @@ async function handleContacts(ctx) {
         const body = await parseBody(req);
         const projectId = body?.project_id || body?.projectId || req.headers['x-project-id'];
         if (projectId && storage._supabase) storage._supabase.setProject(projectId);
-        
+
         if (!body.csv || typeof body.csv !== 'string') {
             jsonResponse(res, { ok: false, error: 'csv content is required' }, 400);
             return true;
         }
-        
+
         try {
             const result = storage.importContactsCSV(body.csv);
             jsonResponse(res, { ok: true, ...result });
@@ -561,7 +608,7 @@ async function handleContacts(ctx) {
         const contactId = contactRelMatch[1];
         const projectId = req.headers['x-project-id'];
         if (projectId && storage._supabase) storage._supabase.setProject(projectId);
-        
+
         try {
             const relationships = await storage.getContactRelationships(contactId);
             jsonResponse(res, { ok: true, relationships });
@@ -578,12 +625,12 @@ async function handleContacts(ctx) {
         const body = await parseBody(req);
         const projectId = body?.project_id || body?.projectId || req.headers['x-project-id'];
         if (projectId && storage._supabase) storage._supabase.setProject(projectId);
-        
+
         if (!body.toContactId || !body.type) {
             jsonResponse(res, { ok: false, error: 'toContactId and type are required' }, 400);
             return true;
         }
-        
+
         try {
             const relationship = await storage.addContactRelationship(contactId, body.toContactId, body.type, {
                 strength: body.strength,
@@ -603,15 +650,15 @@ async function handleContacts(ctx) {
         const body = await parseBody(req);
         const projectId = body?.project_id || body?.projectId || req.headers['x-project-id'];
         if (projectId && storage._supabase) storage._supabase.setProject(projectId);
-        
+
         if (!body.toContactId || !body.type) {
             jsonResponse(res, { ok: false, error: 'toContactId and type are required' }, 400);
             return true;
         }
-        
+
         try {
             storage.removeContactRelationship(contactId, body.toContactId, body.type);
-            
+
             // Sync with graph - remove relationship edge from FalkorDB
             try {
                 const contact1 = storage.getContact(contactId);
@@ -626,8 +673,24 @@ async function handleContacts(ctx) {
             } catch (syncErr) {
                 log.warn({ event: 'contacts_graph_sync_relationship_warning', reason: syncErr.message }, 'Graph sync relationship warning');
             }
-            
+
             jsonResponse(res, { ok: true, graphSynced: true });
+        } catch (error) {
+            jsonResponse(res, { ok: false, error: error.message }, 500);
+        }
+        return true;
+    }
+
+    // GET /api/contacts/:id/mentions - Get contact mentions
+    const contactMentionsMatch = pathname.match(/^\/api\/contacts\/([a-f0-9\-]+)\/mentions$/);
+    if (contactMentionsMatch && req.method === 'GET') {
+        const contactId = contactMentionsMatch[1];
+        const projectId = req.headers['x-project-id'];
+        if (projectId && storage._supabase) storage._supabase.setProject(projectId);
+
+        try {
+            const mentions = await storage.getContactMentions(contactId);
+            jsonResponse(res, { ok: true, mentions });
         } catch (error) {
             jsonResponse(res, { ok: false, error: error.message }, 500);
         }
@@ -640,7 +703,7 @@ async function handleContacts(ctx) {
         const contactId = contactAssocMatch[1];
         const projectId = req.headers['x-project-id'];
         if (projectId && storage._supabase) storage._supabase.setProject(projectId);
-        
+
         try {
             const contactWithAssoc = await storage.getContactWithAssociations(contactId);
             if (!contactWithAssoc) {
@@ -661,15 +724,15 @@ async function handleContacts(ctx) {
         const body = await parseBody(req);
         const projectId = body?.project_id || body?.projectId || req.headers['x-project-id'];
         if (projectId && storage._supabase) storage._supabase.setProject(projectId);
-        
+
         if (!body.teamId) {
             jsonResponse(res, { ok: false, error: 'teamId is required' }, 400);
             return true;
         }
-        
+
         try {
             await storage.addTeamMember(body.teamId, contactId, body.role, body.isLead);
-            
+
             // Sync with FalkorDB
             const graphProvider = storage.getGraphProvider();
             if (graphProvider && graphProvider.connected) {
@@ -697,10 +760,10 @@ async function handleContacts(ctx) {
         const teamId = contactDelTeamMatch[2];
         const projectId = req.headers['x-project-id'];
         if (projectId && storage._supabase) storage._supabase.setProject(projectId);
-        
+
         try {
             await storage.removeTeamMember(teamId, contactId);
-            
+
             // Sync with FalkorDB
             const graphProvider = storage.getGraphProvider();
             if (graphProvider && graphProvider.connected) {
@@ -714,7 +777,7 @@ async function handleContacts(ctx) {
                     log.warn({ event: 'contacts_graph_sync_warning', reason: e.message }, 'Graph sync warning');
                 }
             }
-            
+
             jsonResponse(res, { ok: true });
         } catch (error) {
             jsonResponse(res, { ok: false, error: error.message }, 500);
@@ -728,7 +791,7 @@ async function handleContacts(ctx) {
         const contactId = contactGetProjMatch[1];
         const projectId = req.headers['x-project-id'];
         if (projectId && storage._supabase) storage._supabase.setProject(projectId);
-        
+
         try {
             const { data: contactProjects, error } = await storage.supabase
                 .from('contact_projects')
@@ -767,7 +830,7 @@ async function handleContacts(ctx) {
         const contactId = contactGetActivityMatch[1];
         const projectId = req.headers['x-project-id'];
         if (projectId && storage._supabase) storage._supabase.setProject(projectId);
-        
+
         try {
             const { data: activities, error } = await storage.supabase
                 .from('contact_activity')
@@ -797,29 +860,29 @@ async function handleContacts(ctx) {
         const body = await parseBody(req);
         const projectId = body?.project_id || body?.projectId || req.headers['x-project-id'];
         if (projectId && storage._supabase) storage._supabase.setProject(projectId);
-        
+
         const projectIds = body.projectIds || [];
-        
+
         try {
             // Get current project associations
             const { data: currentProjects, error: fetchError } = await storage.supabase
                 .from('contact_projects')
                 .select('project_id')
                 .eq('contact_id', contactId);
-            
+
             if (fetchError) {
                 log.warn({ event: 'contacts_current_projects_error', reason: fetchError.message }, 'Error fetching current projects');
             }
-            
+
             const currentIds = new Set((currentProjects || []).map(p => p.project_id));
             const newIds = new Set(projectIds);
-            
+
             // Find projects to remove
             const toRemove = [...currentIds].filter(id => !newIds.has(id));
-            
+
             // Find projects to add
             const toAdd = [...newIds].filter(id => !currentIds.has(id));
-            
+
             // Remove old associations
             if (toRemove.length > 0) {
                 const { error: deleteError } = await storage.supabase
@@ -827,12 +890,12 @@ async function handleContacts(ctx) {
                     .delete()
                     .eq('contact_id', contactId)
                     .in('project_id', toRemove);
-                
+
                 if (deleteError) {
                     log.warn({ event: 'contacts_remove_projects_error', reason: deleteError.message }, 'Error removing projects');
                 }
             }
-            
+
             // Add new associations
             if (toAdd.length > 0) {
                 const inserts = toAdd.map(projectId => ({
@@ -840,16 +903,16 @@ async function handleContacts(ctx) {
                     project_id: projectId,
                     is_primary: toAdd.indexOf(projectId) === 0 && currentIds.size === 0
                 }));
-                
+
                 const { error: insertError } = await storage.supabase
                     .from('contact_projects')
                     .insert(inserts);
-                
+
                 if (insertError) {
                     log.warn({ event: 'contacts_add_projects_error', reason: insertError.message }, 'Error adding projects');
                 }
             }
-            
+
             log.debug({ event: 'contacts_sync_projects', contactId, removed: toRemove.length, added: toAdd.length }, 'Synced projects for contact');
             jsonResponse(res, { ok: true, removed: toRemove.length, added: toAdd.length });
         } catch (error) {
@@ -866,12 +929,12 @@ async function handleContacts(ctx) {
         const body = await parseBody(req);
         const currentProjectId = body?.project_id || body?.projectId || req.headers['x-project-id'];
         if (currentProjectId && storage._supabase) storage._supabase.setProject(currentProjectId);
-        
+
         if (!body.projectId) {
             jsonResponse(res, { ok: false, error: 'projectId is required' }, 400);
             return true;
         }
-        
+
         try {
             await storage.addContactToProject(contactId, body.projectId, {
                 role: body.role,
@@ -891,7 +954,7 @@ async function handleContacts(ctx) {
         const projectId = contactDelProjMatch[2];
         const currentProjectId = req.headers['x-project-id'];
         if (currentProjectId && storage._supabase) storage._supabase.setProject(currentProjectId);
-        
+
         try {
             await storage.removeContactFromProject(contactId, projectId);
             jsonResponse(res, { ok: true });
@@ -905,20 +968,20 @@ async function handleContacts(ctx) {
     const contactEnrichMatch = pathname.match(/^\/api\/contacts\/([a-f0-9\-]+)\/enrich$/);
     if (contactEnrichMatch && req.method === 'POST') {
         const contactId = contactEnrichMatch[1];
-        
+
         try {
             const contact = storage.getContactById(contactId);
             if (!contact) {
                 jsonResponse(res, { ok: false, error: 'Contact not found' }, 404);
                 return true;
             }
-            
+
             // Get context from activity
             const activityContext = (contact.activity || [])
                 .slice(0, 10)
                 .map(a => `${a.type}: ${a.title}`)
                 .join('\n');
-            
+
             const prompt = `Based on the following information about a contact and their activities, suggest any additional details I should add to complete their profile.
 
 Contact:
@@ -954,19 +1017,19 @@ NOTES_SUGGESTION: <additional notes to add>`;
                 context: 'contacts'
             });
             const aiResponse = result.success ? (result.text || '') : '';
-            
+
             // Parse suggestions
             const suggestions = {};
             const roleMatch = aiResponse.match(/ROLE_SUGGESTION:\s*(.+)/);
             const deptMatch = aiResponse.match(/DEPARTMENT_SUGGESTION:\s*(.+)/);
             const tagsMatch = aiResponse.match(/TAGS_SUGGESTION:\s*(.+)/);
             const notesMatch = aiResponse.match(/NOTES_SUGGESTION:\s*(.+)/);
-            
+
             if (roleMatch && !contact.role) suggestions.role = roleMatch[1].trim();
             if (deptMatch && !contact.department) suggestions.department = deptMatch[1].trim();
             if (tagsMatch) suggestions.tags = tagsMatch[1].split(',').map(t => t.trim()).filter(Boolean);
             if (notesMatch) suggestions.additionalNotes = notesMatch[1].trim();
-            
+
             jsonResponse(res, { ok: true, suggestions, rawResponse: aiResponse });
         } catch (error) {
             jsonResponse(res, { ok: false, error: error.message }, 500);

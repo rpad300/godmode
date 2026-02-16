@@ -1,0 +1,22 @@
+/**
+ * Design Tokens: Z-Index
+ * Primitive scale and semantic aliases
+ */
+
+:root {
+    /* Primitive Scale */
+    --z-1: 1;
+    --z-10: 10;
+    --z-100: 100;
+    --z-1000: 1000;
+    --z-10000: 10000;
+
+    /* Semantic Aliases */
+    --z-dropdown: var(--z-100);
+    --z-sticky: var(--z-100);
+    --z-fixed: var(--z-1000);
+    --z-modal-backdrop: var(--z-1000);
+    --z-modal: var(--z-1000);
+    --z-toast: var(--z-10000);
+    --z-tooltip: var(--z-10000);
+}

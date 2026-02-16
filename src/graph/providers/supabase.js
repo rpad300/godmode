@@ -24,8 +24,13 @@ class SupabaseGraphProvider extends GraphProvider {
         this.graphName = config.graphName || 'default';
         this.projectId = config.projectId || null;
         this.currentGraphName = this.graphName;
-        
+
         log.debug({ event: 'supabase_graph_config', graphName: this.graphName, projectId: this.projectId, hasClient: !!this.supabase }, 'Config');
+    }
+
+    setProjectContext(projectId) {
+        this.projectId = projectId;
+        log.debug({ event: 'supabase_graph_set_project_context', projectId }, 'Set project context');
     }
 
     static get capabilities() {
@@ -60,13 +65,13 @@ class SupabaseGraphProvider extends GraphProvider {
         try {
             // Test connection
             const { error } = await this.supabase.from('graph_nodes').select('id').limit(1);
-            
+
             if (error && error.code === '42P01') {
                 // Table doesn't exist - create schema
                 log.warn({ event: 'supabase_graph_tables_not_found' }, 'Tables not found, need to run migration');
                 return { ok: false, error: 'Graph tables not found. Run migration 056_graph_tables.sql' };
             }
-            
+
             if (error) {
                 throw error;
             }
@@ -92,14 +97,14 @@ class SupabaseGraphProvider extends GraphProvider {
 
         try {
             const { data, error } = await this.supabase.rpc('graph_test_connection');
-            
+
             if (error) {
                 // Fallback to simple query
                 const { error: selectError } = await this.supabase
                     .from('graph_nodes')
                     .select('id')
                     .limit(1);
-                
+
                 if (selectError) throw selectError;
                 return { ok: true, message: 'Connected to Supabase Graph' };
             }
@@ -137,16 +142,35 @@ class SupabaseGraphProvider extends GraphProvider {
     async deleteGraph(graphName) {
         try {
             // Delete relationships first
-            await this.supabase
-                .from('graph_relationships')
-                .delete()
-                .eq('graph_name', graphName);
+
+
+            if (this.projectId) {
+                await this.supabase
+                    .from('graph_relationships')
+                    .delete()
+                    .eq('graph_name', graphName)
+                    .eq('project_id', this.projectId);
+            } else {
+                await this.supabase
+                    .from('graph_relationships')
+                    .delete()
+                    .eq('graph_name', graphName);
+            }
 
             // Delete nodes
-            await this.supabase
-                .from('graph_nodes')
-                .delete()
-                .eq('graph_name', graphName);
+
+            if (this.projectId) {
+                await this.supabase
+                    .from('graph_nodes')
+                    .delete()
+                    .eq('graph_name', graphName)
+                    .eq('project_id', this.projectId);
+            } else {
+                await this.supabase
+                    .from('graph_nodes')
+                    .delete()
+                    .eq('graph_name', graphName);
+            }
 
             log.info({ event: 'supabase_graph_deleted', graphName }, 'Deleted graph');
             return { ok: true, deleted: graphName };
@@ -200,13 +224,16 @@ class SupabaseGraphProvider extends GraphProvider {
         }
 
         try {
-            const nodes = nodesData.map(node => ({
-                id: node.id || this.generateId(),
-                label,
-                properties: { ...node, id: node.id || this.generateId() },
-                graph_name: this.currentGraphName,
-                project_id: this.projectId
-            }));
+            const nodes = nodesData.map(node => {
+                const id = node.id || this.generateId();
+                return {
+                    id: id,
+                    label,
+                    properties: { ...node, id },
+                    graph_name: this.currentGraphName,
+                    project_id: this.projectId
+                };
+            });
 
             const { data, error } = await this.supabase
                 .from('graph_nodes')
@@ -229,11 +256,15 @@ class SupabaseGraphProvider extends GraphProvider {
 
         try {
             const { limit = 100, offset = 0 } = options;
-            
+
             let query = this.supabase
                 .from('graph_nodes')
                 .select('*')
                 .eq('graph_name', this.currentGraphName);
+
+            if (this.projectId) {
+                query = query.eq('project_id', this.projectId);
+            }
 
             if (label) {
                 query = query.eq('label', label);
@@ -304,11 +335,17 @@ class SupabaseGraphProvider extends GraphProvider {
             // Get existing properties
             const { data: existing, error: getError } = await this.supabase
                 .from('graph_nodes')
-                .select('properties')
+                .select('properties, project_id')
                 .eq('id', nodeId)
-                .single();
+                .maybeSingle();
 
             if (getError) throw getError;
+            if (!existing) return { ok: false, error: 'Node not found' };
+
+            // Verify project access if context is set
+            if (this.projectId && existing.project_id && existing.project_id !== this.projectId) {
+                return { ok: false, error: 'Access denied: Node belongs to another project' };
+            }
 
             const mergedProps = { ...(existing.properties || {}), ...properties, id: nodeId };
 
@@ -359,7 +396,7 @@ class SupabaseGraphProvider extends GraphProvider {
         }
 
         try {
-            const relId = properties.id || `${fromId}-${type}-${toId}`;
+            const relId = properties.id || `${type}:${fromId}:${toId}`;
             const relData = {
                 id: relId,
                 from_id: fromId,
@@ -391,7 +428,7 @@ class SupabaseGraphProvider extends GraphProvider {
 
         try {
             const rels = relationships.map(rel => ({
-                id: rel.id || `${rel.fromId}-${rel.type}-${rel.toId}`,
+                id: rel.id || `${rel.type}:${rel.fromId}:${rel.toId}`,
                 from_id: rel.fromId,
                 to_id: rel.toId,
                 type: rel.type,
@@ -420,11 +457,15 @@ class SupabaseGraphProvider extends GraphProvider {
 
         try {
             const { fromId, toId, type, limit = 100 } = options;
-            
+
             let query = this.supabase
                 .from('graph_relationships')
                 .select('*')
                 .eq('graph_name', this.currentGraphName);
+
+            if (this.projectId) {
+                query = query.eq('project_id', this.projectId);
+            }
 
             if (fromId) query = query.eq('from_id', fromId);
             if (toId) query = query.eq('to_id', toId);
@@ -541,6 +582,105 @@ class SupabaseGraphProvider extends GraphProvider {
         }
     }
 
+    // ==================== Sync Operations ====================
+
+    async getSyncStatus() {
+        if (!await this.ensureConnected() || !this.projectId) {
+            return { ok: false, error: 'Not connected or no project context' };
+        }
+        try {
+            const { data, error } = await this.supabase
+                .from('graph_sync_status')
+                .select('*')
+                .eq('project_id', this.projectId)
+                .eq('graph_name', this.currentGraphName)
+                .maybeSingle();
+
+            if (error) throw error;
+
+            // Get live stats to supplement the status
+            const stats = await this.getStats();
+
+            // Map DB fields to Frontend Interface
+            const statusObj = data || {};
+
+            return {
+                ok: true,
+                status: {
+                    ...statusObj,
+                    node_count: stats.ok ? stats.nodeCount : 0,
+                    edge_count: stats.ok ? stats.edgeCount : 0,
+                    sync_status: statusObj.pending_count > 0 ? 'syncing' : (statusObj.health_status === 'unhealthy' ? 'failed' : 'idle'),
+                    last_synced_at: statusObj.updated_at || new Date().toISOString(),
+                    health_status: statusObj.health_status || 'unknown'
+                }
+            };
+        } catch (error) {
+            return { ok: false, error: error.message };
+        }
+    }
+
+    async updateSyncStatus(status) {
+        if (!await this.ensureConnected() || !this.projectId) {
+            return { ok: false, error: 'Not connected or no project context' };
+        }
+        try {
+            // Filter fields to match DB schema (graph_sync_status)
+            const payload = {
+                project_id: this.projectId,
+                graph_name: this.currentGraphName,
+                updated_at: new Date().toISOString()
+            };
+
+            // Map allowed fields
+            if (status.last_connected_at) payload.last_connected_at = status.last_connected_at;
+            if (status.last_error !== undefined) payload.last_error = status.last_error;
+            if (status.health_status) payload.health_status = status.health_status;
+
+            const { data, error } = await this.supabase
+                .from('graph_sync_status')
+                .upsert(payload, { onConflict: 'project_id,graph_name' })
+                .select()
+                .single();
+
+            if (error) throw error;
+            return { ok: true, status: data };
+        } catch (error) {
+            return { ok: false, error: error.message };
+        }
+    }
+
+    async pruneStale(thresholdDate) {
+        if (!await this.ensureConnected() || !this.projectId) {
+            return { ok: false, error: 'Not connected or no project context' };
+        }
+        try {
+            // Delete relationships first
+            const { count: relCount, error: relError } = await this.supabase
+                .from('graph_relationships')
+                .delete({ count: 'exact' })
+                .eq('project_id', this.projectId)
+                .eq('graph_name', this.currentGraphName)
+                .lt('created_at', thresholdDate); // Delete anything older than threshold (relationships are immutable)
+
+            if (relError) throw relError;
+
+            // Delete nodes
+            const { count: nodeCount, error: nodeError } = await this.supabase
+                .from('graph_nodes')
+                .delete({ count: 'exact' })
+                .eq('project_id', this.projectId)
+                .eq('graph_name', this.currentGraphName)
+                .lt('updated_at', thresholdDate);
+
+            if (nodeError) throw nodeError;
+
+            return { ok: true, deletedNodes: nodeCount, deletedRelationships: relCount };
+        } catch (error) {
+            return { ok: false, error: error.message };
+        }
+    }
+
     // ==================== Query Operations ====================
 
     async query(cypher, params = {}) {
@@ -562,12 +702,16 @@ class SupabaseGraphProvider extends GraphProvider {
         // MATCH (n) RETURN count(n) as count
         if (cypherLower.includes('count(n)')) {
             const labelMatch = cypher.match(/\(n:(\w+)\)/);
-            
+
             let query = this.supabase
                 .from('graph_nodes')
                 .select('id', { count: 'exact', head: true })
                 .eq('graph_name', this.currentGraphName);
-            
+
+            if (this.projectId) {
+                query = query.eq('project_id', this.projectId);
+            }
+
             if (labelMatch) {
                 query = query.eq('label', labelMatch[1]);
             }
@@ -580,11 +724,17 @@ class SupabaseGraphProvider extends GraphProvider {
 
         // MATCH ()-[r]->() RETURN count(r) as count
         if (cypherLower.includes('count(r)')) {
-            const { count, error } = await this.supabase
+            let query = this.supabase
                 .from('graph_relationships')
                 .select('id', { count: 'exact', head: true })
                 .eq('graph_name', this.currentGraphName);
 
+            if (this.projectId) {
+                // For relationships, we only filter if project_id is on the relationship
+                query = query.eq('project_id', this.projectId);
+            }
+
+            const { count, error } = await query;
             if (error) throw error;
 
             return { data: [{ count: count || 0 }], metadata: {} };
@@ -594,11 +744,15 @@ class SupabaseGraphProvider extends GraphProvider {
         if (cypherLower.match(/match\s*\(n.*\)\s*return/i)) {
             const labelMatch = cypher.match(/\(n:(\w+)\)/);
             const limitMatch = cypher.match(/limit\s+(\d+)/i);
-            
+
             let query = this.supabase
                 .from('graph_nodes')
                 .select('*')
                 .eq('graph_name', this.currentGraphName);
+
+            if (this.projectId) {
+                query = query.eq('project_id', this.projectId);
+            }
 
             if (labelMatch) {
                 query = query.eq('label', labelMatch[1]);
@@ -623,33 +777,40 @@ class SupabaseGraphProvider extends GraphProvider {
             const limitMatch = cypher.match(/limit\s+(\d+)/i);
             const limit = limitMatch ? parseInt(limitMatch[1]) : 100;
 
-            const { data: rels, error: relError } = await this.supabase
+            let query = this.supabase
                 .from('graph_relationships')
                 .select(`
                     id, from_id, to_id, type, properties,
                     from_node:graph_nodes!from_id(id, label, properties),
                     to_node:graph_nodes!to_id(id, label, properties)
                 `)
-                .eq('graph_name', this.currentGraphName)
-                .limit(limit);
+                .eq('graph_name', this.currentGraphName);
+
+            if (this.projectId) {
+                query = query.eq('project_id', this.projectId);
+            }
+
+            query = query.limit(limit);
+
+            const { data: rels, error: relError } = await query;
 
             if (relError) throw relError;
 
             const results = (rels || []).map(r => ({
-                from: r.from_node ? { 
-                    id: r.from_node.id, 
-                    labels: [r.from_node.label], 
-                    ...(r.from_node.properties || {}) 
+                from: r.from_node ? {
+                    id: r.from_node.id,
+                    labels: [r.from_node.label],
+                    ...(r.from_node.properties || {})
                 } : { id: r.from_id },
-                r: { 
-                    id: r.id, 
-                    type: r.type, 
-                    ...(r.properties || {}) 
+                r: {
+                    id: r.id,
+                    type: r.type,
+                    ...(r.properties || {})
                 },
-                to: r.to_node ? { 
-                    id: r.to_node.id, 
-                    labels: [r.to_node.label], 
-                    ...(r.to_node.properties || {}) 
+                to: r.to_node ? {
+                    id: r.to_node.id,
+                    labels: [r.to_node.label],
+                    ...(r.to_node.properties || {})
                 } : { id: r.to_id }
             }));
 
@@ -663,15 +824,23 @@ class SupabaseGraphProvider extends GraphProvider {
 
         // MATCH (n) DETACH DELETE n
         if (cypherLower.includes('detach delete')) {
-            await this.supabase
+            let relQuery = this.supabase
                 .from('graph_relationships')
                 .delete()
                 .eq('graph_name', this.currentGraphName);
-            
-            await this.supabase
+
+            let nodeQuery = this.supabase
                 .from('graph_nodes')
                 .delete()
                 .eq('graph_name', this.currentGraphName);
+
+            if (this.projectId) {
+                relQuery = relQuery.eq('project_id', this.projectId);
+                nodeQuery = nodeQuery.eq('project_id', this.projectId);
+            }
+
+            await relQuery;
+            await nodeQuery;
 
             return { data: [], metadata: { cleared: true } };
         }
@@ -682,7 +851,7 @@ class SupabaseGraphProvider extends GraphProvider {
             const label = mergeMatch[1];
             const idParam = mergeMatch[2];
             const nodeId = params[idParam];
-            
+
             // Extract SET properties
             const props = { id: nodeId };
             const setMatches = cypher.matchAll(/(\w+)\.\s*(\w+)\s*=\s*\$(\w+)/g);
@@ -693,7 +862,7 @@ class SupabaseGraphProvider extends GraphProvider {
                     props[propName] = params[paramName];
                 }
             }
-            
+
             // Upsert the node
             await this.createNode(label, props);
             return { data: [props], metadata: { merged: true } };
@@ -712,13 +881,18 @@ class SupabaseGraphProvider extends GraphProvider {
 
         try {
             const { limit = 20, label } = options;
-            
+
             // Use PostgreSQL full-text search
             let dbQuery = this.supabase
                 .from('graph_nodes')
                 .select('*')
-                .eq('graph_name', this.currentGraphName)
-                .textSearch('search_vector', query, { type: 'websearch' })
+                .eq('graph_name', this.currentGraphName);
+
+            if (this.projectId) {
+                dbQuery = dbQuery.eq('project_id', this.projectId);
+            }
+
+            dbQuery = dbQuery.textSearch('search_vector', query, { type: 'websearch' })
                 .limit(limit);
 
             if (label) {
@@ -729,15 +903,21 @@ class SupabaseGraphProvider extends GraphProvider {
 
             if (error) {
                 // Fallback to ILIKE search on properties
-                const { data: fallbackData, error: fallbackError } = await this.supabase
+                let fallbackDataQuery = this.supabase
                     .from('graph_nodes')
                     .select('*')
-                    .eq('graph_name', this.currentGraphName)
+                    .eq('graph_name', this.currentGraphName);
+
+                if (this.projectId) {
+                    fallbackDataQuery = fallbackDataQuery.eq('project_id', this.projectId);
+                }
+
+                const { data: fallbackData, error: fallbackError } = await fallbackDataQuery
                     .ilike('properties::text', `%${query}%`)
                     .limit(limit);
 
                 if (fallbackError) throw fallbackError;
-                
+
                 const results = (fallbackData || []).map(r => ({
                     id: r.id,
                     label: r.label,
@@ -768,26 +948,44 @@ class SupabaseGraphProvider extends GraphProvider {
 
         try {
             // Get node count
-            const { count: nodeCount, error: nodeError } = await this.supabase
+            let nodeCountQuery = this.supabase
                 .from('graph_nodes')
                 .select('id', { count: 'exact', head: true })
                 .eq('graph_name', this.currentGraphName);
+
+            if (this.projectId) {
+                nodeCountQuery = nodeCountQuery.eq('project_id', this.projectId);
+            }
+
+            const { count: nodeCount, error: nodeError } = await nodeCountQuery;
 
             if (nodeError) throw nodeError;
 
             // Get relationship count
-            const { count: relCount, error: relError } = await this.supabase
+            let relCountQuery = this.supabase
                 .from('graph_relationships')
                 .select('id', { count: 'exact', head: true })
                 .eq('graph_name', this.currentGraphName);
 
+            if (this.projectId) {
+                relCountQuery = relCountQuery.eq('project_id', this.projectId);
+            }
+
+            const { count: relCount, error: relError } = await relCountQuery;
+
             if (relError) throw relError;
 
             // Get label distribution
-            const { data: labels } = await this.supabase
+            let labelQuery = this.supabase
                 .from('graph_nodes')
                 .select('label')
                 .eq('graph_name', this.currentGraphName);
+
+            if (this.projectId) {
+                labelQuery = labelQuery.eq('project_id', this.projectId);
+            }
+
+            const { data: labels } = await labelQuery;
 
             const labelCounts = {};
             (labels || []).forEach(r => {
@@ -795,10 +993,16 @@ class SupabaseGraphProvider extends GraphProvider {
             });
 
             // Get relationship type distribution
-            const { data: relTypes } = await this.supabase
+            let typeQuery = this.supabase
                 .from('graph_relationships')
                 .select('type')
                 .eq('graph_name', this.currentGraphName);
+
+            if (this.projectId) {
+                typeQuery = typeQuery.eq('project_id', this.projectId);
+            }
+
+            const { data: relTypes } = await typeQuery;
 
             const typeCounts = {};
             (relTypes || []).forEach(r => {
@@ -844,11 +1048,17 @@ class SupabaseGraphProvider extends GraphProvider {
 
         try {
             // Get all Meeting nodes
-            const { data: meetings, error: fetchError } = await this.supabase
+            let query = this.supabase
                 .from('graph_nodes')
                 .select('id, properties')
                 .eq('graph_name', this.currentGraphName)
                 .eq('label', 'Meeting');
+
+            if (this.projectId) {
+                query = query.eq('project_id', this.projectId);
+            }
+
+            const { data: meetings, error: fetchError } = await query;
 
             if (fetchError) throw fetchError;
 
@@ -910,10 +1120,10 @@ class SupabaseGraphProvider extends GraphProvider {
             if (deleteError) throw deleteError;
 
             log.debug({ event: 'supabase_graph_cleaned_duplicates', count: toDelete.length }, 'Cleaned up duplicate Meeting nodes');
-            
-            return { 
-                ok: true, 
-                deleted: toDelete.length, 
+
+            return {
+                ok: true,
+                deleted: toDelete.length,
                 remapped: remappings.length,
                 deletedIds: toDelete
             };
@@ -932,18 +1142,30 @@ class SupabaseGraphProvider extends GraphProvider {
 
         try {
             // Get all node IDs
-            const { data: nodes } = await this.supabase
+            let nodeQuery = this.supabase
                 .from('graph_nodes')
                 .select('id')
                 .eq('graph_name', this.currentGraphName);
 
+            if (this.projectId) {
+                nodeQuery = nodeQuery.eq('project_id', this.projectId);
+            }
+
+            const { data: nodes } = await nodeQuery;
+
             const nodeIds = new Set((nodes || []).map(n => n.id));
 
             // Get all relationships
-            const { data: rels } = await this.supabase
+            let relQuery = this.supabase
                 .from('graph_relationships')
                 .select('id, from_id, to_id')
                 .eq('graph_name', this.currentGraphName);
+
+            if (this.projectId) {
+                relQuery = relQuery.eq('project_id', this.projectId);
+            }
+
+            const { data: rels } = await relQuery;
 
             // Find orphaned relationships
             const orphanedIds = (rels || [])
@@ -955,16 +1177,22 @@ class SupabaseGraphProvider extends GraphProvider {
             }
 
             // Delete orphaned relationships
-            const { error: deleteError } = await this.supabase
+            let deleteQuery = this.supabase
                 .from('graph_relationships')
                 .delete()
                 .eq('graph_name', this.currentGraphName)
                 .in('id', orphanedIds);
 
+            if (this.projectId) {
+                deleteQuery = deleteQuery.eq('project_id', this.projectId);
+            }
+
+            const { error: deleteError } = await deleteQuery;
+
             if (deleteError) throw deleteError;
 
             log.debug({ event: 'supabase_graph_cleaned_orphans', count: orphanedIds.length }, 'Cleaned up orphaned relationships');
-            
+
             return { ok: true, deleted: orphanedIds.length };
         } catch (error) {
             return { ok: false, error: error.message };

@@ -1,0 +1,668 @@
+/**
+ * Dashboard Widgets Styles
+ * StatsCard, HealthIndicator, TrendChart, RiskMatrix
+ */
+
+/* Stats Card (SOTA) */
+.stat-card {
+  position: relative;
+  padding: var(--spacing-lg);
+  background: var(--glass-bg, rgba(255, 255, 255, 0.05));
+  backdrop-filter: var(--glass-blur, blur(10px));
+  -webkit-backdrop-filter: var(--glass-blur, blur(10px));
+  border-radius: var(--radius-lg);
+  border: var(--card-border, 1px solid rgba(255, 255, 255, 0.1));
+  box-shadow: var(--card-shadow);
+  text-align: center;
+  transition: transform 0.2s, box-shadow 0.2s;
+  overflow: hidden;
+  container-type: inline-size;
+  container-name: stat-card;
+}
+
+.stat-card.clickable {
+  cursor: pointer;
+}
+
+.stat-card.clickable:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--card-shadow-hover);
+}
+
+.stat-card:active {
+  transform: translateY(-2px);
+}
+
+.stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, var(--stat-color, var(--color-primary)), var(--stat-color-light, var(--color-primary)));
+}
+
+.stat-icon {
+  font-size: 2rem;
+  margin-bottom: var(--spacing-sm);
+}
+
+.stat-value {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--color-text);
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* Container Query: Resize text if card is small */
+@container stat-card (max-width: 180px) {
+  .stat-value {
+    font-size: 1.5rem;
+  }
+
+  .stat-icon {
+    font-size: 1.5rem;
+  }
+}
+
+.stat-label {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-top: var(--spacing-xs);
+}
+
+.stat-sub {
+  font-size: 0.65rem;
+  color: var(--stat-color, var(--color-text-secondary));
+  margin-top: 0.125rem;
+  font-weight: 500;
+}
+
+.stat-trend {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin-top: var(--spacing-sm);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+}
+
+.stat-trend.up.positive {
+  color: var(--color-success);
+}
+
+.stat-trend.up.negative {
+  color: var(--color-error);
+}
+
+.stat-trend.down.positive {
+  color: var(--color-success);
+}
+
+.stat-trend.down.negative {
+  color: var(--color-error);
+}
+
+.stat-trend.stable {
+  color: var(--color-text-muted);
+}
+
+.trend-arrow {
+  font-size: var(--font-size-md);
+}
+
+/* Stat Colors (Data Attributes) */
+.stat-card[data-stat-id="facts"] {
+  --stat-color: var(--status-info);
+  --stat-color-light: var(--status-info-light);
+}
+
+.stat-card[data-stat-id="questions"] {
+  --stat-color: var(--status-warning);
+  --stat-color-light: var(--status-warning-light);
+}
+
+.stat-card[data-stat-id="decisions"] {
+  --stat-color: var(--status-success);
+  --stat-color-light: var(--status-success-light);
+}
+
+.stat-card[data-stat-id="risks"] {
+  --stat-color: var(--status-danger);
+  --stat-color-light: var(--status-danger-light);
+}
+
+.stat-card[data-stat-id="actions"] {
+  --stat-color: var(--interactive-primary);
+  --stat-color-light: var(--interactive-primary-hover);
+}
+
+/* Stats Grid */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--spacing-md);
+  width: 100%;
+}
+
+
+/* Health Indicator */
+.health-indicator {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg);
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+}
+
+.health-gauge {
+  position: relative;
+  width: 120px;
+}
+
+.gauge-svg {
+  width: 100%;
+  height: auto;
+}
+
+.gauge-bg {
+  fill: none;
+  stroke: var(--color-surface-hover);
+  stroke-width: 8;
+  stroke-linecap: round;
+}
+
+.gauge-fill {
+  fill: none;
+  stroke-width: 8;
+  stroke-linecap: round;
+  transform-origin: center;
+  transition: stroke-dasharray 0.5s ease;
+  stroke-dasharray: var(--gauge-dash) 126;
+  stroke: var(--gauge-stroke);
+}
+
+.gauge-center {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+}
+
+.score-value {
+  display: block;
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.score-label {
+  display: block;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.health-status {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--health-status-color);
+}
+
+.health-factors {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.factor {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+}
+
+.factor.positive {
+  background: var(--status-success-bg);
+  color: var(--status-success);
+}
+
+.factor.negative {
+  background: var(--status-danger-bg);
+  color: var(--status-danger);
+}
+
+.factor-icon {
+  font-weight: 600;
+}
+
+/* Health Badge (compact) */
+.health-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.badge-score {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  color: white;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  background: var(--badge-bg);
+}
+
+.badge-status {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+/* Health sizes */
+.health-indicator.size-sm .health-gauge {
+  width: 80px;
+}
+
+.health-indicator.size-sm .score-value {
+  font-size: 1.25rem;
+}
+
+.health-indicator.size-lg .health-gauge {
+  width: 160px;
+}
+
+.health-indicator.size-lg .score-value {
+  font-size: 2.25rem;
+}
+
+/* Trend Chart */
+.trend-chart-container {
+  position: relative;
+  width: 100%;
+}
+
+.empty-chart {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--color-text-muted);
+}
+
+/* Breakdown chart */
+.breakdown-chart-container {
+  min-height: 120px;
+}
+
+.breakdown-fallback {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.breakdown-fallback-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-size: var(--font-size-sm);
+}
+
+.breakdown-fallback-bar .bar-label {
+  min-width: 100px;
+}
+
+.breakdown-fallback-bar .bar-track {
+  flex: 1;
+  height: 16px;
+  background: var(--color-bg);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.breakdown-fallback-bar .bar-fill {
+  height: 100%;
+  border-radius: var(--radius-sm);
+  min-width: 4px;
+}
+
+.breakdown-fallback-bar .bar-value {
+  min-width: 24px;
+  text-align: right;
+  color: var(--color-text-muted);
+}
+
+/* Fallback Chart (when Chart.js not loaded) */
+.fallback-chart {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.chart-legend {
+  display: flex;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-sm);
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-sm);
+}
+
+.legend-color {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+}
+
+.fallback-chart .legend-color {
+  background: var(--legend-color, #6366f1);
+}
+
+.chart-bars {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  gap: var(--spacing-sm);
+}
+
+.bar-group {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.bar-group .bar {
+  width: 100%;
+  max-width: 20px;
+  height: calc(var(--bar-height, 0) * 1%);
+  min-height: 2px;
+  border-radius: 2px 2px 0 0;
+  transition: height 0.3s ease;
+  background: var(--bar-color, #6366f1);
+}
+
+.bar-label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* Risk Matrix */
+.risk-matrix {
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  padding: var(--spacing-lg);
+}
+
+.matrix-container {
+  position: relative;
+}
+
+.matrix-y-label {
+  position: absolute;
+  left: -20px;
+  top: 50%;
+  transform: rotate(-90deg) translateX(50%);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.matrix-x-label {
+  text-align: center;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin-top: var(--spacing-sm);
+}
+
+.matrix-grid {
+  margin-left: 20px;
+}
+
+.matrix-header {
+  display: grid;
+  grid-template-columns: 80px repeat(3, 1fr);
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.matrix-corner {
+  /* Empty corner cell */
+}
+
+.matrix-col-header {
+  text-align: center;
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  color: var(--color-text-muted);
+  padding: var(--spacing-xs);
+}
+
+.matrix-row {
+  display: grid;
+  grid-template-columns: 80px repeat(3, 1fr);
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.matrix-row-header {
+  display: flex;
+  align-items: center;
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  color: var(--color-text-muted);
+  padding-right: var(--spacing-sm);
+}
+
+.matrix-cell {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  transition: all 0.2s;
+  background-color: var(--cell-color, var(--color-surface-hover));
+}
+
+.matrix-cell.has-risks {
+  cursor: pointer;
+}
+
+.matrix-cell.has-risks:hover {
+  transform: scale(1.05);
+  box-shadow: var(--shadow-md);
+}
+
+.matrix-cell.cell-critical {
+  background: var(--status-danger);
+  color: #fff;
+}
+
+.matrix-cell.cell-high {
+  background: var(--status-warning-dark);
+  /* or a specific high-risk orange */
+  color: #fff;
+}
+
+.matrix-cell.cell-medium {
+  background: var(--status-warning);
+  color: #fff;
+}
+
+.matrix-cell.cell-low {
+  background: var(--status-success);
+  color: #fff;
+}
+
+.cell-count {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: white;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.matrix-legend {
+  display: flex;
+  justify-content: center;
+  gap: var(--spacing-md);
+  margin-top: var(--spacing-md);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid var(--color-border);
+}
+
+.matrix-legend .legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.matrix-legend .legend-color {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+}
+
+.risk-legend-low {
+  background: var(--status-success);
+}
+
+.risk-legend-medium {
+  background: var(--status-warning);
+}
+
+.risk-legend-high {
+  background: var(--status-warning-dark);
+}
+
+.risk-legend-critical {
+  background: var(--status-danger);
+}
+
+/* Risk Matrix sizes */
+.risk-matrix.size-sm .matrix-cell {
+  aspect-ratio: 1;
+  min-height: 30px;
+}
+
+.risk-matrix.size-lg .matrix-cell {
+  aspect-ratio: 1;
+  min-height: 60px;
+}
+
+/* Risk matrix container (Risks panel) – same horizontal padding as panel-content */
+.risk-matrix-container {
+  padding: var(--spacing-md);
+  padding-bottom: var(--spacing-lg);
+  min-height: 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* Dashboard risk matrix section */
+.risk-matrix-section {
+  margin-top: var(--spacing-md);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid var(--color-border);
+}
+
+.risk-matrix-title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  margin: 0 0 var(--spacing-sm) 0;
+}
+
+.dashboard-risk-matrix .matrix-header,
+.dashboard-risk-matrix .matrix-row {
+  display: grid;
+  grid-template-columns: 60px repeat(3, 1fr);
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.dashboard-risk-matrix .matrix-cell {
+  min-height: 28px;
+}
+
+/* Risk Summary */
+.risk-summary {
+  padding: var(--spacing-md);
+}
+
+.summary-bars {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.summary-bar {
+  display: grid;
+  grid-template-columns: 60px 1fr 30px;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.bar-label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.bar-track {
+  height: 8px;
+  background: var(--color-surface-hover);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  width: calc(var(--bar-width, 0) * 1%);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.bar-fill.impact-critical {
+  background: var(--status-danger);
+}
+
+.bar-fill.impact-high {
+  background: var(--status-warning-dark);
+}
+
+.bar-fill.impact-medium {
+  background: var(--status-warning);
+}
+
+.bar-fill.impact-low {
+  background: var(--status-success);
+}
+
+.bar-count {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text);
+  text-align: right;
+}

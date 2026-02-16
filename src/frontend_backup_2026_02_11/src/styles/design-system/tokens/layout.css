@@ -1,0 +1,10 @@
+/**
+ * Design Tokens: Layout
+ * App-specific layout dimensions and fluid containers
+ */
+
+:root {
+    --sidebar-width: clamp(250px, 20vw, 360px);
+    --container-padding: clamp(12px, 2vw, 48px);
+    --card-gap: clamp(16px, 2vw, 32px);
+}

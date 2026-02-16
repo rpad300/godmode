@@ -1,0 +1,260 @@
+/**
+ * Theme System — GodMode Design System
+ * Light and dark mode; default = dark (app current behavior).
+ * SOTA Edition: Premium Glassmorphism & Vibrant Gradients
+ */
+
+@import './tokens/colors.css';
+@import './tokens/typography.css';
+@import './tokens/spacing.css';
+@import './tokens/radius.css';
+@import './tokens/shadows.css';
+@import './tokens/motion.css';
+@import './tokens/layout.css';
+@import './tokens/z-index.css';
+
+/* ==================== Dark Theme (default) ==================== */
+:root,
+[data-theme="dark"] {
+  /* Backgrounds */
+  --bg-primary: var(--color-neutral-950);
+  --bg-secondary: var(--color-neutral-900);
+  --bg-tertiary: var(--color-neutral-800);
+  --bg-elevated: var(--color-neutral-800);
+  --bg-overlay: rgba(2, 6, 23, 0.8);
+
+  /* SOTA Glassmorphism */
+  --glass-surface: rgba(15, 23, 42, 0.7);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-highlight: rgba(255, 255, 255, 0.05);
+  --backdrop-blur: blur(12px);
+
+  /* Surfaces */
+  --surface-primary: var(--color-neutral-900);
+  --surface-secondary: var(--color-neutral-800);
+  --surface-hover: var(--color-neutral-700);
+  --surface-active: var(--color-neutral-600);
+
+  /* Borders */
+  --border-primary: var(--color-neutral-800);
+  --border-secondary: var(--color-neutral-700);
+  --border-focus: var(--color-brand-400);
+
+  /* Text */
+  --text-primary: var(--color-neutral-50);
+  --text-secondary: var(--color-neutral-300);
+  --text-tertiary: var(--color-neutral-500);
+  --text-placeholder: var(--color-neutral-600);
+  --text-disabled: var(--color-neutral-600);
+  --text-on-brand: var(--color-neutral-0);
+
+  /* Interactive */
+  --interactive-primary: var(--color-brand-500);
+  --interactive-primary-hover: var(--color-brand-400);
+  --interactive-primary-active: var(--color-brand-600);
+  --interactive-secondary: var(--color-neutral-800);
+  --interactive-secondary-hover: var(--color-neutral-700);
+
+  /* Accents */
+  --accent-primary: var(--color-brand-500);
+  --accent-secondary: var(--color-accent-500);
+
+  /* SOTA Glows */
+  --glow-primary: 0 0 20px rgba(233, 69, 96, 0.35);
+  --glow-accent: 0 0 25px rgba(90, 77, 240, 0.35);
+  --glow-text: 0 0 10px rgba(255, 255, 255, 0.3);
+
+  /* Status */
+  --status-success: var(--color-success-500);
+  --status-success-bg: rgba(34, 197, 94, 0.15);
+  --status-warning: var(--color-warning-500);
+  --status-warning-bg: rgba(245, 158, 11, 0.15);
+  --status-danger: var(--color-danger-500);
+  --status-danger-bg: rgba(239, 68, 68, 0.15);
+  --status-info: var(--color-info-500);
+  --status-info-bg: rgba(59, 130, 246, 0.15);
+
+  /* Focus Ring */
+  --color-focus-ring: rgba(233, 69, 96, 0.4);
+
+  /* Compatibility aliases (Legacy Support) */
+  --accent: var(--color-brand-500);
+  --accent-hover: var(--color-brand-400);
+  --bg-card: var(--surface-primary);
+  --text-muted: var(--text-tertiary);
+  --success: var(--status-success);
+  --warning: var(--status-warning);
+  --error: var(--status-danger);
+  --danger: var(--status-danger);
+  --border: var(--border-primary);
+  --font-family: var(--font-sans);
+  --card-bg: var(--bg-card);
+  --input-bg: var(--bg-tertiary);
+  --color-text-muted: var(--text-tertiary);
+  --color-border: var(--border-primary);
+  --color-primary: var(--accent);
+  --spacing-sm: var(--space-2);
+  --spacing-md: var(--space-4);
+  --spacing-lg: var(--space-6);
+
+  /* Legacy Spacing Aliases */
+  --space-xs: var(--space-1);
+  --space-sm: var(--space-2);
+  --space-md: var(--space-4);
+  --space-lg: var(--space-6);
+  --space-xl: var(--space-8);
+  --space-2xl: var(--space-12);
+
+  --shadow-glass: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+}
+
+/* ==================== Light Theme ==================== */
+[data-theme="light"] {
+  /* Backgrounds */
+  --bg-primary: var(--color-neutral-25);
+  /* Premium off-white */
+  --bg-secondary: var(--color-neutral-50);
+  --bg-tertiary: var(--color-neutral-100);
+  --bg-elevated: var(--color-neutral-0);
+  --bg-overlay: rgba(255, 255, 255, 0.8);
+
+  /* SOTA Glassmorphism */
+  --glass-surface: rgba(255, 255, 255, 0.75);
+  --glass-border: rgba(0, 0, 0, 0.06);
+  --glass-highlight: rgba(255, 255, 255, 0.5);
+
+  /* Surfaces */
+  --surface-primary: var(--color-neutral-0);
+  --surface-secondary: var(--color-neutral-50);
+  --surface-hover: var(--color-neutral-100);
+  --surface-active: var(--color-neutral-200);
+
+  /* Borders */
+  --border-primary: var(--color-neutral-200);
+  --border-secondary: var(--color-neutral-300);
+  --border-focus: var(--color-brand-500);
+
+  /* Text */
+  --text-primary: var(--color-neutral-900);
+  --text-secondary: var(--color-neutral-600);
+  /* Slightly darker for contrast */
+  --text-tertiary: var(--color-neutral-400);
+  --text-placeholder: var(--color-neutral-400);
+  --text-disabled: var(--color-neutral-300);
+  --text-on-brand: var(--color-neutral-0);
+
+  /* Interactive */
+  --interactive-primary: var(--color-brand-600);
+  --interactive-primary-hover: var(--color-brand-700);
+  --interactive-primary-active: var(--color-brand-800);
+  --interactive-secondary: var(--color-neutral-100);
+  --interactive-secondary-hover: var(--color-neutral-200);
+
+  /* Accents */
+  --accent-primary: var(--color-brand-600);
+  --accent-secondary: var(--color-accent-600);
+
+  /* SOTA Glows (Subtler for light mode) */
+  --glow-primary: 0 4px 14px rgba(233, 69, 96, 0.25);
+  --glow-accent: 0 4px 14px rgba(90, 77, 240, 0.25);
+  --glow-text: none;
+
+  /* Status */
+  --status-success: var(--color-success-600);
+  --status-success-bg: var(--color-success-50);
+  --status-warning: var(--color-warning-600);
+  --status-warning-bg: var(--color-warning-50);
+  --status-danger: var(--color-danger-600);
+  --status-danger-bg: var(--color-danger-50);
+  --status-info: var(--color-info-600);
+  --status-info-bg: var(--color-info-50);
+
+  /* Focus Ring */
+  --color-focus-ring: rgba(233, 69, 96, 0.25);
+
+  /* Compatibility aliases */
+  --accent: var(--color-brand-600);
+  --accent-hover: var(--color-brand-700);
+  --bg-card: var(--surface-primary);
+  --text-muted: var(--text-tertiary);
+  --success: var(--status-success);
+  --warning: var(--status-warning);
+  --error: var(--status-danger);
+  --danger: var(--status-danger);
+  --border: var(--border-primary);
+  --color-text-muted: var(--text-tertiary);
+  --color-border: var(--border-primary);
+  --color-primary: var(--accent);
+  --spacing-sm: var(--space-2);
+  --spacing-md: var(--space-4);
+  --spacing-lg: var(--space-6);
+
+  --input-bg: var(--color-neutral-50);
+  --shadow-glass: 0 8px 32px 0 rgba(0, 0, 0, 0.08);
+}
+
+/* ==================== Base styles ==================== */
+* {
+  box-sizing: border-box;
+}
+
+html {
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: var(--leading-normal);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  transition: background-color var(--duration-300) var(--ease-in-out),
+    color var(--duration-300) var(--ease-in-out);
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--bg-primary), 0 0 0 4px var(--interactive-primary);
+  border-radius: var(--radius-sm);
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-secondary);
+  border-radius: var(--radius-full);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::selection {
+  background: var(--interactive-primary);
+  color: var(--text-on-brand);
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -53,8 +53,8 @@ class OntologyExtractor {
      */
     _isSupabaseProvider() {
         return this.graphProvider?.constructor?.name === 'SupabaseGraphProvider' ||
-               typeof this.graphProvider?.supabase !== 'undefined' ||
-               typeof this.graphProvider?.getStats === 'function';
+            typeof this.graphProvider?.supabase !== 'undefined' ||
+            typeof this.graphProvider?.getStats === 'function';
     }
 
     /**
@@ -66,6 +66,10 @@ class OntologyExtractor {
      * @returns {Promise<{ok: boolean, ontology?: object, stats?: object, error?: string}>}
      */
     async extractFromGraph(options = {}) {
+        if (this.graphProvider?.ensureConnected) {
+            await this.graphProvider.ensureConnected();
+        }
+
         if (!this.graphProvider?.connected) {
             return { ok: false, error: 'Graph provider not connected' };
         }
@@ -99,19 +103,19 @@ class OntologyExtractor {
                 const graphStats = await this.graphProvider.getStats();
                 const labelStats = graphStats?.stats?.labels || {};
                 const relStats = graphStats?.stats?.relationshipTypes || {};
-                
+
                 labels = Object.keys(labelStats).filter(l => includeMetaNodes || !l.startsWith('__'));
                 relTypes = Object.keys(relStats).filter(r => r !== 'CAN_RELATE');
-                
+
                 // Process entity types
                 for (const label of labels) {
                     const nodeCount = labelStats[label] || 0;
                     stats.totalNodes += nodeCount;
-                    
+
                     // Sample nodes to extract properties
                     const sampleResult = await this.graphProvider.findNodes(label, {}, { limit: sampleSize });
                     const properties = {};
-                    
+
                     for (const node of sampleResult.nodes || []) {
                         const nodeProps = node.properties || node;
                         for (const attrName of Object.keys(nodeProps)) {
@@ -140,7 +144,7 @@ class OntologyExtractor {
                 for (const relType of relTypes) {
                     const edgeCount = relStats[relType] || 0;
                     stats.totalRelationships += edgeCount;
-                    
+
                     // Get sample relationships to find source/target types
                     const relResult = await this.graphProvider.findRelationships({ type: relType, limit: sampleSize });
                     const fromTypes = new Set();
@@ -186,7 +190,7 @@ class OntologyExtractor {
                     try {
                         const attrResult = await this.graphProvider.query(attributesQuery);
                         const properties = {};
-                        
+
                         for (const row of attrResult.results || []) {
                             const attrName = row.attrName || row[0];
                             if (attrName && !attrName.startsWith('_')) {
@@ -231,9 +235,9 @@ class OntologyExtractor {
                             ORDER BY count DESC
                             LIMIT ${sampleSize}
                         `;
-                        
+
                         const relResult = await this.graphProvider.query(relQuery);
-                        
+
                         const fromTypes = new Set();
                         const toTypes = new Set();
                         let totalCount = 0;
@@ -242,7 +246,7 @@ class OntologyExtractor {
                             const sourceLabel = row.sourceLabel || row[0];
                             const targetLabel = row.targetLabel || row[1];
                             const count = row.count || row[2] || 0;
-                            
+
                             if (sourceLabel && !sourceLabel.startsWith('__')) {
                                 fromTypes.add(sourceLabel);
                             }
@@ -295,6 +299,10 @@ class OntologyExtractor {
      * @returns {Promise<{valid: boolean, score: number, issues: Array, stats: object}>}
      */
     async validateCompliance(options = {}) {
+        if (this.graphProvider?.ensureConnected) {
+            await this.graphProvider.ensureConnected();
+        }
+
         if (!this.graphProvider?.connected) {
             return { valid: false, score: 0, issues: [{ type: 'error', message: 'Not connected' }], stats: {} };
         }
@@ -327,7 +335,7 @@ class OntologyExtractor {
             // 1. Validate node labels against ontology
             for (const [label, count] of Object.entries(labelStats)) {
                 if (label.startsWith('__')) continue;
-                
+
                 stats.totalNodes += count;
 
                 if (!schema.entityTypes[label]) {
@@ -348,7 +356,7 @@ class OntologyExtractor {
             // 2. Validate relationship types
             for (const [relType, count] of Object.entries(relStats)) {
                 if (relType === 'CAN_RELATE') continue;
-                
+
                 stats.totalRelationships += count;
 
                 if (!schema.relationTypes[relType]) {
@@ -373,9 +381,9 @@ class OntologyExtractor {
                 RETURN labels(n)[0] AS label, count(n) AS count, 
                        collect(DISTINCT keys(n)) AS sampleKeys
             `;
-            
+
             const labelsResult = await this.graphProvider.query(labelsQuery);
-            
+
             for (const row of labelsResult.results || []) {
                 const label = row.label;
                 const count = row.count || 0;
@@ -406,7 +414,7 @@ class OntologyExtractor {
                             WHERE ${requiredProps.map(p => `n.${p} IS NULL`).join(' OR ')}
                             RETURN count(n) AS missingCount
                         `);
-                        
+
                         const missingCount = missingCheck.results?.[0]?.missingCount || 0;
                         if (missingCount > 0) {
                             issues.push({
@@ -429,9 +437,9 @@ class OntologyExtractor {
                 WHERE NOT type(r) = 'CAN_RELATE'
                 RETURN type(r) AS relType, labels(s)[0] AS sourceLabel, labels(t)[0] AS targetLabel, count(r) AS count
             `;
-            
+
             const relsResult = await this.graphProvider.query(relsQuery);
-            
+
             for (const row of relsResult.results || []) {
                 const relType = row.relType;
                 const sourceLabel = row.sourceLabel;
@@ -481,7 +489,7 @@ class OntologyExtractor {
                 WHERE n._ontology_valid = false
                 RETURN labels(n)[0] AS label, count(n) AS count
             `);
-            
+
             for (const row of invalidNodesCheck.results || []) {
                 issues.push({
                     type: 'marked_invalid',
@@ -498,7 +506,7 @@ class OntologyExtractor {
             const uniqueProps = Object.entries(typeDef.properties || {})
                 .filter(([_, def]) => def.unique || def.required)
                 .map(([name]) => name);
-            
+
             if (uniqueProps.length === 0) {
                 issues.push({
                     type: 'no_unique_attribute',
@@ -533,7 +541,7 @@ class OntologyExtractor {
     mergeOntologies(newOntology, options = {}) {
         const currentSchema = this.ontologyManager.getSchema();
         const changes = [];
-        
+
         const merged = {
             version: currentSchema?.version || '1.0',
             entityTypes: { ...(currentSchema?.entityTypes || {}) },
@@ -559,7 +567,7 @@ class OntologyExtractor {
                 // Merge properties
                 const existingProps = merged.entityTypes[name].properties || {};
                 const newProps = def.properties || {};
-                
+
                 for (const [propName, propDef] of Object.entries(newProps)) {
                     if (!existingProps[propName]) {
                         existingProps[propName] = propDef;
@@ -592,7 +600,7 @@ class OntologyExtractor {
                 const existing = merged.relationTypes[name];
                 const newFromTypes = new Set([...existing.fromTypes, ...def.fromTypes]);
                 const newToTypes = new Set([...existing.toTypes, ...def.toTypes]);
-                
+
                 if (newFromTypes.size > existing.fromTypes.length || newToTypes.size > existing.toTypes.length) {
                     merged.relationTypes[name].fromTypes = Array.from(newFromTypes);
                     merged.relationTypes[name].toTypes = Array.from(newToTypes);
@@ -621,9 +629,9 @@ class OntologyExtractor {
     discardEntitiesWithoutRelations(ontology) {
         const discarded = [];
         const cleaned = { ...ontology };
-        
+
         const relatedEntities = new Set();
-        
+
         // Collect all entities that appear in relations
         for (const [_, relDef] of Object.entries(ontology.relationTypes || {})) {
             for (const fromType of relDef.fromTypes || []) {
@@ -690,6 +698,10 @@ class OntologyExtractor {
      * @returns {Promise<{entities: string[], relations: string[]}>}
      */
     async findUnusedTypes() {
+        if (this.graphProvider?.ensureConnected) {
+            await this.graphProvider.ensureConnected();
+        }
+
         if (!this.graphProvider?.connected) {
             return { entities: [], relations: [] };
         }
@@ -705,7 +717,7 @@ class OntologyExtractor {
             const graphStats = await this.graphProvider.getStats();
             const labelStats = graphStats?.stats?.labels || {};
             const relStats = graphStats?.stats?.relationshipTypes || {};
-            
+
             usedLabels = new Set(Object.keys(labelStats).filter(l => !l.startsWith('__')));
             usedRels = new Set(Object.keys(relStats));
         } else {

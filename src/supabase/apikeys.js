@@ -26,7 +26,7 @@ function generateApiKey() {
     const randomBytes = crypto.randomBytes(KEY_LENGTH);
     const key = KEY_PREFIX + randomBytes.toString('base64url');
     const hash = crypto.createHash('sha256').update(key).digest('hex');
-    
+
     return {
         key,                                    // Full key - show to user ONCE
         prefix: key.substring(0, 12),           // For identification
@@ -149,10 +149,10 @@ async function validateApiKey(key) {
  */
 function hasPermission(apiKey, permission) {
     if (!apiKey || !apiKey.permissions) return false;
-    
+
     // Admin has all permissions
     if (apiKey.permissions.includes(PERMISSIONS.ADMIN)) return true;
-    
+
     return apiKey.permissions.includes(permission);
 }
 
@@ -227,7 +227,7 @@ async function updateApiKey(keyId, updates) {
 
     const allowedFields = ['name', 'description', 'permissions', 'rate_limit_per_minute', 'rate_limit_per_day', 'expires_at'];
     const filteredUpdates = {};
-    
+
     for (const field of allowedFields) {
         if (updates[field] !== undefined) {
             filteredUpdates[field] = updates[field];
@@ -271,7 +271,7 @@ async function logUsage(apiKeyId, endpoint, method, statusCode, responseTimeMs, 
                 user_agent: userAgent
             });
     } catch (error) {
-        log.warn({ event: 'apikeys_ Log usage error:', error);
+        log.warn({ event: 'apikeys_log_usage_error', error });
     }
 }
 
@@ -302,7 +302,7 @@ async function getUsageStats(apiKeyId, days = 7) {
             totalRequests: usage?.length || 0,
             successfulRequests: usage?.filter(u => u.status_code >= 200 && u.status_code < 400).length || 0,
             failedRequests: usage?.filter(u => u.status_code >= 400).length || 0,
-            avgResponseTime: usage?.length > 0 
+            avgResponseTime: usage?.length > 0
                 ? Math.round(usage.reduce((sum, u) => sum + (u.response_time_ms || 0), 0) / usage.length)
                 : 0,
             endpointBreakdown: {},
@@ -328,24 +328,24 @@ async function getUsageStats(apiKeyId, days = 7) {
 async function authenticateApiKey(req) {
     // Check for API key in header
     const authHeader = req.headers['authorization'] || req.headers['x-api-key'];
-    
+
     if (!authHeader) {
         return { success: false, error: 'API key required' };
     }
 
     // Extract key (support "Bearer KEY" or just "KEY")
-    const key = authHeader.startsWith('Bearer ') 
-        ? authHeader.substring(7) 
+    const key = authHeader.startsWith('Bearer ')
+        ? authHeader.substring(7)
         : authHeader;
 
     // Validate
     const result = await validateApiKey(key);
-    
+
     if (result.success) {
         // Log usage
         const startTime = req._startTime || Date.now();
         req.apiKey = result.apiKey;
-        
+
         // Note: Response logging should be done after response is sent
     }
 

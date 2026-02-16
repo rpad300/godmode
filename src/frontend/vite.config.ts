@@ -1,45 +1,35 @@
-import { defineConfig } from 'vite';
-import { resolve } from 'path';
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react-swc";
+import path from "path";
+import { fileURLToPath } from 'url';
 
-export default defineConfig({
-  root: resolve(__dirname),
-  
-  build: {
-    // Output directly to src/public for the server to serve
-    outDir: '../public',
-    emptyOutDir: true,
-    rollupOptions: {
-      input: {
-        main: resolve(__dirname, 'index.html'),
-        landing: resolve(__dirname, 'landing.html'),
-        terms: resolve(__dirname, 'terms.html'),
-        privacy: resolve(__dirname, 'privacy.html'),
-      },
-    },
-    // Generate source maps for debugging
-    sourcemap: true,
-  },
-  
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// https://vitejs.dev/config/
+export default defineConfig(({ mode }) => ({
+  root: __dirname, // Ensure root is set to the directory containing this config file
   server: {
-    port: 5173,
-    // Proxy API requests to backend
+    host: "::",
+    port: 8080,
     proxy: {
       '/api': {
         target: 'http://localhost:3005',
         changeOrigin: true,
+        secure: false,
       },
     },
-  },
-  
-  resolve: {
-    alias: {
-      '@': resolve(__dirname),
-      '@components': resolve(__dirname, 'components'),
-      '@services': resolve(__dirname, 'services'),
-      '@stores': resolve(__dirname, 'stores'),
-      '@utils': resolve(__dirname, 'utils'),
-      '@types': resolve(__dirname, 'types'),
-      '@styles': resolve(__dirname, 'styles'),
+    hmr: {
+      overlay: false,
     },
   },
-});
+  plugins: [
+    react(),
+  ].filter(Boolean),
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+    },
+  },
+}));

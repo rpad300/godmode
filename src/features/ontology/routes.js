@@ -28,6 +28,13 @@ async function handleOntology(ctx) {
     if (!isOntologyRoute(pathname)) return false;
 
     const graphProvider = storage?.getGraphProvider?.();
+    if (graphProvider && typeof graphProvider.ensureConnected === 'function') {
+        const connected = await graphProvider.ensureConnected();
+        if (!connected) {
+            const log = getLogger().child({ module: 'ontology' });
+            log.debug({ event: 'graph_auto_connect_failed' }, 'Could not auto-connect graph at start of ontology request');
+        }
+    }
     const dataDir = storage?.getProjectDataDir?.();
 
     // GET /api/ontology
@@ -292,14 +299,16 @@ async function handleOntology(ctx) {
                 jsonResponse(res, { ok: true, status });
             } catch (e) {
                 log.warn({ event: 'ontology_sync_status_warning', reason: e.message }, 'Sync status warning');
-                jsonResponse(res, { ok: true, status: {
-                    isListening: false,
-                    syncInProgress: false,
-                    lastSyncAt: null,
-                    pendingChanges: 0,
-                    ontologySource: null,
-                    graphConnected: false
-                } });
+                jsonResponse(res, {
+                    ok: true, status: {
+                        isListening: false,
+                        syncInProgress: false,
+                        lastSyncAt: null,
+                        pendingChanges: 0,
+                        ontologySource: null,
+                        graphConnected: false
+                    }
+                });
             }
             return true;
         }
@@ -503,7 +512,8 @@ async function handleOntology(ctx) {
         // GET /api/ontology/extract-from-graph
         if (pathname === '/api/ontology/extract-from-graph' && req.method === 'GET') {
             if (!graphProvider?.connected) {
-                jsonResponse(res, { ok: false, error: 'Graph not connected' });
+                const result = await graphProvider?.connect?.() || { error: 'No graph provider' };
+                jsonResponse(res, { ok: false, error: `Graph not connected: ${result.error || 'Unknown error'}` });
                 return true;
             }
             const { getOntologyExtractor } = require('../../ontology');

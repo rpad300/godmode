@@ -23,6 +23,8 @@ const { createClient } = require('@supabase/supabase-js');
 
 class SupabaseStorage {
     constructor(supabaseUrl, supabaseKey, options = {}) {
+        this.supabaseUrl = supabaseUrl;
+        this.supabaseKey = supabaseKey;
         this.supabase = createClient(supabaseUrl, supabaseKey, {
             auth: {
                 persistSession: true,
@@ -43,6 +45,24 @@ class SupabaseStorage {
         // Cache settings
         this._cache = new Map();
         this._cacheTTL = options.cacheTTL || 5 * 60 * 1000; // 5 minutes
+
+        // Initialize Graph Provider
+        const { SupabaseGraphProvider } = require('../graph/providers/supabase'); // This might need adjustment based on export
+        // Actually, SupabaseGraphProvider is the class export based on previous view
+        const SupabaseGraphProviderClass = require('../graph/providers/supabase').SupabaseGraphProvider || require('../graph/providers/supabase');
+
+        this.graphProvider = new SupabaseGraphProviderClass({
+            supabase: this.supabase,
+            graphName: 'default',
+            projectId: this.currentProjectId
+        });
+    }
+
+    /**
+     * Get the graph provider instance
+     */
+    getGraphProvider() {
+        return this.graphProvider;
     }
 
     // ==================== Authentication & Context ====================
@@ -68,6 +88,10 @@ class SupabaseStorage {
     setProject(projectId) {
         this.currentProjectId = projectId;
         this._cache.clear(); // Clear cache on project switch
+
+        if (this.graphProvider) {
+            this.graphProvider.setProjectContext(projectId);
+        }
     }
 
     /**
@@ -114,7 +138,7 @@ class SupabaseStorage {
         // Not found - create new project with legacy_id
         // Note: This requires a system user or service-level operation
         log.info({ event: 'legacy_project_create', legacyId }, 'Creating new project for legacy_id');
-        
+
         const { data: newProject, error: createError } = await this.supabase
             .from('projects')
             .insert({
@@ -153,7 +177,7 @@ class SupabaseStorage {
 
         // It's a legacy ID - find or create the project
         const project = await this.findOrCreateProjectByLegacyId(projectId, projectName);
-        
+
         if (project) {
             this.currentProjectId = project.id;
             this._cache.clear();
@@ -174,25 +198,36 @@ class SupabaseStorage {
      * @param {string} userRole
      * @param {string} [companyId] - optional; if missing, uses first company of user or creates "Minha Empresa"
      */
-    async createProject(name, userRole = '', companyId = null) {
+    async createProject(name, userRole = '', companyId = null, ownerId = null, accessToken = null) {
         if (!name || name.trim().length === 0) {
             throw new Error('Project name is required');
         }
 
-        const user = await this.getCurrentUser();
+        const user = ownerId ? { id: ownerId } : await this.getCurrentUser();
         if (!user) throw new Error('Authentication required');
 
+        // Use scoped client if token is provided (to respect RLS)
+        let client = this.supabase;
+        if (accessToken) {
+            const { createClient } = require('@supabase/supabase-js');
+            client = createClient(this.supabaseUrl, this.supabaseKey, {
+                global: {
+                    headers: { Authorization: `Bearer ${accessToken}` }
+                }
+            });
+        }
+
         if (!companyId) {
-            const { data: list } = await this.supabase.from('companies').select('id').eq('owner_id', user.id).order('name').limit(1);
+            const { data: list } = await client.from('companies').select('id').eq('owner_id', user.id).order('name').limit(1);
             if (list?.length) companyId = list[0].id;
             else {
-                const { data: created, error: createErr } = await this.supabase.from('companies').insert({ name: 'Minha Empresa', owner_id: user.id }).select('id').single();
+                const { data: created, error: createErr } = await client.from('companies').insert({ name: 'Minha Empresa', owner_id: user.id }).select('id').single();
                 if (createErr || !created?.id) throw new Error(createErr?.message || 'Could not create default company');
                 companyId = created.id;
             }
         }
 
-        const { data, error } = await this.supabase
+        const { data, error } = await client
             .from('projects')
             .insert({
                 name: name.trim(),
@@ -212,14 +247,14 @@ class SupabaseStorage {
         fs.mkdirSync(path.join(this.filesBasePath, data.id, 'temp'), { recursive: true });
 
         // Add owner as project member
-        await this.supabase.from('project_members').insert({
+        await client.from('project_members').insert({
             project_id: data.id,
             user_id: user.id,
             role: 'owner'
         });
 
         // Create default config
-        await this.supabase.from('project_config').insert({
+        await client.from('project_config').insert({
             project_id: data.id,
             user_role: userRole || '',
             updated_by: user.id
@@ -248,7 +283,7 @@ class SupabaseStorage {
         // Try to find system user
         const { data: users } = await this.supabase.auth.admin.listUsers();
         const systemUser = users?.users?.find(u => u.email === systemEmail);
-        
+
         if (systemUser) {
             systemUserId = systemUser.id;
         } else {
@@ -259,14 +294,14 @@ class SupabaseStorage {
                 email_confirm: true,
                 user_metadata: { username: 'system', display_name: 'System User' }
             });
-            
+
             if (userError) {
                 log.error({ event: 'system_user_create_failed', err: userError.message }, 'Could not create system user');
                 throw new Error('Could not create system user');
             }
-            
+
             systemUserId = newUser.user.id;
-            
+
             // Create user profile
             await this.supabase.from('user_profiles').upsert({
                 id: systemUserId,
@@ -324,7 +359,7 @@ class SupabaseStorage {
      */
     async getMemberRole(projectId, userId = null) {
         let uid = userId;
-        
+
         // Try to get current user
         if (!uid) {
             try {
@@ -334,7 +369,7 @@ class SupabaseStorage {
                 // No authenticated user
             }
         }
-        
+
         // If still no user, get the owner's role
         if (!uid) {
             const { data: owner } = await this.supabase
@@ -343,7 +378,7 @@ class SupabaseStorage {
                 .eq('project_id', projectId)
                 .eq('role', 'owner')
                 .single();
-            
+
             if (owner) {
                 return {
                     userRole: owner.user_role || '',
@@ -413,8 +448,20 @@ class SupabaseStorage {
         };
     }
 
+
     /**
-     * List all projects for current user (requires auth)
+     * Close storage connection
+     */
+    close() {
+        // No persistent connection to close for Supabase REST client
+        // But we can clear intervals or listeners if any were added
+        if (this._realtimeSubscription) {
+            this._realtimeSubscription.unsubscribe();
+        }
+    }
+
+    /**
+     * Get projects for current user
      */
     async listProjectsForUser() {
         const user = await this.getCurrentUser();
@@ -454,6 +501,33 @@ class SupabaseStorage {
         try {
             const user = await this.getCurrentUser();
             if (user) {
+                // Check if system user (super admin)
+                if (user.email === 'system@godmode.local') {
+                    // System user sees ALL projects
+                    const { data, error } = await this.supabase
+                        .from('projects')
+                        .select(`
+                            *,
+                            company:companies(id, name, logo_url, brand_assets),
+                            project_members(role),
+                            _stats:stats_history(
+                                facts_count, questions_count, documents_count,
+                                decisions_count, risks_count, actions_count
+                            )
+                        `)
+                        .is('deleted_at', null)
+                        .order('updated_at', { ascending: false });
+
+                    if (error) throw error;
+
+                    return data.map(p => ({
+                        ...p,
+                        isCurrent: p.id === this.currentProjectId,
+                        graphName: `project_${p.id}`,
+                        userRole: 'owner', // System user is effectively owner
+                        stats: p._stats?.[0] || { facts_count: 0, questions_count: 0, documents_count: 0 }
+                    }));
+                }
                 return this.listProjectsForUser();
             }
         } catch (e) {
@@ -564,7 +638,7 @@ class SupabaseStorage {
      */
     async deleteProject(projectId) {
         const user = await this.getCurrentUser();
-        
+
         // Soft delete
         const { error } = await this.supabase
             .from('projects')
@@ -608,11 +682,11 @@ class SupabaseStorage {
      */
     async updateProject(projectId, updates) {
         const updateData = {};
-        
+
         if (updates.name !== undefined) {
             updateData.name = updates.name.trim();
         }
-        
+
         // User role is now stored in project_members, not project settings
         if (updates.userRole !== undefined || updates.userRolePrompt !== undefined) {
             try {
@@ -661,7 +735,7 @@ class SupabaseStorage {
         const pid = projectId || this.getProjectId();
 
         const { data, error } = await this.supabase.rpc('get_project_stats', { p_project_id: pid });
-        
+
         if (error) {
             // Fallback: calculate manually
             const [facts, questions, documents, decisions, risks, actions, people] = await Promise.all([
@@ -797,11 +871,11 @@ class SupabaseStorage {
      * Update document status
      */
     async updateDocumentStatus(id, status, archivedPath = null) {
-        const updateData = { 
+        const updateData = {
             status,
             processed_at: (status === 'completed' || status === 'processed') ? new Date().toISOString() : null
         };
-        
+
         if (archivedPath) {
             updateData.filepath = archivedPath;
         }
@@ -827,7 +901,7 @@ class SupabaseStorage {
     async updateDocument(id, updates) {
         const allowedFields = ['title', 'summary', 'ai_title', 'ai_summary', 'status', 'extraction_result', 'content', 'content_path'];
         const updateData = {};
-        
+
         for (const [key, value] of Object.entries(updates)) {
             // Map ai_title/ai_summary to title/summary (Supabase uses simpler names)
             if (key === 'ai_title') {
@@ -838,11 +912,11 @@ class SupabaseStorage {
                 updateData[key] = value;
             }
         }
-        
+
         if (Object.keys(updateData).length === 0) {
             return null;
         }
-        
+
         updateData.updated_at = new Date().toISOString();
 
         const { data, error } = await this.supabase
@@ -1356,6 +1430,23 @@ class SupabaseStorage {
     }
 
     /**
+     * Delete facts by source document ID
+     */
+    async deleteFactsByDocument(documentId) {
+        if (!documentId) return 0;
+        const projectId = this.getProjectId();
+        const { count, error } = await this.supabase
+            .from('facts')
+            .delete({ count: 'exact' })
+            .eq('source_document_id', documentId)
+            .eq('project_id', projectId);
+
+        if (error) throw error;
+        // Optionally add to outbox/log? Skipping for bulk/audit reasons or implementing simplistic log
+        return count;
+    }
+
+    /**
      * List facts that were soft-deleted (for restore / undo)
      */
     async getDeletedFacts() {
@@ -1562,6 +1653,22 @@ class SupabaseStorage {
             .order('created_at', { ascending: false });
         if (error) return [];
         return data || [];
+    }
+
+    /**
+     * Delete decisions by source document ID
+     */
+    async deleteDecisionsByDocument(documentId) {
+        if (!documentId) return 0;
+        const projectId = this.getProjectId();
+        const { count, error } = await this.supabase
+            .from('decisions')
+            .delete({ count: 'exact' })
+            .eq('source_document_id', documentId)
+            .eq('project_id', projectId);
+
+        if (error) throw error;
+        return count;
     }
 
     /**
@@ -1796,6 +1903,22 @@ class SupabaseStorage {
             .order('created_at', { ascending: false });
         if (error) return [];
         return data || [];
+    }
+
+    /**
+     * Delete risks by source document ID
+     */
+    async deleteRisksByDocument(documentId) {
+        if (!documentId) return 0;
+        const projectId = this.getProjectId();
+        const { count, error } = await this.supabase
+            .from('risks')
+            .delete({ count: 'exact' })
+            .eq('source_document_id', documentId)
+            .eq('project_id', projectId);
+
+        if (error) throw error;
+        return count;
     }
 
     /**
@@ -2481,6 +2604,22 @@ class SupabaseStorage {
     }
 
     /**
+     * Delete actions by source document ID (Hard delete for reprocessing)
+     */
+    async deleteActionsByDocument(documentId) {
+        if (!documentId) return 0;
+        const projectId = this.getProjectId();
+        const { count, error } = await this.supabase
+            .from('action_items')
+            .delete({ count: 'exact' })
+            .eq('source_document_id', documentId)
+            .eq('project_id', projectId);
+
+        if (error) throw error;
+        return count;
+    }
+
+    /**
      * List soft-deleted actions (for restore / undo)
      */
     async getDeletedActions() {
@@ -2666,7 +2805,7 @@ class SupabaseStorage {
     async updateQuestion(id, updates) {
         // Build update data with only defined fields
         const updateData = {};
-        
+
         if (updates.content !== undefined) updateData.content = updates.content;
         if (updates.priority !== undefined) updateData.priority = updates.priority;
         if (updates.status !== undefined) updateData.status = updates.status;
@@ -2674,7 +2813,7 @@ class SupabaseStorage {
         if (updates.context !== undefined) updateData.context = updates.context;
         if (updates.assigned_to !== undefined) updateData.assigned_to = updates.assigned_to;
         if (updates.resolution !== undefined) updateData.resolution = updates.resolution;
-        
+
         // New fields for caching and answers
         if (updates.cached_suggestions !== undefined) updateData.cached_suggestions = updates.cached_suggestions;
         if (updates.suggestions_generated_at !== undefined) updateData.suggestions_generated_at = updates.suggestions_generated_at;
@@ -2688,7 +2827,7 @@ class SupabaseStorage {
             const user = await this.getCurrentUser();
             updateData.resolved_by = user?.id;
         }
-        
+
         // If answering, set answered_at
         if (updates.answer && !updates.answered_at) {
             updateData.answered_at = new Date().toISOString();
@@ -2721,6 +2860,22 @@ class SupabaseStorage {
         }
 
         await this._addToOutbox('question.deleted', 'DELETE', 'Question', id, { id });
+    }
+
+    /**
+     * Delete questions by source document ID
+     */
+    async deleteQuestionsByDocument(documentId) {
+        if (!documentId) return 0;
+        const projectId = this.getProjectId();
+        const { count, error } = await this.supabase
+            .from('knowledge_questions')
+            .delete({ count: 'exact' })
+            .eq('source_document_id', documentId)
+            .eq('project_id', projectId);
+
+        if (error) throw error;
+        return count;
     }
 
     // ==================== People ====================
@@ -2831,21 +2986,21 @@ class SupabaseStorage {
             .select('context_snippets')
             .eq('id', personId)
             .single();
-        
+
         if (fetchError) throw fetchError;
-        
+
         const currentSnippets = person.context_snippets || [];
-        
+
         // Don't add duplicate snippets (check by source + first 50 chars of snippet)
         const snippetKey = `${source}:${(snippet || '').substring(0, 50)}`;
-        const isDuplicate = currentSnippets.some(s => 
+        const isDuplicate = currentSnippets.some(s =>
             `${s.source}:${(s.snippet || '').substring(0, 50)}` === snippetKey
         );
-        
+
         if (isDuplicate) {
             return person;
         }
-        
+
         // Add new snippet (max 5 snippets per person)
         const newSnippets = [
             ...currentSnippets,
@@ -2855,14 +3010,14 @@ class SupabaseStorage {
                 detected_at: new Date().toISOString()
             }
         ].slice(-5); // Keep only last 5
-        
+
         const { data, error } = await this.supabase
             .from('people')
             .update({ context_snippets: newSnippets })
             .eq('id', personId)
             .select()
             .single();
-        
+
         if (error) throw error;
         return data;
     }
@@ -2953,6 +3108,65 @@ class SupabaseStorage {
     // ==================== Contacts ====================
 
     /**
+     * Get role templates (global + custom)
+     */
+    async getRoleTemplates() {
+        const { data, error } = await this.supabase
+            .from('role_templates')
+            .select('*')
+            .eq('is_active', true)
+            .order('display_name');
+
+        if (error) {
+            log.warn({ event: 'db_query_failed', table: 'role_templates', err: error.message }, 'Error fetching role templates');
+            return [];
+        }
+        return data;
+    }
+
+    /**
+     * Get all timezones
+     */
+    async getTimezones() {
+        const { data, error } = await this.supabase
+            .from('timezones')
+            .select('*')
+            .order('name');
+
+        if (error) {
+            log.warn({ event: 'db_query_failed', table: 'timezones', err: error.message }, 'Error fetching timezones');
+            return [];
+        }
+        return data;
+    }
+
+    /**
+     * Get companies for the current project context
+     */
+    async getCompanies() {
+        const projectId = this.getProjectId();
+        // Companies policy allows reading if member of project, so we filter by project association if needed
+        // But companies are project-segregated via RLS or owner?
+        // Migration 098 says: "Project members read project company".
+        // Also users can own companies.
+        // For a normalized list of "Organizations" available to the project, strictly speaking we might just want to return
+        // the company associated with the project, OR all companies the user has access to.
+        // Given the UI is "Organization" (text usually), but now we want a dropdown.
+        // Let's return all companies the user can see.
+
+        const { data, error } = await this.supabase
+            .from('companies')
+            .select('*')
+            .order('name');
+
+        if (error) {
+            log.warn({ event: 'db_query_failed', table: 'companies', err: error.message }, 'Error fetching companies');
+            return [];
+        }
+        return data;
+    }
+
+    /**
      * Add a contact (global, but linked to current project)
      */
     async addContact(contact) {
@@ -2978,7 +3192,7 @@ class SupabaseStorage {
                 created_by: user?.id,
                 timezone: contact.timezone || null,
                 linkedin: contact.linkedin || null,
-                photo_url: contact.photo_url || contact.photoUrl || null,
+                photo_url: contact.photo_url || contact.photoUrl || contact.avatar || contact.avatarUrl || null,
                 role_context: contact.role_context || contact.roleContext || null
             })
             .select()
@@ -3050,6 +3264,11 @@ class SupabaseStorage {
         const allContacts = [...(legacyContacts || []), ...linkedContacts];
         const uniqueContactsMap = new Map();
         for (const contact of allContacts) {
+            // Map photo_url to avatar and avatarUrl for frontend compatibility
+            if (contact.photo_url) {
+                contact.avatar = contact.photo_url;
+                contact.avatarUrl = contact.photo_url;
+            }
             uniqueContactsMap.set(contact.id, contact);
         }
         let contacts = Array.from(uniqueContactsMap.values());
@@ -3072,6 +3291,54 @@ class SupabaseStorage {
             if (filter.is_favorite) {
                 contacts = contacts.filter(c => c.is_favorite);
             }
+        }
+
+        // Calculate mentionCount based on people (extracted entities)
+        try {
+            const people = await this.getPeople();
+            const normalizeName = (name) => (name || '').toLowerCase().trim();
+
+            // Create a lookup map for people mentions
+            const mentionsMap = new Map();
+            for (const person of people || []) {
+                const name = normalizeName(person.name);
+                if (name) {
+                    // Count context_snippets as mentions
+                    const count = (person.context_snippets || []).length;
+                    mentionsMap.set(name, (mentionsMap.get(name) || 0) + count + 1); // +1 for the person record itself
+                }
+            }
+
+            // Assign mentionCount to contacts
+            for (const contact of contacts) {
+                let count = 0;
+                const namesToCheck = new Set();
+
+                // Add main name
+                const mainName = normalizeName(contact.name);
+                if (mainName) namesToCheck.add(mainName);
+
+                // Add aliases
+                if (contact.aliases && Array.isArray(contact.aliases)) {
+                    contact.aliases.forEach(alias => {
+                        const aliasName = normalizeName(alias);
+                        if (aliasName) namesToCheck.add(aliasName);
+                    });
+                }
+
+                // Sum counts for unique names
+                for (const name of namesToCheck) {
+                    if (mentionsMap.has(name)) {
+                        count += mentionsMap.get(name);
+                    }
+                }
+
+                contact.mentionCount = count;
+            }
+        } catch (e) {
+            log.warn({ event: 'mention_count_calc_error', err: e.message }, 'Failed to calculate mention counts');
+            // Ensure mentionCount is at least 0
+            contacts.forEach(c => { if (c.mentionCount === undefined) c.mentionCount = 0; });
         }
 
         // Sort by name
@@ -3163,7 +3430,182 @@ class SupabaseStorage {
             .eq('id', id)
             .single();
 
-        return error ? null : data;
+        if (error) {
+            log.warn({ event: 'db_query_failed', table: 'contacts', operation: 'select', id, err: error.message }, 'getContactById error');
+            return null;
+        }
+
+        if (data && data.photo_url) {
+            data.avatar = data.photo_url;
+            data.avatarUrl = data.photo_url;
+        }
+
+        return data;
+    }
+
+    /**
+     * Get mentions of a contact across all content (documents, emails, conversations)
+     * @param {string} contactId - Contact ID
+     * @returns {Promise<Array>} List of mentions
+     */
+    async getContactMentions(contactId) {
+        try {
+            const projectId = this.getProjectId();
+            // log.info({ contactId }, 'Fetching contact mentions');
+
+            const contact = await this.getContactById(contactId);
+            if (!contact) return [];
+
+            const names = [contact.name, ...(contact.aliases || [])].filter(Boolean);
+            const emails = [contact.email].filter(Boolean);
+
+            const mentions = [];
+
+            // 1. Documents (via People table context_snippets)
+            // Use getPeople() and filter in-memory to ensure consistency with getContacts()
+            const people = await this.getPeople();
+            const normalizeName = (name) => String(name || '').toLowerCase().trim();
+
+            // Create set of normalized contact names
+            const targetNames = new Set();
+            const mainName = normalizeName(contact.name);
+            if (mainName) targetNames.add(mainName);
+
+            if (contact.aliases && Array.isArray(contact.aliases)) {
+                contact.aliases.forEach(alias => {
+                    const aliasName = normalizeName(alias);
+                    if (aliasName) targetNames.add(aliasName);
+                });
+            }
+
+            if (people) {
+                for (const person of people) {
+                    const personName = normalizeName(person.name);
+                    // Check if this person record matches our contact
+                    if (personName && targetNames.has(personName)) {
+                        if (person.context_snippets && Array.isArray(person.context_snippets)) {
+                            for (const snippet of person.context_snippets) {
+                                // Deduce type from source
+                                let type = 'document';
+                                const source = snippet.source || person.source_file || '';
+                                let link = null;
+
+                                if (source.startsWith('Email:')) {
+                                    type = 'email';
+                                } else if (source.startsWith('Conversation:')) {
+                                    type = 'conversation';
+                                } else if (source.startsWith('Transcription:')) {
+                                    type = 'transcription';
+                                    if (person.source_document_id && (snippet.source === person.source_file || !person.source_file)) {
+                                        link = `/documents/${person.source_document_id}`;
+                                    }
+                                } else {
+                                    // Default document
+                                    if (person.source_document_id && (snippet.source === person.source_file || !person.source_file)) {
+                                        link = `/documents/${person.source_document_id}`;
+                                    }
+                                }
+
+                                mentions.push({
+                                    id: `snippet_${person.id}_${mentions.length}`,
+                                    type: type,
+                                    text: snippet.snippet || '',
+                                    source: source,
+                                    date: snippet.detected_at || person.created_at,
+                                    link: link
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+
+
+            // 2. Emails (Sender or Recipient)
+            if (emails.length > 0) {
+                // Sender: emails where from_email IN emails
+                const { data: sentEmails } = await this.supabase
+                    .from('emails')
+                    .select('id, subject, date_sent, body_text')
+                    .eq('project_id', projectId)
+                    .in('from_email', emails)
+                    .is('deleted_at', null)
+                    .limit(50);
+
+                if (sentEmails) {
+                    for (const email of sentEmails) {
+                        mentions.push({
+                            id: `email_sent_${email.id}`,
+                            type: 'email',
+                            text: `Sent email: ${email.subject}`,
+                            source: email.subject,
+                            date: email.date_sent,
+                            link: `/emails/${email.id}`
+                        });
+                    }
+                }
+
+                // Recipient: email_recipients where contact_id = contactId
+                const { data: received } = await this.supabase
+                    .from('email_recipients')
+                    .select('email:emails(id, subject, date_sent, from_name)')
+                    .eq('contact_id', contactId)
+                    .limit(50);
+
+                if (received) {
+                    for (const r of received) {
+                        if (r.email) {
+                            mentions.push({
+                                id: `email_received_${r.email.id}`,
+                                type: 'email',
+                                text: `Received email from ${r.email.from_name || 'Unknown'}: ${r.email.subject}`,
+                                source: r.email.subject,
+                                date: r.email.date_sent,
+                                link: `/emails/${r.email.id}`
+                            });
+                        }
+                    }
+                }
+            }
+
+            // 3. Conversations (Participants)
+            // Fetch recent conversations and check participants array
+            const { data: conversations } = await this.supabase
+                .from('conversations')
+                .select('id, title, conversation_date, participants, summary, created_at')
+                .eq('project_id', projectId)
+                .is('deleted_at', null)
+                .limit(50);
+
+            if (conversations) {
+                for (const conv of conversations) {
+                    const participants = conv.participants || [];
+                    // Check if any of the contact names are in participants
+                    // Ensure safe string comparison
+                    const isParticipant = Array.isArray(participants) && participants.some(p =>
+                        names.some(n => String(n).toLowerCase().trim() === String(p || '').toLowerCase().trim())
+                    );
+
+                    if (isParticipant) {
+                        mentions.push({
+                            id: `conv_${conv.id}`,
+                            type: 'conversation',
+                            text: conv.summary || `Participated in conversation: ${conv.title || 'Untitled'}`,
+                            source: conv.title || 'Conversation',
+                            date: conv.conversation_date || conv.created_at,
+                            link: `/chat/${conv.id}`
+                        });
+                    }
+                }
+            }
+
+            // Remove potential duplicates by ID if any logic overlaps, though IDs are distinct prefixes.
+            // Sort by date descending
+            return mentions.sort((a, b) => new Date(b.date) - new Date(a.date));
+        } catch (error) {
+            log.error({ err: error, contactId, stack: error.stack }, 'Failed to get contact mentions');
+            throw error; // Re-throw to ensure 500 is still returned but logged
+        }
     }
 
     /**
@@ -3184,12 +3626,47 @@ class SupabaseStorage {
     }
 
     /**
+     * Find contact by name or alias
+     */
+    async findContactByNameOrAlias(name) {
+        if (!name) return null;
+        const projectId = this.getProjectId();
+        const normalizedName = name.toLowerCase().trim();
+
+        // Try exact name match first
+        let contact = await this.findContactByName(name);
+        if (contact) return contact;
+
+        // Try searching in aliases
+        // Note: This is an expensive query if not indexed properly, 
+        // but Postgres JSONB support is good
+        const { data, error } = await this.supabase
+            .from('contacts')
+            .select('*')
+            .eq('project_id', projectId)
+            .contains('aliases', [name]) // precise match in array
+            .is('deleted_at', null)
+            .limit(1)
+            .mayBeSingle();
+
+        if (data) return data;
+
+        // Try case-insensitive search on aliases if exact failed
+        // We'll need to fetch contacts with non-empty aliases and filter in memory 
+        // OR use a more complex query. For now, let's keep it simple and safe.
+        // A full scan is bad, so we might skip the loose alias match for now
+        // or rely on the frontend/calls to be precise.
+
+        return null;
+    }
+
+    /**
      * Update a contact
      */
     async updateContact(id, updates) {
         // Build update object with only defined fields
         const updateData = {};
-        
+
         if (updates.name !== undefined) updateData.name = updates.name;
         if (updates.email !== undefined) updateData.email = updates.email;
         if (updates.phone !== undefined) updateData.phone = updates.phone;
@@ -3208,6 +3685,8 @@ class SupabaseStorage {
         if (updates.location !== undefined) updateData.location = updates.location;
         if (updates.photo_url !== undefined) updateData.photo_url = updates.photo_url;
         if (updates.photoUrl !== undefined) updateData.photo_url = updates.photoUrl;
+        if (updates.avatar !== undefined) updateData.photo_url = updates.avatar;
+        if (updates.avatarUrl !== undefined) updateData.photo_url = updates.avatarUrl;
         if (updates.avatar_url !== undefined) updateData.avatar_url = updates.avatar_url;
         if (updates.avatarUrl !== undefined) updateData.avatar_url = updates.avatarUrl;
         if (updates.role_context !== undefined) updateData.role_context = updates.role_context;
@@ -3234,9 +3713,197 @@ class SupabaseStorage {
                 .update({ deleted_at: new Date().toISOString() })
                 .eq('id', id);
         } else {
-            await this.supabase.from('contacts').delete().eq('id', id);
+            await this.supabase
+                .from('contacts')
+                .delete()
+                .eq('id', id);
         }
+        return true;
     }
+
+    /**
+     * Get roles for the current project
+     */
+    async getRoles() {
+        const projectId = this.getProjectId();
+        const { data, error } = await this.supabase
+            .from('contact_roles')
+            .select('*')
+            .eq('project_id', projectId)
+            .order('name');
+
+        if (error) {
+            log.warn({ event: 'db_query_failed', table: 'contact_roles', operation: 'select', projectId, err: error.message }, 'Error fetching roles');
+            return [];
+        }
+        return data;
+    }
+
+    /**
+     * Get roles for the current project
+     */
+    async getRoles() {
+        const projectId = this.getProjectId();
+        const { data, error } = await this.supabase
+            .from('contact_roles')
+            .select('*')
+            .eq('project_id', projectId)
+            .order('name');
+
+        if (error) {
+            log.warn({ event: 'db_query_failed', table: 'contact_roles', operation: 'select', projectId, err: error.message }, 'Error fetching roles');
+            return [];
+        }
+        return data;
+    }
+
+    /**
+     * Update a project member
+     */
+    async updateProjectMember(userId, updates) {
+        const projectId = this.getProjectId();
+        if (!projectId) throw new Error('No active project');
+
+        const { data, error } = await this.supabase
+            .from('project_members')
+            .update(updates)
+            .eq('project_id', projectId)
+            .eq('user_id', userId)
+            .select()
+            .single();
+
+        if (error) throw error;
+        return data;
+    }
+
+    /**
+     * Add a new role
+     */
+    async addRole(name) {
+        const projectId = this.getProjectId();
+        const { data, error } = await this.supabase
+            .from('contact_roles')
+            .insert({ project_id: projectId, name })
+            .select()
+            .single();
+
+        if (error) throw error;
+        return data;
+    }
+
+    /**
+     * Get relationships for a contact
+     */
+    async getContactRelationships(contactId) {
+        // Get relationships where contact is 'from' or 'to'
+        const { data: fromRels, error: fromError } = await this.supabase
+            .from('contact_relationships')
+            .select(`
+                id, type, strength, notes, created_at,
+                other_contact:to_contact_id (id, name, role, avatar_url, photo_url)
+            `)
+            .eq('from_contact_id', contactId);
+
+        if (fromError) throw fromError;
+
+        const { data: toRels, error: toError } = await this.supabase
+            .from('contact_relationships')
+            .select(`
+                id, type, strength, notes, created_at,
+                other_contact:from_contact_id (id, name, role, avatar_url, photo_url)
+            `)
+            .eq('to_contact_id', contactId);
+
+        if (toError) throw toError;
+
+        // Normalize and combine
+        const relationships = [
+            ...(fromRels || []).map(r => ({ ...r, direction: 'forward' })),
+            ...(toRels || []).map(r => ({ ...r, direction: 'backward' }))
+        ];
+
+        return relationships;
+    }
+
+    /**
+     * Add a relationship between contacts
+     */
+    async addContactRelationship(data) {
+        const { data: rel, error } = await this.supabase
+            .from('contact_relationships')
+            .insert({
+                project_id: this.getProjectId(),
+                from_contact_id: data.fromId,
+                to_contact_id: data.toId,
+                type: data.type,
+                strength: data.strength || 1,
+                notes: data.notes
+            })
+            .select()
+            .single();
+
+        if (error) throw error;
+        return rel;
+    }
+
+    /**
+     * Remove a relationship
+     */
+    async removeContactRelationship(id) {
+        const { error } = await this.supabase
+            .from('contact_relationships')
+            .delete()
+            .eq('id', id);
+
+        if (error) throw error;
+        return true;
+    }
+
+    /**
+     * Get activity for a contact
+     */
+    async getContactActivity(contactId) {
+        // 1. Get direct activity records
+        const { data: directActivity, error: activityError } = await this.supabase
+            .from('contact_activity')
+            .select('*')
+            .eq('contact_id', contactId)
+            .order('occurred_at', { ascending: false })
+            .limit(20);
+
+        if (activityError && activityError.code !== 'PGRST116') { // Ignore if table doesn't exist yet
+            log.warn({ err: activityError }, 'Error fetching contact_activity');
+        }
+
+        // 2. Get actions/tasks owned by this contact
+        const { data: actions, error: actionsError } = await this.supabase
+            .from('action_items')
+            .select('*')
+            .eq('owner', (await this.getContactById(contactId))?.name) // Fallback to name matching for now if owner is string
+            .limit(20);
+
+        // Merge and sort
+        const activity = [
+            ...(directActivity || []).map(a => ({
+                id: a.id,
+                type: a.activity_type,
+                description: a.description,
+                date: a.occurred_at || a.created_at,
+                source: 'activity'
+            })),
+            ...(actions || []).map(a => ({
+                id: a.id,
+                type: 'action',
+                description: `Action assigned: ${a.title}`,
+                date: a.created_at,
+                status: a.status,
+                source: 'action_items'
+            }))
+        ].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+        return activity;
+    }
+
 
     /**
      * Add contact activity
@@ -3261,6 +3928,102 @@ class SupabaseStorage {
 
         if (error) throw error;
         return data;
+    }
+
+    /**
+     * Track contacts from conversation
+     */
+    async trackContactsFromConversation(conversation) {
+        if (!conversation || !conversation.participants || conversation.participants.length === 0) return;
+
+        const projectId = this.getProjectId();
+
+        for (const participantName of conversation.participants) {
+            // Skip if it's the user (handled by logic elsewhere usually, but good safeguard)
+            if (participantName === 'User' || participantName === 'You') continue;
+
+            const contact = await this.findContactByNameOrAlias(participantName);
+
+            if (contact) {
+                // Add activity
+                await this.addContactActivity(contact.id, {
+                    type: 'conversation',
+                    description: conversation.title || 'Untitled Conversation',
+                    source_type: 'conversation',
+                    source_id: conversation.id,
+                    source_name: conversation.title || 'Conversation',
+                    occurred_at: conversation.created_at || new Date().toISOString()
+                });
+            }
+        }
+    }
+
+    /**
+     * Sync people from knowledge base to contacts
+     */
+    async syncPeopleToContacts() {
+        const projectId = this.getProjectId();
+        const people = await this.getPeople();
+
+        let stats = { added: 0, updated: 0, skipped: 0, errors: 0 };
+
+        for (const person of people) {
+            try {
+                if (!person.name) continue;
+
+                const existingContact = await this.findContactByNameOrAlias(person.name);
+
+                if (existingContact) {
+                    // Add activity from source if available
+                    if (person.source_document_id || person.source_id) {
+                        // Check if we already have this activity to avoid dupes?
+                        // addContactActivity usually just inserts. 
+                        // For now we just add it.
+
+                        await this.addContactActivity(existingContact.id, {
+                            type: 'document',
+                            description: `Mentioned in ${person.source_name || 'document'}`,
+                            source_type: 'document',
+                            source_id: person.source_document_id || person.source_id,
+                            source_name: person.source_name,
+                            occurred_at: person.created_at || new Date().toISOString()
+                        });
+                        stats.updated++;
+                    } else {
+                        stats.skipped++;
+                    }
+                } else {
+                    // Create new contact
+                    const newContact = await this.addContact({
+                        name: person.name,
+                        role: person.role,
+                        organization: person.organization,
+                        notes: person.description || `Imported from ${person.source_name || 'knowledge base'}`,
+                        tags: ['auto-imported']
+                    });
+
+                    if (newContact) {
+                        stats.added++;
+                        // Add activity
+                        if (person.source_document_id || person.source_id) {
+                            await this.addContactActivity(newContact.id, {
+                                type: 'document',
+                                description: `Mentioned in ${person.source_name || 'document'}`,
+                                source_type: 'document',
+                                source_id: person.source_document_id || person.source_id,
+                                source_name: person.source_name,
+                                occurred_at: person.created_at || new Date().toISOString()
+                            });
+                        }
+                    }
+                }
+            } catch (err) {
+                stats.errors++;
+                log.error({ err, person: person.name }, 'Error syncing person to contact');
+            }
+        }
+
+        return stats;
     }
 
     // ==================== Contact Relationships ====================
@@ -3887,14 +4650,14 @@ class SupabaseStorage {
     async getTimezonesGrouped() {
         const timezones = await this.getTimezones();
         const grouped = {};
-        
+
         for (const tz of timezones) {
             if (!grouped[tz.region]) {
                 grouped[tz.region] = [];
             }
             grouped[tz.region].push(tz);
         }
-        
+
         return grouped;
     }
 
@@ -3922,7 +4685,7 @@ class SupabaseStorage {
 
             log.info({ event: 'timezones_populating' }, 'Populating timezones table');
             const timezoneData = this._getTimezoneData();
-            
+
             const { error: insertError } = await this.supabase
                 .from('timezones')
                 .upsert(timezoneData, { onConflict: 'code' });
@@ -4130,18 +4893,18 @@ class SupabaseStorage {
         if (updates.title !== undefined) updateData.title = updates.title;
         if (updates.type !== undefined) updateData.conversation_type = updates.type;
         if (updates.messages !== undefined) updateData.messages = updates.messages;
-        
+
         // Handle metadata - merge with existing if needed
-        if (updates.metadata !== undefined || 
-            updates.extractedEntities !== undefined || 
+        if (updates.metadata !== undefined ||
+            updates.extractedEntities !== undefined ||
             updates.extractedRelationships !== undefined ||
             updates.extraction_result !== undefined ||
             updates.aiProcessedAt !== undefined) {
-            
+
             // Get existing conversation to merge metadata
             const existing = await this.getConversationById(id);
             const existingMeta = existing?.metadata || {};
-            
+
             updateData.metadata = {
                 ...existingMeta,
                 ...(updates.metadata || {}),
@@ -4151,7 +4914,7 @@ class SupabaseStorage {
                 ...(updates.aiProcessedAt !== undefined && { aiProcessedAt: updates.aiProcessedAt })
             };
         }
-        
+
         const { data, error } = await this.supabase
             .from('conversations')
             .update(updateData)
@@ -4647,7 +5410,7 @@ class SupabaseStorage {
             });
 
             if (error) throw error;
-            
+
             // Update context separately if provided (RPC doesn't support it yet)
             if (context && data) {
                 await this.supabase
@@ -4655,7 +5418,7 @@ class SupabaseStorage {
                     .update({ request_type: context })
                     .eq('id', data);
             }
-            
+
             return data;
         } catch (e) {
             // Fallback: direct insert without RPC
@@ -4676,7 +5439,7 @@ class SupabaseStorage {
                 })
                 .select('id')
                 .single();
-            
+
             if (error) throw error;
             return data?.id;
         }
@@ -5039,7 +5802,7 @@ class SupabaseStorage {
             return data;
         } catch (joinError) {
             log.warn({ event: 'processing_history_join_failed', reason: joinError.message }, 'Using simple query');
-            
+
             let query = this.supabase
                 .from('processing_history')
                 .select('*')
@@ -5256,8 +6019,8 @@ class SupabaseStorage {
     async setCache(key, value, ttlSeconds = null) {
         const projectId = this.getProjectId();
 
-        const expiresAt = ttlSeconds 
-            ? new Date(Date.now() + ttlSeconds * 1000).toISOString() 
+        const expiresAt = ttlSeconds
+            ? new Date(Date.now() + ttlSeconds * 1000).toISOString()
             : null;
 
         const { data, error } = await this.supabase
@@ -5361,7 +6124,7 @@ class SupabaseStorage {
             try {
                 const hash = crypto.createHash('md5');
                 const stream = fs.createReadStream(filePath);
-                
+
                 stream.on('data', data => hash.update(data));
                 stream.on('end', () => resolve(hash.digest('hex')));
                 stream.on('error', () => resolve(null));
@@ -5398,14 +6161,14 @@ class SupabaseStorage {
      */
     _normalizeCategory(category) {
         if (!category) return 'general';
-        
+
         const normalized = category.toLowerCase().trim();
         const validCategories = ['technical', 'process', 'policy', 'people', 'timeline', 'general'];
-        
+
         if (validCategories.includes(normalized)) {
             return normalized;
         }
-        
+
         // Map common variations
         const categoryMap = {
             'tech': 'technical',
@@ -5421,7 +6184,7 @@ class SupabaseStorage {
             'date': 'timeline',
             'schedule': 'timeline'
         };
-        
+
         return categoryMap[normalized] || 'general';
     }
 
@@ -5440,7 +6203,7 @@ class SupabaseStorage {
         for (const item of existingItems) {
             const normalizedExisting = this._normalizeText(item[contentField]);
             const similarity = this._textSimilarity(normalizedNew, normalizedExisting);
-            
+
             if (similarity > bestSimilarity) {
                 bestSimilarity = similarity;
                 bestMatch = item;
@@ -5471,12 +6234,12 @@ class SupabaseStorage {
     _textSimilarity(text1, text2) {
         const words1 = new Set(text1.split(' ').filter(w => w.length > 2));
         const words2 = new Set(text2.split(' ').filter(w => w.length > 2));
-        
+
         if (words1.size === 0 || words2.size === 0) return 0;
-        
+
         const intersection = new Set([...words1].filter(w => words2.has(w)));
         const union = new Set([...words1, ...words2]);
-        
+
         return intersection.size / union.size;
     }
 
@@ -5706,7 +6469,7 @@ class SupabaseStorage {
      */
     async calculateDataHash() {
         const projectId = this.getProjectId();
-        
+
         // Get counts of all entities
         const [
             { count: factsCount },
@@ -5725,7 +6488,7 @@ class SupabaseStorage {
             this.supabase.from('people').select('*', { count: 'exact', head: true }).eq('project_id', projectId).is('deleted_at', null),
             this.supabase.from('documents').select('*', { count: 'exact', head: true }).eq('project_id', projectId).is('deleted_at', null)
         ]);
-        
+
         // Get latest modification time
         const { data: latestFact } = await this.supabase
             .from('facts')
@@ -5734,7 +6497,7 @@ class SupabaseStorage {
             .order('updated_at', { ascending: false })
             .limit(1)
             .single();
-        
+
         const stats = {
             facts: factsCount || 0,
             decisions: decisionsCount || 0,
@@ -5745,13 +6508,13 @@ class SupabaseStorage {
             documents: docsCount || 0,
             lastUpdate: latestFact?.updated_at || null
         };
-        
+
         // Create hash from stats
         const crypto = require('crypto');
         const hash = crypto.createHash('md5')
             .update(JSON.stringify(stats))
             .digest('hex');
-        
+
         return { hash, stats };
     }
 
@@ -5761,7 +6524,7 @@ class SupabaseStorage {
     async getCachedBriefing() {
         const projectId = this.getProjectId();
         const { hash: currentHash, stats } = await this.calculateDataHash();
-        
+
         // Look for briefing with matching hash
         const { data: cached, error } = await this.supabase
             .from('briefings')
@@ -5771,7 +6534,7 @@ class SupabaseStorage {
             .order('created_at', { ascending: false })
             .limit(1)
             .single();
-        
+
         if (cached && !error) {
             log.debug({ event: 'briefing_cache_hit' }, 'Using existing briefing');
             return {
@@ -5782,7 +6545,7 @@ class SupabaseStorage {
                 stats: cached.stats_snapshot
             };
         }
-        
+
         return { cached: false, currentHash, stats };
     }
 
@@ -5791,7 +6554,7 @@ class SupabaseStorage {
      */
     async getLatestBriefing() {
         const projectId = this.getProjectId();
-        
+
         const { data, error } = await this.supabase
             .from('briefings')
             .select('*')
@@ -5799,7 +6562,7 @@ class SupabaseStorage {
             .order('created_at', { ascending: false })
             .limit(1)
             .single();
-        
+
         if (error || !data) return null;
         return data;
     }
@@ -5811,7 +6574,7 @@ class SupabaseStorage {
         const projectId = this.getProjectId();
         const user = await this.getCurrentUser();
         const { hash, stats } = await this.calculateDataHash();
-        
+
         const { data, error } = await this.supabase
             .from('briefings')
             .insert({
@@ -5828,7 +6591,7 @@ class SupabaseStorage {
             })
             .select()
             .single();
-        
+
         if (error) {
             log.warn({ event: 'briefing_save_failed', reason: error.message }, 'Failed to save briefing');
             return null;
@@ -5842,14 +6605,14 @@ class SupabaseStorage {
      */
     async getBriefingHistory(limit = 30) {
         const projectId = this.getProjectId();
-        
+
         const { data, error } = await this.supabase
             .from('briefings')
             .select('id, summary, stats_snapshot, provider, model, tokens_used, created_at')
             .eq('project_id', projectId)
             .order('created_at', { ascending: false })
             .limit(limit);
-        
+
         if (error) return [];
         return data;
     }
@@ -5861,19 +6624,19 @@ class SupabaseStorage {
      */
     async getOntologySuggestions(status = 'pending') {
         const projectId = this.getProjectId();
-        
+
         let query = this.supabase
             .from('ontology_suggestions')
             .select('*')
             .eq('project_id', projectId)
             .order('created_at', { ascending: false });
-        
+
         if (status !== 'all') {
             query = query.eq('status', status);
         }
-        
+
         const { data, error } = await query;
-        
+
         if (error) {
             log.warn({ event: 'ontology_suggestions_get_failed', reason: error.message }, 'Failed to get ontology suggestions');
             return [];
@@ -5886,7 +6649,7 @@ class SupabaseStorage {
      */
     async addOntologySuggestion(suggestion) {
         const projectId = this.getProjectId();
-        
+
         const { data, error } = await this.supabase
             .from('ontology_suggestions')
             .insert({
@@ -5902,7 +6665,7 @@ class SupabaseStorage {
             })
             .select()
             .single();
-        
+
         if (error) {
             log.warn({ event: 'ontology_suggestion_add_failed', reason: error.message }, 'Failed to add ontology suggestion');
             return null;
@@ -5916,12 +6679,12 @@ class SupabaseStorage {
      */
     async updateOntologySuggestion(id, updates) {
         const user = await this.getCurrentUser();
-        
+
         const updateData = {
             ...updates,
             updated_at: new Date().toISOString()
         };
-        
+
         if (updates.status === 'approved') {
             updateData.approved_at = new Date().toISOString();
             updateData.processed_by = user?.id;
@@ -5929,14 +6692,14 @@ class SupabaseStorage {
             updateData.rejected_at = new Date().toISOString();
             updateData.processed_by = user?.id;
         }
-        
+
         const { data, error } = await this.supabase
             .from('ontology_suggestions')
             .update(updateData)
             .eq('id', id)
             .select()
             .single();
-        
+
         if (error) {
             log.warn({ event: 'ontology_suggestion_update_failed', reason: error.message }, 'Failed to update ontology suggestion');
             return null;
@@ -5949,7 +6712,7 @@ class SupabaseStorage {
      */
     async addOntologySuggestions(suggestions) {
         const projectId = this.getProjectId();
-        
+
         const records = suggestions.map(s => ({
             project_id: projectId,
             suggestion_type: s.type || s.suggestion_type,
@@ -5961,12 +6724,12 @@ class SupabaseStorage {
             source_file: s.source || s.source_file,
             example: s.example
         }));
-        
+
         const { data, error } = await this.supabase
             .from('ontology_suggestions')
             .insert(records)
             .select();
-        
+
         if (error) {
             log.warn({ event: 'ontology_suggestions_bulk_add_failed', reason: error.message }, 'Failed to bulk add suggestions');
             return [];
@@ -5988,22 +6751,22 @@ class SupabaseStorage {
             .from('ontology_schema')
             .select('*')
             .eq('is_active', true);
-        
+
         if (projectId === null) {
             query = query.is('project_id', null); // Global schemas only
         } else {
             // Get both global and project-specific schemas
             query = query.or(`project_id.is.null,project_id.eq.${projectId}`);
         }
-        
+
         if (schemaType) {
             query = query.eq('schema_type', schemaType);
         }
-        
+
         const { data, error } = await query
             .order('schema_type')
             .order('schema_name');
-        
+
         if (error) {
             log.warn({ event: 'ontology_schema_get_failed', reason: error.message }, 'Failed to get ontology schema');
             return [];
@@ -6030,7 +6793,7 @@ class SupabaseStorage {
             is_active: true,
             created_by: this.currentUserId
         };
-        
+
         const { data, error } = await this.supabase
             .from('ontology_schema')
             .upsert(record, {
@@ -6039,7 +6802,7 @@ class SupabaseStorage {
             })
             .select()
             .single();
-        
+
         if (error) {
             log.warn({ event: 'ontology_schema_save_failed', schemaType, schemaName, reason: error.message }, 'Failed to save ontology schema item');
             throw error;
@@ -6058,7 +6821,7 @@ class SupabaseStorage {
     async saveOntologySchema(schema, projectId = null, userId = null) {
         const records = [];
         const version = parseInt(schema.version) || 1;
-        
+
         // Entity types
         for (const [name, def] of Object.entries(schema.entityTypes || {})) {
             records.push({
@@ -6071,7 +6834,7 @@ class SupabaseStorage {
                 created_by: userId || this.currentUserId
             });
         }
-        
+
         // Relation types
         for (const [name, def] of Object.entries(schema.relationTypes || {})) {
             records.push({
@@ -6084,7 +6847,7 @@ class SupabaseStorage {
                 created_by: userId || this.currentUserId
             });
         }
-        
+
         // Query patterns
         for (const [name, pattern] of Object.entries(schema.queryPatterns || {})) {
             records.push({
@@ -6097,7 +6860,7 @@ class SupabaseStorage {
                 created_by: userId || this.currentUserId
             });
         }
-        
+
         // Inference rules
         for (const rule of schema.inferenceRules || []) {
             records.push({
@@ -6110,15 +6873,15 @@ class SupabaseStorage {
                 created_by: userId || this.currentUserId
             });
         }
-        
+
         if (records.length === 0) {
             return { success: true, counts: { total: 0 } };
         }
-        
+
         // Upsert all records in batches
         const batchSize = 50;
         let totalInserted = 0;
-        
+
         for (let i = 0; i < records.length; i += batchSize) {
             const batch = records.slice(i, i + batchSize);
             const { data, error } = await this.supabase
@@ -6128,7 +6891,7 @@ class SupabaseStorage {
                     ignoreDuplicates: false
                 })
                 .select();
-            
+
             if (error) {
                 log.warn({ event: 'ontology_schema_batch_save_failed', reason: error.message }, 'Failed to save ontology schema batch');
                 throw error;
@@ -6154,11 +6917,11 @@ class SupabaseStorage {
      */
     async buildSchemaFromSupabase(projectId = null) {
         const records = await this.getOntologySchema(projectId);
-        
+
         if (!records || records.length === 0) {
             return null; // No schema in Supabase
         }
-        
+
         const schema = {
             version: '1.0',
             entityTypes: {},
@@ -6166,13 +6929,13 @@ class SupabaseStorage {
             queryPatterns: {},
             inferenceRules: []
         };
-        
+
         for (const record of records) {
             // Track highest version
             if (record.version > parseFloat(schema.version)) {
                 schema.version = String(record.version);
             }
-            
+
             switch (record.schema_type) {
                 case 'entity':
                     schema.entityTypes[record.schema_name] = record.schema_definition;
@@ -6188,7 +6951,7 @@ class SupabaseStorage {
                     break;
             }
         }
-        
+
         log.debug({ event: 'ontology_schema_built', version: schema.version, entities: Object.keys(schema.entityTypes || {}).length, relations: Object.keys(schema.relationTypes || {}).length }, 'Built schema from DB');
         return schema;
     }
@@ -6206,20 +6969,20 @@ class SupabaseStorage {
             .update({ is_active: false, updated_at: new Date().toISOString() })
             .eq('schema_type', schemaType)
             .eq('schema_name', schemaName);
-        
+
         if (projectId === null) {
             query = query.is('project_id', null);
         } else {
             query = query.eq('project_id', projectId);
         }
-        
+
         const { error } = await query;
-        
+
         if (error) {
             log.warn({ event: 'ontology_schema_deactivate_failed', schemaType, schemaName, reason: error.message }, 'Failed to deactivate');
             return false;
         }
-        
+
         return true;
     }
 
@@ -6233,21 +6996,21 @@ class SupabaseStorage {
             .from('ontology_schema')
             .select('version')
             .eq('is_active', true);
-        
+
         if (projectId === null) {
             query = query.is('project_id', null);
         } else {
             query = query.eq('project_id', projectId);
         }
-        
+
         const { data, error } = await query
             .order('version', { ascending: false })
             .limit(1);
-        
+
         if (error || !data || data.length === 0) {
             return null;
         }
-        
+
         return String(data[0].version);
     }
 
@@ -6270,19 +7033,19 @@ class SupabaseStorage {
             suggestion_id: changeData.suggestionId || null,
             changed_by: changeData.changedBy || this.currentUserId
         };
-        
+
         const { data, error } = await this.supabase
             .from('ontology_changes')
             .insert(record)
             .select()
             .single();
-        
+
         if (error) {
             // Table might not exist yet - log but don't fail
             log.warn({ event: 'ontology_change_log_failed', reason: error.message }, 'Could not log ontology change');
             return null;
         }
-        
+
         return data;
     }
 
@@ -6293,13 +7056,13 @@ class SupabaseStorage {
      */
     async getOntologyChanges(options = {}) {
         const { projectId, targetType, targetName, limit = 50 } = options;
-        
+
         let query = this.supabase
             .from('ontology_changes')
             .select('*')
             .order('changed_at', { ascending: false })
             .limit(limit);
-        
+
         if (projectId !== undefined) {
             if (projectId === null) {
                 query = query.is('project_id', null);
@@ -6307,22 +7070,22 @@ class SupabaseStorage {
                 query = query.eq('project_id', projectId);
             }
         }
-        
+
         if (targetType) {
             query = query.eq('target_type', targetType);
         }
-        
+
         if (targetName) {
             query = query.eq('target_name', targetName);
         }
-        
+
         const { data, error } = await query;
-        
+
         if (error) {
             log.warn({ event: 'ontology_changes_get_failed', reason: error.message }, 'Could not get ontology changes');
             return [];
         }
-        
+
         return data || [];
     }
 
@@ -6335,7 +7098,7 @@ class SupabaseStorage {
      */
     async saveEmail(emailData) {
         const projectId = this.getProjectId();
-        
+
         const record = {
             project_id: projectId,
             subject: emailData.subject || null,
@@ -6358,18 +7121,18 @@ class SupabaseStorage {
             sprint_id: emailData.sprint_id || null,
             action_id: emailData.action_id || null,
         };
-        
+
         const { data, error } = await this.supabase
             .from('emails')
             .insert(record)
             .select()
             .single();
-        
+
         if (error) {
             log.warn({ event: 'email_save_failed', reason: error.message }, 'Failed to save email');
             throw error;
         }
-        
+
         log.info({ event: 'email_saved', subject: record.subject || '(no subject)' }, 'Saved email');
         return data;
     }
@@ -6387,7 +7150,7 @@ class SupabaseStorage {
             'draft_response', 'draft_generated_at', 'sender_contact_id',
             'processed_at', 'thread_id', 'sprint_id', 'action_id'
         ];
-        
+
         const updateData = {};
         for (const field of allowedFields) {
             if (updates[field] !== undefined) {
@@ -6395,20 +7158,40 @@ class SupabaseStorage {
             }
         }
         updateData.updated_at = new Date().toISOString();
-        
+
         const { data, error } = await this.supabase
             .from('emails')
             .update(updateData)
             .eq('id', id)
             .select()
             .single();
-        
+
         if (error) {
             log.warn({ event: 'email_update_failed', reason: error.message }, 'Failed to update email');
             return null;
         }
-        
+
         return data;
+    }
+
+    // ==================== Graph Provider ====================
+
+    /**
+     * Get Graph Provider instance
+     */
+    getGraphProvider() {
+        if (!this._graphProvider) {
+            const SupabaseGraphProvider = require('../graph/providers/supabase');
+            this._graphProvider = new SupabaseGraphProvider({
+                supabase: this.supabase,
+                projectId: this.currentProjectId
+            });
+        }
+        // Update project context if changed
+        if (this.currentProjectId && this._graphProvider.projectId !== this.currentProjectId) {
+            this._graphProvider.setProjectContext(this.currentProjectId);
+        }
+        return this._graphProvider;
     }
 
     /**
@@ -6419,40 +7202,40 @@ class SupabaseStorage {
     async getEmails(options = {}) {
         const projectId = this.getProjectId();
         const { limit = 50, requiresResponse, direction, includeDeleted = false, sinceDate, untilDate } = options;
-        
+
         let query = this.supabase
             .from('emails')
             .select('*')
             .eq('project_id', projectId)
             .order('date_sent', { ascending: false })
             .limit(limit);
-        
+
         if (!includeDeleted) {
             query = query.is('deleted_at', null);
         }
-        
+
         if (requiresResponse !== undefined) {
             query = query.eq('requires_response', requiresResponse);
         }
-        
+
         if (direction) {
             query = query.eq('direction', direction);
         }
-        
+
         if (sinceDate) {
             query = query.gte('date_sent', sinceDate);
         }
         if (untilDate) {
             query = query.lte('date_sent', untilDate);
         }
-        
+
         const { data, error } = await query;
-        
+
         if (error) {
             log.warn({ event: 'emails_get_failed', reason: error.message }, 'Failed to get emails');
             return [];
         }
-        
+
         return data;
     }
 
@@ -6467,12 +7250,12 @@ class SupabaseStorage {
             .select('*')
             .eq('id', id)
             .single();
-        
+
         if (error) {
             log.warn({ event: 'email_get_failed', reason: error.message }, 'Failed to get email');
             return null;
         }
-        
+
         return data;
     }
 
@@ -6483,7 +7266,7 @@ class SupabaseStorage {
      */
     async findEmailByHash(contentHash) {
         const projectId = this.getProjectId();
-        
+
         const { data, error } = await this.supabase
             .from('emails')
             .select('id, subject, from_email, created_at')
@@ -6491,11 +7274,11 @@ class SupabaseStorage {
             .eq('content_hash', contentHash)
             .is('deleted_at', null)
             .single();
-        
+
         if (error && error.code !== 'PGRST116') { // PGRST116 = no rows
             log.warn({ event: 'email_find_by_hash_failed', reason: error.message }, 'Failed to find email by hash');
         }
-        
+
         return data || null;
     }
 
@@ -6509,12 +7292,12 @@ class SupabaseStorage {
             .from('emails')
             .update({ deleted_at: new Date().toISOString() })
             .eq('id', id);
-        
+
         if (error) {
             log.warn({ event: 'email_delete_failed', reason: error.message }, 'Failed to delete email');
             return false;
         }
-        
+
         return true;
     }
 
@@ -6536,7 +7319,7 @@ class SupabaseStorage {
             })
             .select()
             .single();
-        
+
         if (error) {
             // Ignore duplicate errors
             if (!error.message.includes('duplicate')) {
@@ -6544,7 +7327,7 @@ class SupabaseStorage {
             }
             return null;
         }
-        
+
         return data;
     }
 
@@ -6561,12 +7344,12 @@ class SupabaseStorage {
                 contact:contacts(id, name, email)
             `)
             .eq('email_id', emailId);
-        
+
         if (error) {
             log.warn({ event: 'email_recipients_get_failed', reason: error.message }, 'Failed to get email recipients');
             return [];
         }
-        
+
         return data;
     }
 
@@ -6589,12 +7372,12 @@ class SupabaseStorage {
             })
             .select()
             .single();
-        
+
         if (error) {
             log.warn({ event: 'email_attachment_add_failed', reason: error.message }, 'Failed to add email attachment');
             return null;
         }
-        
+
         return data;
     }
 
@@ -6604,7 +7387,7 @@ class SupabaseStorage {
      */
     async getEmailsNeedingResponse() {
         const projectId = this.getProjectId();
-        
+
         const { data, error } = await this.supabase
             .from('emails')
             .select('*')
@@ -6613,12 +7396,12 @@ class SupabaseStorage {
             .eq('response_drafted', false)
             .is('deleted_at', null)
             .order('date_sent', { ascending: true });
-        
+
         if (error) {
             log.warn({ event: 'emails_needing_response_failed', reason: error.message }, 'Failed to get emails needing response');
             return [];
         }
-        
+
         return data;
     }
 
@@ -6629,9 +7412,9 @@ class SupabaseStorage {
      */
     async findContactByEmail(email) {
         if (!email) return null;
-        
+
         const projectId = this.getProjectId();
-        
+
         const { data, error } = await this.supabase
             .from('contacts')
             .select('*')
@@ -6640,12 +7423,12 @@ class SupabaseStorage {
             .is('deleted_at', null)
             .limit(1)
             .maybeSingle();
-        
+
         if (error) {
             log.warn({ event: 'contact_find_by_email_failed', reason: error.message }, 'Failed to find contact by email');
             return null;
         }
-        
+
         return data;
     }
 
@@ -6656,9 +7439,9 @@ class SupabaseStorage {
      */
     async findContactByName(name) {
         if (!name) return null;
-        
+
         const projectId = this.getProjectId();
-        
+
         // Try exact match first
         const { data: exactMatch, error: exactError } = await this.supabase
             .from('contacts')
@@ -6668,9 +7451,9 @@ class SupabaseStorage {
             .is('deleted_at', null)
             .limit(1)
             .maybeSingle();
-        
+
         if (exactMatch) return exactMatch;
-        
+
         // Try partial match (contains)
         const { data: partialMatch, error: partialError } = await this.supabase
             .from('contacts')
@@ -6680,7 +7463,7 @@ class SupabaseStorage {
             .is('deleted_at', null)
             .limit(1)
             .maybeSingle();
-        
+
         return partialMatch || null;
     }
 
@@ -6691,7 +7474,7 @@ class SupabaseStorage {
      */
     async createContactFromEmail(contactData) {
         const projectId = this.getProjectId();
-        
+
         const record = {
             project_id: projectId,
             name: contactData.name || 'Unknown',
@@ -6702,13 +7485,13 @@ class SupabaseStorage {
             location: contactData.location || null,
             notes: contactData.source ? `Created from email: ${contactData.source}` : 'Created from email',
         };
-        
+
         const { data, error } = await this.supabase
             .from('contacts')
             .insert(record)
             .select()
             .single();
-        
+
         if (error) {
             log.warn({ event: 'contact_create_from_email_failed', reason: error.message }, 'Failed to create contact');
             throw error;
@@ -6729,9 +7512,9 @@ class SupabaseStorage {
      */
     async findContactByNameAndOrg(name, organization) {
         if (!name || !organization) return null;
-        
+
         const projectId = this.getProjectId();
-        
+
         const { data, error } = await this.supabase
             .from('contacts')
             .select('*')
@@ -6741,12 +7524,12 @@ class SupabaseStorage {
             .is('deleted_at', null)
             .limit(1)
             .maybeSingle();
-        
+
         if (error) {
             log.warn({ event: 'contact_find_by_name_org_failed', reason: error.message }, 'Failed to find contact by name+org');
             return null;
         }
-        
+
         return data;
     }
 
@@ -6757,9 +7540,9 @@ class SupabaseStorage {
      */
     async findContactByAlias(alias) {
         if (!alias) return null;
-        
+
         const projectId = this.getProjectId();
-        
+
         // PostgreSQL array contains check
         const { data, error } = await this.supabase
             .from('contacts')
@@ -6769,12 +7552,12 @@ class SupabaseStorage {
             .is('deleted_at', null)
             .limit(1)
             .maybeSingle();
-        
+
         if (error) {
             log.warn({ event: 'contact_find_by_alias_failed', reason: error.message }, 'Failed to find contact by alias');
             return null;
         }
-        
+
         return data;
     }
 
@@ -6795,7 +7578,7 @@ class SupabaseStorage {
         }
 
         const projectId = this.getProjectId();
-        
+
         // Priority 1: Match by email (strongest identifier)
         if (personData.email) {
             const byEmail = await this.findContactByEmail(personData.email);
@@ -6805,7 +7588,7 @@ class SupabaseStorage {
                 return { contact: byEmail, action: 'matched_by_email', confidence: 1.0 };
             }
         }
-        
+
         // Priority 2: Match by name + organization (strong)
         if (personData.name && personData.organization) {
             const byNameOrg = await this.findContactByNameAndOrg(personData.name, personData.organization);
@@ -6814,7 +7597,7 @@ class SupabaseStorage {
                 return { contact: byNameOrg, action: 'matched_by_name_org', confidence: 0.9 };
             }
         }
-        
+
         // Priority 3: Match by alias
         if (personData.name) {
             const byAlias = await this.findContactByAlias(personData.name);
@@ -6823,21 +7606,21 @@ class SupabaseStorage {
                 return { contact: byAlias, action: 'matched_by_alias', confidence: 0.85 };
             }
         }
-        
+
         // Priority 4: Fuzzy name match (weak - could be different person)
         const fuzzyMatch = await this.findContactByName(personData.name);
         if (fuzzyMatch) {
             // Only use fuzzy match if we have corroborating info
-            const hasCorroboration = 
+            const hasCorroboration =
                 (personData.role && fuzzyMatch.role && personData.role.toLowerCase().includes(fuzzyMatch.role.toLowerCase())) ||
                 (personData.organization && fuzzyMatch.organization && personData.organization.toLowerCase().includes(fuzzyMatch.organization.toLowerCase()));
-            
+
             if (hasCorroboration) {
                 await this.updateContactFromExtraction(fuzzyMatch.id, personData);
                 return { contact: fuzzyMatch, action: 'matched_by_fuzzy_corroborated', confidence: 0.7 };
             }
         }
-        
+
         // No match - create new contact
         try {
             const newContact = await this.createContactFromExtraction(personData);
@@ -6855,7 +7638,7 @@ class SupabaseStorage {
      */
     async createContactFromExtraction(personData) {
         const projectId = this.getProjectId();
-        
+
         const record = {
             project_id: projectId,
             name: personData.name,
@@ -6867,17 +7650,17 @@ class SupabaseStorage {
             first_seen_at: new Date().toISOString(),
             interaction_count: 1
         };
-        
+
         const { data, error } = await this.supabase
             .from('contacts')
             .insert(record)
             .select()
             .single();
-        
+
         if (error) {
             throw error;
         }
-        
+
         log.info({ event: 'contact_created_from_extraction', name: record.name }, 'Created contact from extraction');
         return data;
     }
@@ -6892,19 +7675,19 @@ class SupabaseStorage {
             last_seen_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
         };
-        
+
         // Only update empty fields
         const { data: current } = await this.supabase
             .from('contacts')
             .select('email, organization, role, aliases')
             .eq('id', contactId)
             .single();
-        
+
         if (current) {
             if (!current.email && personData.email) updates.email = personData.email;
             if (!current.organization && personData.organization) updates.organization = personData.organization;
             if (!current.role && personData.role) updates.role = personData.role;
-            
+
             // Merge aliases
             if (personData.aliases?.length) {
                 const existingAliases = current.aliases || [];
@@ -6913,7 +7696,7 @@ class SupabaseStorage {
                     updates.aliases = [...existingAliases, ...newAliases];
                 }
             }
-            
+
             // Add name as alias if different
             if (personData.name && current.name && personData.name !== current.name) {
                 const aliases = updates.aliases || current.aliases || [];
@@ -6922,13 +7705,13 @@ class SupabaseStorage {
                 }
             }
         }
-        
+
         // Increment interaction count
         await this.supabase
             .from('contacts')
             .update(updates)
             .eq('id', contactId);
-        
+
         await this.supabase.rpc('increment_contact_interaction', { contact_id: contactId }).catch(() => {
             // Fallback if RPC doesn't exist
             this.supabase
@@ -6945,16 +7728,16 @@ class SupabaseStorage {
      */
     async updateContactAliases(contactId, newAliases) {
         if (!contactId || !newAliases?.length) return;
-        
+
         const { data: current } = await this.supabase
             .from('contacts')
             .select('aliases')
             .eq('id', contactId)
             .single();
-        
+
         const existingAliases = current?.aliases || [];
         const mergedAliases = [...new Set([...existingAliases, ...newAliases])];
-        
+
         await this.supabase
             .from('contacts')
             .update({
@@ -7150,8 +7933,8 @@ SupabaseStorage.RESET_DELETE_STEPS = [
 function createSupabaseStorage(options = {}) {
     const supabaseUrl = options.supabaseUrl || process.env.SUPABASE_URL || process.env.SUPABASE_PROJECT_URL;
     // Prefer service key for server-side operations (bypasses RLS)
-    const supabaseKey = options.supabaseKey || 
-        process.env.SUPABASE_SERVICE_KEY || 
+    const supabaseKey = options.supabaseKey ||
+        process.env.SUPABASE_SERVICE_KEY ||
         process.env.SUPABASE_PROJECT_SERVICE_ROLE_KEY ||
         process.env.SUPABASE_ANON_KEY ||
         process.env.SUPABASE_PROJECT_ANON_KEY;

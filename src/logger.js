@@ -44,6 +44,11 @@ if (isDev && process.stdout.isTTY) {
 
 const rootLogger = pino(baseOptions, dest);
 
+// SOTA: Prevent MaxListenersExceededWarning in tests/dev due to multiple pino instances
+if (isDev) {
+    process.setMaxListeners(Math.max(process.getMaxListeners(), 20));
+}
+
 /**
  * Create a child logger with bound context (module, requestId, jobId, userId, projectId).
  * Every log from the child will include these fields.

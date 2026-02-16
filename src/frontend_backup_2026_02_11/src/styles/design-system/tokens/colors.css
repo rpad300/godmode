@@ -1,0 +1,72 @@
+/**
+ * Design Tokens: Colors
+ * Color palette for GodMode application (brand: red #e94560)
+ * SOTA Edition: Vibrant, Deep, and Premium
+ */
+
+:root {
+  /* Neutral Scale - Pure & Deep */
+  --color-neutral-0: #ffffff;
+  --color-neutral-25: #fcfcfc;
+  /* Premium Off-white */
+  --color-neutral-50: #f8fafc;
+  --color-neutral-100: #f1f5f9;
+  --color-neutral-200: #e2e8f0;
+  --color-neutral-300: #cbd5e1;
+  --color-neutral-400: #94a3b8;
+  --color-neutral-500: #64748b;
+  --color-neutral-600: #475569;
+  --color-neutral-700: #334155;
+  --color-neutral-800: #1e293b;
+  --color-neutral-900: #0f172a;
+  --color-neutral-950: #020617;
+  /* SOTA Deep Background */
+
+  /* Brand / Primary — GodMode Red (Vibrant) */
+  --color-brand-50: #fff0f1;
+  --color-brand-100: #ffe1e3;
+  --color-brand-200: #ffc9cd;
+  --color-brand-300: #fea3aa;
+  --color-brand-400: #fc6d79;
+  --color-brand-500: #e94560;
+  /* Core Brand */
+  --color-brand-600: #d63850;
+  --color-brand-700: #b91c3a;
+  --color-brand-800: #9a1a32;
+  --color-brand-900: #80182e;
+  --color-brand-950: #490812;
+
+  /* Accent / Electric (For glows and pop) */
+  --color-accent-400: #6d5efc;
+  /* Electric Violet */
+  --color-accent-500: #5a4df0;
+  --color-accent-600: #4839eb;
+
+  /* Success (Vibrant Green) */
+  --color-success-50: #effef5;
+  --color-success-100: #d9fce6;
+  --color-success-500: #10b981;
+  --color-success-600: #059669;
+  --color-success-700: #047857;
+
+  /* Warning (Warm Amber) */
+  --color-warning-50: #fffbf0;
+  --color-warning-100: #fef3c7;
+  --color-warning-500: #f59e0b;
+  --color-warning-600: #d97706;
+  --color-warning-700: #b45309;
+
+  /* Danger (Rose Red) */
+  --color-danger-50: #fff1f2;
+  --color-danger-100: #ffe4e6;
+  --color-danger-500: #f43f5e;
+  --color-danger-600: #e11d48;
+  --color-danger-700: #be123c;
+
+  /* Info (Sky Blue) */
+  --color-info-50: #f0f9ff;
+  --color-info-100: #e0f2fe;
+  --color-info-500: #0ea5e9;
+  --color-info-600: #0284c7;
+  --color-info-700: #0369a1;
+}

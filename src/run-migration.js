@@ -11,30 +11,30 @@ const supabase = createClient(
 
 async function runMigration() {
   log.info({ event: 'run_migration_start' }, 'Adding requester_role columns...');
-  
+
   // Run ALTER TABLE statements
   const { error: error1 } = await supabase.rpc('exec_sql', {
     sql_query: 'ALTER TABLE knowledge_questions ADD COLUMN IF NOT EXISTS requester_role TEXT'
   });
-  
+
   if (error1) {
     log.debug({ event: 'run_migration_alter_1', message: error1.message }, 'Error 1 (may be expected if column exists)');
   }
-  
+
   const { error: error2 } = await supabase.rpc('exec_sql', {
     sql_query: 'ALTER TABLE knowledge_questions ADD COLUMN IF NOT EXISTS requester_role_prompt TEXT'
   });
-  
+
   if (error2) {
     log.debug({ event: 'run_migration_alter_2', message: error2.message }, 'Error 2 (may be expected if column exists)');
   }
-  
+
   // Test if columns exist by querying
   const { data, error: testError } = await supabase
     .from('knowledge_questions')
     .select('id, requester_role, requester_role_prompt')
     .limit(1);
-  
+
   if (testError) {
     log.warn({ event: 'run_migration_columns_missing', message: testError.message }, 'Columns may not exist yet - run migration 036 manually in Supabase dashboard');
   } else {

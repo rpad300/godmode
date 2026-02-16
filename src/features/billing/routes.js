@@ -126,10 +126,21 @@ async function handleBilling(ctx) {
             const user = await checkSuperAdmin(supabase, req, res);
             if (!user) return true;
             const body = await parseBody(req);
-            const config = await billing.getGlobalPricingConfig();
+            let config = await billing.getGlobalPricingConfig();
             if (!config) {
-                jsonResponse(res, { error: 'Global pricing config not found' }, 404);
-                return true;
+                // Auto-create default global config if missing
+                await billing.setGlobalPricingConfig({
+                    fixedMarkupPercent: 0,
+                    periodType: 'monthly',
+                    usdToEurRate: 0.92,
+                    updatedBy: user.id
+                });
+                config = await billing.getGlobalPricingConfig();
+
+                if (!config) {
+                    jsonResponse(res, { error: 'Failed to create global pricing config' }, 500);
+                    return true;
+                }
             }
             const result = await billing.setPricingTiers(config.id, body.tiers || []);
             jsonResponse(res, result);
@@ -335,6 +346,57 @@ async function handleBilling(ctx) {
                 jsonResponse(res, { success });
             } catch (error) {
                 log.warn({ event: 'billing_pricing_override_delete_error', reason: error?.message }, 'Error deleting project pricing override');
+                jsonResponse(res, { error: error.message }, 500);
+            }
+            return true;
+        }
+
+        // POST /api/admin/billing/projects/:id/block - Block/Unblock project
+        if (subPath === '/block' && req.method === 'POST') {
+            try {
+                const user = await checkSuperAdmin(supabase, req, res);
+                if (!user) return true;
+                const body = await parseBody(req);
+                const blocked = body.blocked === true;
+
+                // Update project status
+                // Update project status
+                const adminClient = supabase.getAdminClient();
+                if (!adminClient) {
+                    throw new Error('Supabase admin client not available');
+                }
+
+                const { error } = await adminClient
+                    .from('projects')
+                    .update({ status: blocked ? 'blocked' : 'active' })
+                    .eq('id', projectId);
+
+                if (error) throw error;
+                jsonResponse(res, { success: true, blocked });
+            } catch (error) {
+                log.warn({ event: 'billing_project_block_error', reason: error?.message }, 'Error blocking/unblocking project');
+                jsonResponse(res, { error: error.message }, 500);
+            }
+            return true;
+        }
+
+        // POST /api/admin/billing/projects/:id/unlimited - Set project unlimited status
+        if (subPath === '/unlimited' && req.method === 'POST') {
+            try {
+                const user = await checkSuperAdmin(supabase, req, res);
+                if (!user) return true;
+                const body = await parseBody(req);
+                const unlimited = body.unlimited === true;
+
+                const success = await billing.setProjectUnlimited(projectId, unlimited, user.id);
+
+                if (!success) {
+                    throw new Error('Failed to set unlimited status');
+                }
+
+                jsonResponse(res, { success: true, unlimited });
+            } catch (error) {
+                log.warn({ event: 'billing_project_unlimited_error', reason: error?.message }, 'Error setting project unlimited status');
                 jsonResponse(res, { error: error.message }, 500);
             }
             return true;
