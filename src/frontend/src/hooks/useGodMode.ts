@@ -1,403 +1,430 @@
+/**
+ * React Query hooks for GodMode data fetching and mutations.
+ */
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { apiClient } from '../lib/api-client';
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiClient } from "../lib/api-client";
-import { Contact } from "../types/godmode";
-import { useProject } from "@/contexts/ProjectContext";
+// ── Query Keys ──────────────────────────────────────────────────────────────
 
-// --- Types tailored to the API response ---
+export const queryKeys = {
+  dashboard: ['dashboard'] as const,
+  stats: ['stats'] as const,
+  questions: ['questions'] as const,
+  facts: ['facts'] as const,
+  risks: ['risks'] as const,
+  actions: ['actions'] as const,
+  decisions: ['decisions'] as const,
+  contacts: ['contacts'] as const,
+  files: ['files'] as const,
+  pendingFiles: ['pendingFiles'] as const,
+  projects: ['projects'] as const,
+  chatHistory: ['chatHistory'] as const,
+  teamAnalysis: ['teamAnalysis'] as const,
+  graph: ['graph'] as const,
+  costs: (period: string) => ['costs', period] as const,
+  history: ['history'] as const,
+  emails: ['emails'] as const,
+  processStatus: ['processStatus'] as const,
+  adminStats: ['adminStats'] as const,
+  adminProviders: ['adminProviders'] as const,
+  adminAudit: ['adminAudit'] as const,
+};
 
-export interface DashboardStats {
-    documents: { total: number; processed: number; pending: number };
-    totalFacts: number;
-    factsByCategory: Record<string, number>;
-    factsVerifiedCount: number;
-    totalQuestions: number;
-    totalDecisions: number;
-    totalRisks: number;
-    totalActions: number;
-    totalPeople: number;
-    questionsByPriority: { critical: number; high: number; medium: number; resolved: number };
-    risksByImpact: { high: number; medium: number; low: number };
-    overdueActions: number;
-    overdueItems: any[]; // Define more specifically if needed
-    questionAging: { fresh: number; aging: number; stale: number; critical: number };
-    oldestQuestions: any[];
-    trends: any[];
-    trendInsights: any[];
-    actionsByStatus: { completed: number; in_progress: number; pending: number; overdue: number };
-    recentActions: any[];
-    recentRisks: any[];
-    recentHistory: any[];
-    weeklyActivity: { day: string; facts: number; actions: number; questions: number }[];
-    activeSprint: any;
+// ── Types ───────────────────────────────────────────────────────────────────
+
+export interface DashboardData {
+  stats?: {
+    questions?: number;
+    facts?: number;
+    decisions?: number;
+    risks?: number;
+    actions?: number;
+    contacts?: number;
+    documents?: number;
+  };
+  recentActivity?: Array<{
+    type: string;
+    description: string;
+    timestamp: string;
+  }>;
+  [key: string]: unknown;
 }
 
-interface ContactsResponse {
-    ok: boolean;
-    contacts: Contact[];
-    total: number;
+export interface PendingFile {
+  filename: string;
+  folder: string;
+  size: number;
+  uploadedAt: string;
+  status: string;
 }
 
-// --- Hooks ---
-
-export function useDashboardData() {
-    const { currentProjectId } = useProject();
-    return useQuery({
-        queryKey: ["dashboard", currentProjectId],
-        queryFn: () => apiClient.get<DashboardStats>("/api/dashboard", {
-            headers: { 'x-project-id': currentProjectId }
-        }),
-        // Refresh every minute to keep stats somewhat fresh
-        refetchInterval: 60000,
-        enabled: !!currentProjectId,
-    });
+export interface Project {
+  id: string;
+  name: string;
+  description?: string;
+  created_at?: string;
 }
+
+export interface ProcessResult {
+  status: string;
+  message: string;
+}
+
+export interface ProcessStatus {
+  status: string;
+  progress?: number;
+  currentFile?: string;
+  totalFiles?: number;
+  processedFiles?: number;
+}
+
+export interface ExportResult {
+  ok: boolean;
+  [key: string]: unknown;
+}
+
+export interface ResetResult {
+  success: boolean;
+  message: string;
+  graphCleared?: boolean;
+}
+
+export interface CleanupResult {
+  ok: boolean;
+  message: string;
+  stats?: Record<string, number>;
+  graphCleaned?: boolean;
+}
+
+export interface ChatSource {
+  type: string;
+  id: string | number;
+  title?: string;
+  excerpt?: string;
+  score?: number;
+}
+
+export interface ChatResponse {
+  message?: string;
+  response: string;
+  sources: ChatSource[];
+  contextQuality?: 'high' | 'medium' | 'low' | 'none';
+}
+
+export interface Question {
+  id: string;
+  content?: string;
+  question?: string;
+  status: string;
+  priority?: string;
+  created_at?: string;
+  createdAt?: string;
+}
+
+export interface ActionItem {
+  id: string;
+  task: string;
+  assignee?: string;
+  dueDate?: string;
+  status: string;
+  priority?: string;
+}
+
+export interface Fact {
+  id: string;
+  content: string;
+  source?: string;
+  [key: string]: unknown;
+}
+
+export interface Decision {
+  id: string;
+  decision?: string;
+  content?: string;
+  status?: string;
+  [key: string]: unknown;
+}
+
+export interface CostSummary {
+  totalCost?: number;
+  total?: number;
+  breakdown?: Array<{ model?: string; name?: string; cost?: number; requests?: number }>;
+  models?: Array<{ model?: string; name?: string; cost?: number; requests?: number }>;
+  period?: string;
+  periodStart?: string;
+  periodEnd?: string;
+}
+
+// ── Dashboard ───────────────────────────────────────────────────────────────
+
+export function useDashboard() {
+  return useQuery({
+    queryKey: queryKeys.dashboard,
+    queryFn: () => apiClient.get<DashboardData>('/api/dashboard'),
+  });
+}
+
+export function useStats() {
+  return useQuery({
+    queryKey: queryKeys.stats,
+    queryFn: () => apiClient.get<Record<string, unknown>>('/api/stats'),
+  });
+}
+
+// ── Projects ────────────────────────────────────────────────────────────────
+
+export function useProjects() {
+  return useQuery({
+    queryKey: queryKeys.projects,
+    queryFn: () => apiClient.get<Project[]>('/api/projects'),
+  });
+}
+
+// ── Pending Files ───────────────────────────────────────────────────────────
+
+export function usePendingFiles() {
+  return useQuery({
+    queryKey: queryKeys.pendingFiles,
+    queryFn: () => apiClient.get<PendingFile[]>('/api/files'),
+    refetchInterval: 10000,
+  });
+}
+
+// ── Processing ──────────────────────────────────────────────────────────────
+
+export function useProcessFiles() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (options?: { provider?: string; model?: string }) =>
+      apiClient.post<ProcessResult>('/api/process', options),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.pendingFiles });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+      queryClient.invalidateQueries({ queryKey: queryKeys.questions });
+      queryClient.invalidateQueries({ queryKey: queryKeys.facts });
+      queryClient.invalidateQueries({ queryKey: queryKeys.risks });
+      queryClient.invalidateQueries({ queryKey: queryKeys.actions });
+      queryClient.invalidateQueries({ queryKey: queryKeys.decisions });
+    },
+  });
+}
+
+export function useProcessStatus() {
+  return useQuery({
+    queryKey: queryKeys.processStatus,
+    queryFn: () => apiClient.get<ProcessStatus>('/api/process/status'),
+    refetchInterval: 3000,
+  });
+}
+
+// ── Export ───────────────────────────────────────────────────────────────────
+
+export function useExportProject() {
+  return useMutation({
+    mutationFn: (options?: { includeEmbeddings?: boolean }) =>
+      apiClient.post<ExportResult>('/api/export', options),
+  });
+}
+
+// ── Reset / Cleanup ─────────────────────────────────────────────────────────
+
+export function useResetData() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (options?: { clearArchived?: boolean }) =>
+      apiClient.post<ResetResult>('/api/reset', options),
+    onSuccess: () => {
+      queryClient.invalidateQueries();
+    },
+  });
+}
+
+export function useCleanupOrphans() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => apiClient.post<CleanupResult>('/api/cleanup-orphans'),
+    onSuccess: () => {
+      queryClient.invalidateQueries();
+    },
+  });
+}
+
+// ── File Upload ─────────────────────────────────────────────────────────────
+
+export function useUploadFiles() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ files, type }: { files: File[]; type: string }) => {
+      const formData = new FormData();
+      files.forEach((file) => formData.append('files', file));
+      formData.append('type', type);
+      return apiClient.upload<{ success: boolean; files: string[] }>('/api/upload', formData);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.pendingFiles });
+    },
+  });
+}
+
+// ── Delete Pending File ─────────────────────────────────────────────────────
+
+export function useDeletePendingFile() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ folder, filename }: { folder: string; filename: string }) =>
+      apiClient.delete(`/api/files/${folder}/${filename}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.pendingFiles });
+    },
+  });
+}
+
+// ── Questions ───────────────────────────────────────────────────────────────
+
+export function useQuestions() {
+  return useQuery({
+    queryKey: queryKeys.questions,
+    queryFn: () => apiClient.get<Question[]>('/api/questions'),
+  });
+}
+
+// ── Facts ───────────────────────────────────────────────────────────────────
+
+export function useFacts() {
+  return useQuery({
+    queryKey: queryKeys.facts,
+    queryFn: () => apiClient.get<Fact[]>('/api/facts'),
+  });
+}
+
+// ── Risks ───────────────────────────────────────────────────────────────────
+
+export function useRisks() {
+  return useQuery({
+    queryKey: queryKeys.risks,
+    queryFn: () => apiClient.get<Array<Record<string, unknown>>>('/api/risks'),
+  });
+}
+
+// ── Actions ─────────────────────────────────────────────────────────────────
+
+export function useActions() {
+  return useQuery({
+    queryKey: queryKeys.actions,
+    queryFn: () => apiClient.get<ActionItem[]>('/api/actions'),
+  });
+}
+
+// ── Decisions ───────────────────────────────────────────────────────────────
+
+export function useDecisions() {
+  return useQuery({
+    queryKey: queryKeys.decisions,
+    queryFn: () => apiClient.get<Decision[]>('/api/decisions'),
+  });
+}
+
+// ── Contacts ────────────────────────────────────────────────────────────────
 
 export function useContacts() {
-    const { currentProjectId } = useProject();
-    return useQuery({
-        queryKey: ["contacts", currentProjectId],
-        queryFn: async () => {
-            const response = await apiClient.get<ContactsResponse>("/api/contacts", {
-                headers: { 'x-project-id': currentProjectId }
-            });
-            return response.contacts || [];
-        },
-        enabled: !!currentProjectId,
-    });
+  return useQuery({
+    queryKey: queryKeys.contacts,
+    queryFn: () => apiClient.get<Array<Record<string, unknown>>>('/api/contacts'),
+  });
 }
 
-export function useAllContacts() {
-    return useQuery({
-        queryKey: ["contacts", "all"],
-        queryFn: async () => {
-            // No project ID header to get all contacts
-            const response = await apiClient.get<ContactsResponse>("/api/contacts");
-            return response.contacts || [];
-        },
-    });
+// ── Chat ────────────────────────────────────────────────────────────────────
+
+export function useSendChatMessage() {
+  return useMutation({
+    mutationFn: ({
+      message,
+      history,
+    }: {
+      message: string;
+      history?: Array<{ role: string; content: string }>;
+    }) =>
+      apiClient.post<ChatResponse>('/api/chat', {
+        message,
+        history: history ?? [],
+        semantic: true,
+      }),
+  });
 }
 
-export function useProjectMembers() {
-    const { currentProjectId } = useProject();
-    return useQuery({
-        queryKey: ["project-members", currentProjectId],
-        queryFn: async () => {
-            if (!currentProjectId) return [];
-            const response = await apiClient.get<{ members: any[] }>(`/api/projects/${currentProjectId}/members`);
-            // Map ProjectMember to Contact for GoldenHours compatibility
-            return (response.members || []).map(m => ({
-                id: m.user_id,
-                name: m.display_name,
-                role: m.role,
-                organization: m.linked_contact?.organization || 'Team',
-                timezone: m.timezone || 'UTC', // Ensure backend sends this or we default
-                avatarUrl: m.avatar_url,
-                email: m.email,
-                mentionCount: 0
-            } as Contact));
-        },
-        enabled: !!currentProjectId
-    });
+// ── Team Analysis ───────────────────────────────────────────────────────────
+
+export function useTeamAnalysis() {
+  return useQuery({
+    queryKey: queryKeys.teamAnalysis,
+    queryFn: () => apiClient.get<Record<string, unknown>>('/api/team-analysis'),
+  });
 }
 
+// ── Costs ───────────────────────────────────────────────────────────────────
 
-// Example mutation for creating a contact (can extend as needed)
-export function useCreateContact() {
-    const queryClient = useQueryClient();
-    const { currentProjectId } = useProject();
-    return useMutation({
-        mutationFn: (newContact: Partial<Contact>) => apiClient.post("/api/contacts", newContact, {
-            headers: { 'x-project-id': currentProjectId }
-        }),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ["contacts", currentProjectId] });
-            queryClient.invalidateQueries({ queryKey: ["dashboard", currentProjectId] }); // Update counts
-        },
-    });
+export function useCosts(period: string = 'month') {
+  return useQuery({
+    queryKey: queryKeys.costs(period),
+    queryFn: () => apiClient.get<CostSummary>(`/api/costs?period=${period}`),
+  });
 }
 
-export function useUpdateContact() {
-    const queryClient = useQueryClient();
-    const { currentProjectId } = useProject();
-    return useMutation({
-        mutationFn: (contact: Contact) => apiClient.put(`/api/contacts/${contact.id}`, contact, {
-            headers: { 'x-project-id': currentProjectId }
-        }),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ["contacts", currentProjectId] });
-        },
-    });
+// ── History ─────────────────────────────────────────────────────────────────
+
+export function useHistory() {
+  return useQuery({
+    queryKey: queryKeys.history,
+    queryFn: () => apiClient.get<Array<Record<string, unknown>>>('/api/history'),
+  });
 }
 
-export function useDeleteContact() {
-    const queryClient = useQueryClient();
-    const { currentProjectId } = useProject();
-    return useMutation({
-        mutationFn: (contactId: string) => apiClient.delete(`/api/contacts/${contactId}`, {
-            headers: { 'x-project-id': currentProjectId }
-        }),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ["contacts", currentProjectId] });
-            queryClient.invalidateQueries({ queryKey: ["dashboard", currentProjectId] }); // Update counts
-        },
-    });
-}
-
-// --- Graph & Documents Hooks ---
-
-export interface Document {
-    id: string;
-    filename: string;
-    status: 'processed' | 'pending' | 'processing' | 'failed' | 'completed' | 'deleted';
-    created_at: string;
-    file_type?: string;
-    doc_type?: string;
-    summary?: string;
-    facts_count?: number;
-    risks_count?: number;
-    questions_count?: number;
-    actions_count?: number;
-    decisions_count?: number;
-}
-
-export interface GraphNode {
-    id: string;
-    label: string;
-    properties?: any;
-    x?: number;
-    y?: number;
-}
-
-export interface GraphEdge {
-    id: string;
-    from: string;
-    to: string;
-    type: string;
-    properties?: any;
-}
-
-export function useDocuments() {
-    const { currentProjectId } = useProject();
-    return useQuery({
-        queryKey: ["documents", currentProjectId],
-        queryFn: async () => {
-            if (!currentProjectId) return [];
-            const response = await apiClient.get<{ documents: Document[] }>("/api/documents?status=all", {
-                headers: { 'x-project-id': currentProjectId }
-            });
-            return response.documents || [];
-        },
-        enabled: !!currentProjectId
-    });
-}
-
-export function useGraphNodes() {
-    const { currentProjectId } = useProject();
-    return useQuery({
-        queryKey: ["graph-nodes", currentProjectId],
-        queryFn: async () => {
-            if (!currentProjectId) return [];
-            const response = await apiClient.get<{ ok: boolean, nodes: GraphNode[] }>("/api/graph/nodes", {
-                headers: { 'x-project-id': currentProjectId }
-            });
-            return response.nodes || [];
-        },
-        enabled: !!currentProjectId
-    });
-}
-
-export function useGraphEdges() {
-    const { currentProjectId } = useProject();
-    return useQuery({
-        queryKey: ["graph-edges", currentProjectId],
-        queryFn: async () => {
-            if (!currentProjectId) return [];
-            const response = await apiClient.get<{ ok: boolean, relationships: GraphEdge[] }>("/api/graph/relationships", {
-                headers: { 'x-project-id': currentProjectId }
-            });
-            return response.relationships || [];
-        },
-        enabled: !!currentProjectId
-    });
-}
-
-export function useGraphData() {
-    const { currentProjectId } = useProject();
-    const documentsQuery = useDocuments();
-    const membersQuery = useProjectMembers();
-    const nodesQuery = useGraphNodes();
-    const edgesQuery = useGraphEdges();
-
-    const refresh = async () => {
-        if (!currentProjectId) return;
-        await apiClient.post("/api/graph/sync", {}, {
-            headers: { 'x-project-id': currentProjectId }
-        });
-        documentsQuery.refetch();
-        membersQuery.refetch();
-        nodesQuery.refetch();
-        edgesQuery.refetch();
-    };
-
-    return {
-        documents: documentsQuery.data || [],
-        members: membersQuery.data || [],
-        graphNodes: nodesQuery.data || [],
-        graphEdges: edgesQuery.data || [],
-        isLoading: documentsQuery.isLoading || membersQuery.isLoading || nodesQuery.isLoading || edgesQuery.isLoading,
-        refresh
-    };
-}
-
-export function useSOTData() {
-    const { currentProjectId } = useProject();
-    return useQuery({
-        queryKey: ["sot", currentProjectId],
-        queryFn: async () => {
-            if (!currentProjectId) return null;
-            const response = await apiClient.get<any>("/api/sot/enhanced", {
-                headers: { 'x-project-id': currentProjectId }
-            });
-            return response || {};
-        },
-        enabled: !!currentProjectId
-    });
-}
-
-export function useSprints() {
-    const { currentProjectId } = useProject();
-    return useQuery({
-        queryKey: ["sprints", currentProjectId],
-        queryFn: async () => {
-            if (!currentProjectId) return [];
-            const response = await apiClient.get<{ sprints: any[] }>("/api/sprints", {
-                headers: { 'x-project-id': currentProjectId }
-            });
-            return response.sprints || [];
-        },
-        enabled: !!currentProjectId
-    });
-}
+// ── Emails ──────────────────────────────────────────────────────────────────
 
 export function useEmails() {
-    const { currentProjectId } = useProject();
-    return useQuery({
-        queryKey: ["emails", currentProjectId],
-        queryFn: async () => {
-            if (!currentProjectId) return [];
-            const response = await apiClient.get<{ emails: any[] }>("/api/emails", {
-                headers: { 'x-project-id': currentProjectId }
-            });
-            return response.emails || [];
-        },
-        enabled: !!currentProjectId
-    });
+  return useQuery({
+    queryKey: queryKeys.emails,
+    queryFn: () => apiClient.get<Array<Record<string, unknown>>>('/api/emails'),
+  });
 }
 
-export function useCosts() {
-    const { currentProjectId } = useProject();
-    return useQuery({
-        queryKey: ["costs", currentProjectId],
-        queryFn: async () => {
-            if (!currentProjectId) return { costs: [], summary: { total_cost: 0, budget_used: 0, projection: 0 } }; // Default structure
-            const response = await apiClient.get<{ costs: any[], summary: any }>("/api/costs", {
-                headers: { 'x-project-id': currentProjectId }
-            });
-            return response || { costs: [], summary: { total_cost: 0, budget_used: 0, projection: 0 } };
-        },
-        enabled: !!currentProjectId
-    });
+// ── Admin ───────────────────────────────────────────────────────────────────
+
+export function useAdminStats() {
+  return useQuery({
+    queryKey: queryKeys.adminStats,
+    queryFn: () => apiClient.get<Record<string, unknown>>('/api/admin/stats'),
+  });
 }
 
-export function useProjectActivity() {
-    const { currentProjectId } = useProject();
-    return useQuery({
-        queryKey: ["activity", currentProjectId],
-        queryFn: async () => {
-            if (!currentProjectId) return [];
-            const response = await apiClient.get<{ activity: any[] }>(`/api/projects/${currentProjectId}/activity`, {
-                headers: { 'x-project-id': currentProjectId }
-            });
-            return response.activity || [];
-        },
-        enabled: !!currentProjectId
-    });
+export function useAdminProviders() {
+  return useQuery({
+    queryKey: queryKeys.adminProviders,
+    queryFn: () =>
+      apiClient.get<
+        Array<{ id: string; name: string; enabled: boolean; models: string[]; status?: string }>
+      >('/api/admin/providers'),
+  });
 }
 
-// Team Analysis Hooks
-export function useTeamAnalysisProfiles() {
-    const { currentProjectId } = useProject();
-    return useQuery({
-        queryKey: ["team-profiles", currentProjectId],
-        queryFn: async () => {
-            if (!currentProjectId) return [];
-            const response = await apiClient.get<{ ok: boolean, profiles: any[] }>("/api/team-analysis/profiles", {
-                headers: { 'x-project-id': currentProjectId }
-            });
-            return response.profiles || [];
-        },
-        enabled: !!currentProjectId
-    });
-}
-
-export function useTeamAnalysisOverview() {
-    const { currentProjectId } = useProject();
-    return useQuery({
-        queryKey: ["team-overview", currentProjectId],
-        queryFn: async () => {
-            if (!currentProjectId) return null;
-            const response = await apiClient.get<{ ok: boolean, analysis: any }>("/api/team-analysis/team", {
-                headers: { 'x-project-id': currentProjectId }
-            });
-            return response.analysis || null;
-        },
-        enabled: !!currentProjectId
-    });
-}
-
-export function useTeamAnalysisGraph() {
-    const { currentProjectId } = useProject();
-    return useQuery({
-        queryKey: ["team-graph", currentProjectId],
-        queryFn: async () => {
-            if (!currentProjectId) return { nodes: [], edges: [] };
-            const response = await apiClient.get<{ ok: boolean, nodes: any[], edges: any[] }>("/api/team-analysis/graph", {
-                headers: { 'x-project-id': currentProjectId }
-            });
-            return response || { nodes: [], edges: [] };
-        },
-        enabled: !!currentProjectId
-    });
-}
-
-// Chat Hooks
-export function useChatSessions() {
-    const { currentProjectId } = useProject();
-    return useQuery({
-        queryKey: ["chat-sessions", currentProjectId],
-        queryFn: async () => {
-            if (!currentProjectId) return [];
-            const response = await apiClient.get<{ ok: boolean, sessions: any[] }>("/api/chat/sessions", {
-                headers: { 'x-project-id': currentProjectId }
-            });
-            return response.sessions || [];
-        },
-        enabled: !!currentProjectId
-    });
-}
-
-export function useChatMessages(sessionId: string | null) {
-    const { currentProjectId } = useProject();
-    return useQuery({
-        queryKey: ["chat-messages", sessionId],
-        queryFn: async () => {
-            if (!currentProjectId || !sessionId) return [];
-            const response = await apiClient.get<{ ok: boolean, messages: any[] }>(`/api/chat/sessions/${sessionId}/messages`, {
-                headers: { 'x-project-id': currentProjectId }
-            });
-            return response.messages || [];
-        },
-        enabled: !!currentProjectId && !!sessionId
-    });
+export function useAdminAuditLog() {
+  return useQuery({
+    queryKey: queryKeys.adminAudit,
+    queryFn: () =>
+      apiClient.get<
+        Array<{
+          id: string;
+          table_name: string;
+          operation: string;
+          changed_by_email?: string;
+          changed_at: string;
+        }>
+      >('/api/admin/audit'),
+  });
 }

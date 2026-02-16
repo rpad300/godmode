@@ -2,10 +2,9 @@
 import { toast } from "sonner";
 import { supabase } from "./supabase";
 
-import { OntologySchema, OntologySuggestion, OntologyStats, GraphAnalysisResult } from "../types/ontology";
+import { OntologySchema, OntologySuggestion, OntologyStats } from "../types/ontology";
 
 const BASE_URL = "";
-
 
 interface RequestOptions extends RequestInit {
     params?: Record<string, string | number | undefined>;
@@ -14,9 +13,94 @@ interface RequestOptions extends RequestInit {
 
 class ApiError extends Error {
     status: number;
-    constructor(message: string, status: number) {
+    details?: unknown;
+    constructor(message: string, status: number, details?: unknown) {
         super(message);
         this.status = status;
+        this.details = details;
+    }
+}
+
+// Project Context Management (from Remote)
+let currentProjectId: string | null = null;
+
+export function setCurrentProjectId(id: string | null) {
+    currentProjectId = id;
+}
+
+export function getCurrentProjectId(): string | null {
+    return currentProjectId;
+}
+
+async function request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
+    const { params, ...init } = options;
+
+    let url = `${BASE_URL}${endpoint}`;
+    if (params) {
+        const searchParams = new URLSearchParams();
+        Object.entries(params).forEach(([key, value]) => {
+            if (value !== undefined) {
+                searchParams.append(key, String(value));
+            }
+        });
+        const queryString = searchParams.toString();
+        if (queryString) {
+            url += `?${queryString}`;
+        }
+    }
+
+    try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const headers: HeadersInit = { ...init.headers };
+
+        if (session?.access_token) {
+            (headers as any)['Authorization'] = `Bearer ${session.access_token}`;
+        }
+
+        // Add Project ID header if available
+        if (currentProjectId) {
+            (headers as any)['X-Project-Id'] = currentProjectId;
+        }
+
+        const response = await fetch(url, { ...init, headers, credentials: 'include' });
+
+        if (!response.ok) {
+            let errorMessage = `Request failed with status ${response.status}`;
+            try {
+                const errorData = await response.json();
+                if (errorData?.error) {
+                    errorMessage = typeof errorData.error === 'string' ? errorData.error : JSON.stringify(errorData.error);
+                }
+            } catch (e) {
+                // Could not parse error JSON, fall back to status text
+                errorMessage = response.statusText || errorMessage;
+            }
+            throw new ApiError(errorMessage, response.status);
+        }
+
+        // Handle 204 No Content
+        if (response.status === 204) {
+            return {} as T;
+        }
+
+        if (options.responseType === 'blob') {
+            const data = await response.blob();
+            return data as unknown as T;
+        }
+
+        const data = await response.json();
+        return data as T;
+    } catch (error) {
+        console.error("API Request Error:", error);
+        if (error instanceof ApiError) {
+            // Optional: global error toast for specific status codes
+            if (error.status >= 500) {
+                toast.error("Server error. Please try again later.");
+            }
+        } else {
+            toast.error("Network error. Please check your connection.");
+        }
+        throw error;
     }
 }
 
@@ -52,6 +136,7 @@ export const apiClient = {
         });
     },
     upload: async <T>(endpoint: string, formData: FormData, options: RequestOptions = {}): Promise<T> => {
+        // Upload doesn't need Content-Type header (browser sets it with boundary)
         return request<T>(endpoint, {
             ...options,
             method: "POST",
@@ -220,70 +305,3 @@ export const apiClient = {
         });
     }
 };
-
-async function request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
-    const { params, ...init } = options;
-
-    let url = `${BASE_URL}${endpoint}`;
-    if (params) {
-        const searchParams = new URLSearchParams();
-        Object.entries(params).forEach(([key, value]) => {
-            if (value !== undefined) {
-                searchParams.append(key, String(value));
-            }
-        });
-        const queryString = searchParams.toString();
-        if (queryString) {
-            url += `?${queryString}`;
-        }
-    }
-
-    try {
-        const { data: { session } } = await supabase.auth.getSession();
-        const headers: HeadersInit = { ...init.headers };
-
-        if (session?.access_token) {
-            (headers as any)['Authorization'] = `Bearer ${session.access_token}`;
-        }
-
-        const response = await fetch(url, { ...init, headers, credentials: 'include' });
-
-        if (!response.ok) {
-            let errorMessage = `Request failed with status ${response.status}`;
-            try {
-                const errorData = await response.json();
-                if (errorData?.error) {
-                    errorMessage = typeof errorData.error === 'string' ? errorData.error : JSON.stringify(errorData.error);
-                }
-            } catch (e) {
-                // Could not parse error JSON, fall back to status text
-                errorMessage = response.statusText || errorMessage;
-            }
-            throw new ApiError(errorMessage, response.status);
-        }
-
-        // Handle 204 No Content
-        if (response.status === 204) {
-            return {} as T;
-        }
-
-        if (options.responseType === 'blob') {
-            const data = await response.blob();
-            return data as unknown as T;
-        }
-
-        const data = await response.json();
-        return data as T;
-    } catch (error) {
-        console.error("API Request Error:", error);
-        if (error instanceof ApiError) {
-            // Optional: global error toast for specific status codes
-            if (error.status >= 500) {
-                toast.error("Server error. Please try again later.");
-            }
-        } else {
-            toast.error("Network error. Please check your connection.");
-        }
-        throw error;
-    }
-}

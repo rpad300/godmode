@@ -1,343 +1,478 @@
-import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useState, useCallback, useRef, useMemo } from 'react';
+import { NavLink } from 'react-router-dom';
 import {
-  LayoutDashboard, MessageSquare, FileText, Calendar, Users, Network,
-  FolderOpen, Mail, GitBranch, DollarSign, Clock, Settings, Shield,
-  ChevronLeft, ChevronRight, Zap, Upload, Trash2, AlertCircle, FileUp, FolderKanban, User, Building2,
-  Layers, Plus, File, Loader2
+  LayoutDashboard,
+  MessageSquare,
+  FileText,
+  Calendar,
+  Users,
+  Network,
+  FolderOpen,
+  Mail,
+  Share2,
+  DollarSign,
+  Clock,
+  Settings,
+  Shield,
+  Zap,
+  Download,
+  Clipboard,
+  Trash2,
+  AlertCircle,
+  Mic,
+  MessageCircle,
+  File,
+  X,
+  Wrench,
 } from 'lucide-react';
+import { Button } from '../ui/Button';
+import { Badge } from '../ui/Badge';
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { useToast } from "@/hooks/use-toast";
-import { apiClient } from "@/lib/api-client";
-import type { TabId } from '@/types/godmode';
-
-export type ImportFileType = 'documents' | 'transcripts' | 'emails' | 'conversations';
-
-interface PendingFile {
-  filename: string;
-  type: string;
-  size: number;
-  status: string;
-  created_at?: string;
-  emailId?: string;
-}
+  Dialog,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '../ui/Dialog';
+import { cn } from '../../lib/utils';
+import {
+  usePendingFiles,
+  useProcessFiles,
+  useExportProject,
+  useResetData,
+  useCleanupOrphans,
+  useUploadFiles,
+  useDeletePendingFile,
+  useQuestions,
+  useActions,
+  useFacts,
+  useDecisions,
+  type PendingFile,
+} from '../../hooks/useGodMode';
 
 interface AppSidebarProps {
-  activeTab: TabId;
-  onTabChange: (tab: TabId) => void;
-  onImportFile?: (type: ImportFileType) => void;
+  open: boolean;
+  onClose: () => void;
 }
 
-interface NavGroup {
-  label: string;
-  items: { id: TabId; label: string; icon: React.ElementType }[];
-  adminOnly?: boolean;
-}
-
-const navGroups: NavGroup[] = [
-  {
-    label: 'Project',
-    items: [
-      { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-      { id: 'chat', label: 'Chat', icon: MessageSquare },
-      { id: 'sot', label: 'Source of Truth', icon: FileText },
-      { id: 'timeline', label: 'Timeline', icon: Calendar },
-      { id: 'contacts', label: 'Contacts', icon: Users },
-      { id: 'team-analysis', label: 'Team Analysis', icon: Network },
-      { id: 'files', label: 'Files', icon: FolderOpen },
-      { id: 'emails', label: 'Emails', icon: Mail },
-      { id: 'graph', label: 'Graph', icon: GitBranch },
-      { id: 'costs', label: 'Costs', icon: DollarSign },
-      { id: 'history', label: 'History', icon: Clock },
-      { id: 'settings', label: 'Settings', icon: Settings },
-    ],
-  },
-  {
-    label: 'User',
-    items: [
-      { id: 'projects', label: 'Projects', icon: FolderKanban },
-      { id: 'companies', label: 'Companies', icon: Building2 },
-      { id: 'user-settings', label: 'Settings', icon: Settings },
-      { id: 'profile', label: 'Profile', icon: User },
-    ],
-  },
-  {
-    label: 'Platform',
-    adminOnly: true,
-    items: [
-      { id: 'admin', label: 'Admin', icon: Shield },
-    ],
-  },
+const navItems = [
+  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/chat', label: 'Chat', icon: MessageSquare },
+  { to: '/sot', label: 'Source of Truth', icon: FileText },
+  { to: '/timeline', label: 'Timeline', icon: Calendar },
+  { to: '/contacts', label: 'Contacts', icon: Users },
+  { to: '/team-analysis', label: 'Team Analysis', icon: Network },
+  { to: '/files', label: 'Files', icon: FolderOpen },
+  { to: '/emails', label: 'Emails', icon: Mail },
+  { to: '/graph', label: 'Graph', icon: Share2 },
+  { to: '/costs', label: 'Costs', icon: DollarSign },
+  { to: '/history', label: 'History', icon: Clock },
+  { to: '/settings', label: 'Settings', icon: Settings },
+  { to: '/admin', label: 'Admin', icon: Shield },
 ];
 
 const dropZones = [
-  { type: 'documents', label: 'Documents', hint: 'PDF, DOCX, TXT', icon: FileText },
-  { type: 'transcripts', label: 'Transcripts', hint: 'TXT, MD', icon: FileUp },
-  { type: 'emails', label: 'Email', hint: '.eml, paste', icon: Mail },
-  { type: 'conversations', label: 'Conversation', hint: 'Slack, Teams', icon: MessageSquare },
+  { type: 'documents', label: 'Documents', hint: 'PDF, DOCX, TXT, MD', icon: File },
+  { type: 'transcripts', label: 'Transcripts', hint: 'TXT, MD (Krisp, Otter)', icon: Mic },
+  { type: 'emails', label: 'Email', hint: 'Paste or upload .eml', icon: Mail },
+  { type: 'conversations', label: 'Conversation', hint: 'WhatsApp, Slack, Teams', icon: MessageCircle },
 ];
 
-const AppSidebar = ({ activeTab, onTabChange, onImportFile }: AppSidebarProps) => {
-  const [collapsed, setCollapsed] = useState(false);
-  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
-  const [isResetting, setIsResetting] = useState(false);
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
-  const { toast } = useToast();
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
-  useEffect(() => {
-    const fetchPendingFiles = async () => {
-      try {
-        const files = await apiClient.get<PendingFile[]>('/api/files');
-        setPendingFiles(Array.isArray(files) ? files : []);
-      } catch (error) {
-        console.error('Failed to fetch pending files', error);
-      }
+export function AppSidebar({ open, onClose }: AppSidebarProps) {
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const [cleanupDialogOpen, setCleanupDialogOpen] = useState(false);
+  const [dragOverType, setDragOverType] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const activeDropZoneRef = useRef<string>('documents');
+
+  // Queries & mutations
+  const { data: pendingFiles = [] } = usePendingFiles();
+  const { data: questions = [] } = useQuestions();
+  const { data: actions = [] } = useActions();
+  const { data: facts = [] } = useFacts();
+  const { data: decisions = [] } = useDecisions();
+  const processFiles = useProcessFiles();
+  const exportProject = useExportProject();
+  const resetData = useResetData();
+  const cleanupOrphans = useCleanupOrphans();
+  const uploadFiles = useUploadFiles();
+  const deletePendingFile = useDeletePendingFile();
+
+  // suppress unused var warning — exportProject is available for server-side export
+  void exportProject;
+
+  // ── Process Files ────────────────────────────────────────────────────────
+  const handleProcessFiles = useCallback(() => {
+    if (pendingFiles.length === 0) return;
+    processFiles.mutate(undefined);
+  }, [pendingFiles.length, processFiles]);
+
+  // ── Export Knowledge (file download) ──────────────────────────────────────
+  const handleExportKnowledge = useCallback(() => {
+    const knowledge = {
+      facts: facts ?? [],
+      decisions: decisions ?? [],
+      exportedAt: new Date().toISOString(),
+    };
+    const blob = new Blob([JSON.stringify(knowledge, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'godmode-knowledge-export.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [facts, decisions]);
+
+  // ── Export Knowledge (clipboard) ──────────────────────────────────────────
+  const handleCopyKnowledge = useCallback(async () => {
+    const knowledge = {
+      facts: facts ?? [],
+      decisions: decisions ?? [],
+    };
+    await navigator.clipboard.writeText(JSON.stringify(knowledge, null, 2));
+  }, [facts, decisions]);
+
+  // ── Copy Overdue ──────────────────────────────────────────────────────────
+  const handleCopyOverdue = useCallback(async () => {
+    const now = new Date();
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    const overdueActions = (actions ?? []).filter((a) => {
+      if (a.status === 'completed') return false;
+      if (!a.dueDate) return false;
+      return new Date(a.dueDate) < now;
+    });
+
+    const overdueQuestions = (questions ?? []).filter((q) => {
+      if (q.status === 'resolved' || q.status === 'answered' || q.status === 'dismissed') return false;
+      const createdAt = q.created_at ?? q.createdAt;
+      if (!createdAt) return false;
+      return new Date(createdAt) < sevenDaysAgo;
+    });
+
+    const overdue = {
+      actions: overdueActions,
+      questions: overdueQuestions,
+      exportedAt: now.toISOString(),
     };
 
-    fetchPendingFiles();
-    // Poll every 10 seconds
-    const interval = setInterval(fetchPendingFiles, 10000);
-    return () => clearInterval(interval);
+    await navigator.clipboard.writeText(JSON.stringify(overdue, null, 2));
+    alert(`Copied ${overdueActions.length} actions and ${overdueQuestions.length} questions`);
+  }, [actions, questions]);
+
+  // ── Reset Data ────────────────────────────────────────────────────────────
+  const handleResetConfirm = useCallback(() => {
+    resetData.mutate(undefined, {
+      onSettled: () => setResetDialogOpen(false),
+    });
+  }, [resetData]);
+
+  // ── Cleanup Orphans ───────────────────────────────────────────────────────
+  const handleCleanupConfirm = useCallback(() => {
+    cleanupOrphans.mutate(undefined, {
+      onSettled: () => setCleanupDialogOpen(false),
+    });
+  }, [cleanupOrphans]);
+
+  // ── File Drop ─────────────────────────────────────────────────────────────
+  const handleDrop = useCallback(
+    (e: React.DragEvent, type: string) => {
+      e.preventDefault();
+      setDragOverType(null);
+      const files = Array.from(e.dataTransfer.files);
+      if (files.length > 0) {
+        uploadFiles.mutate({ files, type });
+      }
+    },
+    [uploadFiles]
+  );
+
+  const handleDragOver = useCallback((e: React.DragEvent, type: string) => {
+    e.preventDefault();
+    setDragOverType(type);
   }, []);
 
-  const handleProcessFiles = async () => {
-    try {
-      setIsProcessing(true);
-      await apiClient.post('/api/process', { provider: 'auto' });
-      toast({
-        title: "Processing Started",
-        description: "Your files are being processed in the background.",
-      });
-    } catch (error) {
-      console.error('Processing failed:', error);
-      toast({
-        title: "Processing Failed",
-        description: "Failed to start processing. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsProcessing(false);
-    }
-  };
+  const handleDragLeave = useCallback(() => {
+    setDragOverType(null);
+  }, []);
 
-  const handleExport = async () => {
-    try {
-      setIsExporting(true);
-      // Use the project export endpoint which returns a downloadable file
-      const response = await apiClient.get<Blob>('/api/projects/current/export', {
-        responseType: 'blob'
-      });
+  const handleDropZoneClick = useCallback((type: string) => {
+    activeDropZoneRef.current = type;
+    fileInputRef.current?.click();
+  }, []);
 
-      // Create url from blob and trigger download
-      const url = window.URL.createObjectURL(response);
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `project-export-${new Date().toISOString().split('T')[0]}.json`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+  const handleFileInputChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(e.target.files || []);
+      if (files.length > 0) {
+        uploadFiles.mutate({ files, type: activeDropZoneRef.current });
+      }
+      e.target.value = '';
+    },
+    [uploadFiles]
+  );
 
-      toast({
-        title: "Export Successful",
-        description: "Project data exported successfully.",
-      });
-    } catch (error) {
-      console.error('Export failed:', error);
-      toast({
-        title: "Export Failed",
-        description: "Failed to export project data.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsExporting(false);
-    }
-  };
+  // ── Delete Pending File ───────────────────────────────────────────────────
+  const handleDeleteFile = useCallback(
+    (file: PendingFile) => {
+      deletePendingFile.mutate({ folder: file.folder, filename: file.filename });
+    },
+    [deletePendingFile]
+  );
 
-  const handleResetData = async () => {
-    try {
-      setIsResetting(true);
-      await apiClient.post('/api/data/cleanup', {
-        factsMaxAgeDays: 0,
-        questionsMaxAgeDays: 0,
-        archive: false
-      });
-      toast({
-        title: "Data Reset",
-        description: "Project data has been cleared.",
-      });
-      setShowResetConfirm(false);
-    } catch (error) {
-      console.error('Reset failed:', error);
-      toast({
-        title: "Reset Failed",
-        description: "Failed to reset project data.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsResetting(false);
-    }
-  };
+  // Memoize overdue counts for badge
+  const overdueCount = useMemo(() => {
+    const now = new Date();
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const a = (actions ?? []).filter((item) => {
+      if (item.status === 'completed') return false;
+      return item.dueDate ? new Date(item.dueDate) < now : false;
+    }).length;
+    const q = (questions ?? []).filter((item) => {
+      if (item.status === 'resolved' || item.status === 'answered') return false;
+      const createdAt = item.created_at ?? item.createdAt;
+      return createdAt ? new Date(createdAt) < sevenDaysAgo : false;
+    }).length;
+    return a + q;
+  }, [actions, questions]);
 
   return (
-    <aside
-      className={`h-full border-r border-sidebar-border flex flex-col transition-all duration-300 ${collapsed ? 'w-16' : 'w-64'
-        }`}
-      style={{ background: 'var(--gradient-sidebar)' }}
-    >
-      {/* Collapse toggle */}
-      <div className="flex justify-end p-2">
-        <button
-          onClick={() => setCollapsed(!collapsed)}
-          className="w-7 h-7 rounded-md bg-sidebar-accent flex items-center justify-center hover:bg-muted transition-colors"
-        >
-          {collapsed ? <ChevronRight className="w-4 h-4 text-sidebar-foreground" /> : <ChevronLeft className="w-4 h-4 text-sidebar-foreground" />}
-        </button>
-      </div>
-
-      {/* Drop zones */}
-      {!collapsed && (
-        <div className="px-3 mb-3">
-          <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2 px-1">Add Files</p>
+    <>
+      <aside
+        className={cn(
+          'fixed inset-y-0 left-0 z-40 w-[var(--sidebar-width)] flex flex-col border-r bg-[hsl(var(--card))]',
+          'transform transition-transform duration-200 md:relative md:translate-x-0',
+          open ? 'translate-x-0' : '-translate-x-full'
+        )}
+      >
+        {/* Drop Zones */}
+        <div className="p-3 border-b">
+          <div className="text-xs font-semibold text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-2">
+            Add Files
+          </div>
           <div className="grid grid-cols-2 gap-1.5">
-            {dropZones.map((zone) => (
-              <div
-                key={zone.type}
-                onClick={() => onImportFile?.(zone.type as ImportFileType)}
-                className="flex flex-col items-center gap-1 p-2 rounded-md border border-dashed border-border hover:border-primary/50 hover:bg-primary/5 transition-all cursor-pointer group"
-              >
-                <zone.icon className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
-                <span className="text-[10px] font-medium text-muted-foreground group-hover:text-foreground">{zone.label}</span>
-              </div>
-            ))}
+            {dropZones.map((zone) => {
+              const Icon = zone.icon;
+              return (
+                <div
+                  key={zone.type}
+                  className={cn(
+                    'flex items-center gap-2 p-2 rounded-md border border-dashed cursor-pointer transition-colors text-xs',
+                    'hover:bg-[hsl(var(--accent))]',
+                    dragOverType === zone.type && 'bg-[hsl(var(--accent))] border-[hsl(var(--ring))]'
+                  )}
+                  onClick={() => handleDropZoneClick(zone.type)}
+                  onDrop={(e) => handleDrop(e, zone.type)}
+                  onDragOver={(e) => handleDragOver(e, zone.type)}
+                  onDragLeave={handleDragLeave}
+                >
+                  <Icon className="h-4 w-4 shrink-0 text-[hsl(var(--muted-foreground))]" />
+                  <div className="min-w-0">
+                    <div className="font-medium truncate">{zone.label}</div>
+                    <div className="text-[10px] text-[hsl(var(--muted-foreground))] truncate">
+                      {zone.hint}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={handleFileInputChange}
+          />
         </div>
-      )}
 
-      {/* Pending Files */}
-      {!collapsed && pendingFiles.length > 0 && (
-        <div className="px-3 py-2">
-          <div className="space-y-1">
-            <p className="text-[10px] uppercase tracking-widest text-muted-foreground px-1">Pending Files</p>
-            {pendingFiles.map((file, idx) => (
-              <div key={idx} className="flex items-center gap-2 px-2 py-1.5 text-sm text-foreground/80 hover:bg-muted/50 rounded-md transition-colors cursor-pointer group">
-                <File className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
-                <span className="truncate flex-1">{file.filename}</span>
-                <div className="w-1.5 h-1.5 rounded-full bg-yellow-500" title="Pending" />
-              </div>
-            ))}
+        {/* Pending Files */}
+        <div className="px-3 py-2 border-b">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-semibold text-[hsl(var(--muted-foreground))] uppercase tracking-wider">
+              Pending
+            </span>
+            <Badge variant="secondary" className="text-[10px]">
+              {pendingFiles.length} files
+            </Badge>
           </div>
-        </div>
-      )}
-
-      {/* Navigation grouped */}
-      <nav className="flex-1 overflow-y-auto scrollbar-thin px-2">
-        {navGroups.map((group) => (
-          <div key={group.label} className="mb-3">
-            {!collapsed && (
-              <p className={`text-[10px] uppercase tracking-widest mb-1.5 px-2 ${group.adminOnly ? 'text-destructive/60' : 'text-muted-foreground'
-                }`}>
-                {group.label}
-              </p>
-            )}
-            {collapsed && group.label !== navGroups[0].label && (
-              <div className="border-t border-sidebar-border mx-1 my-2" />
-            )}
-            <div className="space-y-0.5">
-              {group.items.map((item) => {
-                const isActive = activeTab === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => onTabChange(item.id)}
-                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all relative group ${isActive
-                      ? 'bg-primary/10 text-primary font-medium'
-                      : group.adminOnly
-                        ? 'text-destructive/70 hover:bg-destructive/5 hover:text-destructive'
-                        : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
-                      }`}
-                    title={collapsed ? item.label : undefined}
+          <div className="max-h-32 overflow-y-auto">
+            {pendingFiles.length === 0 ? (
+              <p className="text-xs text-[hsl(var(--muted-foreground))] py-1">No files pending</p>
+            ) : (
+              <ul className="space-y-0.5">
+                {pendingFiles.map((file) => (
+                  <li
+                    key={`${file.folder}/${file.filename}`}
+                    className="flex items-center justify-between text-xs py-1 px-1 rounded hover:bg-[hsl(var(--accent))]"
+                    title={`${file.filename} (${formatFileSize(file.size)})`}
                   >
-                    {isActive && (
-                      <motion.div
-                        layoutId="activeTab"
-                        className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-primary rounded-full"
-                      />
-                    )}
-                    <item.icon className="w-4 h-4 flex-shrink-0" />
-                    {!collapsed && <span>{item.label}</span>}
-                  </button>
-                );
-              })}
-            </div>
+                    <div className="min-w-0 flex-1">
+                      <span className="truncate block">{file.filename}</span>
+                      <span className="text-[10px] text-[hsl(var(--muted-foreground))]">
+                        {formatFileSize(file.size)}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => handleDeleteFile(file)}
+                      className="shrink-0 ml-1 text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--destructive))]"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
-        ))}
-      </nav>
-
-      {/* Actions */}
-      {!collapsed && (
-        <div className="p-3 border-t border-sidebar-border space-y-2">
-          <p className="text-[10px] uppercase tracking-widest text-muted-foreground px-1">Actions</p>
-          <button
-            onClick={handleProcessFiles}
-            disabled={isProcessing}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-            {isProcessing ? 'Processing...' : 'Process Files'}
-          </button>
-          <div className="flex gap-1.5">
-            <button
-              onClick={handleExport}
-              disabled={isExporting}
-              className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md bg-secondary text-secondary-foreground text-xs hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isExporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-              {isExporting ? '...' : 'Export'}
-            </button>
-            <button className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md bg-secondary text-secondary-foreground text-xs hover:bg-muted transition-colors">
-              <AlertCircle className="w-3.5 h-3.5" /> Overdue
-            </button>
-          </div>
-          <button
-            onClick={() => setShowResetConfirm(true)}
-            disabled={isResetting}
-            className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-md bg-destructive/10 text-destructive text-xs hover:bg-destructive/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isResetting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-            Reset Data
-          </button>
         </div>
+
+        {/* Navigation */}
+        <nav className="flex-1 overflow-y-auto p-2">
+          <div className="text-xs font-semibold text-[hsl(var(--muted-foreground))] uppercase tracking-wider px-2 mb-1">
+            Menu
+          </div>
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                onClick={onClose}
+                className={({ isActive }) =>
+                  cn(
+                    'flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors',
+                    isActive
+                      ? 'bg-[hsl(var(--accent))] text-[hsl(var(--accent-foreground))] font-medium'
+                      : 'text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--accent))] hover:text-[hsl(var(--accent-foreground))]'
+                  )
+                }
+              >
+                <Icon className="h-4 w-4" />
+                <span>{item.label}</span>
+              </NavLink>
+            );
+          })}
+        </nav>
+
+        {/* Action Buttons */}
+        <div className="p-3 border-t space-y-2">
+          <div className="text-xs font-semibold text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-1">
+            Actions
+          </div>
+          <Button
+            className="w-full"
+            onClick={handleProcessFiles}
+            disabled={pendingFiles.length === 0 || processFiles.isPending}
+          >
+            <Zap className="h-4 w-4" />
+            {processFiles.isPending ? 'Processing...' : 'Process Files'}
+          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="secondary"
+              className="flex-1"
+              onClick={handleExportKnowledge}
+            >
+              <Download className="h-4 w-4" />
+              Export
+            </Button>
+            <Button
+              variant="secondary"
+              size="icon"
+              onClick={handleCopyKnowledge}
+              title="Copy knowledge to clipboard"
+            >
+              <Clipboard className="h-4 w-4" />
+            </Button>
+          </div>
+          <Button
+            variant="secondary"
+            className="w-full"
+            onClick={handleCopyOverdue}
+          >
+            <AlertCircle className="h-4 w-4" />
+            Copy Overdue
+            {overdueCount > 0 && (
+              <Badge variant="destructive" className="ml-1 text-[10px]">{overdueCount}</Badge>
+            )}
+          </Button>
+          <Button
+            variant="secondary"
+            className="w-full"
+            onClick={() => setCleanupDialogOpen(true)}
+          >
+            <Wrench className="h-4 w-4" />
+            Clean Orphans
+          </Button>
+          <Button
+            variant="destructive"
+            className="w-full"
+            onClick={() => setResetDialogOpen(true)}
+          >
+            <Trash2 className="h-4 w-4" />
+            Reset Data
+          </Button>
+        </div>
+      </aside>
+
+      {/* Mobile overlay */}
+      {open && (
+        <div
+          className="fixed inset-0 z-30 bg-black/50 md:hidden"
+          onClick={onClose}
+        />
       )}
 
-      <AlertDialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently delete all processed data (facts, questions, insights) from this project. This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleResetData} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              Reset Data
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </aside>
-  );
-};
+      {/* Reset Confirmation Dialog */}
+      <Dialog open={resetDialogOpen} onClose={() => setResetDialogOpen(false)}>
+        <DialogHeader>
+          <DialogTitle>Reset Project Data</DialogTitle>
+          <DialogDescription>
+            This will permanently delete all knowledge data (facts, decisions, questions, risks,
+            actions) for the current project. Team, contacts, and cost data will be preserved.
+            This action cannot be undone.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setResetDialogOpen(false)}>
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={handleResetConfirm}
+            disabled={resetData.isPending}
+          >
+            {resetData.isPending ? 'Resetting...' : 'Reset Data'}
+          </Button>
+        </DialogFooter>
+      </Dialog>
 
-export default AppSidebar;
+      {/* Cleanup Orphans Confirmation Dialog */}
+      <Dialog open={cleanupDialogOpen} onClose={() => setCleanupDialogOpen(false)}>
+        <DialogHeader>
+          <DialogTitle>Clean Orphan Data</DialogTitle>
+          <DialogDescription>
+            This will remove orphaned data entries that are not linked to any documents. Continue?
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setCleanupDialogOpen(false)}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleCleanupConfirm}
+            disabled={cleanupOrphans.isPending}
+          >
+            {cleanupOrphans.isPending ? 'Cleaning...' : 'Clean Orphans'}
+          </Button>
+        </DialogFooter>
+      </Dialog>
+    </>
+  );
+}
