@@ -1,9 +1,8 @@
 import { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, List, Layers, BookOpen, Filter, Target, ChevronDown, ChevronRight, FileBarChart, Sparkles, Loader2 } from 'lucide-react';
+import { Plus, List, Layers, BookOpen, Filter, Target, ChevronDown, ChevronRight, FileBarChart, Sparkles, Loader2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import type { Action, Sprint } from '@/types/godmode';
-import { mockUserStories } from '@/data/mock-data';
+import type { Action, Sprint, UserStory } from '@/types/godmode';
 import ActionModal from './ActionModal';
 import ActionDetailView from './ActionDetailView';
 import CreateSprintModal from './CreateSprintModal';
@@ -28,7 +27,7 @@ const sprintStatusColor = (s: string) =>
     s === 'completed' ? 'bg-muted text-muted-foreground' :
       'bg-primary/10 text-primary';
 
-const ActionsPanel = ({ initialData = [], initialSprints = [] }: { initialData?: Action[], initialSprints?: Sprint[] }) => {
+const ActionsPanel = ({ initialData = [], initialSprints = [], onSave, onDelete }: { initialData?: Action[]; initialSprints?: Sprint[]; onSave?: (a: Action) => void; onDelete?: (id: string) => void }) => {
   const [actions, setActions] = useState<Action[]>(initialData);
   const [sprints, setSprints] = useState<Sprint[]>(initialSprints);
 
@@ -116,6 +115,13 @@ const ActionsPanel = ({ initialData = [], initialSprints = [] }: { initialData?:
       }
       return [...prev, action];
     });
+    onSave?.(action);
+  };
+
+  const handleDeleteAction = (id: string) => {
+    setActions(prev => prev.filter(a => a.id !== id));
+    onDelete?.(id);
+    toast.success('Action deleted');
   };
 
   const handleCreateSprint = (sprint: Sprint) => {
@@ -139,6 +145,7 @@ const ActionsPanel = ({ initialData = [], initialSprints = [] }: { initialData?:
           setDetailAction(null);
           openEditModal(a);
         }}
+        onDelete={handleDeleteAction}
       />
     );
   }
@@ -253,9 +260,10 @@ const ActionsPanel = ({ initialData = [], initialSprints = [] }: { initialData?:
     );
   };
 
-  // Group by story
+  // Group by story (user stories fetched from API will be added later)
+  const userStories: UserStory[] = [];
   const renderByStory = () => {
-    const storiesWithActions = mockUserStories.map(story => ({
+    const storiesWithActions = userStories.map(story => ({
       story,
       actions: filtered.filter(a => a.storyId === story.id),
     })).filter(g => g.actions.length > 0);

@@ -1,7 +1,6 @@
-import { mockContacts } from '@/data/mock-data';
-
 interface OwnerBadgeProps {
   name: string;
+  role?: string;
   size?: 'sm' | 'md';
 }
 
@@ -22,9 +21,7 @@ const getColor = (name: string) => {
 const getInitials = (name: string) =>
   name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
 
-const OwnerBadge = ({ name, size = 'sm' }: OwnerBadgeProps) => {
-  const contact = mockContacts.find(c => c.name === name);
-  const role = contact?.role;
+const OwnerBadge = ({ name, role, size = 'sm' }: OwnerBadgeProps) => {
   const initials = getInitials(name);
   const color = getColor(name);
 

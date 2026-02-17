@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Sparkles, Loader2, ArrowLeft, Edit2, Shield, AlertTriangle, User, X, Wand2 } from 'lucide-react';
+import { Plus, Sparkles, Loader2, ArrowLeft, Edit2, Shield, AlertTriangle, User, X, Wand2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Risk } from '@/types/godmode';
 import OwnerBadge from './OwnerBadge';
@@ -107,7 +107,7 @@ const RiskModal = ({ open, onClose, onSave, risk, mode }: {
 };
 
 // ─── Detail ───
-const RiskDetail = ({ risk, onBack, onEdit }: { risk: Risk; onBack: () => void; onEdit: (r: Risk) => void }) => {
+const RiskDetail = ({ risk, onBack, onEdit, onDelete }: { risk: Risk; onBack: () => void; onEdit: (r: Risk) => void; onDelete?: (id: string) => void }) => {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiInsights, setAiInsights] = useState<string[]>([]);
 
@@ -136,6 +136,7 @@ const RiskDetail = ({ risk, onBack, onEdit }: { risk: Risk; onBack: () => void; 
           {aiLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />} Analyze
         </button>
         <button onClick={() => onEdit(risk)} className="px-3 py-1.5 rounded-lg bg-secondary text-secondary-foreground text-xs hover:bg-muted flex items-center gap-1.5"><Edit2 className="w-3.5 h-3.5" /> Edit</button>
+        {onDelete && <button onClick={() => { onDelete(risk.id); onBack(); }} className="px-3 py-1.5 rounded-lg bg-destructive/10 text-destructive text-xs hover:bg-destructive/20 flex items-center gap-1.5"><Trash2 className="w-3.5 h-3.5" /> Delete</button>}
       </div>
       <div className="flex gap-2">
         <span className={`text-xs px-3 py-1 rounded-full font-medium ${statusColor(risk.status)}`}>{risk.status}</span>
@@ -173,7 +174,7 @@ const RiskDetail = ({ risk, onBack, onEdit }: { risk: Risk; onBack: () => void; 
 };
 
 // ─── Main Panel ───
-const RisksPanel = ({ initialData = [] }: { initialData?: Risk[] }) => {
+const RisksPanel = ({ initialData = [], onSave, onDelete }: { initialData?: Risk[]; onSave?: (r: Risk) => void; onDelete?: (id: string) => void }) => {
   const [risks, setRisks] = useState<Risk[]>(initialData);
 
   useEffect(() => {
@@ -207,6 +208,13 @@ const RisksPanel = ({ initialData = [] }: { initialData?: Risk[] }) => {
       if (idx >= 0) { const u = [...prev]; u[idx] = r; return u; }
       return [...prev, r];
     });
+    onSave?.(r);
+  };
+
+  const handleDelete = (id: string) => {
+    setRisks(prev => prev.filter(x => x.id !== id));
+    onDelete?.(id);
+    toast.success('Risk deleted');
   };
 
   const handleAiScan = async () => {
@@ -226,7 +234,7 @@ const RisksPanel = ({ initialData = [] }: { initialData?: Risk[] }) => {
   };
 
   if (detailItem) {
-    return <RiskDetail risk={detailItem} onBack={() => setDetailItem(null)} onEdit={r => { setDetailItem(null); setEditingItem(r); setModalMode('edit'); setModalOpen(true); }} />;
+    return <RiskDetail risk={detailItem} onBack={() => setDetailItem(null)} onEdit={r => { setDetailItem(null); setEditingItem(r); setModalMode('edit'); setModalOpen(true); }} onDelete={handleDelete} />;
   }
 
   return (

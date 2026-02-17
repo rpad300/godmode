@@ -3,7 +3,6 @@ import { X, Sparkles, Wand2, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import type { Action, Sprint, UserStory } from '@/types/godmode';
-import { mockSprints, mockUserStories } from '@/data/mock-data';
 
 interface ActionModalProps {
   open: boolean;
@@ -11,6 +10,8 @@ interface ActionModalProps {
   onSave: (action: Action) => void;
   action?: Action | null;
   mode: 'create' | 'edit';
+  sprints?: Sprint[];
+  userStories?: UserStory[];
 }
 
 const emptyAction: Omit<Action, 'id'> = {
@@ -24,7 +25,7 @@ const emptyAction: Omit<Action, 'id'> = {
   storyId: '',
 };
 
-const ActionModal = ({ open, onClose, onSave, action, mode }: ActionModalProps) => {
+const ActionModal = ({ open, onClose, onSave, action, mode, sprints = [], userStories = [] }: ActionModalProps) => {
   const [form, setForm] = useState<Omit<Action, 'id'>>(emptyAction);
 
   useEffect(() => {
@@ -38,7 +39,7 @@ const ActionModal = ({ open, onClose, onSave, action, mode }: ActionModalProps) 
 
   const [aiLoading, setAiLoading] = useState<string | null>(null);
 
-  const storiesForSprint = mockUserStories.filter(s => s.sprintId === form.sprintId);
+  const storiesForSprint = userStories.filter(s => s.sprintId === form.sprintId);
 
   const handleAiSuggest = async (field: 'title' | 'description') => {
     setAiLoading(field);
@@ -223,7 +224,7 @@ const ActionModal = ({ open, onClose, onSave, action, mode }: ActionModalProps) 
                       className="mt-1 w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                     >
                       <option value="">No sprint</option>
-                      {mockSprints.map(s => (
+                      {sprints.map(s => (
                         <option key={s.id} value={s.id}>{s.name}</option>
                       ))}
                     </select>

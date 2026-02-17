@@ -1,106 +1,148 @@
 import { useState } from 'react';
-import { useQuestions, useFacts, useRisks, useActions, useDecisions } from '../hooks/useGodMode';
-import { cn } from '../lib/utils';
-import { Badge } from '../components/ui/Badge';
+import { motion } from 'framer-motion';
+import { Loader2 } from 'lucide-react';
+import {
+  useQuestions, useCreateQuestion, useUpdateQuestion, useDeleteQuestion,
+  useFacts, useCreateFact, useUpdateFact, useDeleteFact,
+  useRisks, useCreateRisk, useUpdateRisk, useDeleteRisk,
+  useActions, useCreateAction, useUpdateAction, useDeleteAction,
+  useDecisions, useCreateDecision, useUpdateDecision, useDeleteDecision,
+} from '../hooks/useGodMode';
+import QuestionsPanel from '../components/sot/QuestionsPanel';
+import FactsPanel from '../components/sot/FactsPanel';
+import RisksPanel from '../components/sot/RisksPanel';
+import ActionsPanel from '../components/sot/ActionsPanel';
+import DecisionsPanel from '../components/sot/DecisionsPanel';
 
 type SotTab = 'questions' | 'facts' | 'risks' | 'actions' | 'decisions';
-
-const tabs: { key: SotTab; label: string }[] = [
-  { key: 'questions', label: 'Questions' },
-  { key: 'facts', label: 'Facts' },
-  { key: 'risks', label: 'Risks' },
-  { key: 'actions', label: 'Actions' },
-  { key: 'decisions', label: 'Decisions' },
-];
 
 export default function SotPage() {
   const [activeTab, setActiveTab] = useState<SotTab>('questions');
 
+  // ── Queries ──
   const questions = useQuestions();
   const facts = useFacts();
   const risks = useRisks();
   const actions = useActions();
   const decisions = useDecisions();
 
-  const dataMap: Record<SotTab, { data: Array<Record<string, unknown>> | undefined; isLoading: boolean }> = {
-    questions: { data: questions.data, isLoading: questions.isLoading },
-    facts: { data: facts.data, isLoading: facts.isLoading },
-    risks: { data: risks.data, isLoading: risks.isLoading },
-    actions: { data: actions.data, isLoading: actions.isLoading },
-    decisions: { data: decisions.data, isLoading: decisions.isLoading },
-  };
+  // ── Mutations ──
+  const createQuestion = useCreateQuestion();
+  const updateQuestion = useUpdateQuestion();
+  const deleteQuestion = useDeleteQuestion();
 
-  const current = dataMap[activeTab];
+  const createFact = useCreateFact();
+  const updateFact = useUpdateFact();
+  const deleteFact = useDeleteFact();
+
+  const createRisk = useCreateRisk();
+  const updateRisk = useUpdateRisk();
+  const deleteRisk = useDeleteRisk();
+
+  const createAction = useCreateAction();
+  const updateAction = useUpdateAction();
+  const deleteAction = useDeleteAction();
+
+  const createDecision = useCreateDecision();
+  const updateDecision = useUpdateDecision();
+  const deleteDecision = useDeleteDecision();
+
+  // ── Tab config ──
+  const tabs: { key: SotTab; label: string; count: number }[] = [
+    { key: 'questions', label: 'Questions', count: (questions.data as unknown[] | undefined)?.length ?? 0 },
+    { key: 'facts', label: 'Facts', count: (facts.data as unknown[] | undefined)?.length ?? 0 },
+    { key: 'risks', label: 'Risks', count: (risks.data as unknown[] | undefined)?.length ?? 0 },
+    { key: 'actions', label: 'Actions', count: (actions.data as unknown[] | undefined)?.length ?? 0 },
+    { key: 'decisions', label: 'Decisions', count: (decisions.data as unknown[] | undefined)?.length ?? 0 },
+  ];
+
+  const isLoading = questions.isLoading || facts.isLoading || risks.isLoading || actions.isLoading || decisions.isLoading;
+
+  // ── Wire save: decide create vs update by checking server data ──
+  function makeSaveHandler(
+    serverData: Array<{ id: string }> | undefined,
+    createMut: { mutate: (data: Record<string, unknown>) => void },
+    updateMut: { mutate: (data: { id: string; [key: string]: unknown }) => void },
+  ) {
+    return (item: { id: string; [key: string]: unknown }) => {
+      const exists = serverData?.some(x => x.id === item.id);
+      if (exists) {
+        updateMut.mutate(item);
+      } else {
+        const { id: _clientId, ...data } = item;
+        createMut.mutate(data);
+      }
+    };
+  }
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Source of Truth</h1>
-      </div>
+    <div className="p-6 space-y-4">
+      <h1 className="text-2xl font-bold text-foreground">Source of Truth</h1>
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-4 border-b">
+      <div className="flex gap-1 bg-secondary rounded-xl p-1">
         {tabs.map((tab) => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={cn(
-              'px-4 py-2 text-sm font-medium border-b-2 transition-colors',
+            className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors relative ${
               activeTab === tab.key
-                ? 'border-[hsl(var(--primary))] text-[hsl(var(--foreground))]'
-                : 'border-transparent text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]'
-            )}
+                ? 'bg-card text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
           >
             {tab.label}
-            {dataMap[tab.key].data && (
-              <Badge variant="secondary" className="ml-2 text-[10px]">
-                {dataMap[tab.key].data!.length}
-              </Badge>
-            )}
+            <span className="ml-1.5 text-[10px] opacity-60">{tab.count}</span>
           </button>
         ))}
       </div>
 
-      {/* Content */}
-      {current.isLoading ? (
+      {/* Loading */}
+      {isLoading && (
         <div className="flex items-center justify-center h-32">
-          <span className="text-[hsl(var(--muted-foreground))]">Loading...</span>
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
-      ) : !current.data || current.data.length === 0 ? (
-        <div className="rounded-lg border bg-[hsl(var(--card))] p-8 text-center text-[hsl(var(--muted-foreground))]">
-          No {activeTab} found. Process documents to extract knowledge.
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {current.data.map((item, i) => (
-            <div key={String(item.id ?? i)} className="rounded-lg border bg-[hsl(var(--card))] p-4">
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm">
-                    {String(item.content ?? item.question ?? item.decision ?? item.task ?? item.description ?? '')}
-                  </p>
-                  {item.status && (
-                    <Badge variant="outline" className="mt-2 text-[10px]">
-                      {String(item.status)}
-                    </Badge>
-                  )}
-                </div>
-                {item.priority && (
-                  <Badge
-                    variant={
-                      item.priority === 'critical' || item.priority === 'high'
-                        ? 'destructive'
-                        : 'secondary'
-                    }
-                    className="text-[10px] shrink-0"
-                  >
-                    {String(item.priority)}
-                  </Badge>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
+      )}
+
+      {/* Content — rich panels with API-wired CRUD */}
+      {!isLoading && (
+        <motion.div key={activeTab} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+          {activeTab === 'questions' && (
+            <QuestionsPanel
+              initialData={(questions.data ?? []) as any}
+              onSave={makeSaveHandler(questions.data as any, createQuestion, updateQuestion)}
+              onDelete={(id) => deleteQuestion.mutate(id)}
+            />
+          )}
+          {activeTab === 'facts' && (
+            <FactsPanel
+              initialData={(facts.data ?? []) as any}
+              onSave={makeSaveHandler(facts.data as any, createFact, updateFact)}
+              onDelete={(id) => deleteFact.mutate(id)}
+            />
+          )}
+          {activeTab === 'risks' && (
+            <RisksPanel
+              initialData={(risks.data ?? []) as any}
+              onSave={makeSaveHandler(risks.data as any, createRisk, updateRisk)}
+              onDelete={(id) => deleteRisk.mutate(id)}
+            />
+          )}
+          {activeTab === 'actions' && (
+            <ActionsPanel
+              initialData={(actions.data ?? []) as any}
+              onSave={makeSaveHandler(actions.data as any, createAction, updateAction)}
+              onDelete={(id) => deleteAction.mutate(id)}
+            />
+          )}
+          {activeTab === 'decisions' && (
+            <DecisionsPanel
+              initialData={(decisions.data ?? []) as any}
+              onSave={makeSaveHandler(decisions.data as any, createDecision, updateDecision)}
+              onDelete={(id) => deleteDecision.mutate(id)}
+            />
+          )}
+        </motion.div>
       )}
     </div>
   );

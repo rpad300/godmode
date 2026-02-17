@@ -294,12 +294,88 @@ export function useQuestions() {
   });
 }
 
+export function useCreateQuestion() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Record<string, unknown>) =>
+      apiClient.post<Question>('/api/questions', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.questions });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
+  });
+}
+
+export function useUpdateQuestion() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...data }: { id: string; [key: string]: unknown }) =>
+      apiClient.put<Question>(`/api/questions/${id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.questions });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
+  });
+}
+
+export function useDeleteQuestion() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete(`/api/questions/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.questions });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
+  });
+}
+
 // ── Facts ───────────────────────────────────────────────────────────────────
 
 export function useFacts() {
   return useQuery({
     queryKey: queryKeys.facts,
     queryFn: () => apiClient.get<Fact[]>('/api/facts'),
+  });
+}
+
+export function useCreateFact() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Record<string, unknown>) =>
+      apiClient.post<Fact>('/api/facts', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.facts });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
+  });
+}
+
+export function useUpdateFact() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...data }: { id: string; [key: string]: unknown }) =>
+      apiClient.put<Fact>(`/api/facts/${id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.facts });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
+  });
+}
+
+export function useDeleteFact() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete(`/api/facts/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.facts });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
   });
 }
 
@@ -312,6 +388,44 @@ export function useRisks() {
   });
 }
 
+export function useCreateRisk() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Record<string, unknown>) =>
+      apiClient.post('/api/risks', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.risks });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
+  });
+}
+
+export function useUpdateRisk() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...data }: { id: string; [key: string]: unknown }) =>
+      apiClient.put(`/api/risks/${id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.risks });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
+  });
+}
+
+export function useDeleteRisk() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete(`/api/risks/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.risks });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
+  });
+}
+
 // ── Actions ─────────────────────────────────────────────────────────────────
 
 export function useActions() {
@@ -321,12 +435,88 @@ export function useActions() {
   });
 }
 
+export function useCreateAction() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Record<string, unknown>) =>
+      apiClient.post('/api/actions', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.actions });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
+  });
+}
+
+export function useUpdateAction() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...data }: { id: string; [key: string]: unknown }) =>
+      apiClient.put(`/api/actions/${id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.actions });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
+  });
+}
+
+export function useDeleteAction() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete(`/api/actions/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.actions });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
+  });
+}
+
 // ── Decisions ───────────────────────────────────────────────────────────────
 
 export function useDecisions() {
   return useQuery({
     queryKey: queryKeys.decisions,
     queryFn: () => apiClient.get<Decision[]>('/api/decisions'),
+  });
+}
+
+export function useCreateDecision() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Record<string, unknown>) =>
+      apiClient.post('/api/decisions', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.decisions });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
+  });
+}
+
+export function useUpdateDecision() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...data }: { id: string; [key: string]: unknown }) =>
+      apiClient.put(`/api/decisions/${id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.decisions });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
+  });
+}
+
+export function useDeleteDecision() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete(`/api/decisions/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.decisions });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
   });
 }
 

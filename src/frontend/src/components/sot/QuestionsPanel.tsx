@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Filter, Sparkles, Loader2, ArrowLeft, Edit2, Clock, User, MessageCircle, X, Wand2 } from 'lucide-react';
+import { Plus, Filter, Sparkles, Loader2, ArrowLeft, Edit2, Clock, User, MessageCircle, X, Wand2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Question } from '@/types/godmode';
 import OwnerBadge from './OwnerBadge';
@@ -119,7 +119,7 @@ const QuestionModal = ({ open, onClose, onSave, question, mode }: {
 };
 
 // ─── Detail View ───
-const QuestionDetail = ({ question, onBack, onEdit }: { question: Question; onBack: () => void; onEdit: (q: Question) => void }) => {
+const QuestionDetail = ({ question, onBack, onEdit, onDelete }: { question: Question; onBack: () => void; onEdit: (q: Question) => void; onDelete?: (id: string) => void }) => {
   const [aiLoading, setAiLoading] = useState<string | null>(null);
   const [aiInsights, setAiInsights] = useState<string[]>([]);
 
@@ -144,6 +144,7 @@ const QuestionDetail = ({ question, onBack, onEdit }: { question: Question; onBa
           {aiLoading === 'analyze' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />} Analyze
         </button>
         <button onClick={() => onEdit(question)} className="px-3 py-1.5 rounded-lg bg-secondary text-secondary-foreground text-xs hover:bg-muted flex items-center gap-1.5"><Edit2 className="w-3.5 h-3.5" /> Edit</button>
+        {onDelete && <button onClick={() => { onDelete(question.id); onBack(); }} className="px-3 py-1.5 rounded-lg bg-destructive/10 text-destructive text-xs hover:bg-destructive/20 flex items-center gap-1.5"><Trash2 className="w-3.5 h-3.5" /> Delete</button>}
       </div>
       <div className="flex gap-2">
         <span className={`text-xs px-3 py-1 rounded-full font-medium ${statusColor(question.status)}`}>{question.status}</span>
@@ -180,7 +181,7 @@ const QuestionDetail = ({ question, onBack, onEdit }: { question: Question; onBa
 };
 
 // ─── Main Panel ───
-const QuestionsPanel = ({ initialData = [] }: { initialData?: Question[] }) => {
+const QuestionsPanel = ({ initialData = [], onSave, onDelete }: { initialData?: Question[]; onSave?: (q: Question) => void; onDelete?: (id: string) => void }) => {
   const [questions, setQuestions] = useState<Question[]>(initialData);
 
   useEffect(() => {
@@ -214,6 +215,13 @@ const QuestionsPanel = ({ initialData = [] }: { initialData?: Question[] }) => {
       if (idx >= 0) { const u = [...prev]; u[idx] = q; return u; }
       return [...prev, q];
     });
+    onSave?.(q);
+  };
+
+  const handleDelete = (id: string) => {
+    setQuestions(prev => prev.filter(x => x.id !== id));
+    onDelete?.(id);
+    toast.success('Question deleted');
   };
 
   const handleAiSuggest = async () => {
@@ -231,7 +239,7 @@ const QuestionsPanel = ({ initialData = [] }: { initialData?: Question[] }) => {
   };
 
   if (detailItem) {
-    return <QuestionDetail question={detailItem} onBack={() => setDetailItem(null)} onEdit={q => { setDetailItem(null); setEditingItem(q); setModalMode('edit'); setModalOpen(true); }} />;
+    return <QuestionDetail question={detailItem} onBack={() => setDetailItem(null)} onEdit={q => { setDetailItem(null); setEditingItem(q); setModalMode('edit'); setModalOpen(true); }} onDelete={handleDelete} />;
   }
 
   return (

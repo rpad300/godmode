@@ -1,9 +1,8 @@
 import { useState } from 'react';
-import { ArrowLeft, Edit2, Calendar, User, Flag, Clock, BookOpen, Target, Sparkles, Wand2, Loader2 } from 'lucide-react';
+import { ArrowLeft, Edit2, Calendar, User, Flag, Clock, BookOpen, Target, Sparkles, Wand2, Loader2, Trash2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import type { Action } from '@/types/godmode';
-import { mockSprints, mockUserStories } from '@/data/mock-data';
 import OwnerBadge from './OwnerBadge';
 
 const statusColor = (s: string) =>
@@ -21,11 +20,10 @@ interface ActionDetailViewProps {
   action: Action;
   onBack: () => void;
   onEdit: (action: Action) => void;
+  onDelete?: (id: string) => void;
 }
 
-const ActionDetailView = ({ action, onBack, onEdit }: ActionDetailViewProps) => {
-  const sprint = mockSprints.find(s => s.id === action.sprintId);
-  const story = mockUserStories.find(s => s.id === action.storyId);
+const ActionDetailView = ({ action, onBack, onEdit, onDelete }: ActionDetailViewProps) => {
   const [aiLoading, setAiLoading] = useState<string | null>(null);
   const [aiInsights, setAiInsights] = useState<string[]>([]);
 
@@ -34,7 +32,7 @@ const ActionDetailView = ({ action, onBack, onEdit }: ActionDetailViewProps) => 
     await new Promise(r => setTimeout(r, 1500));
     setAiInsights([
       `This action has ${action.status === 'overdue' ? 'high' : 'moderate'} urgency based on deadline analysis.`,
-      `Suggested dependencies: Review related actions in ${sprint?.name || 'current backlog'}.`,
+      `Suggested dependencies: Review related actions in ${action.sprintId || 'current backlog'}.`,
       `Risk assessment: ${action.priority === 'high' ? 'Blocking potential — escalate if not started within 2 days.' : 'On track — monitor weekly.'}`,
     ]);
     setAiLoading(null);
@@ -95,6 +93,14 @@ const ActionDetailView = ({ action, onBack, onEdit }: ActionDetailViewProps) => 
           >
             <Edit2 className="w-3.5 h-3.5" /> Edit
           </button>
+          {onDelete && (
+            <button
+              onClick={() => { onDelete(action.id); onBack(); }}
+              className="px-3 py-1.5 rounded-lg bg-destructive/10 text-destructive text-xs hover:bg-destructive/20 transition-colors flex items-center gap-1.5"
+            >
+              <Trash2 className="w-3.5 h-3.5" /> Delete
+            </button>
+          )}
         </div>
       </div>
 
@@ -139,34 +145,16 @@ const ActionDetailView = ({ action, onBack, onEdit }: ActionDetailViewProps) => 
             <Target className="w-3.5 h-3.5 text-muted-foreground" />
             <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Sprint</span>
           </div>
-          <p className="text-sm text-foreground">{sprint?.name || 'No sprint'}</p>
-          {sprint && (
-            <p className="text-[10px] text-muted-foreground mt-1">{sprint.startDate} — {sprint.endDate}</p>
-          )}
+          <p className="text-sm text-foreground">{action.sprintId || 'No sprint'}</p>
         </div>
         <div className="bg-card border border-border rounded-xl p-4">
           <div className="flex items-center gap-2 mb-1">
             <BookOpen className="w-3.5 h-3.5 text-muted-foreground" />
             <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">User Story</span>
           </div>
-          <p className="text-sm text-foreground">{story?.title || 'No story'}</p>
+          <p className="text-sm text-foreground">{action.storyId || 'No story'}</p>
         </div>
       </div>
-
-      {/* Story acceptance criteria */}
-      {story?.acceptanceCriteria && story.acceptanceCriteria.length > 0 && (
-        <div className="bg-card border border-border rounded-xl p-4">
-          <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">Acceptance Criteria</h3>
-          <ul className="space-y-1">
-            {story.acceptanceCriteria.map((c, i) => (
-              <li key={i} className="text-sm text-foreground flex items-start gap-2">
-                <span className="text-accent mt-0.5">✓</span>
-                <span>{c}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
 
       {/* AI Insights */}
       {aiInsights.length > 0 && (
