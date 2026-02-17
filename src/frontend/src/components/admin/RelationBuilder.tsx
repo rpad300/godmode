@@ -1,4 +1,28 @@
-
+/**
+ * Purpose:
+ *   Form component for defining a new relationship type between two entity
+ *   types in the ontology schema, with a live visual preview of the flow.
+ *
+ * Responsibilities:
+ *   - Source and Target entity selectors populated from the schema
+ *   - Relation name input with automatic UPPER_SNAKE_CASE formatting
+ *   - Optional description field
+ *   - Live visual flow preview (Source -> RELATION_NAME -> Target)
+ *   - Validates required fields before calling onSave
+ *
+ * Key dependencies:
+ *   - EntityType, RelationshipType (ontology types): type definitions
+ *   - sonner (toast): validation error feedback
+ *
+ * Side effects:
+ *   - None
+ *
+ * Notes:
+ *   - The `properties` field is always set to an empty object; property
+ *     builder is noted as a future enhancement.
+ *   - The name formatting replaces spaces with underscores and uppercases;
+ *     other special characters are not stripped.
+ */
 import React, { useState } from 'react';
 import { EntityType, RelationshipType } from '../../types/ontology';
 import { Button } from "@/components/ui/button";

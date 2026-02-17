@@ -1,3 +1,35 @@
+/**
+ * Purpose:
+ *   Modal dialog showing an individual team member's behavioral analytics
+ *   across three tabs: Overview, Trends (time series), and Radar (profile
+ *   shape).
+ *
+ * Responsibilities:
+ *   - Overview tab: member header with avatar, role, sentiment label,
+ *     and key metric badges (sentiment, activity, influence)
+ *   - Trends tab: Recharts LineCharts for sentiment history and
+ *     participation history over time
+ *   - Radar tab: Recharts RadarChart with six axes (Communication,
+ *     Technical, Leadership, Collaboration, Innovation, Reliability)
+ *     derived from the member's stats
+ *
+ * Key dependencies:
+ *   - recharts (LineChart, RadarChart): data visualization
+ *   - Dialog, Tabs (shadcn/ui): modal and tab containers
+ *   - TeamMember (mock-data): member data shape
+ *   - generateSentimentHistory, generateParticipationHistory
+ *     (team-analysis-data): synthetic time-series generators
+ *
+ * Side effects:
+ *   - None
+ *
+ * Notes:
+ *   - Sentiment and participation histories are generated on each render;
+ *     they are not memoized and will produce different random data on
+ *     each open. Consider seeding or memoizing.
+ *   - The radar data maps stat values to a 0-100 scale using multiplication
+ *     by 100 for fractional values and capping with `|| 60` fallbacks.
+ */
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useState } from 'react';

@@ -1,3 +1,37 @@
+/**
+ * Purpose:
+ *   Team-level analytics dashboard that visualizes cohesion, influence,
+ *   communication flow, alliances, tensions, power structures, risks,
+ *   and recommendations for a project team.
+ *
+ * Responsibilities:
+ *   - Cohesion header: score circle with executive summary text
+ *   - Influence Scoreboard: ranked members with medal icons and influence
+ *     percentages
+ *   - Communication Flow: bottlenecks, information brokers, and central
+ *     node lists
+ *   - Influence Map: directional influence links with strength, type,
+ *     and evidence
+ *   - Alliances: member groups with shared values and bond strength
+ *   - Tensions: member pairs with tension type, severity, and triggers
+ *   - Power Centers: individual power holders with type, reach, and
+ *     source description
+ *   - Risk Factors: risk items with severity badges
+ *   - Recommendations: actionable suggestions with priority badges
+ *
+ * Key dependencies:
+ *   - framer-motion: staggered fade-in animations per section
+ *   - TeamSummaryData (team-detailed-data): full team analysis data shape
+ *
+ * Side effects:
+ *   - None (purely presentational)
+ *
+ * Notes:
+ *   - Helper functions (strengthColor, strengthLabel, riskBadge) and
+ *     SectionTitle are defined as module-level utilities.
+ *   - The component assumes all TeamSummaryData arrays are populated;
+ *     empty arrays will render blank sections without "no data" messages.
+ */
 import { motion } from 'framer-motion';
 import { BarChart3, Users, Link2, Swords, Crown, AlertTriangle, Lightbulb, ArrowRight } from 'lucide-react';
 import { TeamSummaryData } from '@/data/team-detailed-data';

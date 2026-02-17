@@ -1,3 +1,27 @@
+/**
+ * Purpose:
+ *   Vite build and dev-server configuration for the GodMode React frontend.
+ *
+ * Responsibilities:
+ *   - Configure React plugin (JSX transform) and Tailwind CSS v4 Vite plugin
+ *   - Set build output to src/public/ so the Express backend can serve it
+ *   - Proxy /api requests to the backend server (localhost:3005) during dev
+ *   - Define path aliases (@, @components, @hooks, @lib, @pages)
+ *   - Copy static HTML pages (landing, terms, privacy) into the build output
+ *
+ * Key dependencies:
+ *   - @vitejs/plugin-react: React Fast Refresh and JSX support
+ *   - @tailwindcss/vite: Tailwind CSS v4 Vite integration
+ *
+ * Notes:
+ *   - The dev server listens on port 8080 (host "::") and proxies API calls
+ *     to port 3005 where the Express backend runs
+ *   - Build output goes to ../../public (relative to src/frontend/src/),
+ *     which resolves to src/public/ from the project root
+ *   - Source maps are enabled for production builds to aid debugging
+ *   - The copyStaticPages plugin runs at closeBundle, so static pages are
+ *     only copied during full builds (not during dev)
+ */
 import { defineConfig } from 'vite';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -8,7 +32,10 @@ import tailwindcss from '@tailwindcss/vite';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Plugin to copy static HTML pages (landing, terms, privacy) to build output
+/**
+ * Custom Vite plugin that copies standalone HTML pages (landing, terms, privacy)
+ * into the build output directory after bundling completes.
+ */
 function copyStaticPages() {
   const pages = ['landing.html', 'terms.html', 'privacy.html'];
   return {

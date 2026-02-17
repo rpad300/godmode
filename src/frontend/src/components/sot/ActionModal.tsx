@@ -1,3 +1,29 @@
+/**
+ * Purpose:
+ *   Modal form for creating or editing an action item, with AI-assisted
+ *   title suggestion, description suggestion, and content refinement.
+ *
+ * Responsibilities:
+ *   - Form fields: title, description, owner, deadline, status, priority,
+ *     sprint, and user story (filtered by selected sprint)
+ *   - AI toolbar: "Suggest Title", "Suggest Description", "Refine with AI"
+ *   - Resets form state on open based on mode (create vs edit)
+ *   - Submits with auto-generated ID and timestamps
+ *
+ * Key dependencies:
+ *   - framer-motion (AnimatePresence): modal enter/exit animations
+ *   - sonner (toast): AI suggestion feedback
+ *   - Action, Sprint, UserStory (godmode types): data shapes
+ *
+ * Side effects:
+ *   - None (AI features are simulated locally)
+ *
+ * Notes:
+ *   - AI suggestions use hardcoded response arrays and random selection.
+ *   - The user story dropdown is disabled when no sprint is selected.
+ *   - storiesForSprint filters by form.sprintId; changing sprint clears
+ *     the story selection.
+ */
 import { useState, useEffect } from 'react';
 import { X, Sparkles, Wand2, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';

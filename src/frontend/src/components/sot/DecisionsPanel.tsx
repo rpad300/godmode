@@ -1,3 +1,31 @@
+/**
+ * Purpose:
+ *   Self-contained panel for managing project decisions within the
+ *   Source of Truth module. Includes an inline modal, detail view, and
+ *   list with filtering and AI features, all in a single file.
+ *
+ * Responsibilities:
+ *   - DecisionsPanel (main): list view with status filter, stats strip,
+ *     CRUD, and AI-suggested decision generation
+ *   - DecisionDetail: detail view with AI impact analysis
+ *   - DecisionModal: create/edit form with "AI Impact Analysis" button
+ *   - Status filtering (all / approved / pending / rejected)
+ *
+ * Key dependencies:
+ *   - OwnerBadge: owner display component
+ *   - framer-motion: animations for list, modal, and detail transitions
+ *   - sonner (toast): user notifications
+ *   - Decision (godmode types): decision data shape
+ *
+ * Side effects:
+ *   - None (state is local; parent notified via onSave/onDelete)
+ *
+ * Notes:
+ *   - DecisionModal uses `useState()` instead of `useEffect()` for
+ *     initializing form state from props. This is likely a bug; the form
+ *     may not reset correctly when switching between edit targets.
+ *   - AI features are simulated with hardcoded responses.
+ */
 import { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Sparkles, Loader2, ArrowLeft, Edit2, Calendar, User, CheckCircle, X, Wand2, Trash2 } from 'lucide-react';

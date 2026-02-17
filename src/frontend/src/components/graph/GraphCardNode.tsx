@@ -1,3 +1,26 @@
+/**
+ * Purpose:
+ *   React Flow custom node component that delegates rendering to the
+ *   appropriate tier-specific card component based on the node's tier value.
+ *
+ * Responsibilities:
+ *   - Reads `data.tier` from the React Flow node props (defaults to tier 2)
+ *   - Routes to GraphNodeTier0 (project hub), GraphNodeTier1 (primary
+ *     entities), or GraphNodeTier2 (knowledge details)
+ *
+ * Key dependencies:
+ *   - @xyflow/react (NodeProps): provides standard React Flow node props
+ *   - GraphNodeTier0/1/2: tier-specific rendering components
+ *   - GraphNode (graph types): typed node data shape
+ *
+ * Side effects:
+ *   - None (pure delegation)
+ *
+ * Notes:
+ *   - Wrapped in React.memo for render performance in large graphs.
+ *   - The component is anonymous (no displayName); React DevTools will
+ *     show it as "Anonymous".
+ */
 import { memo } from 'react';
 import { NodeProps } from '@xyflow/react';
 import { GraphNode } from '@/types/graph';

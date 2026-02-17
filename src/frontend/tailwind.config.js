@@ -1,3 +1,25 @@
+/**
+ * Purpose:
+ *   Tailwind CSS configuration for the GodMode frontend design system.
+ *
+ * Responsibilities:
+ *   - Enable class-based dark mode toggling
+ *   - Define content paths for JIT purging of unused styles
+ *   - Extend the default theme with custom fonts, colors, border radii,
+ *     keyframe animations, and component-specific tokens (sidebar, elevated)
+ *
+ * Key dependencies:
+ *   - tailwindcss-animate: plugin for enter/exit/accordion animations
+ *
+ * Notes:
+ *   - All custom colors reference CSS custom properties (--border, --primary, etc.)
+ *     defined in the app's global CSS. This enables runtime theme switching without
+ *     rebuilding Tailwind.
+ *   - The container is centered with 2rem padding and a max width of 1400px at 2xl
+ *   - Font stack: Inter (sans) and JetBrains Mono (mono)
+ *   - The "elevated" and "sidebar" color groups support the sidebar/card surface
+ *     hierarchy used by the shadcn/ui component library
+ */
 /** @type {import('tailwindcss').Config} */
 export default {
     darkMode: ["class"],

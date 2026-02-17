@@ -1,4 +1,25 @@
-
+/**
+ * Purpose:
+ *   Tier 1 (Primary Entity) graph node card for mid-level entities such as
+ *   Documents, Persons, Contacts, Teams, Sprints, Emails, and Calendar Events.
+ *
+ * Responsibilities:
+ *   - Determines the node type from data.type or data.label for theme lookup
+ *   - Extracts display width from node data (default 220px)
+ *   - Delegates to GraphNodeFrame + NodeContentRenderer with the resolved type
+ *
+ * Key dependencies:
+ *   - GraphNodeFrame: shared card wrapper
+ *   - NodeContentRenderer: type-specific body rendering
+ *   - getNodeTheme: returns color theme per entity type at tier 1
+ *
+ * Side effects:
+ *   - None
+ *
+ * Notes:
+ *   - Memoized for performance; displayName set for React DevTools.
+ *   - Falls back to 'default' if neither type nor label is set.
+ */
 import { memo } from 'react';
 import { NodeProps } from '@xyflow/react';
 import { GraphNode } from '@/types/graph';

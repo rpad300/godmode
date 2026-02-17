@@ -1,4 +1,28 @@
-
+/**
+ * Purpose:
+ *   Centralized theme definitions and lookup function for graph node cards.
+ *   Maps entity types and tiers to Tailwind CSS class sets for consistent
+ *   visual styling across the knowledge graph.
+ *
+ * Responsibilities:
+ *   - Defines the NodeTheme type (bg, border, accent, glow, text, badge,
+ *     optional avatar)
+ *   - getNodeTheme(): returns the appropriate color theme based on entity
+ *     type string and tier number, with a slate fallback for unknown types
+ *
+ * Key dependencies:
+ *   - None (pure data module)
+ *
+ * Side effects:
+ *   - None
+ *
+ * Notes:
+ *   - Uses Tailwind's dark palette (e.g., from-blue-950/80) designed for
+ *     the graph's dark-themed viewport.
+ *   - Person vs Contact distinction uses green vs teal palettes.
+ *   - Dynamic class strings like `from-${base}-950/80` require Tailwind
+ *     JIT or safelist configuration to generate correctly.
+ */
 export type NodeTheme = {
     bg: string;
     border: string;

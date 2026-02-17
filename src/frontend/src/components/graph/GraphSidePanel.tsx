@@ -1,3 +1,34 @@
+/**
+ * Purpose:
+ *   Slide-in detail panel for a selected graph node, showing its properties,
+ *   direct graph connections, and semantically related entities from the
+ *   vector store.
+ *
+ * Responsibilities:
+ *   - Displays node header with type badge, label, and project reference
+ *   - Renders a dynamic properties grid from all non-reserved node data keys
+ *   - Lists direct graph connections (edges) with clickable navigation
+ *   - Shows semantic neighbors fetched via useGraphNodeDetail with similarity
+ *     scores and loading skeleton
+ *   - Supports bookmarking/pinning nodes via useBookmarks
+ *   - Provides "Open Source" and "Expand" action buttons in the footer
+ *
+ * Key dependencies:
+ *   - GraphContext (useGraphState): selected node ID and setter
+ *   - useGraphNodeDetail: fetches node data and semantic neighbors
+ *   - useBookmarks: node bookmark CRUD
+ *   - GraphEdge (graph types): edge shape for connection computation
+ *
+ * Side effects:
+ *   - Network: fetches semantic neighbors when a node is selected
+ *
+ * Notes:
+ *   - Connection target names are displayed as raw IDs with a comment
+ *     "Ideal: Lookup Name" indicating future improvement.
+ *   - Dynamic Tailwind classes like `bg-${colorToken}-100` may not be
+ *     purged correctly; these rely on safelist or JIT always-on mode.
+ *   - Uses an inline <style> tag for the `.section-header` utility class.
+ */
 import React, { useMemo } from 'react';
 import { useGraphState } from '@/contexts/GraphContext';
 import { useGraphNodeDetail } from '@/hooks/graph/useGraphNodeDetail';

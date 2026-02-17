@@ -1,3 +1,32 @@
+/**
+ * Purpose:
+ *   Legacy React Flow custom node renderer that displays entities as
+ *   compact cards with category-specific icons, avatars, and status
+ *   indicators. This is the original node component before the tier-based
+ *   card system was introduced.
+ *
+ * Responsibilities:
+ *   - Renders a node card with a colored left border based on entity category
+ *   - Maps entity categories to Lucide icons via iconMap
+ *   - Provides special rendering for "person" nodes (avatar with fallback)
+ *   - Shows status dots with color-coded semantics (green/yellow/red/blue)
+ *   - Supports highlighted and dimmed visual states for graph filtering
+ *   - Exposes top/bottom React Flow handles for edge connections
+ *
+ * Key dependencies:
+ *   - @xyflow/react (Handle, Position, NodeProps): edge connection handles
+ *   - entityTypes (graph-data): category-to-color mapping
+ *   - Avatar (shadcn/ui): person node avatar rendering
+ *
+ * Side effects:
+ *   - None
+ *
+ * Notes:
+ *   - The GraphNodeData interface is exported and used elsewhere.
+ *   - Contains a typo in "Helpert" (should be "Helper") at getStatusColor.
+ *   - This component coexists with GraphCardNode; Assumption: GraphCardNode
+ *     is the newer replacement and this may be deprecated.
+ */
 import { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { entityTypes } from '@/data/graph-data';

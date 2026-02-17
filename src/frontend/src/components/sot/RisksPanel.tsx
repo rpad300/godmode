@@ -1,3 +1,35 @@
+/**
+ * Purpose:
+ *   Self-contained panel for managing project risks within the Source of
+ *   Truth module. Includes inline modal, detail view, and list with
+ *   status/impact filtering and AI-powered risk scanning/analysis.
+ *
+ * Responsibilities:
+ *   - RisksPanel (main): list view with dual filters (status + impact),
+ *     stats strip (total, open, mitigated, critical), CRUD, AI Risk Scan
+ *   - RiskDetail: detail view with computed risk score (Critical/High/
+ *     Medium/Low based on impact x likelihood matrix), mitigation display,
+ *     and AI analysis
+ *   - RiskModal: create/edit form with "AI Mitigation" button that
+ *     generates mitigation strategy suggestions
+ *   - Impact and likelihood badges with color-coded severity
+ *
+ * Key dependencies:
+ *   - OwnerBadge: risk owner display
+ *   - framer-motion: animations
+ *   - sonner (toast): user notifications
+ *   - Risk (godmode types): risk data shape with impact/likelihood/mitigation
+ *
+ * Side effects:
+ *   - None (state is local; parent notified via onSave/onDelete)
+ *
+ * Notes:
+ *   - Same `useState()` initialization pattern; form may not reset
+ *     correctly on edit target changes.
+ *   - Risk score computation uses a simple matrix: high+high=Critical,
+ *     either high=High, both medium=Medium, else Low.
+ *   - AI features are simulated with hardcoded responses.
+ */
 import { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Sparkles, Loader2, ArrowLeft, Edit2, Shield, AlertTriangle, User, X, Wand2, Trash2 } from 'lucide-react';

@@ -1,4 +1,34 @@
-
+/**
+ * Purpose:
+ *   Admin section for viewing and editing system prompt templates used by
+ *   the LLM pipeline, organized into category-based tabs.
+ *
+ * Responsibilities:
+ *   - Fetches all prompt templates from GET /api/system/prompts on mount
+ *   - Groups prompts by category and renders a tab per category
+ *   - Displays prompt cards with name, description, active status badge,
+ *     variable badges, and last-modified date
+ *   - Opens a full-screen-ish editor dialog for modifying prompt text
+ *   - Clickable variable badges in the editor insert template variables
+ *     at the cursor position
+ *   - Saves edits via PUT /api/system/prompts/:id
+ *
+ * Key dependencies:
+ *   - apiClient: REST calls for prompt CRUD
+ *   - sonner (toast): success/error notifications
+ *   - PromptTemplate (admin-data): prompt data shape
+ *
+ * Side effects:
+ *   - Network: fetches and updates prompt templates
+ *   - DOM: directly queries #prompt-editor-textarea for cursor position
+ *     when inserting variables
+ *
+ * Notes:
+ *   - The variable insertion uses getElementById which bypasses React's
+ *     controlled component model; a ref would be more idiomatic.
+ *   - After saving, the local state is optimistically updated rather than
+ *     re-fetching from the server.
+ */
 import React, { useState, useEffect, useMemo } from 'react';
 import { apiClient } from '@/lib/api-client';
 import { toast } from 'sonner';

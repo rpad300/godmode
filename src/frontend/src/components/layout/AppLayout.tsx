@@ -1,3 +1,28 @@
+/**
+ * Purpose:
+ *   Top-level authenticated application shell that composes the header,
+ *   sidebar, and main content area into a full-screen layout.
+ *
+ * Responsibilities:
+ *   - Renders AppHeader and AppSidebar around the routed content
+ *   - Manages file-import state (which import modal to show) via local state
+ *   - Delegates tab navigation to the parent through onTabChange
+ *   - Uses a render-prop pattern for children, passing active tab,
+ *     navigation handler, import file type, and a clear-import callback
+ *
+ * Key dependencies:
+ *   - AppHeader: top navigation bar with branding, project selector, user menu
+ *   - AppSidebar: side navigation with file drop zones and action buttons
+ *   - TabId (godmode types): union type for all navigable tab identifiers
+ *
+ * Side effects:
+ *   - None (pure layout orchestration)
+ *
+ * Notes:
+ *   - The render-prop children signature couples this component to the
+ *     specific set of values the main content needs; any new layout-wide
+ *     concerns should be threaded through here.
+ */
 import { useState } from 'react';
 import AppHeader from './AppHeader';
 import AppSidebar from './AppSidebar';

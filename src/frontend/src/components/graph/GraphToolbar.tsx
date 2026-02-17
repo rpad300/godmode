@@ -1,3 +1,32 @@
+/**
+ * Purpose:
+ *   Floating toolbar overlay for the knowledge graph viewport, providing
+ *   search, entity type filtering, bookmarks, saved views, and sync controls.
+ *
+ * Responsibilities:
+ *   - Search input that filters graph nodes by label
+ *   - Entity type toggle buttons organized by tier (Core Entities vs
+ *     Knowledge Details)
+ *   - Semantic links toggle (show/hide vector-similarity edges)
+ *   - Bookmarks dropdown: lists pinned nodes with navigation and delete
+ *   - Saved Views dropdown: save/restore/delete named filter configurations
+ *   - Sync button to trigger graph data re-fetch from the backend
+ *
+ * Key dependencies:
+ *   - GraphContext (useGraphState): filters, toggles, selectedNodeId
+ *   - useGraphSync: sync trigger, status, isSyncing state
+ *   - useBookmarks: bookmark list and CRUD operations
+ *   - useSavedViews: view persistence and CRUD operations
+ *
+ * Side effects:
+ *   - Network: triggers graph sync via useGraphSync.sync()
+ *   - State: mutates graph filter state in GraphContext
+ *
+ * Notes:
+ *   - Positioned absolutely at top-left of the graph viewport.
+ *   - View restoration only restores filters; layout restoration is a TODO.
+ *   - Save View dialog uses Enter key shortcut for quick confirmation.
+ */
 import React, { useState } from 'react';
 import { useGraphState } from '@/contexts/GraphContext';
 import { useGraphSync } from '@/hooks/graph/useGraphSync';

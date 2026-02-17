@@ -1,3 +1,29 @@
+/**
+ * Purpose:
+ *   Alternative top-bar header used in the react-router-based layout.
+ *   Provides branding, project selection, theme toggle, and logout.
+ *
+ * Responsibilities:
+ *   - Renders the GodMode logo linking to the root route
+ *   - Project selector dropdown driven by the projects prop
+ *   - Dark/light theme toggle button (state managed by parent)
+ *   - Hamburger menu button for toggling the sidebar on mobile
+ *   - LogoutButton sub-component that calls AuthContext.logout and
+ *     navigates to /login
+ *
+ * Key dependencies:
+ *   - AuthContext (useAuth): provides the logout function
+ *   - react-router-dom (useNavigate): post-logout redirect
+ *   - Project type (useGodMode): project list shape
+ *
+ * Side effects:
+ *   - LogoutButton triggers an async logout (clears session) and navigates
+ *
+ * Notes:
+ *   - This header coexists with AppHeader.tsx; Header is used inside the
+ *     react-router Layout while AppHeader is used in the legacy tab-based
+ *     AppLayout. Assumption: one will be removed during consolidation.
+ */
 import { Moon, Sun, Zap, Menu, LogOut } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../ui/Button';

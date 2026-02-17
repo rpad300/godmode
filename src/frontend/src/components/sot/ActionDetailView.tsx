@@ -1,3 +1,29 @@
+/**
+ * Purpose:
+ *   Detail view for a single action, showing all fields, metadata,
+ *   and AI-powered analysis features (analyze urgency, suggest next steps).
+ *
+ * Responsibilities:
+ *   - Displays action title, description, status/priority badges,
+ *     owner, deadline, sprint, and user story references
+ *   - "Analyze" button: generates AI insights about urgency and dependencies
+ *   - "Suggest Steps" button: appends AI-suggested next steps
+ *   - Edit and Delete navigation buttons
+ *   - Shows created/updated timestamps
+ *
+ * Key dependencies:
+ *   - OwnerBadge: renders owner avatar and name
+ *   - framer-motion: slide-in animation and AI insight reveal
+ *   - sonner (toast): success notifications
+ *   - Action (godmode types): action data shape
+ *
+ * Side effects:
+ *   - None (AI analysis is simulated locally)
+ *
+ * Notes:
+ *   - AI analysis and next steps are simulated with hardcoded responses
+ *     and setTimeout delays. TODO: connect to real AI backend.
+ */
 import { useState } from 'react';
 import { ArrowLeft, Edit2, Calendar, User, Flag, Clock, BookOpen, Target, Sparkles, Wand2, Loader2, Trash2 } from 'lucide-react';
 import { motion } from 'framer-motion';

@@ -1,3 +1,31 @@
+/**
+ * Purpose:
+ *   Self-contained panel for managing project questions within the Source
+ *   of Truth module. Includes inline modal, detail view, and list with
+ *   status/priority filtering and AI-powered question suggestion/answering.
+ *
+ * Responsibilities:
+ *   - QuestionsPanel (main): list view with dual filters (status + priority),
+ *     stats strip, CRUD, AI Suggest
+ *   - QuestionDetail: detail view with answer display and AI analysis
+ *   - QuestionModal: create/edit form with "Suggest Question" and "AI Answer"
+ *     buttons; the AI Answer auto-sets status to "answered"
+ *   - Assignee tracking with OwnerBadge display
+ *
+ * Key dependencies:
+ *   - OwnerBadge: assignee display component
+ *   - framer-motion: animations
+ *   - sonner (toast): user notifications
+ *   - Question (godmode types): question data shape with optional answer
+ *
+ * Side effects:
+ *   - None (state is local; parent notified via onSave/onDelete)
+ *
+ * Notes:
+ *   - Same `useState()` initialization pattern; form may not reset
+ *     correctly on edit target changes.
+ *   - AI features are simulated with hardcoded responses.
+ */
 import { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Filter, Sparkles, Loader2, ArrowLeft, Edit2, Clock, User, MessageCircle, X, Wand2, Trash2 } from 'lucide-react';

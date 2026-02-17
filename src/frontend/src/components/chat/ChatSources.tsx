@@ -1,3 +1,27 @@
+/**
+ * Purpose:
+ *   Renders a list of source references cited by an AI chat response,
+ *   displayed as compact clickable badges with type icons and relevance
+ *   percentages.
+ *
+ * Responsibilities:
+ *   - Maps source types (document, transcript, email, conversation) to
+ *     corresponding Lucide icons
+ *   - Displays each source as a pill with icon, truncated title, and
+ *     relevance score
+ *   - Shows source excerpt on hover via the title attribute
+ *
+ * Key dependencies:
+ *   - ChatSource (chat-data): source reference shape with type, title,
+ *     excerpt, and relevance
+ *
+ * Side effects:
+ *   - None
+ *
+ * Notes:
+ *   - The buttons are not wired to any navigation; clicking a source
+ *     currently does nothing. TODO: link to source detail view.
+ */
 import { FileText, MessageSquare, Mail, MessagesSquare } from 'lucide-react';
 import type { ChatSource } from '@/data/chat-data';
 

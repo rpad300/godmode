@@ -1,3 +1,31 @@
+/**
+ * Purpose:
+ *   Read-only detail modal for a processed file, showing metadata,
+ *   extracted facts, and a content preview with a reprocess action.
+ *
+ * Responsibilities:
+ *   - Header with file type icon, name, type badge, size, and status
+ *   - Quick stats grid: facts extracted, pages, word count
+ *   - Metadata section: processed time, language, author, last modified,
+ *     encoding
+ *   - Extracted facts sample (up to 4 items from mockExtractedFacts)
+ *   - Content preview with type-specific placeholder text
+ *   - Reprocess and "Open Original" action buttons
+ *
+ * Key dependencies:
+ *   - Dialog (shadcn/ui): modal container
+ *   - ProcessedFile (godmode types): file data shape
+ *   - VisuallyHidden (radix-ui): accessible hidden dialog description
+ *
+ * Side effects:
+ *   - None (reprocess action delegated to parent via onReprocess)
+ *
+ * Notes:
+ *   - Metadata (pages, wordCount, author, etc.) and extracted facts are
+ *     hardcoded mock data, not fetched from the API. TODO: replace with
+ *     real data from the processing pipeline.
+ *   - "Open Original" button has no onClick handler.
+ */
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { FileText, Mic, Mail, MessageSquare, CheckCircle, Clock, AlertCircle, X, ExternalLink, RotateCw } from 'lucide-react';
 import { ProcessedFile } from '@/types/godmode';

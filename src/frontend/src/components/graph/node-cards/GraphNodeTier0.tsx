@@ -1,4 +1,24 @@
-
+/**
+ * Purpose:
+ *   Tier 0 (Project Hub) graph node card — the largest and most prominent
+ *   node type, representing top-level project entities in the knowledge graph.
+ *
+ * Responsibilities:
+ *   - Extracts display width from node data (default 280px)
+ *   - Applies the "Project" theme via getNodeTheme
+ *   - Delegates visual rendering to GraphNodeFrame + NodeContentRenderer
+ *
+ * Key dependencies:
+ *   - GraphNodeFrame: shared card wrapper with handles and accent bar
+ *   - NodeContentRenderer: renders Project-specific body content
+ *   - getNodeTheme: returns color theme for "Project" at tier 0
+ *
+ * Side effects:
+ *   - None
+ *
+ * Notes:
+ *   - Memoized for performance; displayName set for React DevTools.
+ */
 import { memo } from 'react';
 import { NodeProps } from '@xyflow/react';
 import { GraphNode } from '@/types/graph';

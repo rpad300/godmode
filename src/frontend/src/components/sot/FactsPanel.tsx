@@ -1,3 +1,32 @@
+/**
+ * Purpose:
+ *   Self-contained panel for managing extracted facts within the Source
+ *   of Truth module. Includes inline modal, detail view, and list with
+ *   category filtering and AI-powered extraction/verification.
+ *
+ * Responsibilities:
+ *   - FactsPanel (main): list view with category filter, stats strip
+ *     (total, avg confidence, per-category counts), CRUD, AI Extract
+ *   - FactDetail: detail view with source, confidence, and AI Verify
+ *   - FactModal: create/edit form with "Refine with AI" button that
+ *     adjusts confidence
+ *   - Category-based color coding (technical, process, policy, people,
+ *     timeline)
+ *
+ * Key dependencies:
+ *   - framer-motion: animations for list, modal, and detail transitions
+ *   - sonner (toast): user notifications
+ *   - Fact (godmode types): fact data shape with confidence score
+ *
+ * Side effects:
+ *   - None (state is local; parent notified via onSave/onDelete)
+ *
+ * Notes:
+ *   - Same `useState()` initialization pattern as DecisionsPanel;
+ *     form may not reset correctly on edit target changes.
+ *   - Confidence is a 0-1 float displayed as a percentage.
+ *   - AI features are simulated with hardcoded responses.
+ */
 import { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Sparkles, Loader2, ArrowLeft, Edit2, Clock, FileText, X, Wand2, Trash2 } from 'lucide-react';

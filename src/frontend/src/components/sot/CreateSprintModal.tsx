@@ -1,3 +1,27 @@
+/**
+ * Purpose:
+ *   Modal form for creating a new sprint with name, date range, and
+ *   context/goals description.
+ *
+ * Responsibilities:
+ *   - Renders a form with sprint name (required), start date, end date,
+ *     and context/goals textarea
+ *   - Generates a sprint ID using timestamp prefix "sp-"
+ *   - Sets initial status to "planning"
+ *   - Resets form fields after successful submission
+ *
+ * Key dependencies:
+ *   - framer-motion (AnimatePresence): modal enter/exit animations
+ *   - Sprint (godmode types): sprint data shape
+ *
+ * Side effects:
+ *   - None
+ *
+ * Notes:
+ *   - Does not validate that end date is after start date.
+ *   - Sprint ID uses Date.now() which could collide in rapid creation
+ *     scenarios, but is acceptable for the current use case.
+ */
 import { useState } from 'react';
 import { X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
