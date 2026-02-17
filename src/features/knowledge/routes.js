@@ -91,14 +91,14 @@ async function handleKnowledge(ctx) {
         log.debug({ event: 'questions_update_result', questionId, resultPreview: JSON.stringify(result).substring(0, 200) }, 'Update result');
         
         if (result.success || result.ok) {
-            // Sync to FalkorDB if connected
+            // Sync to graph if connected
             const graphProvider = storage.getGraphProvider();
             if (graphProvider && graphProvider.connected) {
                 try {
                     const { getGraphSync } = require('../../sync');
                     const graphSync = getGraphSync({ graphProvider, storage });
                     await graphSync.syncQuestion(result.question);
-                    log.debug({ event: 'knowledge_question_synced', questionId }, 'Question updated in FalkorDB');
+                    log.debug({ event: 'knowledge_question_synced', questionId }, 'Question updated in graph');
                 } catch (syncErr) {
                     log.warn({ event: 'knowledge_question_sync_error', questionId, reason: syncErr.message }, 'Question sync error');
                 }
@@ -142,7 +142,7 @@ async function handleKnowledge(ctx) {
                         `MATCH (q:Question {id: $id}) DETACH DELETE q`,
                         { id: questionId }
                     );
-                    log.debug({ event: 'knowledge_question_deleted', questionId }, 'Question deleted from FalkorDB');
+                    log.debug({ event: 'knowledge_question_deleted', questionId }, 'Question deleted from graph');
                 } catch (syncErr) {
                     log.warn({ event: 'knowledge_question_delete_sync_error', questionId, reason: syncErr.message }, 'Question delete sync error');
                 }

@@ -778,10 +778,7 @@ async function handleProjects({ req, res, pathname, supabase, storage, config, s
                     const { data: projectConfig } = await client.from('project_config').select('graph_config').eq('project_id', projectId).single();
                     if (projectConfig?.graph_config?.enabled) {
                         projectGraphConfig = projectConfig.graph_config;
-                        const falkorPassword = process.env.FALKORDB_PASSWORD || process.env.FAKORDB_PASSWORD;
-                        if (projectGraphConfig.falkordb && falkorPassword) {
-                            projectGraphConfig.falkordb.password = falkorPassword;
-                        }
+                        // Graph password resolved by provider layer
                     }
                 } catch (_) { }
             }

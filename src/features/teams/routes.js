@@ -32,7 +32,7 @@ async function handleTeams(ctx) {
         try {
             const id = await storage.addTeam(body);
             
-            // Sync with FalkorDB - create Team node
+            // Sync with graph - create Team node
             let graphSynced = false;
             try {
                 const graphProvider = storage.getGraphProvider();
@@ -54,7 +54,7 @@ async function handleTeams(ctx) {
                         }
                     );
                     graphSynced = true;
-                    log.debug({ event: 'teams_graph_synced', teamName: body.name }, 'Synced team to FalkorDB');
+                    log.debug({ event: 'teams_graph_synced', teamName: body.name }, 'Synced to graph');
                 }
             } catch (syncErr) {
                 log.warn({ event: 'teams_graph_sync_warning', reason: syncErr.message }, 'Graph sync warning');
@@ -123,7 +123,7 @@ async function handleTeams(ctx) {
                 return true;
             }
             
-            // Sync with FalkorDB - update Team node
+            // Sync with graph - update Team node
             let graphSynced = false;
             try {
                 const graphProvider = storage.getGraphProvider();
@@ -169,7 +169,7 @@ async function handleTeams(ctx) {
                 return true;
             }
             
-            // Sync with graph - remove Team from FalkorDB
+            // Sync with graph - remove Team from graph
             try {
                 const graphProvider = storage.getGraphProvider();
                 if (graphProvider && graphProvider.connected) {
@@ -203,7 +203,7 @@ async function handleTeams(ctx) {
         try {
             const result = await storage.addTeamMember(teamId, body.contactId, body.role, body.isLead);
             
-            // Sync with FalkorDB - create MEMBER_OF relationship
+            // Sync with graph - create MEMBER_OF relationship
             let graphSynced = false;
             try {
                 const graphProvider = storage.getGraphProvider();
@@ -229,7 +229,7 @@ async function handleTeams(ctx) {
                         }
                     );
                     graphSynced = true;
-                    log.debug({ event: 'teams_member_added', contactName: contact?.name, teamName: team?.name }, 'Member added to team in FalkorDB');
+                    log.debug({ event: 'teams_member_added', contactName: contact?.name, teamName: team?.name }, 'Member added to team in graph');
                 }
             } catch (syncErr) {
                 log.warn({ event: 'teams_graph_sync_warning', reason: syncErr.message }, 'Graph sync warning');
@@ -251,7 +251,7 @@ async function handleTeams(ctx) {
         try {
             await storage.removeTeamMember(teamId, contactId);
             
-            // Sync with FalkorDB - remove MEMBER_OF relationship
+            // Sync with graph - remove MEMBER_OF relationship
             let graphSynced = false;
             try {
                 const graphProvider = storage.getGraphProvider();
@@ -262,7 +262,7 @@ async function handleTeams(ctx) {
                         { contactId, teamId }
                     );
                     graphSynced = true;
-                    log.debug({ event: 'teams_member_removed' }, 'Member removed from team in FalkorDB');
+                    log.debug({ event: 'teams_member_removed' }, 'Member removed from team in graph');
                 }
             } catch (syncErr) {
                 log.warn({ event: 'teams_graph_sync_warning', reason: syncErr.message }, 'Graph sync warning');

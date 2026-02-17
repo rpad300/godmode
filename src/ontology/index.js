@@ -8,9 +8,9 @@
  * - RelationInference: Automatic entity and relationship extraction
  * - EmbeddingEnricher: Enhanced embeddings with ontological context
  * - OntologyAgent: AI-powered ontology evolution (now with LLM analysis & auto-approval)
- * - SchemaExporter: Export ontology to FalkorDB with indexes and metadata
+ * - SchemaExporter: Export ontology to graph with indexes and metadata
  * - InferenceEngine: Execute inference rules automatically
- * - OntologySync: Real-time sync between Supabase and FalkorDB
+ * - OntologySync: Real-time sync between Supabase and graph provider
  * - OntologyBackgroundWorker: Background jobs for continuous optimization
  * - OntologyExtractor: Extract ontology from graph, validate compliance, merge ontologies (NEW v2.1)
  */

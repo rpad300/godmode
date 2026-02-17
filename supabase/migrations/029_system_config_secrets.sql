@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS secrets (
     
     -- Secret identification
     name TEXT NOT NULL,
-    provider TEXT,  -- e.g., 'openai', 'anthropic', 'google', 'grok', 'falkordb'
+    provider TEXT,  -- e.g., 'openai', 'anthropic', 'google', 'grok', 'graph'
     
     -- Encrypted value using pgcrypto
     -- Store: pgp_sym_encrypt(value, encryption_key)
@@ -75,7 +75,7 @@ CREATE INDEX IF NOT EXISTS idx_secrets_name ON secrets(name);
 
 -- ============================================
 -- ADD GRAPH_CONFIG TO PROJECT_CONFIG
--- FalkorDB and graph database settings
+-- Graph database settings
 -- ============================================
 ALTER TABLE project_config 
 ADD COLUMN IF NOT EXISTS graph_config JSONB DEFAULT '{
@@ -279,7 +279,7 @@ COMMENT ON TABLE system_config IS 'Global system-level configuration, managed by
 COMMENT ON TABLE secrets IS 'Encrypted storage for API keys and sensitive credentials';
 COMMENT ON COLUMN secrets.encrypted_value IS 'Value encrypted with pgp_sym_encrypt using SECRETS_ENCRYPTION_KEY';
 COMMENT ON COLUMN secrets.masked_value IS 'Partially masked value for display (e.g., sk-****1234)';
-COMMENT ON COLUMN project_config.graph_config IS 'Graph database configuration (FalkorDB, etc)';
+COMMENT ON COLUMN project_config.graph_config IS 'Graph database configuration (Supabase graph provider)';
 COMMENT ON COLUMN project_config.llm_pertask IS 'Per-task LLM override (text, vision, embeddings)';
 COMMENT ON FUNCTION encrypt_secret IS 'Encrypt a secret value using pgcrypto';
 COMMENT ON FUNCTION decrypt_secret IS 'Decrypt a secret value using pgcrypto';

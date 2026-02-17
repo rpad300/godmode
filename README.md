@@ -341,9 +341,6 @@ docker compose --profile gpu up ollama-gpu -d
 ### Optional Services
 
 ```bash
-# Start FalkorDB (graph database)
-docker compose --profile graph up falkordb -d
-
 # Start local Supabase
 docker compose --profile supabase up -d
 

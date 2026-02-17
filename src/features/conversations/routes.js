@@ -297,7 +297,7 @@ SUMMARY: <summary here>`;
                     log.debug({ event: 'conversations_knowledge_extracted', factsAdded, decisionsAdded, risksAdded, questionsAdded, actionsAdded, peopleAdded }, 'Knowledge extracted');
                     log.debug({ event: 'conversations_entities', entities: aiResult.entities?.length || 0, relationships: aiResult.relationships?.length || 0 }, 'Entities');
 
-                    // Sync questions to FalkorDB
+                    // Sync questions to graph
                     if (questionsAdded > 0 && graphProvider && graphProvider.connected) {
                         try {
                             const { getGraphSync } = require('../../sync');
@@ -307,7 +307,7 @@ SUMMARY: <summary here>`;
                             for (const q of recentQuestions) {
                                 await graphSync.syncQuestion(q);
                             }
-                            log.debug({ event: 'conversations_questions_synced', count: questionsAdded }, 'Synced questions to FalkorDB');
+                            log.debug({ event: 'conversations_questions_synced', count: questionsAdded }, 'Synced questions to graph');
                         } catch (syncErr) {
                             log.warn({ event: 'conversations_question_sync_error', reason: syncErr.message }, 'Question sync error');
                         }

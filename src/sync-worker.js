@@ -1,6 +1,6 @@
 /**
- * FalkorDB Sync Worker
- * Background worker that processes the outbox and syncs to FalkorDB
+ * Graph Sync Worker
+ * Background worker that processes the outbox and syncs to graph provider
  */
 
 const outbox = require('./supabase/outbox');
@@ -127,7 +127,7 @@ async function processEvent(event) {
             throw new Error('Could not build Cypher query');
         }
 
-        // Execute on FalkorDB
+        // Execute on graph
         await executeCypher(event.graph_name, query, params);
 
         // Action UPDATE: sync IMPLEMENTS edge to Decision when decision_id present
@@ -293,7 +293,7 @@ function buildUnlinkQuery(payload) {
 }
 
 /**
- * Execute Cypher query on FalkorDB in the correct graph.
+ * Execute Cypher query on graph.
  * Switches to graph_name before running so Fact and other project entities
  * are segregated per project (one graph per project).
  * Normalizes legacy godmode_* names to project_* for a single convention.

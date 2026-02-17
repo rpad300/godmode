@@ -132,24 +132,6 @@ services:
       - supabase
 
   # ---------------------------------------------------------------------------
-  # FalkorDB (Optional - for graph database features)
-  # ---------------------------------------------------------------------------
-  # Redis-compatible graph database for relationship queries
-  # Start with: docker compose --profile graph up
-  # ---------------------------------------------------------------------------
-  falkordb:
-    image: falkordb/falkordb:latest
-    container_name: godmode-falkordb
-    ports:
-      - "6379:6379"
-    volumes:
-      - falkordb-data:/data
-    restart: unless-stopped
-    profiles:
-      - graph
-    command: ["--requirepass", "godmode-local"]
-
-  # ---------------------------------------------------------------------------
   # Redis (Optional - for caching)
   # ---------------------------------------------------------------------------
   # In-memory cache for improved performance
@@ -175,8 +157,6 @@ volumes:
     name: godmode-ollama-models
   supabase-db-data:
     name: godmode-supabase-db
-  falkordb-data:
-    name: godmode-falkordb
   redis-data:
     name: godmode-redis
 

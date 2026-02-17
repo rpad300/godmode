@@ -41,7 +41,7 @@ function getProviders() {
 
 /**
  * Create a graph provider instance
- * @param {string} providerId - Provider identifier ('json', 'falkordb')
+ * @param {string} providerId - Provider identifier (e.g. 'supabase')
  * @param {object} config - Provider-specific configuration
  * @returns {GraphProvider}
  */

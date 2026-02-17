@@ -37,7 +37,7 @@ class CommunityDetection {
 
     /**
      * Detect communities using label propagation (graph-based)
-     * Simpler than Louvain but works with FalkorDB Cypher
+     * Simpler than Louvain, works with standard Cypher
      * 
      * @returns {Promise<{ok: boolean, communities: Array}>}
      */
@@ -445,7 +445,7 @@ class CommunityDetection {
         log.debug({ event: 'community_betweenness_start' }, 'Calculating betweenness centrality');
 
         try {
-            // FalkorDB doesn't have native betweenness algorithm
+            // Graph provider may not have native betweenness algorithm
             // Approximate using path frequency through nodes
             const query = `
                 MATCH (n)

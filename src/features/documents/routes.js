@@ -287,7 +287,7 @@ async function handleDocuments(ctx) {
                         `MATCH (d:Document {id: $id}) DETACH DELETE d`,
                         { id: docId }
                     );
-                    log.debug({ event: 'doc_graph_deleted', docId }, 'Document deleted from FalkorDB');
+                    log.debug({ event: 'doc_graph_deleted', docId }, 'Document deleted from graph');
                 } catch (graphErr) {
                     log.warn({ event: 'doc_graph_delete_error', docId, reason: graphErr.message }, 'Graph document delete error');
                 }

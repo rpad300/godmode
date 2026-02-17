@@ -1,7 +1,7 @@
 /**
  * OntologyExtractor - Extract and manage ontology from graph database
  * 
- * Inspired by FalkorDB's GraphRAG-SDK Ontology class
+ * Inspired by GraphRAG-SDK Ontology class
  * Provides functionality to:
  * - Extract ontology from existing graph data
  * - Validate compliance rigorously

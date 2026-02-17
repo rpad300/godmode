@@ -4677,29 +4677,29 @@ class Storage {
     }
 
     /**
-     * Sync FalkorDB graphs with Supabase projects
+     * Sync graphs with Supabase projects
      * Removes orphan graphs that don't have associated projects
      * @param {object} options
      * @param {boolean} options.dryRun - If true, only report what would be deleted
      * @returns {Promise<{ok: boolean, graphs: string[], validGraphs: string[], orphanGraphs: string[], deleted: string[]}>}
      */
-    async syncFalkorDBGraphs(options = {}) {
+    async syncGraphs(options = {}) {
         const { dryRun = false } = options;
 
         if (!this.graphProvider || typeof this.graphProvider.listGraphs !== 'function') {
-            return { ok: false, error: 'FalkorDB provider not available or does not support listGraphs' };
+            return { ok: false, error: 'Graph provider not available or does not support listGraphs' };
         }
 
-        log.debug({ event: 'storage_sync_falkordb_start' }, 'Syncing FalkorDB graphs with Supabase projects');
+        log.debug({ event: 'storage_sync_graphs_start' }, 'Syncing graphs with Supabase projects');
 
         try {
-            // 1. List all graphs in FalkorDB
+            // 1. List all graphs
             const graphsResult = await this.graphProvider.listGraphs();
             if (!graphsResult.ok) {
                 return { ok: false, error: graphsResult.error || 'Failed to list graphs' };
             }
             const allGraphs = graphsResult.graphs || [];
-            log.debug({ event: 'storage_falkordb_graphs', count: allGraphs.length, graphNames: allGraphs }, 'Found graphs in FalkorDB');
+            log.debug({ event: 'storage_graph_list', count: allGraphs.length, graphNames: allGraphs }, 'Found graphs');
 
             // 2. Get valid project IDs from Supabase
             let validProjectIds = [];
@@ -4760,10 +4760,13 @@ class Storage {
                 dryRun
             };
         } catch (error) {
-            log.warn({ event: 'storage_sync_falkordb_error', reason: error?.message }, 'syncFalkorDBGraphs error');
+            log.warn({ event: 'storage_sync_graphs_error', reason: error?.message }, 'syncGraphs error');
             return { ok: false, error: error.message };
         }
     }
+
+    // Backward compat alias
+    async syncFalkorDBGraphs(options = {}) { return this.syncGraphs(options); }
 
     // ==================== Data Cleanup Methods ====================
 

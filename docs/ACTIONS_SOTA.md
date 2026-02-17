@@ -9,7 +9,7 @@ Actions (tasks) are aligned with the same SOTA patterns as Facts, Decisions, and
 | **Persistence** | `action_items` table (005, 088, 089, 091): task, owner, deadline, priority, status, source_document_id, source_file, created_by, deleted_at, parent_story_id, parent_story_ref, size_estimate, description, definition_of_done, acceptance_criteria, generation_source, source_email_id, source_type, requested_by, requested_by_contact_id, supporting_document_ids |
 | **Timeline / audit** | `action_events` (050): created, updated, deleted, restored with actor_user_id, actor_name |
 | **Soft delete + restore** | deleteAction(soft), getDeletedActions, restoreAction; outbox sync (Action node restored in graph) |
-| **Graph / FalkorDB** | Action node CREATE/UPDATE/DELETE via outbox; PART_OF (Task → UserStory), DEPENDS_ON (Task → Task); syncUserStory for UserStory nodes |
+| **Graph (Supabase)** | Action node CREATE/UPDATE/DELETE via outbox; PART_OF (Task → UserStory), DEPENDS_ON (Task → Task); syncUserStory for UserStory nodes |
 | **User stories** | user_stories table (089); action_items.parent_story_id; task_dependencies table for depends_on |
 | **Removed actions** | Section "Removed actions" in ActionsPanel with Restore; restore syncs back to graph |
 | **API** | GET/POST/PUT/PATCH/DELETE actions, GET /api/actions/deleted, POST /api/actions/:id/restore, GET events, POST suggest-task, POST suggest (assignee) |

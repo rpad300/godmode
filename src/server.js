@@ -676,7 +676,7 @@ loadConfigAsync().then((c) => {
                 }
             }
 
-            // 4. Sync ontology to FalkorDB (create indexes, meta-nodes)
+            // 4. Sync ontology to graph (create indexes, meta-nodes)
             if (graphProvider?.connected) {
                 const exporter = getSchemaExporter({ ontology, graphProvider });
                 exporter.setGraphProvider(graphProvider);
@@ -1191,7 +1191,7 @@ loadConfigAsync().then((c) => {
 
             // Ontology Agent, worker, jobs, extractor - handled by features/ontology/routes.js
 
-            // Graph falkordb-browser, sync, cleanup-duplicates, list-all, sync-projects, delete - handled by features/graph/routes.js
+            // Graph sync, cleanup-duplicates, list-all, sync-projects, delete - handled by features/graph/routes.js
 
             // Sync extended (deleted, audit, batch-delete, integrity, backups, events, stats, retention, versions, jobs) - handled by features/sync/routes.js
 
@@ -1352,13 +1352,11 @@ loadConfigAsync().then((c) => {
         const authConfigured = supabase && typeof supabase.isConfigured === 'function' && supabase.isConfigured();
         log.info({ event: 'auth_status', configured: authConfigured }, authConfigured ? 'Supabase auth configured' : 'Supabase auth NOT configured (set SUPABASE_PROJECT_URL and SUPABASE_PROJECT_ANON_KEY in src/.env)');
 
-        // Auto-connect to FalkorDB if configured (connect if enabled and has host/credentials)
-        const graphHasCredentials = config.graph?.falkordb?.host || config.graph?.neo4j?.host;
-        if (config.graph && config.graph.enabled && graphHasCredentials) {
+        // Auto-connect to graph provider if configured
+        if (config.graph && config.graph.enabled) {
             try {
                 const projectId = currentProject?.id || 'default';
                 const baseGraphName = config.graph.baseGraphName || config.graph.graphName || 'godmode';
-                // Use project-specific graph name
                 const projectGraphName = `${baseGraphName}_${projectId}`;
 
                 const graphConfig = {
@@ -1366,16 +1364,16 @@ loadConfigAsync().then((c) => {
                     graphName: projectGraphName
                 };
 
-                log.info({ event: 'graph_falkordb_connect', graphName: projectGraphName }, 'Auto-connecting to FalkorDB');
+                log.info({ event: 'graph_connect', graphName: projectGraphName }, 'Auto-connecting to graph provider');
                 const result = await storage.initGraph(graphConfig);
 
                 if (result.ok) {
-                    log.info({ event: 'graph_falkordb_connected', graphName: projectGraphName }, 'Connected to FalkorDB');
+                    log.info({ event: 'graph_connected', graphName: projectGraphName }, 'Connected to graph provider');
                 } else {
-                    log.warn({ event: 'graph_falkordb_connect_failed', error: result.error }, 'Auto-connect failed');
+                    log.warn({ event: 'graph_connect_failed', error: result.error }, 'Graph auto-connect failed');
                 }
             } catch (e) {
-                log.warn({ event: 'graph_falkordb_connect_error', err: e.message }, 'Auto-connect error');
+                log.warn({ event: 'graph_connect_error', err: e.message }, 'Graph auto-connect error');
             }
         }
 

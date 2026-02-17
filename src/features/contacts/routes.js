@@ -84,7 +84,7 @@ async function handleContacts(ctx) {
             const result = await storage.addContact(body);
             const contactId = result?.id || result;
             log.debug({ event: 'contacts_added', name: body.name, contactId }, 'Added contact');
-            // Sync with FalkorDB
+            // Sync with graph
             let graphSynced = false;
             try {
                 const graphProvider = storage.getGraphProvider();
@@ -232,7 +232,7 @@ async function handleContacts(ctx) {
                     }
                 }
             }
-            // Sync with FalkorDB
+            // Sync with graph
             let graphSynced = false;
             try {
                 const graphProvider = storage.getGraphProvider();
@@ -301,7 +301,7 @@ async function handleContacts(ctx) {
                 return true;
             }
 
-            // Sync with graph - remove from FalkorDB
+            // Sync with graph - remove from graph
             try {
                 const { getGraphSync } = require('../../sync');
                 const graphSync = getGraphSync({ graphProvider: storage.getGraphProvider() });
@@ -387,7 +387,7 @@ async function handleContacts(ctx) {
         try {
             const result = await storage.linkParticipantToContact(body.participantName, body.contactId);
 
-            // Sync with FalkorDB - create alias relationship
+            // Sync with graph - create alias relationship
             if (result.linked) {
                 try {
                     const graphProvider = storage.getGraphProvider();
@@ -428,7 +428,7 @@ async function handleContacts(ctx) {
             // Remove alias from contact if exists
             const result = await storage.unlinkParticipant(body.participantName);
 
-            // Sync with FalkorDB - remove alias relationship
+            // Sync with graph - remove alias relationship
             if (result.unlinked) {
                 try {
                     const graphProvider = storage.getGraphProvider();
@@ -659,7 +659,7 @@ async function handleContacts(ctx) {
         try {
             storage.removeContactRelationship(contactId, body.toContactId, body.type);
 
-            // Sync with graph - remove relationship edge from FalkorDB
+            // Sync with graph - remove relationship edge from graph
             try {
                 const contact1 = storage.getContact(contactId);
                 const contact2 = storage.getContact(body.toContactId);
@@ -733,7 +733,7 @@ async function handleContacts(ctx) {
         try {
             await storage.addTeamMember(body.teamId, contactId, body.role, body.isLead);
 
-            // Sync with FalkorDB
+            // Sync with graph
             const graphProvider = storage.getGraphProvider();
             if (graphProvider && graphProvider.connected) {
                 try {
@@ -764,7 +764,7 @@ async function handleContacts(ctx) {
         try {
             await storage.removeTeamMember(teamId, contactId);
 
-            // Sync with FalkorDB
+            // Sync with graph
             const graphProvider = storage.getGraphProvider();
             if (graphProvider && graphProvider.connected) {
                 try {

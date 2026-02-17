@@ -257,7 +257,7 @@ class MultiGraphManager {
      * @returns {Promise<Array<string>>}
      */
     async listProjectGraphs() {
-        // This would need to be tracked separately or query FalkorDB for graph list
+        // This would need to be tracked separately or query graph provider for graph list
         // For now, return from cache
         const graphs = [];
         for (const [name] of this.graphCache) {

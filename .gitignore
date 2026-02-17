@@ -51,5 +51,4 @@ coverage/
 # Docker volumes data
 ollama-models/
 supabase-db-data/
-falkordb-data/
 redis-data/

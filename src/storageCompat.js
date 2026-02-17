@@ -2600,7 +2600,7 @@ class StorageCompat {
         }
     }
 
-    // Alias for backward compatibility
+    // Backward compat alias: syncFalkorDBGraphs -> syncGraphs (kept for existing callers)
     async syncFalkorDBGraphs(options = {}) {
         return this.syncGraphs(options);
     }

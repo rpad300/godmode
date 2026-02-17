@@ -1,6 +1,6 @@
 /**
  * SupabaseStorage - Complete replacement for JSON-based storage
- * All data is stored in Supabase PostgreSQL with FalkorDB sync via outbox
+ * All data is stored in Supabase PostgreSQL with graph sync via outbox
  * 
  * This module replaces the original storage.js completely.
  * All methods are async and interact with Supabase tables.
@@ -260,7 +260,7 @@ class SupabaseStorage {
             updated_by: user.id
         });
 
-        // Sync to FalkorDB via outbox
+        // Sync to graph via outbox
         await this._addToOutbox('project.created', 'CREATE', 'Project', data.id, data);
 
         log.info({ event: 'project_created', projectId: data.id, name }, 'Project created');
@@ -648,7 +648,7 @@ class SupabaseStorage {
 
         if (error) throw error;
 
-        // Sync to FalkorDB
+        // Sync to graph
         await this._addToOutbox('project.deleted', 'DELETE', 'Project', projectId, { id: projectId });
 
         if (this.currentProjectId === projectId) {
@@ -820,7 +820,7 @@ class SupabaseStorage {
             created_by: user?.id
         });
 
-        // Sync to FalkorDB
+        // Sync to graph
         await this._addToOutbox('document.created', 'CREATE', 'Document', data.id, data);
 
         return data;
@@ -1065,7 +1065,7 @@ class SupabaseStorage {
             performed_by: user?.id
         });
 
-        // Sync to FalkorDB
+        // Sync to graph
         await this._addToOutbox('document.deleted', 'DELETE', 'Document', documentId, { id: documentId });
 
         return results;
@@ -1132,7 +1132,7 @@ class SupabaseStorage {
         // Timeline: fact_events
         await this._addFactEvent(data.id, 'created', {}, user?.id, user?.user_metadata?.name || user?.email);
 
-        // Sync to FalkorDB
+        // Sync to graph
         await this._addToOutbox('fact.created', 'CREATE', 'Fact', data.id, data);
 
         return data;
@@ -1141,7 +1141,7 @@ class SupabaseStorage {
     /**
      * Add multiple facts in one insert (batch). Use for bulk extract/import to avoid N+1.
      * Does not run per-fact duplicate check when skipDedup is true; does not emit per-fact
-     * events or outbox (FalkorDB sync) for performance.
+     * events or outbox (graph sync) for performance.
      * @param {Array<object>} facts - Array of fact objects (same shape as addFact)
      * @param {{ skipDedup?: boolean }} [options] - skipDedup: true to skip duplicate check (default true for bulk)
      * @returns {{ data: Array<object>, inserted: number }}
@@ -1397,7 +1397,7 @@ class SupabaseStorage {
             await this._addFactEvent(id, 'verified', {}, user?.id, user?.user_metadata?.name || user?.email);
         }
 
-        // Sync to FalkorDB
+        // Sync to graph
         await this._addToOutbox('fact.updated', 'UPDATE', 'Fact', id, data);
 
         return data;
@@ -1462,7 +1462,7 @@ class SupabaseStorage {
     }
 
     /**
-     * Restore a soft-deleted fact (undo). Sets deleted_at = null and syncs to FalkorDB so the Fact node is recreated in the graph.
+     * Restore a soft-deleted fact (undo). Sets deleted_at = null and syncs to graph so the Fact node is recreated.
      */
     async restoreFact(id) {
         const projectId = this.getProjectId();
@@ -1483,7 +1483,7 @@ class SupabaseStorage {
         await this._addFactEvent(data.id, 'restored', {}, user?.id, user?.user_metadata?.name || user?.email);
         await this._addChangeLog('restore', 'fact', data.id, existing);
 
-        // Sync to FalkorDB (ontology/graph: recreate Fact node with same properties)
+        // Sync to graph (ontology/graph: recreate Fact node with same properties)
         await this._addToOutbox('fact.restored', 'CREATE', 'Fact', data.id, data);
 
         return data;
@@ -1687,7 +1687,7 @@ class SupabaseStorage {
     }
 
     /**
-     * Restore a soft-deleted decision; syncs back to FalkorDB
+     * Restore a soft-deleted decision; syncs back to graph
      */
     async restoreDecision(id) {
         const projectId = this.getProjectId();
@@ -1937,7 +1937,7 @@ class SupabaseStorage {
     }
 
     /**
-     * Restore a soft-deleted risk; syncs back to FalkorDB
+     * Restore a soft-deleted risk; syncs back to graph
      */
     async restoreRisk(id) {
         const projectId = this.getProjectId();
@@ -6244,7 +6244,7 @@ class SupabaseStorage {
     }
 
     /**
-     * Add to FalkorDB outbox for sync
+     * Add to graph outbox for sync
      */
     async _addToOutbox(eventType, operation, entityType, entityId, payload) {
         const projectId = this.getProjectId();

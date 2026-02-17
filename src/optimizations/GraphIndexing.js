@@ -62,7 +62,7 @@ class GraphIndexing {
         }
 
         try {
-            // FalkorDB/RedisGraph uses different syntax
+            // Some graph providers use different syntax
             // Try the CREATE INDEX syntax
             const query = `CREATE INDEX FOR (n:${label}) ON (n.${property})`;
             

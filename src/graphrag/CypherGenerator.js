@@ -213,7 +213,7 @@ RELATIONSHIP TYPES:
             ? `\nDETECTED RELATIONSHIPS: ${hints.relationHints.join(', ')}` 
             : '';
 
-        return `You are a Cypher query expert. Generate a Cypher query for FalkorDB/RedisGraph to answer the user's question.
+        return `You are a Cypher query expert. Generate a Cypher query to answer the user's question.
 
 ${schemaContext}
 ${entityHints}

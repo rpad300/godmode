@@ -51,7 +51,7 @@ class InferenceEngine {
 
     /**
      * Run all inference rules defined in the ontology
-     * SOTA v3.0 - Supports both Cypher (FalkorDB) and native (Supabase) providers
+     * SOTA v3.0 - Supports both Cypher and native (Supabase) providers
      * @returns {Promise<{ok: boolean, results?: object, error?: string}>}
      */
     async runAllRules() {
@@ -64,7 +64,7 @@ class InferenceEngine {
             return this._runNativeInference();
         }
 
-        // For Cypher-based providers (FalkorDB, Neo4j)
+        // For Cypher-based providers
         const rules = this.ontology.getInferenceCyphers();
         if (!rules || rules.length === 0) {
             log.debug({ event: 'inference_engine_no_rules' }, 'No inference rules defined');

@@ -1,6 +1,6 @@
 /**
  * Outbox Module
- * Implements the transactional outbox pattern for reliable FalkorDB sync
+ * Implements the transactional outbox pattern for reliable graph sync
  */
 
 const { getAdminClient } = require('./client');
