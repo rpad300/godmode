@@ -51,8 +51,27 @@ const UserSettingsPage = () => {
 // ==================== GENERAL ====================
 
 function GeneralSection() {
-  const [theme, setTheme] = useState('dark');
-  const [language, setLanguage] = useState('en');
+  const [theme, setTheme] = useState(() => localStorage.getItem('godmode-theme') || 'dark');
+  const [language, setLanguage] = useState(() => localStorage.getItem('godmode-language') || 'en');
+  const [dirty, setDirty] = useState(false);
+
+  const handleThemeChange = (val: string) => { setTheme(val); setDirty(true); };
+  const handleLanguageChange = (val: string) => { setLanguage(val); setDirty(true); };
+
+  const handleSave = () => {
+    localStorage.setItem('godmode-theme', theme);
+    localStorage.setItem('godmode-language', language);
+    if (theme === 'dark') document.documentElement.classList.add('dark');
+    else if (theme === 'light') document.documentElement.classList.remove('dark');
+    toast.success('Settings saved');
+    setDirty(false);
+  };
+
+  const handleCancel = () => {
+    setTheme(localStorage.getItem('godmode-theme') || 'dark');
+    setLanguage(localStorage.getItem('godmode-language') || 'en');
+    setDirty(false);
+  };
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
@@ -65,7 +84,7 @@ function GeneralSection() {
           <label className="text-sm font-medium text-foreground mb-1 block">Theme</label>
           <select
             value={theme}
-            onChange={e => setTheme(e.target.value)}
+            onChange={e => handleThemeChange(e.target.value)}
             className="w-full h-9 bg-background border border-border rounded-lg px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
           >
             <option value="light">Light</option>
@@ -79,7 +98,7 @@ function GeneralSection() {
           <label className="text-sm font-medium text-foreground mb-1 block">Language</label>
           <select
             value={language}
-            onChange={e => setLanguage(e.target.value)}
+            onChange={e => handleLanguageChange(e.target.value)}
             className="w-full h-9 bg-background border border-border rounded-lg px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
           >
             <option value="en">English</option>
@@ -100,8 +119,9 @@ function GeneralSection() {
       </div>
 
       <div className="bg-card border border-border rounded-xl p-4 flex justify-end gap-2">
-        <button className="px-4 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:bg-secondary transition-colors">Cancel</button>
-        <button className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors">
+        <button onClick={handleCancel} className="px-4 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:bg-secondary transition-colors">Cancel</button>
+        <button onClick={handleSave} disabled={!dirty}
+          className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50">
           <Check className="w-4 h-4" /> Save Settings
         </button>
       </div>
@@ -251,12 +271,29 @@ function PrivacySection() {
   const [analytics, setAnalytics] = useState(true);
   const [errorReporting, setErrorReporting] = useState(true);
   const [aiData, setAiData] = useState(false);
+  const [dirty, setDirty] = useState(false);
 
   const toggles = [
-    { label: 'Analytics', desc: 'Help improve GodMode with anonymous usage data', value: analytics, set: setAnalytics },
-    { label: 'Error Reporting', desc: 'Automatically report errors to help fix bugs', value: errorReporting, set: setErrorReporting },
-    { label: 'AI Data Improvement', desc: 'Allow anonymized data to improve AI responses', value: aiData, set: setAiData },
+    { label: 'Analytics', desc: 'Help improve GodMode with anonymous usage data', value: analytics, set: (v: boolean) => { setAnalytics(v); setDirty(true); } },
+    { label: 'Error Reporting', desc: 'Automatically report errors to help fix bugs', value: errorReporting, set: (v: boolean) => { setErrorReporting(v); setDirty(true); } },
+    { label: 'AI Data Improvement', desc: 'Allow anonymized data to improve AI responses', value: aiData, set: (v: boolean) => { setAiData(v); setDirty(true); } },
   ];
+
+  const handleSave = () => {
+    localStorage.setItem('godmode-privacy', JSON.stringify({ analytics, errorReporting, aiData }));
+    toast.success('Privacy settings saved');
+    setDirty(false);
+  };
+
+  const handleCancel = () => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('godmode-privacy') || '{}');
+      setAnalytics(saved.analytics ?? true);
+      setErrorReporting(saved.errorReporting ?? true);
+      setAiData(saved.aiData ?? false);
+    } catch { /* ignore */ }
+    setDirty(false);
+  };
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
@@ -279,8 +316,9 @@ function PrivacySection() {
       </div>
 
       <div className="bg-card border border-border rounded-xl p-4 flex justify-end gap-2">
-        <button className="px-4 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:bg-secondary transition-colors">Cancel</button>
-        <button className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors">
+        <button onClick={handleCancel} className="px-4 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:bg-secondary transition-colors">Cancel</button>
+        <button onClick={handleSave} disabled={!dirty}
+          className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50">
           <Check className="w-4 h-4" /> Save Settings
         </button>
       </div>

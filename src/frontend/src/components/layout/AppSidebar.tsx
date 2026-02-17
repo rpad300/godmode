@@ -26,6 +26,8 @@ import {
   Wrench,
   Briefcase,
   User,
+  Building2,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
@@ -69,9 +71,11 @@ const navItems = [
   { to: '/graph', label: 'Graph', icon: Share2 },
   { to: '/costs', label: 'Costs', icon: DollarSign },
   { to: '/history', label: 'History', icon: Clock },
+  { to: '/companies', label: 'Companies', icon: Building2 },
   { to: '/projects', label: 'Projects', icon: Briefcase },
   { to: '/profile', label: 'Profile', icon: User },
   { to: '/settings', label: 'Settings', icon: Settings },
+  { to: '/user-settings', label: 'User Settings', icon: SlidersHorizontal },
   { to: '/admin', label: 'Admin', icon: Shield },
 ];
 

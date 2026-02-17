@@ -19,6 +19,8 @@ import AdminPage from './pages/AdminPage';
 import ProjectsPage from './pages/ProjectsPage';
 import ProfilePage from './pages/ProfilePage';
 import LoginPage from './pages/LoginPage';
+import CompaniesPage from './pages/CompaniesPage';
+import UserSettingsPage from './pages/UserSettingsPage';
 import { ProjectProvider } from './contexts/ProjectContext';
 
 const queryClient = new QueryClient({
@@ -75,6 +77,8 @@ export default function App() {
                   <Route path="/projects" element={<ProjectsPage />} />
                   <Route path="/profile" element={<ProfilePage />} />
                   <Route path="/admin" element={<AdminPage />} />
+                  <Route path="/companies" element={<CompaniesPage />} />
+                  <Route path="/user-settings" element={<UserSettingsPage />} />
                   <Route path="*" element={<Navigate to="/dashboard" replace />} />
                 </Route>
               </Route>

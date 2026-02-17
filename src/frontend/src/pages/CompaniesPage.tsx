@@ -1,37 +1,24 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
   Building2, Plus, Eye, Edit2, FileText, Zap, Trash2, ArrowLeft,
-  Globe, ExternalLink, RefreshCw, ChevronRight, Check, Code2, Palette
+  Globe, ExternalLink, RefreshCw, ChevronRight, Check, Code2, Palette, Loader2
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { toast } from 'sonner';
+import { apiClient } from '@/lib/api-client';
 
 interface Company {
   id: string;
   name: string;
-  logoUrl: string;
-  website: string;
-  linkedin: string;
-  description: string;
-  status: 'analyzed' | 'not_analyzed';
-  colors: string[];
+  logo_url?: string;
+  website?: string;
+  linkedin?: string;
+  description?: string;
+  status?: 'analyzed' | 'not_analyzed';
+  colors?: string[];
+  report?: Record<string, string>;
 }
-
-const mockCompanies: Company[] = [
-  {
-    id: '1', name: 'CGI', logoUrl: '', website: 'https://www.cgi.com/',
-    linkedin: 'https://www.linkedin.com/company/cgi/', description: '',
-    status: 'analyzed', colors: ['#e11d48', '#1e293b'],
-  },
-  {
-    id: '2', name: 'Empresa de RPAD', logoUrl: '', website: '',
-    linkedin: '', description: '', status: 'not_analyzed', colors: [],
-  },
-  {
-    id: '3', name: 'MN8 ENERGY', logoUrl: '', website: 'https://mn8.com/',
-    linkedin: '', description: '', status: 'analyzed', colors: ['#1d4ed8', '#3b82f6'],
-  },
-];
 
 const reportSections = [
   'Ficha de Identidade', 'Visão Geral e Posicionamento', 'Produtos e Serviços',
@@ -39,34 +26,42 @@ const reportSections = [
   'Análise Competitiva', 'Indicadores de Crescimento', 'Análise SWOT', 'Conclusões e Insights',
 ];
 
-const sectionContent: Record<string, string> = {
-  'Ficha de Identidade': `Nome: CGI (CGI Inc.)
-Slogan/assinatura: "Insights you can act on" (observado no site e LinkedIn)
-Sede: Informação não disponível publicamente (nas fontes fornecidas)
-Ano de fundação: 1976 (site)
-Dimensão: "Entre as maiores empresas de serviços de consultoria de IT e negócio do mundo" (site); presença em 400 localizações e atuação em 21 setores (LinkedIn)
-Setor: Consultoria de IT e negócio; integração de sistemas; managed services; serviços aplicacionais e de infraestrutura (site)
-Website/redes: https://www.cgi.com/ | LinkedIn: https://www.linkedin.com/company/cgi/
-Contactos: Informação não disponível publicamente (nas fontes fornecidas; existe página "Contact" no site, mas sem detalhe no excerto)`,
-  'Visão Geral e Posicionamento': 'A CGI demonstra um forte posicionamento no mercado global de consultoria IT, com presença em 400+ localizações...',
-  'Análise SWOT': 'Forças: Tecnologia proprietária, Equipa experiente\nFraquezas: Baixa presença internacional em alguns mercados emergentes',
-};
-
 type CompanyPageView = 'list' | 'view' | 'edit' | 'templates';
 
 const CompaniesPage = () => {
   const [pageView, setPageView] = useState<CompanyPageView>('list');
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchCompanies = async () => {
+    try {
+      setLoading(true);
+      const data = await apiClient.get<{ companies: Company[] }>('/api/companies');
+      setCompanies(data.companies || []);
+    } catch {
+      toast.error('Failed to load companies');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchCompanies(); }, []);
 
   const openView = (company: Company, view: CompanyPageView) => {
     setSelectedCompany(company);
     setPageView(view);
   };
-  const backToList = () => { setPageView('list'); setSelectedCompany(null); };
+
+  const backToList = () => {
+    setPageView('list');
+    setSelectedCompany(null);
+    fetchCompanies();
+  };
 
   return (
     <div className="p-6 space-y-4">
-      {pageView === 'list' && <CompanyList onView={c => openView(c, 'view')} onEdit={c => openView(c, 'edit')} onTemplates={c => openView(c, 'templates')} />}
+      {pageView === 'list' && <CompanyList companies={companies} loading={loading} onView={c => openView(c, 'view')} onEdit={c => openView(c, 'edit')} onTemplates={c => openView(c, 'templates')} onRefresh={fetchCompanies} />}
       {pageView === 'view' && selectedCompany && <CompanyView company={selectedCompany} onBack={backToList} onEdit={() => setPageView('edit')} />}
       {pageView === 'edit' && selectedCompany && <CompanyEdit company={selectedCompany} onBack={backToList} onTemplates={() => setPageView('templates')} />}
       {pageView === 'templates' && selectedCompany && <CompanyTemplates company={selectedCompany} onBack={() => setPageView('edit')} />}
@@ -76,7 +71,50 @@ const CompaniesPage = () => {
 
 // ==================== LIST ====================
 
-function CompanyList({ onView, onEdit, onTemplates }: { onView: (c: Company) => void; onEdit: (c: Company) => void; onTemplates: (c: Company) => void }) {
+function CompanyList({ companies, loading, onView, onEdit, onTemplates, onRefresh }: {
+  companies: Company[]; loading: boolean;
+  onView: (c: Company) => void; onEdit: (c: Company) => void; onTemplates: (c: Company) => void; onRefresh: () => void;
+}) {
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState('');
+
+  const handleCreate = async () => {
+    if (!newName.trim()) { toast.error('Company name is required'); return; }
+    setCreating(true);
+    try {
+      await apiClient.post('/api/companies', { name: newName.trim() });
+      toast.success('Company created');
+      setNewName('');
+      onRefresh();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to create company');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleAnalyze = async (company: Company) => {
+    toast.info(`Analyzing ${company.name}...`);
+    try {
+      await apiClient.post(`/api/companies/${company.id}/analyze`, {});
+      toast.success(`${company.name} analysis started`);
+      onRefresh();
+    } catch (err: any) {
+      toast.error(err.message || 'Analysis failed');
+    }
+  };
+
+  const handleDelete = async (company: Company) => {
+    if (!confirm(`Delete ${company.name}? This cannot be undone.`)) return;
+    try {
+      await apiClient.delete(`/api/companies/${company.id}`);
+      toast.success('Company deleted');
+      onRefresh();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete');
+    }
+  };
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
       <div className="flex items-center justify-between">
@@ -84,63 +122,76 @@ function CompanyList({ onView, onEdit, onTemplates }: { onView: (c: Company) => 
           <h1 className="text-2xl font-bold text-foreground">Companies</h1>
           <p className="text-sm text-muted-foreground">Manage company profiles and assets</p>
         </div>
-        <button className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors">
-          <Plus className="w-4 h-4" /> New company
+      </div>
+
+      {/* Quick create */}
+      <div className="flex gap-2">
+        <Input value={newName} onChange={e => setNewName(e.target.value)} placeholder="New company name..." className="bg-background border-border text-sm max-w-xs"
+          onKeyDown={e => { if (e.key === 'Enter') handleCreate(); }} />
+        <button onClick={handleCreate} disabled={creating}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50">
+          {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} New company
         </button>
       </div>
 
-      <div className="space-y-3">
-        {mockCompanies.map((company, i) => (
-          <motion.div
-            key={company.id}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.05 }}
-            className="bg-card border border-border rounded-xl p-4 hover:border-primary/20 transition-colors"
-          >
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-lg bg-secondary flex items-center justify-center flex-shrink-0">
-                <span className="text-sm font-bold text-foreground">{company.name.substring(0, 3).toUpperCase()}</span>
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-semibold text-foreground">{company.name}</h3>
-                  {company.colors.length > 0 && (
-                    <div className="flex gap-0.5">
-                      {company.colors.map((c, i) => (
-                        <div key={i} className="w-3 h-3 rounded-sm" style={{ backgroundColor: c }} />
-                      ))}
-                    </div>
-                  )}
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
-                    company.status === 'analyzed' ? 'bg-accent/10 text-accent' : 'bg-muted text-muted-foreground'
-                  }`}>
-                    {company.status === 'analyzed' ? 'Analyzed' : 'Not analyzed'}
-                  </span>
+      {loading ? (
+        <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
+      ) : companies.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground text-sm">No companies yet. Create one above.</div>
+      ) : (
+        <div className="space-y-3">
+          {companies.map((company, i) => (
+            <motion.div
+              key={company.id}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.05 }}
+              className="bg-card border border-border rounded-xl p-4 hover:border-primary/20 transition-colors"
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-lg bg-secondary flex items-center justify-center flex-shrink-0">
+                  <span className="text-sm font-bold text-foreground">{company.name.substring(0, 3).toUpperCase()}</span>
                 </div>
-                {company.website && <p className="text-[10px] text-muted-foreground">{company.website}</p>}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-semibold text-foreground">{company.name}</h3>
+                    {(company.colors || []).length > 0 && (
+                      <div className="flex gap-0.5">
+                        {(company.colors || []).map((c, i) => (
+                          <div key={i} className="w-3 h-3 rounded-sm" style={{ backgroundColor: c }} />
+                        ))}
+                      </div>
+                    )}
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                      company.status === 'analyzed' ? 'bg-accent/10 text-accent' : 'bg-muted text-muted-foreground'
+                    }`}>
+                      {company.status === 'analyzed' ? 'Analyzed' : 'Not analyzed'}
+                    </span>
+                  </div>
+                  {company.website && <p className="text-[10px] text-muted-foreground">{company.website}</p>}
+                </div>
+                <div className="flex items-center gap-1 flex-shrink-0 flex-wrap">
+                  <button onClick={() => onView(company)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:bg-secondary transition-colors">
+                    <Eye className="w-3.5 h-3.5" /> View
+                  </button>
+                  <button onClick={() => onEdit(company)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:bg-secondary transition-colors">
+                    <Edit2 className="w-3.5 h-3.5" /> Edit
+                  </button>
+                  <button onClick={() => onTemplates(company)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:bg-secondary transition-colors">
+                    <FileText className="w-3.5 h-3.5" /> Templates
+                  </button>
+                  <button onClick={() => handleAnalyze(company)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:bg-secondary transition-colors">
+                    <Zap className="w-3.5 h-3.5" /> {company.status === 'analyzed' ? 'Re-analyze' : 'Analyze'}
+                  </button>
+                  <button onClick={() => handleDelete(company)} className="p-1.5 rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center gap-1 flex-shrink-0 flex-wrap">
-                <button onClick={() => onView(company)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:bg-secondary transition-colors">
-                  <Eye className="w-3.5 h-3.5" /> View
-                </button>
-                <button onClick={() => onEdit(company)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:bg-secondary transition-colors">
-                  <Edit2 className="w-3.5 h-3.5" /> Edit
-                </button>
-                <button onClick={() => onTemplates(company)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:bg-secondary transition-colors">
-                  <FileText className="w-3.5 h-3.5" /> Templates (A4 / PPT)
-                </button>
-                <button className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:bg-secondary transition-colors">
-                  <Zap className="w-3.5 h-3.5" /> {company.status === 'analyzed' ? 'Re-analyze' : 'Analyze'}
-                </button>
-                <button className="p-1.5 rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-          </motion.div>
-        ))}
-      </div>
+            </motion.div>
+          ))}
+        </div>
+      )}
     </motion.div>
   );
 }
@@ -149,6 +200,19 @@ function CompanyList({ onView, onEdit, onTemplates }: { onView: (c: Company) => 
 
 function CompanyView({ company, onBack, onEdit }: { company: Company; onBack: () => void; onEdit: () => void }) {
   const [activeSection, setActiveSection] = useState(reportSections[0]);
+  const [analyzing, setAnalyzing] = useState(false);
+
+  const handleReanalyze = async () => {
+    setAnalyzing(true);
+    try {
+      await apiClient.post(`/api/companies/${company.id}/analyze`, {});
+      toast.success('Analysis started');
+    } catch (err: any) {
+      toast.error(err.message || 'Analysis failed');
+    } finally {
+      setAnalyzing(false);
+    }
+  };
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
@@ -163,13 +227,6 @@ function CompanyView({ company, onBack, onEdit }: { company: Company; onBack: ()
         <div className="flex-1">
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold text-foreground">{company.name}</h1>
-            {company.colors.length > 0 && (
-              <div className="flex gap-0.5">
-                {company.colors.map((c, i) => (
-                  <div key={i} className="w-3 h-3 rounded-sm" style={{ backgroundColor: c }} />
-                ))}
-              </div>
-            )}
           </div>
           <div className="flex items-center gap-3 mt-1">
             {company.website && <a href={company.website} target="_blank" rel="noreferrer" className="text-xs text-primary flex items-center gap-1 hover:underline"><Globe className="w-3 h-3" /> {company.website}</a>}
@@ -177,8 +234,9 @@ function CompanyView({ company, onBack, onEdit }: { company: Company; onBack: ()
           </div>
         </div>
         <div className="flex gap-2 flex-shrink-0">
-          <button className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors">
-            <RefreshCw className="w-4 h-4" /> Re-analyze
+          <button onClick={handleReanalyze} disabled={analyzing}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50">
+            {analyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} Re-analyze
           </button>
           <button onClick={onEdit} className="text-sm text-muted-foreground hover:text-foreground transition-colors">Edit</button>
         </div>
@@ -206,7 +264,7 @@ function CompanyView({ company, onBack, onEdit }: { company: Company; onBack: ()
         <div className="flex-1 bg-card border border-border rounded-xl p-6">
           <h3 className="text-lg font-bold text-foreground mb-4">{activeSection}</h3>
           <div className="text-sm text-muted-foreground whitespace-pre-line leading-relaxed">
-            {sectionContent[activeSection] || `Conteúdo da secção "${activeSection}" — conecte ao backend para carregar dados reais.`}
+            {company.report?.[activeSection] || `Content for "${activeSection}" — run analysis to populate.`}
           </div>
         </div>
       </div>
@@ -218,10 +276,27 @@ function CompanyView({ company, onBack, onEdit }: { company: Company; onBack: ()
 
 function CompanyEdit({ company, onBack, onTemplates }: { company: Company; onBack: () => void; onTemplates: () => void }) {
   const [name, setName] = useState(company.name);
-  const [description, setDescription] = useState(company.description);
-  const [logoUrl, setLogoUrl] = useState(company.logoUrl);
-  const [website, setWebsite] = useState(company.website);
-  const [linkedin, setLinkedin] = useState(company.linkedin);
+  const [description, setDescription] = useState(company.description || '');
+  const [logoUrl, setLogoUrl] = useState(company.logo_url || '');
+  const [website, setWebsite] = useState(company.website || '');
+  const [linkedin, setLinkedin] = useState(company.linkedin || '');
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    if (!name.trim()) { toast.error('Name is required'); return; }
+    setSaving(true);
+    try {
+      await apiClient.put(`/api/companies/${company.id}`, {
+        name, description, logo_url: logoUrl, website, linkedin,
+      });
+      toast.success('Company updated');
+      onBack();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
@@ -262,7 +337,11 @@ function CompanyEdit({ company, onBack, onTemplates }: { company: Company; onBac
           </div>
 
           <div className="border-t border-border pt-4 flex justify-center gap-2">
-            <button className="px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors">Save</button>
+            <button onClick={handleSave} disabled={saving}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50">
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+              {saving ? 'Saving...' : 'Save'}
+            </button>
             <button onClick={onBack} className="px-5 py-2.5 rounded-lg border border-border text-sm text-muted-foreground hover:bg-secondary transition-colors">Cancel</button>
           </div>
         </div>
@@ -283,23 +362,50 @@ function CompanyEdit({ company, onBack, onTemplates }: { company: Company; onBac
 function CompanyTemplates({ company, onBack }: { company: Company; onBack: () => void }) {
   const [templateType, setTemplateType] = useState<'a4' | 'ppt'>('a4');
   const [codeTab, setCodeTab] = useState<'code' | 'theme'>('code');
-  const templateCode = `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>${company.name} Report</title>
-</head>
-<body>
-  <header>
-    <h1>${company.name}</h1>
-  </header>
-  <main>
-    <section class="content">
-      <!-- Report content here -->
-    </section>
-  </main>
-</body>
-</html>`;
+  const [templateCode, setTemplateCode] = useState('');
+  const [loadingTemplate, setLoadingTemplate] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const loadTemplate = async () => {
+    setLoadingTemplate(true);
+    try {
+      const data = await apiClient.get<{ template: { content: string } }>(`/api/companies/${company.id}/templates/${templateType}`);
+      setTemplateCode(data.template?.content || `<!-- No ${templateType} template yet -->`);
+      toast.success('Template loaded');
+    } catch {
+      setTemplateCode(`<!-- No ${templateType} template found -->`);
+    } finally {
+      setLoadingTemplate(false);
+    }
+  };
+
+  const handleGenerate = async () => {
+    setGenerating(true);
+    try {
+      const data = await apiClient.post<{ template: { content: string } }>(`/api/companies/${company.id}/templates/generate`, { type: templateType });
+      setTemplateCode(data.template?.content || templateCode);
+      toast.success('Template generated');
+    } catch (err: any) {
+      toast.error(err.message || 'Generation failed');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await apiClient.put(`/api/companies/${company.id}/templates/${templateType}`, { content: templateCode });
+      toast.success('Template saved');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  useEffect(() => { loadTemplate(); }, [templateType]);
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
@@ -308,185 +414,79 @@ function CompanyTemplates({ company, onBack }: { company: Company; onBack: () =>
       </button>
 
       <div className="mb-4">
-        <h1 className="text-2xl font-bold text-foreground">{company.name} – Templates (A4 / PPT)</h1>
-        <p className="text-sm text-muted-foreground">Manage the document templates for this company.</p>
+        <h1 className="text-2xl font-bold text-foreground">{company.name} – Templates</h1>
+        <p className="text-sm text-muted-foreground">Manage document templates for this company.</p>
       </div>
 
       <div className="flex items-center justify-between mb-4">
         <div className="flex gap-1">
-          <button
-            onClick={() => setTemplateType('a4')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              templateType === 'a4' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            A4 document
-          </button>
-          <button
-            onClick={() => setTemplateType('ppt')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              templateType === 'ppt' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            Presentation
-          </button>
+          {(['a4', 'ppt'] as const).map(t => (
+            <button key={t} onClick={() => setTemplateType(t)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                templateType === t ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground'
+              }`}>
+              {t === 'a4' ? 'A4 document' : 'Presentation'}
+            </button>
+          ))}
         </div>
         <div className="flex gap-2">
-          <button className="px-4 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:bg-secondary transition-colors">Load current</button>
-          <button className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors">
-            <Zap className="w-4 h-4" /> Generate base with AI
+          <button onClick={loadTemplate} disabled={loadingTemplate}
+            className="px-4 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:bg-secondary transition-colors disabled:opacity-50">
+            {loadingTemplate ? 'Loading...' : 'Load current'}
           </button>
-          <button className="px-4 py-2 rounded-lg bg-accent text-accent-foreground text-sm font-medium hover:bg-accent/90 transition-colors">Save template</button>
+          <button onClick={handleGenerate} disabled={generating}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50">
+            {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+            {generating ? 'Generating...' : 'Generate with AI'}
+          </button>
+          <button onClick={handleSave} disabled={saving}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-accent-foreground text-sm font-medium hover:bg-accent/90 transition-colors disabled:opacity-50">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+            {saving ? 'Saving...' : 'Save template'}
+          </button>
         </div>
       </div>
 
       <div className="flex gap-4">
-        {/* Code Editor */}
         <div className="flex-1">
           <div className="flex border-b border-border mb-2">
-            <button
-              onClick={() => setCodeTab('code')}
-              className={`flex items-center gap-1.5 px-3 py-2 text-sm border-b-2 transition-colors ${
-                codeTab === 'code' ? 'text-primary border-primary' : 'text-muted-foreground border-transparent'
-              }`}
-            >
-              <Code2 className="w-3.5 h-3.5" /> Code
-            </button>
-            <button
-              onClick={() => setCodeTab('theme')}
-              className={`flex items-center gap-1.5 px-3 py-2 text-sm border-b-2 transition-colors ${
-                codeTab === 'theme' ? 'text-primary border-primary' : 'text-muted-foreground border-transparent'
-              }`}
-            >
-              <Palette className="w-3.5 h-3.5" /> Theme
-            </button>
+            {(['code', 'theme'] as const).map(tab => (
+              <button key={tab} onClick={() => setCodeTab(tab)}
+                className={`flex items-center gap-1.5 px-3 py-2 text-sm border-b-2 transition-colors ${
+                  codeTab === tab ? 'text-primary border-primary' : 'text-muted-foreground border-transparent'
+                }`}>
+                {tab === 'code' ? <Code2 className="w-3.5 h-3.5" /> : <Palette className="w-3.5 h-3.5" />}
+                {tab === 'code' ? 'Code' : 'Theme'}
+              </button>
+            ))}
           </div>
-          <div className="bg-background border border-border rounded-lg p-4 font-mono text-xs text-muted-foreground whitespace-pre overflow-auto h-[500px] scrollbar-thin">
-            {templateCode}
-          </div>
+          <textarea
+            value={templateCode}
+            onChange={e => setTemplateCode(e.target.value)}
+            className="w-full bg-background border border-border rounded-lg p-4 font-mono text-xs text-muted-foreground h-[500px] scrollbar-thin resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+          />
         </div>
 
-        {/* Preview */}
         <div className="w-[320px] flex-shrink-0">
           <p className="text-xs text-muted-foreground mb-2 uppercase tracking-wider">Preview</p>
-
-          {templateType === 'ppt' ? (
-            /* PPT / Presentation Preview - slides stacked */
-            <div className="space-y-3 overflow-y-auto h-[500px] scrollbar-thin pr-1">
-              {/* Slide 1 - Cover */}
-              <div className="bg-white border border-border rounded-lg overflow-hidden shadow-sm">
-                <div className="border-l-4 border-destructive p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 bg-muted rounded flex items-center justify-center">
-                        <span className="text-[7px] font-bold text-muted-foreground">{company.name.substring(0, 3)}</span>
-                      </div>
-                      <div>
-                        <p className="text-[9px] font-bold text-foreground">{company.name}</p>
-                        <p className="text-[7px] text-muted-foreground">Presentation Template</p>
-                      </div>
-                    </div>
-                    <div className="flex gap-1">
-                      <span className="text-[7px] px-1.5 py-0.5 rounded border border-border text-muted-foreground">Primary #D71920</span>
-                      <span className="text-[7px] px-1.5 py-0.5 rounded border border-border text-muted-foreground">Secondary #111827</span>
-                    </div>
-                  </div>
-                  <p className="text-[8px] text-muted-foreground uppercase tracking-wider mb-1">— REPORT / DECK</p>
-                  <div className="bg-muted/30 border border-border rounded-lg p-3 mt-1">
-                    <h3 className="text-sm font-bold text-foreground">{company.name}</h3>
-                    <h3 className="text-sm font-bold text-foreground">Executive Summary</h3>
-                    <p className="text-[9px] text-muted-foreground mt-1">Replace placeholders with your content. Use this slide for the report title, date, audience, and context.</p>
-                  </div>
+          <div className="bg-white border border-border rounded-lg overflow-hidden h-[500px]">
+            <div className="h-1.5 bg-destructive" />
+            <div className="p-5">
+              <div className="flex items-center gap-2 mb-5">
+                <div className="w-8 h-8 bg-muted rounded flex items-center justify-center">
+                  <span className="text-[8px] font-bold text-muted-foreground">{company.name.substring(0, 3)}</span>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold text-foreground">{company.name}</p>
+                  <p className="text-[8px] text-muted-foreground">{templateType === 'a4' ? 'Document' : 'Presentation'} Template</p>
                 </div>
               </div>
-
-              {/* Slide 2 - Overview */}
-              <div className="bg-white border border-border rounded-lg overflow-hidden shadow-sm">
-                <div className="border-l-4 border-destructive p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 bg-muted rounded flex items-center justify-center">
-                        <span className="text-[6px] font-bold text-muted-foreground">{company.name.substring(0, 3)}</span>
-                      </div>
-                      <div>
-                        <p className="text-[8px] font-bold text-foreground">{company.name}</p>
-                        <p className="text-[7px] text-muted-foreground">Overview</p>
-                      </div>
-                    </div>
-                    <span className="text-[8px] text-muted-foreground">Section 01</span>
-                  </div>
-                  <h4 className="text-xs font-bold text-foreground mb-1">Overview</h4>
-                  <p className="text-[9px] text-muted-foreground mb-2">Use this slide for key messages, objectives, scope, and high-level context.</p>
-                  <div className="border border-border rounded p-2 flex items-center justify-between">
-                    <span className="text-[8px] font-bold text-foreground">REPORT DATA</span>
-                    <div className="w-2 h-2 rounded-sm bg-destructive" />
-                  </div>
-                </div>
-              </div>
-
-              {/* Slide 3 - Findings */}
-              <div className="bg-white border border-border rounded-lg overflow-hidden shadow-sm">
-                <div className="border-l-4 border-destructive p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 bg-muted rounded flex items-center justify-center">
-                        <span className="text-[6px] font-bold text-muted-foreground">{company.name.substring(0, 3)}</span>
-                      </div>
-                      <div>
-                        <p className="text-[8px] font-bold text-foreground">{company.name}</p>
-                        <p className="text-[7px] text-muted-foreground">Findings</p>
-                      </div>
-                    </div>
-                    <span className="text-[8px] text-muted-foreground">Section 02</span>
-                  </div>
-                  <h4 className="text-xs font-bold text-foreground mb-1">Findings</h4>
-                  <p className="text-[9px] text-muted-foreground mb-2">Summarize insights, trends, and supporting evidence. Keep each slide to one main idea.</p>
-                  <div className="border border-border rounded p-2 flex items-center justify-between">
-                    <span className="text-[8px] font-bold text-foreground">REPORT DATA</span>
-                    <div className="w-2 h-2 rounded-sm bg-destructive" />
-                  </div>
-                </div>
+              <div className="text-[9px] text-muted-foreground whitespace-pre-wrap font-mono max-h-[400px] overflow-auto">
+                {templateCode.substring(0, 500)}
+                {templateCode.length > 500 && '...'}
               </div>
             </div>
-          ) : (
-            /* A4 Document Preview */
-            <div className="bg-white border border-border rounded-lg overflow-hidden h-[500px]">
-              <div className="h-1.5 bg-destructive" />
-              <div className="p-5">
-                <div className="flex items-center justify-between mb-5">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 bg-muted rounded flex items-center justify-center">
-                      <span className="text-[8px] font-bold text-muted-foreground">{company.name.substring(0, 3)}</span>
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-bold text-foreground">{company.name}</p>
-                      <p className="text-[8px] text-muted-foreground">Professional Report Template</p>
-                    </div>
-                  </div>
-                  <span className="text-[8px] px-2 py-0.5 rounded border border-destructive text-destructive font-medium">CONFIDENTIAL</span>
-                </div>
-                <div className="space-y-4">
-                  <div>
-                    <h4 className="text-xs font-bold text-foreground">1. Ficha de Identidade</h4>
-                    <p className="text-[10px] text-muted-foreground"><strong>Nome:</strong> {company.name}</p>
-                    <p className="text-[10px] text-muted-foreground"><strong>Setor:</strong> Consultoria Tecnológica</p>
-                    <p className="text-[10px] text-muted-foreground"><strong>Descrição:</strong> Empresa líder em inovação...</p>
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-bold text-foreground">2. Visão Geral</h4>
-                    <p className="text-[10px] text-muted-foreground">A {company.name} demonstra um forte posicionamento no mercado...</p>
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-bold text-foreground">3. Análise SWOT</h4>
-                    <ul className="text-[10px] text-muted-foreground list-disc pl-3 space-y-0.5">
-                      <li><strong>Forças:</strong> Tecnologia proprietária, Equipa experiente</li>
-                      <li><strong>Fraquezas:</strong> Baixa presença internacional</li>
-                    </ul>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
+          </div>
         </div>
       </div>
     </motion.div>
