@@ -33,6 +33,13 @@
  *     your provider.
  */
 
+/**
+ * Validates graph-vs-storage consistency and optionally auto-repairs drift.
+ *
+ * Report status levels: 'healthy' (no issues), 'warning' (info/warnings only),
+ * 'unhealthy' (errors found), 'error' (check itself failed), 'skipped'
+ * (graph not connected).
+ */
 class IntegrityCheck {
     constructor(options = {}) {
         this.graphProvider = options.graphProvider;
@@ -199,7 +206,9 @@ class IntegrityCheck {
     }
 
     /**
-     * Auto-fix issues
+     * Attempt to repair issues found by `runCheck`. Currently handles:
+     *   - Orphaned nodes: deletes them (preserving Person/Project/Org/Technology)
+     * Pass the report object returned by `runCheck` so fixes are targeted.
      */
     async autoFix(report) {
         const fixes = [];

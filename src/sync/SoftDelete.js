@@ -40,6 +40,16 @@ const { logger } = require('../logger');
 
 const log = logger.child({ module: 'soft-delete' });
 
+/**
+ * "Trash can" manager that holds soft-deleted entities until their retention
+ * window expires.
+ *
+ * Internal storage: Map<entityType, deletedItem[]> persisted as a JSON file.
+ * Each item carries metadata prefixed with `_` (_deleted, _deletedAt,
+ * _deletedBy, _expiresAt, _originalType).
+ *
+ * Invariant: `getDeleted()` always returns items sorted newest-first.
+ */
 class SoftDelete {
     constructor(options = {}) {
         this.dataDir = options.dataDir || './data';
@@ -133,7 +143,9 @@ class SoftDelete {
     }
 
     /**
-     * Restore a deleted item
+     * Remove an item from the soft-delete pool and return it with all `_`
+     * metadata stripped. Returns null if no matching item exists.
+     * The caller is responsible for re-inserting the entity into storage.
      */
     restore(type, itemId) {
         const items = this.deletedItems.get(type) || [];
@@ -159,7 +171,9 @@ class SoftDelete {
     }
 
     /**
-     * Permanently delete expired items
+     * Permanently remove all items whose `_expiresAt` is in the past.
+     * Typically called by RetentionPolicy on a schedule.
+     * @returns {number} Count of purged items
      */
     purgeExpired() {
         const now = new Date();

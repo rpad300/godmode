@@ -1,6 +1,28 @@
 /**
- * Role-based Filters
- * Filter and prioritize content based on role relevance
+ * Purpose:
+ *   Scores and filters all knowledge items (facts, decisions, risks, actions,
+ *   questions) by their relevance to a given role and role-prompt, so the UI
+ *   and reports show only what matters to the current user.
+ *
+ * Responsibilities:
+ *   - Build a relevance keyword set from template keywords + extracted role-prompt terms
+ *   - Score arbitrary content strings against that keyword set (base 30, +10 per hit)
+ *   - Per-type filter methods with configurable threshold and limit, plus domain-specific
+ *     boosting (e.g., high-impact risks get +20, overdue actions get +25)
+ *   - Aggregate filtered knowledge via getFilteredKnowledge()
+ *   - Produce a relevance summary showing total vs high-relevance counts per category
+ *
+ * Key dependencies:
+ *   - ./RoleTemplates: supplies keywords associated with template roles
+ *   - storage (injected): project-scoped storage for reading knowledge and questions
+ *
+ * Side effects:
+ *   - None (read-only computation)
+ *
+ * Notes:
+ *   - Keyword matching is case-insensitive substring search; it favours recall over precision.
+ *   - Scores are clamped to [0, 100]. The default threshold of 40 for facts and 30 for
+ *     other types reflects that facts have a higher base score from more verbose content.
  */
 
 const { getRoleTemplates } = require('./RoleTemplates');

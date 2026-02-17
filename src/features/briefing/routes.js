@@ -1,10 +1,43 @@
 /**
- * Briefing API
- * Extracted from server.js
+ * Purpose:
+ *   AI-generated daily project briefing with multi-layer caching (Supabase,
+ *   in-memory) and a history endpoint for past briefings.
  *
- * Handles:
- * - GET /api/briefing - AI-generated daily briefing (cached)
- * - GET /api/briefing/history - Get briefing history
+ * Responsibilities:
+ *   - Generate a structured daily briefing with project health, critical items,
+ *     trend analysis, and an executive summary paragraph
+ *   - Three-tier cache: Supabase (persistent), memory (fast), force-refresh bypass
+ *   - Parse LLM response to separate bullet-point briefing from analysis section
+ *   - Save generated briefings to Supabase and optionally sync to knowledge graph
+ *   - Retrieve paginated briefing history
+ *
+ * Key dependencies:
+ *   - storage (ctx): stats, questions, risks, actions, facts, project, briefing persistence
+ *   - llm (ctx): text generation for briefing content
+ *   - ../../llm/config: LLM provider/model resolution
+ *   - ../../supabase/comments: fetches recent task comments for briefing context
+ *   - ../../sync.getGraphSync: optional graph sync for generated briefings
+ *   - briefingCache / isBriefingCacheValid (ctx): in-memory cache management
+ *
+ * Side effects:
+ *   - GET /api/briefing may call the LLM (incurs cost) when cache is stale
+ *   - Writes briefing to Supabase and updates in-memory cache
+ *   - Syncs briefing node to knowledge graph if connected
+ *
+ * Notes:
+ *   - Cache hierarchy: Supabase first, then memory, then regenerate
+ *   - Force refresh via ?refresh=true bypasses all caches
+ *   - The prompt uses /no_think prefix to suppress LLM chain-of-thought
+ *   - Post-processing strips LLM preamble (e.g., "Okay, let me...") before the bullets
+ *   - Analysis is separated from the briefing by "---ANALYSIS---" or heuristic detection
+ *   - User role and role prompt from project settings tailor the briefing perspective
+ *   - Recent task comments (up to 10 in-progress actions, 3 comments each) provide
+ *     qualitative context capped at 1500 characters
+ *
+ * Routes:
+ *   GET /api/briefing/history  - Paginated history (?limit=N, default 30)
+ *   GET /api/briefing          - Daily briefing (cached, ?refresh=true to force)
+ *       Response: { briefing, analysis, generated_at, stats, cached?, cacheSource? }
  */
 
 const { parseUrl } = require('../../server/request');

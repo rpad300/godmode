@@ -1,10 +1,74 @@
 /**
- * Roles API (./roles module - templates, suggest, dashboard, analytics, etc.)
- * Extracted from server.js
+ * Purpose:
+ *   Full-featured roles management API. Powers role-based UX: template browsing,
+ *   AI role suggestions, dashboards, analytics, notifications, role history,
+ *   perspective switching, filtered knowledge, collaborative user management,
+ *   calendar integration, onboarding, and role-scoped exports.
  *
- * Handles: /api/roles/templates, suggest, generate, dashboard, analytics,
- * notifications, history, perspective, filtered-knowledge, users, calendar,
- * onboarding, export
+ * Responsibilities:
+ *   - Role templates: list all, get by ID (loaded from Supabase)
+ *   - AI suggestions: suggest role prompt improvements, generate role from title
+ *   - Dashboard: role-aware project dashboard with KPIs
+ *   - Analytics: track user interactions, role-scoped analytics dashboard
+ *   - Notifications: list, create, and mark-as-read role-targeted notifications
+ *   - History: role change log with timeline and insights
+ *   - Perspective: temporary role switching (start, get, end perspective)
+ *   - Filtered knowledge: role-relevant subset of the knowledge base
+ *   - Users: collaborative user management (list, add, update, delete)
+ *   - Calendar: event management, iCal import, briefing context for role
+ *   - Onboarding: steps, quick setup options, tips, completion processing
+ *   - Export: role-scoped reports (markdown/html/json) and executive summaries
+ *
+ * Key dependencies:
+ *   - ../../roles: all role subsystem modules (getRoleTemplates, getAIRoleSuggestions,
+ *     getRoleDashboard, getRoleAnalytics, getSmartNotifications, getRoleHistory,
+ *     getQuickRoleSwitch, getRoleFilters, getCollaborativeRoles, getCalendarIntegration,
+ *     getRoleOnboarding, getRoleExport)
+ *   - ctx.storage: project data, current project context
+ *   - ctx.supabase.auth: user authentication for /api/roles/users sync
+ *   - config.llm: LLM config for AI role suggestions
+ *
+ * Side effects:
+ *   - Analytics tracking writes to local data directory
+ *   - Notifications are persisted to local data directory
+ *   - Perspective switch and onboarding completion update project settings via storage
+ *   - Role history changes are recorded on each role/perspective change
+ *   - Calendar events and iCal imports are stored locally
+ *   - Authenticated user is auto-synced to collaborative roles list on /users GET
+ *
+ * Notes:
+ *   - dataDir is resolved from config or storage for local file-based modules
+ *   - The /api/roles/users GET endpoint silently adds the authenticated user if missing
+ *   - Export supports markdown, html, and json formats; markdown/html are returned as downloads
+ *   - All routes are wrapped in a top-level try/catch returning 500 on error
+ *
+ * Routes (summary -- 25+ endpoints):
+ *   GET    /api/roles/templates              - All role templates with categories
+ *   GET    /api/roles/templates/:id          - Single template by ID
+ *   POST   /api/roles/suggest                - AI role prompt suggestion
+ *   POST   /api/roles/generate               - Generate role definition from title
+ *   GET    /api/roles/dashboard              - Role-aware project dashboard
+ *   POST   /api/roles/analytics/track        - Track a role interaction event
+ *   GET    /api/roles/analytics              - Role analytics dashboard
+ *   GET    /api/roles/notifications           - Notifications for current role
+ *   POST   /api/roles/notifications           - Create a notification
+ *   POST   /api/roles/notifications/read      - Mark notifications as read
+ *   GET    /api/roles/history                - Role change history and insights
+ *   POST   /api/roles/perspective            - Switch to a temporary role perspective
+ *   GET    /api/roles/perspective            - Get current effective role
+ *   DELETE /api/roles/perspective            - End temporary perspective
+ *   GET    /api/roles/filtered-knowledge     - Knowledge filtered by role relevance
+ *   GET    /api/roles/users                  - List collaborative users
+ *   POST   /api/roles/users                  - Add a collaborative user
+ *   PUT    /api/roles/users/:id              - Update a user
+ *   DELETE /api/roles/users/:id              - Remove a user
+ *   GET    /api/roles/calendar               - Upcoming events and briefing context
+ *   POST   /api/roles/calendar               - Add calendar event
+ *   POST   /api/roles/calendar/import        - Import iCal data
+ *   GET    /api/roles/onboarding             - Onboarding steps and status
+ *   POST   /api/roles/onboarding/complete    - Complete onboarding, set role
+ *   GET    /api/roles/export                 - Role-scoped report (md/html/json)
+ *   GET    /api/roles/export/executive       - Executive summary for current role
  */
 
 const { parseBody, parseUrl } = require('../../server/request');

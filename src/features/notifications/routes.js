@@ -1,6 +1,30 @@
 /**
- * Notifications Routes
- * Extracted from src/server.js for modularization
+ * Purpose:
+ *   User notification management API routes. Provides listing, unread count,
+ *   mark-as-read (single and bulk), and deletion of notifications.
+ *
+ * Responsibilities:
+ *   - GET /api/notifications: List notifications with pagination, unread filter, and project scope
+ *   - GET /api/notifications/count: Get unread notification count (graceful degradation: returns 0
+ *     if auth missing, module unavailable, or any error occurs)
+ *   - POST /api/notifications/:id/read: Mark a single notification as read
+ *   - POST /api/notifications/read-all: Mark all notifications as read (optionally per project)
+ *   - DELETE /api/notifications/:id: Delete a notification
+ *
+ * Key dependencies:
+ *   - supabase.notifications: Data access with getForUser, getUnreadCount, markAsRead,
+ *     markAllAsRead, delete methods
+ *   - supabase.auth: Token extraction and user verification
+ *
+ * Side effects:
+ *   - Database: updates read status, deletes notifications
+ *
+ * Notes:
+ *   - The /count endpoint is designed to never fail from the client's perspective;
+ *     it returns { count: 0 } for all error paths, including missing auth, to avoid
+ *     UI error states for a non-critical feature
+ *   - All write endpoints require authentication (401 on failure)
+ *   - Project-scoped filtering is optional via project_id query param or body field
  */
 
 const { parseUrl, parseBody } = require('../../server/request');

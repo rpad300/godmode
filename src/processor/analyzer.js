@@ -1,6 +1,40 @@
 /**
- * Document Analyzer Module
- * Handles LLM interactions, prompt construction, and result parsing.
+ * Purpose:
+ *   Orchestrates LLM-based extraction from documents, transcripts, and images.
+ *   Owns prompt construction, AI response parsing, JSON sanitisation, validation,
+ *   and post-extraction intelligence (auto-resolve questions, auto-complete actions).
+ *
+ * Responsibilities:
+ *   - Build extraction prompts (document, transcript, vision) with ontology context
+ *   - Load prompt templates from Supabase; fall back to hard-coded defaults
+ *   - Call the configured LLM provider via the unified llm module
+ *   - Parse and sanitise (often malformed) JSON from AI responses
+ *   - Validate extraction results against the schema (when validators are present)
+ *   - Auto-resolve pending questions when new facts provide answers
+ *   - Auto-complete pending action items when completion keywords appear
+ *   - Generate concise AI-powered file summaries (title + summary)
+ *   - Suggest question assignees based on name/role matching
+ *
+ * Key dependencies:
+ *   - ../llm: Provider-agnostic text and vision generation
+ *   - ../llm/config: Centralised model/provider resolution
+ *   - ../prompts (OntologyAwarePrompts): Ontology-enriched prompt building
+ *   - ../supabase/prompts (optional): DB-stored prompt templates
+ *   - ../validators (optional): Extraction output schema validation
+ *   - ../logger: Structured logging (pino)
+ *
+ * Side effects:
+ *   - Network calls to LLM APIs (text + vision)
+ *   - May read/write storage via question resolution and action completion
+ *   - Inserts a 50 ms delay between LLM calls to avoid rate-limiting
+ *
+ * Notes:
+ *   - sanitizeJSON() + fixStringsInJSON() handle trailing commas, unquoted keys,
+ *     NaN/Infinity, unclosed braces, and raw newlines inside strings -- all
+ *     common in LLM output
+ *   - cleanOCROutput() strips reasoning preamble that vision models sometimes
+ *     emit before the actual extracted text
+ *   - isGarbageQuestion() filters out meta-questions about the slide/image itself
  */
 const { logger: rootLogger } = require('../logger');
 const llm = require('../llm');

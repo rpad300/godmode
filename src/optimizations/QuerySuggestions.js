@@ -1,8 +1,29 @@
 /**
- * Query Suggestions Module
- * Suggests queries based on history and graph structure
- * 
- * Refactored to use Supabase instead of local JSON files
+ * Purpose:
+ *   Provide typeahead-style query suggestions by combining user history
+ *   from Supabase, popularity rankings, and predefined query templates.
+ *
+ * Responsibilities:
+ *   - Record executed queries to Supabase for history tracking
+ *   - Build and cache popularity and pattern statistics from query history
+ *   - Return ranked suggestions for a partial query string (autocomplete
+ *     from DB, popular from cache, templates by pattern)
+ *   - Find related queries by shared topic/question-type patterns
+ *   - Provide insight summaries (top patterns, popular queries, totals)
+ *
+ * Key dependencies:
+ *   - ../supabase/storageHelper: query history reads/writes (soft-loaded)
+ *   - graphProvider (injected): reserved for future graph-aware suggestions
+ *
+ * Side effects:
+ *   - Reads from and writes to the Supabase query history tables
+ *   - In-memory cache refreshes every 5 minutes
+ *
+ * Notes:
+ *   - Template suggestions are statically defined and not personalized;
+ *     they use placeholder brackets like [project] or [date].
+ *   - clearHistory only clears the in-memory cache; Supabase data persists
+ *     and will be reloaded on the next cache refresh.
  */
 
 const { logger } = require('../logger');

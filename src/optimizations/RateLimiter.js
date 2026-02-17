@@ -1,6 +1,33 @@
 /**
- * Rate Limiter Module
- * Protection against API abuse with sliding window rate limiting
+ * Purpose:
+ *   Protect API endpoints from abuse using a sliding-window rate limiter
+ *   with per-type limits, automatic blocking, and Express middleware
+ *   integration.
+ *
+ * Responsibilities:
+ *   - Track request timestamps per key (IP or identifier) in a sliding
+ *     window and allow/deny based on configurable limits per type
+ *     (default, chat, embeddings, graph, export)
+ *   - Automatically block keys after 10 rate-limit violations
+ *   - Provide Express middleware that sets standard rate-limit headers
+ *     (X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset)
+ *     and returns HTTP 429 when exceeded
+ *   - Periodically clean up stale timestamp entries (every 60s)
+ *
+ * Key dependencies:
+ *   - None (self-contained, in-memory implementation)
+ *
+ * Side effects:
+ *   - Starts a cleanup setInterval on construction
+ *   - The middleware method sends HTTP responses directly (429)
+ *
+ * Notes:
+ *   - All state is in-memory; a server restart clears all counters and
+ *     blocks. For distributed deployments, an external store (Redis) would
+ *     be needed.
+ *   - The sliding window filters old timestamps on every check call, so
+ *     per-request overhead scales with the window size.
+ *   - Call destroy() before shutdown to clear the cleanup interval.
  */
 
 const { logger } = require('../logger');

@@ -1,3 +1,28 @@
+/**
+ * Purpose:
+ *   Source of Truth (SOT) management page. Provides tabbed CRUD interfaces for
+ *   the five core knowledge entity types: Questions, Facts, Risks, Actions, and Decisions.
+ *
+ * Responsibilities:
+ *   - Fetch all five entity lists in parallel on mount
+ *   - Render tab navigation with live item counts per entity type
+ *   - Delegate rendering and inline editing to dedicated panel components
+ *   - Wire save operations: auto-detect create vs update based on server data existence
+ *   - Wire delete operations per entity type
+ *
+ * Key dependencies:
+ *   - useQuestions / useFacts / useRisks / useActions / useDecisions (useGodMode): query hooks
+ *   - useCreate* / useUpdate* / useDelete* (useGodMode): mutation hooks for each entity
+ *   - QuestionsPanel / FactsPanel / RisksPanel / ActionsPanel / DecisionsPanel: UI panels
+ *
+ * Side effects:
+ *   - Network: fetches all five SOT entity lists, performs CRUD mutations
+ *
+ * Notes:
+ *   - `makeSaveHandler` detects whether an item exists server-side by ID to decide
+ *     between create (strips client ID) and update. This enables optimistic local IDs.
+ *   - This is the canonical SOT page; SourceOfTruthPage.tsx re-exports this component.
+ */
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Loader2 } from 'lucide-react';

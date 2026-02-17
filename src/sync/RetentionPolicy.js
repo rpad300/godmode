@@ -40,6 +40,18 @@ const { logger } = require('../logger');
 
 const log = logger.child({ module: 'retention-policy' });
 
+/**
+ * Policy engine for time-based data lifecycle management.
+ *
+ * Policies are stored as a JSON file and executed on demand via `execute()`.
+ * Each policy has a type (soft_delete, audit_log, backup, orphan) and a
+ * retention window in days. The engine dispatches to the appropriate module
+ * (SoftDelete.purgeExpired, BackupBeforeDelete.deleteBackup, graphProvider
+ * Cypher) based on policy type.
+ *
+ * Invariant: policies are disabled globally by default to prevent surprise
+ * data loss on first run.
+ */
 class RetentionPolicy {
     constructor(options = {}) {
         this.dataDir = options.dataDir || './data';
@@ -154,7 +166,11 @@ class RetentionPolicy {
     }
 
     /**
-     * Execute retention policies
+     * Run all enabled retention policies sequentially.
+     *
+     * @param {object} dependencies - Injected module instances:
+     *   { softDelete, auditLog, backupBeforeDelete, graphProvider }
+     * @returns {Promise<object>} Execution summary with per-policy results
      */
     async execute(dependencies = {}) {
         if (!this.policies.enabled) {
