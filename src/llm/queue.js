@@ -106,9 +106,14 @@ class LLMQueueManager extends EventEmitter {
         
         // ID counter
         this.idCounter = 0;
-        
+
         // Retry processor interval
         this.retryInterval = null;
+
+        // BYOK: Cache for project API keys (avoids DB lookup on every request)
+        // Key: "projectId:provider", Value: { apiKey, source, resolvedAt }
+        this.byokCache = new Map();
+        this.byokCacheTTL = 60000; // 60 seconds
         
         // Initialize database connection
         this.initDatabase();
@@ -141,6 +146,77 @@ class LLMQueueManager extends EventEmitter {
             return cfg?.provider || currentProvider || 'unknown';
         } catch {
             return currentProvider || 'unknown';
+        }
+    }
+
+    /**
+     * BYOK: Normalize provider aliases to canonical names
+     * e.g., 'claude' → 'anthropic', 'gemini' → 'google', 'xai' → 'grok'
+     */
+    normalizeProvider(provider) {
+        const aliases = {
+            claude: 'anthropic',
+            gemini: 'google',
+            xai: 'grok'
+        };
+        return aliases[provider] || provider;
+    }
+
+    /**
+     * BYOK: Resolve API key for a project/provider combination
+     * Priority: project secret > system secret > existing providerConfig
+     * Uses in-memory cache to avoid DB calls on every request
+     * @param {string} provider - Provider name (e.g., 'openai', 'anthropic')
+     * @param {string} projectId - Project UUID
+     * @returns {Promise<{apiKey: string, source: string}|null>} - Resolved key or null
+     */
+    async resolveProjectApiKey(provider, projectId) {
+        if (!provider || !projectId) return null;
+
+        const normalizedProvider = this.normalizeProvider(provider);
+        const cacheKey = `${projectId}:${normalizedProvider}`;
+
+        // Check cache first
+        const cached = this.byokCache.get(cacheKey);
+        if (cached && (Date.now() - cached.resolvedAt) < this.byokCacheTTL) {
+            return cached.apiKey ? { apiKey: cached.apiKey, source: cached.source } : null;
+        }
+
+        try {
+            const secrets = require('../supabase/secrets');
+            const result = await secrets.getProviderApiKey(normalizedProvider, projectId);
+
+            if (result.success && result.value) {
+                // Cache the resolved key
+                this.byokCache.set(cacheKey, {
+                    apiKey: result.value,
+                    source: result.source, // 'project' or 'system'
+                    resolvedAt: Date.now()
+                });
+                return { apiKey: result.value, source: result.source };
+            }
+
+            // Cache the miss too (avoid repeated DB lookups)
+            this.byokCache.set(cacheKey, { apiKey: null, source: null, resolvedAt: Date.now() });
+            return null;
+        } catch (err) {
+            log.warn({ event: 'llm_queue_byok_resolve_error', provider: normalizedProvider, projectId, reason: err.message }, 'BYOK key resolution error (continuing with default)');
+            return null;
+        }
+    }
+
+    /**
+     * BYOK: Invalidate cache for a project (called when keys are updated)
+     */
+    invalidateByokCache(projectId = null) {
+        if (!projectId) {
+            this.byokCache.clear();
+            return;
+        }
+        for (const key of this.byokCache.keys()) {
+            if (key.startsWith(`${projectId}:`)) {
+                this.byokCache.delete(key);
+            }
         }
     }
 
@@ -268,10 +344,27 @@ class LLMQueueManager extends EventEmitter {
             provider: dbRequest.provider,
             model: dbRequest.model,
             context: dbRequest.context,
+            projectId: dbRequest.projectId || dbRequest.inputData?.projectId || null,
             _operation: dbRequest.requestType,
             providerConfig  // Add current provider config with API key
         };
-        
+
+        // BYOK: Resolve project-specific API key for retry
+        if (request.projectId && request.provider) {
+            try {
+                const byokResult = await this.resolveProjectApiKey(request.provider, request.projectId);
+                if (byokResult) {
+                    request.providerConfig = {
+                        ...request.providerConfig,
+                        apiKey: byokResult.apiKey
+                    };
+                    log.debug({ event: 'llm_queue_byok_retry_resolved', provider: request.provider, source: byokResult.source, projectId: request.projectId }, `BYOK retry: Using ${byokResult.source} API key`);
+                }
+            } catch (byokError) {
+                log.warn({ event: 'llm_queue_byok_retry_error', reason: byokError.message }, 'BYOK retry resolution error (continuing with default)');
+            }
+        }
+
         const key = this.getConcurrencyKey(request);
         
         // Check if this key is already processing
@@ -543,7 +636,24 @@ class LLMQueueManager extends EventEmitter {
                 log.warn({ event: 'llm_queue_balance_check_error', reason: balanceError.message }, 'Balance check error (continuing)');
             }
         }
-        
+
+        // BYOK: Resolve project-specific API key before execution
+        if (projectId && item.request.provider) {
+            try {
+                const byokResult = await this.resolveProjectApiKey(item.request.provider, projectId);
+                if (byokResult) {
+                    // Override the API key in providerConfig
+                    item.request.providerConfig = {
+                        ...(item.request.providerConfig || {}),
+                        apiKey: byokResult.apiKey
+                    };
+                    log.debug({ event: 'llm_queue_byok_resolved', id: item.id, provider: item.request.provider, source: byokResult.source, projectId }, `BYOK: Using ${byokResult.source} API key`);
+                }
+            } catch (byokError) {
+                log.warn({ event: 'llm_queue_byok_error', reason: byokError.message }, 'BYOK resolution error (continuing with default key)');
+            }
+        }
+
         try {
             // Execute the LLM request
             const result = await this.executeRequest(item);

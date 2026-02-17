@@ -132,7 +132,8 @@ async function claimNextRequest(projectId = null) {
         model: row.model,
         inputData: row.input_data,
         priority: row.req_priority,
-        attemptCount: row.attempt_count
+        attemptCount: row.attempt_count,
+        projectId: row.req_project_id || null
       }
     };
   } catch (error) {

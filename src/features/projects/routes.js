@@ -984,6 +984,171 @@ async function handleProjects({ req, res, pathname, supabase, storage, config, s
         return true;
     }
 
+    // ==========================================
+    // BYOK (Bring Your Own Key) Routes
+    // ==========================================
+
+    // GET /api/projects/:id/providers - List providers with BYOK status
+    const byokListMatch = pathname.match(/^\/api\/projects\/([^/]+)\/providers$/);
+    if (byokListMatch && req.method === 'GET') {
+        const projectId = byokListMatch[1];
+        if (!isValidUUID(projectId)) {
+            jsonResponse(res, { error: 'Invalid project ID: must be a UUID' }, 400);
+            return true;
+        }
+        if (!supabase || !supabase.isConfigured()) {
+            jsonResponse(res, { error: 'Not configured' }, 503);
+            return true;
+        }
+        try {
+            const secrets = require('../../supabase/secrets');
+            const result = await secrets.getConfiguredProviders(projectId);
+            if (result.success) {
+                jsonResponse(res, { providers: result.providers });
+            } else {
+                jsonResponse(res, { error: result.error }, 500);
+            }
+        } catch (e) {
+            log.warn({ event: 'byok_list_error', reason: e.message }, 'Error listing BYOK providers');
+            jsonResponse(res, { error: e.message }, 500);
+        }
+        return true;
+    }
+
+    // PUT /api/projects/:id/providers/:provider/key - Set provider API key for project
+    const byokSetMatch = pathname.match(/^\/api\/projects\/([^/]+)\/providers\/([^/]+)\/key$/);
+    if (byokSetMatch && req.method === 'PUT') {
+        const projectId = byokSetMatch[1];
+        const provider = byokSetMatch[2];
+        if (!isValidUUID(projectId)) {
+            jsonResponse(res, { error: 'Invalid project ID: must be a UUID' }, 400);
+            return true;
+        }
+        if (!supabase || !supabase.isConfigured()) {
+            jsonResponse(res, { error: 'Not configured' }, 503);
+            return true;
+        }
+
+        // Authenticate user
+        const token = supabase.auth.extractToken(req);
+        const userResult = await supabase.auth.getUser(token);
+        if (!userResult.success) {
+            jsonResponse(res, { error: 'Authentication required' }, 401);
+            return true;
+        }
+
+        const body = await parseBody(req);
+        if (!body.apiKey || typeof body.apiKey !== 'string' || body.apiKey.trim().length === 0) {
+            jsonResponse(res, { error: 'apiKey is required' }, 400);
+            return true;
+        }
+
+        try {
+            const secrets = require('../../supabase/secrets');
+            const result = await secrets.setProviderApiKey(
+                provider,
+                body.apiKey.trim(),
+                'project',
+                projectId,
+                userResult.user.id
+            );
+
+            if (result.success) {
+                // Invalidate BYOK cache in the queue manager
+                try {
+                    const { getQueueManager } = require('../../llm/queue');
+                    const queue = getQueueManager();
+                    if (queue) queue.invalidateByokCache(projectId);
+                } catch (_) { /* queue not available */ }
+
+                jsonResponse(res, {
+                    success: true,
+                    secret: result.secret
+                });
+            } else {
+                jsonResponse(res, { error: result.error }, 500);
+            }
+        } catch (e) {
+            log.warn({ event: 'byok_set_error', reason: e.message, provider, projectId }, 'Error setting BYOK key');
+            jsonResponse(res, { error: e.message }, 500);
+        }
+        return true;
+    }
+
+    // DELETE /api/projects/:id/providers/:provider/key - Remove provider API key from project
+    const byokDeleteMatch = pathname.match(/^\/api\/projects\/([^/]+)\/providers\/([^/]+)\/key$/);
+    if (byokDeleteMatch && req.method === 'DELETE') {
+        const projectId = byokDeleteMatch[1];
+        const provider = byokDeleteMatch[2];
+        if (!isValidUUID(projectId)) {
+            jsonResponse(res, { error: 'Invalid project ID: must be a UUID' }, 400);
+            return true;
+        }
+        if (!supabase || !supabase.isConfigured()) {
+            jsonResponse(res, { error: 'Not configured' }, 503);
+            return true;
+        }
+
+        // Authenticate user
+        const token = supabase.auth.extractToken(req);
+        const userResult = await supabase.auth.getUser(token);
+        if (!userResult.success) {
+            jsonResponse(res, { error: 'Authentication required' }, 401);
+            return true;
+        }
+
+        try {
+            const secrets = require('../../supabase/secrets');
+            const secretName = `${provider}_api_key`;
+            const result = await secrets.deleteSecret('project', secretName, projectId);
+
+            if (result.success) {
+                // Invalidate BYOK cache
+                try {
+                    const { getQueueManager } = require('../../llm/queue');
+                    const queue = getQueueManager();
+                    if (queue) queue.invalidateByokCache(projectId);
+                } catch (_) { /* queue not available */ }
+
+                jsonResponse(res, { success: true });
+            } else {
+                jsonResponse(res, { error: result.error }, 500);
+            }
+        } catch (e) {
+            log.warn({ event: 'byok_delete_error', reason: e.message, provider, projectId }, 'Error deleting BYOK key');
+            jsonResponse(res, { error: e.message }, 500);
+        }
+        return true;
+    }
+
+    // GET /api/projects/:id/providers/:provider/validate - Validate a project's API key
+    const byokValidateMatch = pathname.match(/^\/api\/projects\/([^/]+)\/providers\/([^/]+)\/validate$/);
+    if (byokValidateMatch && req.method === 'GET') {
+        const projectId = byokValidateMatch[1];
+        const provider = byokValidateMatch[2];
+        if (!isValidUUID(projectId)) {
+            jsonResponse(res, { error: 'Invalid project ID: must be a UUID' }, 400);
+            return true;
+        }
+        if (!supabase || !supabase.isConfigured()) {
+            jsonResponse(res, { error: 'Not configured' }, 503);
+            return true;
+        }
+        try {
+            const secrets = require('../../supabase/secrets');
+            const result = await secrets.getProviderApiKey(provider, projectId);
+            jsonResponse(res, {
+                provider,
+                hasKey: result.success && !!result.value,
+                source: result.success ? result.source : null
+            });
+        } catch (e) {
+            log.warn({ event: 'byok_validate_error', reason: e.message, provider, projectId }, 'Error validating BYOK key');
+            jsonResponse(res, { error: e.message }, 500);
+        }
+        return true;
+    }
+
     return false;
 }
 
