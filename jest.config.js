@@ -3,7 +3,7 @@
  *   Jest configuration for the GodMode backend test suite (Node.js environment).
  *
  * Responsibilities:
- *   - Define test discovery patterns (tests/**/*.test.js)
+ *   - Define test discovery patterns (tests dir, .test.js suffix)
  *   - Configure coverage collection, reporters, and minimum thresholds (50%)
  *   - Set up the global test environment via tests/setup.js
  *   - Split tests into "unit" and "integration" project groups
