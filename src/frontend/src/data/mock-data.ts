@@ -1,5 +1,24 @@
-// Minimal stubs for components that reference mock data.
-// These provide template data for roles and an empty contacts list.
+/**
+ * Purpose:
+ *   Provides static seed / placeholder data for development and initial UI
+ *   rendering before real project data is loaded from the server.
+ *
+ * Responsibilities:
+ *   - Export mockProjectRoles: predefined role templates for new projects
+ *   - Export mockContacts: empty placeholder (real contacts come from the API)
+ *
+ * Key dependencies:
+ *   - None
+ *
+ * Side effects:
+ *   - None
+ *
+ * Notes:
+ *   - Only the first three roles are active by default; the rest are offered
+ *     as opt-in templates during project setup.
+ *   - mockContacts is intentionally empty -- kept as a typed stub so components
+ *     can reference it without conditional imports.
+ */
 
 export interface ProjectRole {
   id: string;

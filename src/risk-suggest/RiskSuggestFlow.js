@@ -1,7 +1,33 @@
 /**
- * Risk Suggest Flow
- * Suggests owner and mitigation from risk content using the app's configured AI.
- * Prompt is loaded from Supabase (system_prompts key: risk_suggest).
+ * Purpose:
+ *   Given a risk description, its impact/likelihood, and the project's contact
+ *   list, uses an LLM to suggest owners (constrained to contacts) and a
+ *   mitigation strategy.
+ *
+ * Responsibilities:
+ *   - Build a formatted contacts list for the LLM prompt (capped at 50)
+ *   - Load the prompt template from Supabase (key: risk_suggest) or fall back
+ *     to an inline template
+ *   - Call the LLM and parse a JSON response of suggested_owners + suggested_mitigation
+ *   - Validate suggested names against the project contact list (case-insensitive)
+ *   - Provide fallback owners: first 5 contacts when contacts exist, or generic
+ *     role titles (Project Manager, Tech Lead, Product Owner) when none exist
+ *   - Maintain backward compatibility with the single suggested_owner field
+ *
+ * Key dependencies:
+ *   - ../llm: centralised LLM text generation
+ *   - ../llm/config: resolves provider/model from app config (reasoning tier)
+ *   - ../supabase/prompts: loads admin-editable prompt templates
+ *
+ * Side effects:
+ *   - Network call to configured LLM provider
+ *   - Network call to Supabase for prompt template
+ *
+ * Notes:
+ *   - Follows the same contact-constrained suggestion pattern as ActionSuggestFlow
+ *     and DecisionSuggestOwnerFlow.
+ *   - suggested_mitigation is truncated to 2 000 chars.
+ *   - Temperature 0.3 for focused risk analysis.
  */
 
 const { logger } = require('../logger');

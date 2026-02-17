@@ -27,6 +27,13 @@
  *     types existing in the graph.
  */
 
+/**
+ * Computes analytical metrics over the knowledge graph (centrality,
+ * clusters, key people, distributions, bridge nodes, insights).
+ *
+ * @param {object} options
+ * @param {object} options.graphProvider - Graph database adapter
+ */
 class GraphAnalytics {
     constructor(options = {}) {
         this.graphProvider = options.graphProvider;
@@ -37,7 +44,8 @@ class GraphAnalytics {
     }
 
     /**
-     * Get comprehensive graph analytics
+     * Run all analytics queries in parallel and return a combined snapshot.
+     * @returns {Promise<{overview: object, centralNodes: Array, clusters: object, keyPeople: object, entityDistribution: Array, relationshipTypes: Array, recentActivity: object, generatedAt: string}>}
      */
     async getAnalytics() {
         if (!this.graphProvider || !this.graphProvider.connected) {

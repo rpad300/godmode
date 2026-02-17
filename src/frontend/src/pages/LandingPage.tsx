@@ -1,3 +1,35 @@
+/**
+ * Purpose:
+ *   Public-facing marketing landing page with embedded authentication. Serves as the
+ *   entry point for unauthenticated users, showcasing features, pricing, security,
+ *   testimonials, FAQ, and an inline login/register form.
+ *
+ * Responsibilities:
+ *   - Render a full marketing site: hero, stats, features grid, how-it-works steps,
+ *     integrations, pricing tiers, comparison table, security section, testimonials, FAQ, CTA
+ *   - Embed a login/register/forgot-password auth card in the hero section
+ *   - Handle multi-language support (PT, EN, ES) via i18n translations object
+ *   - Toggle light/dark theme and persist via DOM class
+ *   - Responsive navbar with mobile hamburger menu
+ *   - Animated counters, scroll-triggered animations via framer-motion
+ *
+ * Key dependencies:
+ *   - supabase: direct auth calls (signInWithPassword, signUp, resetPasswordForEmail)
+ *   - framer-motion: scroll animations, stagger containers, presence transitions
+ *   - translations (i18n/landing-translations): all copy in PT/EN/ES
+ *   - PlatformShowcase: embedded interactive platform preview component
+ *
+ * Side effects:
+ *   - Network: Supabase auth calls on form submit
+ *   - DOM: toggles 'dark' class on documentElement, listens to scroll events
+ *   - Navigation: calls `onEnter` prop after successful login to notify parent
+ *
+ * Notes:
+ *   - This page uses Supabase auth directly (not AuthContext) because it can render
+ *     before the AuthContext provider is mounted in the component tree.
+ *   - Social login buttons (Google, GitHub, Microsoft) are rendered but not yet wired.
+ *   - The password reset redirectTo URL is hardcoded to `window.location.origin + '/reset-password'`.
+ */
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';

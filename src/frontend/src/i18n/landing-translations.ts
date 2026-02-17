@@ -1,3 +1,28 @@
+/**
+ * Purpose:
+ *   Contains all UI copy for the public landing page in three languages:
+ *   Portuguese (pt), English (en), and Spanish (es). Drives the marketing
+ *   site including hero, features, how-it-works, pricing, comparison,
+ *   security, testimonials, FAQ, and footer sections.
+ *
+ * Responsibilities:
+ *   - Define the Lang union type for supported locales
+ *   - Export a translations record keyed by Lang
+ *   - Each locale object follows an identical shape (typed via typeof pt)
+ *
+ * Key dependencies:
+ *   - None (static data)
+ *
+ * Side effects:
+ *   - None
+ *
+ * Notes:
+ *   - Portuguese (pt) is the primary/canonical locale; en and es mirror its structure.
+ *   - Auth-related strings (login, register, forgot password) are included here
+ *     for the landing page auth modal, not the in-app auth flows.
+ *   - Pricing is hardcoded; if dynamic pricing is needed, consider moving
+ *     plan data to the backend or a CMS.
+ */
 export type Lang = 'pt' | 'en' | 'es';
 
 const pt = {

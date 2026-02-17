@@ -26,6 +26,12 @@
  *     Cypher AST analyzer.
  */
 
+/**
+ * Creates and manages graph database indexes for query acceleration.
+ *
+ * @param {object} options
+ * @param {object} options.graphProvider - Graph database adapter
+ */
 class GraphIndexing {
     constructor(options = {}) {
         this.graphProvider = options.graphProvider;
@@ -162,7 +168,10 @@ class GraphIndexing {
     }
 
     /**
-     * Analyze query and suggest indexes
+     * Statically analyze a Cypher query string and suggest indexes for
+     * properties used in WHERE, ORDER BY, and MATCH patterns.
+     * @param {string} query - Cypher query to analyze
+     * @returns {Array<{property: string, reason: string, query: string}>}
      */
     analyzeQueryForIndexes(query) {
         const suggestions = [];

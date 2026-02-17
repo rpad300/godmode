@@ -35,6 +35,16 @@ const { logger } = require('../logger');
 
 const log = logger.child({ module: 'health-monitor' });
 
+/**
+ * Unified health-check dashboard for system resources, graph, storage,
+ * LLM, and endpoints. Maintains a rolling history for uptime reporting.
+ *
+ * @param {object} options
+ * @param {object} options.graphProvider - Graph database adapter
+ * @param {object} options.storage - Local storage adapter
+ * @param {number} [options.checkInterval=60000] - Periodic check interval in ms
+ * @param {number} [options.maxHistory=100] - Max health snapshots to retain
+ */
 class HealthMonitor {
     constructor(options = {}) {
         this.graphProvider = options.graphProvider;
@@ -69,7 +79,9 @@ class HealthMonitor {
     }
 
     /**
-     * Get comprehensive health check
+     * Run all health checks in parallel and compute an aggregate status.
+     * Status is 'healthy', 'warning', or 'error' (worst wins).
+     * @returns {Promise<{status: string, issues: string[], timestamp: string, checks: object, uptime: number}>}
      */
     async getHealth() {
         const checks = await Promise.all([
