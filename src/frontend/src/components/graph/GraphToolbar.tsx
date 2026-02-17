@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useGraphState } from '@/contexts/GraphContext';
 import { useGraphSync } from '@/hooks/graph/useGraphSync';
 import { useBookmarks } from '@/hooks/graph/useBookmarks';
@@ -6,6 +6,10 @@ import { useSavedViews } from '@/hooks/graph/useSavedViews';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
+import {
+    Dialog, DialogContent, DialogHeader, DialogTitle,
+    DialogDescription, DialogFooter,
+} from '@/components/ui/dialog';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -22,6 +26,8 @@ export function GraphToolbar() {
     const { sync, isSyncing, status } = useGraphSync();
     const { bookmarks, removeBookmark } = useBookmarks();
     const { views, saveView, deleteView } = useSavedViews();
+    const [saveViewOpen, setSaveViewOpen] = useState(false);
+    const [viewName, setViewName] = useState('');
 
     const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
         setFilters(prev => ({ ...prev, searchQuery: e.target.value }));
@@ -40,15 +46,20 @@ export function GraphToolbar() {
     };
 
     const handleSaveView = () => {
-        const name = prompt("Enter a name for this view:");
-        if (name) {
+        setSaveViewOpen(true);
+        setViewName('');
+    };
+
+    const handleSaveViewConfirm = () => {
+        if (viewName.trim()) {
             saveView({
-                name,
+                name: viewName.trim(),
                 configuration: {
                     filters,
-                    // layout: currentLayout (would need to capture from context or ref)
                 }
             });
+            setSaveViewOpen(false);
+            setViewName('');
         }
     };
 
@@ -204,6 +215,28 @@ export function GraphToolbar() {
                     </Button>
                 </div>
             </div>
+
+            {/* Save View Dialog */}
+            <Dialog open={saveViewOpen} onOpenChange={setSaveViewOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Save View</DialogTitle>
+                        <DialogDescription>Enter a name for this graph view configuration.</DialogDescription>
+                    </DialogHeader>
+                    <Input
+                        value={viewName}
+                        onChange={e => setViewName(e.target.value)}
+                        placeholder="View name..."
+                        className="mt-2"
+                        autoFocus
+                        onKeyDown={e => { if (e.key === 'Enter') handleSaveViewConfirm(); }}
+                    />
+                    <DialogFooter>
+                        <Button variant="outline" size="sm" onClick={() => setSaveViewOpen(false)}>Cancel</Button>
+                        <Button size="sm" onClick={handleSaveViewConfirm} disabled={!viewName.trim()}>Save</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

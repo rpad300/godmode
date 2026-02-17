@@ -7,6 +7,10 @@ import {
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 interface Company {
   id: string;
@@ -77,6 +81,7 @@ function CompanyList({ companies, loading, onView, onEdit, onTemplates, onRefres
 }) {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<Company | null>(null);
 
   const handleCreate = async () => {
     if (!newName.trim()) { toast.error('Company name is required'); return; }
@@ -104,19 +109,37 @@ function CompanyList({ companies, loading, onView, onEdit, onTemplates, onRefres
     }
   };
 
-  const handleDelete = async (company: Company) => {
-    if (!confirm(`Delete ${company.name}? This cannot be undone.`)) return;
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return;
     try {
-      await apiClient.delete(`/api/companies/${company.id}`);
+      await apiClient.delete(`/api/companies/${deleteTarget.id}`);
       toast.success('Company deleted');
       onRefresh();
     } catch (err: any) {
       toast.error(err.message || 'Failed to delete');
+    } finally {
+      setDeleteTarget(null);
     }
   };
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {deleteTarget?.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. The company and all its data will be permanently removed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteConfirm} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Companies</h1>
@@ -183,7 +206,7 @@ function CompanyList({ companies, loading, onView, onEdit, onTemplates, onRefres
                   <button onClick={() => handleAnalyze(company)} className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:bg-secondary transition-colors">
                     <Zap className="w-3.5 h-3.5" /> {company.status === 'analyzed' ? 'Re-analyze' : 'Analyze'}
                   </button>
-                  <button onClick={() => handleDelete(company)} className="p-1.5 rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors">
+                  <button onClick={() => setDeleteTarget(company)} className="p-1.5 rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors">
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>

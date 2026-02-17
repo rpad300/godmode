@@ -39,6 +39,7 @@ import {
   DialogFooter,
 } from '../ui/Dialog';
 import { cn } from '../../lib/utils';
+import { toast } from 'sonner';
 import {
   usePendingFiles,
   useProcessFiles,
@@ -171,7 +172,7 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
     };
 
     await navigator.clipboard.writeText(JSON.stringify(overdue, null, 2));
-    alert(`Copied ${overdueActions.length} actions and ${overdueQuestions.length} questions`);
+    toast.success(`Copied ${overdueActions.length} actions and ${overdueQuestions.length} questions`);
   }, [actions, questions]);
 
   // ── Reset Data ────────────────────────────────────────────────────────────

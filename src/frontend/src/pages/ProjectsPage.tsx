@@ -517,7 +517,7 @@ function MembersTab({
       onUpdate();
     } catch (error) {
       console.error('Failed to remove member:', error);
-      alert('Failed to remove member');
+      toast.error('Failed to remove member');
     } finally {
       setRemoving(null);
       setMemberToRemove(null);
@@ -643,7 +643,7 @@ function MembersTab({
       onUpdate(); // Trigger parent refresh to update project context
     } catch (error) {
       console.error('Failed to set lead:', error);
-      alert('Failed to set team lead');
+      toast.error('Failed to set team lead');
     }
   };
 
@@ -1089,7 +1089,7 @@ function InviteMemberModal({
       onClose();
     } catch (error) {
       console.error('Failed to add contact:', error);
-      alert('Failed to add contact to team');
+      toast.error('Failed to add contact to team');
     } finally {
       setAdding(false);
     }
@@ -1316,7 +1316,7 @@ function RolesTab({ project, onUpdate }: { project: Project; onUpdate: () => voi
       onUpdate();
     } catch (error) {
       console.error('Error toggling role:', error);
-      alert('Failed to update role');
+      toast.error('Failed to update role');
     } finally {
       setProcessing(null);
     }
@@ -1464,7 +1464,7 @@ function AddRoleModal({ open, onClose, projectId, onRoleAdded }: { open: boolean
       if (categories.length > 0) setCategory(categories[0].id);
     } catch (error) {
       console.error('Error creating role:', error);
-      alert('Failed to create role');
+      toast.error('Failed to create role');
     } finally {
       setLoading(false);
     }
@@ -1587,7 +1587,7 @@ function CategoriesTab({
       fetchCategories();
     } catch (error) {
       console.error('Failed to delete category:', error);
-      alert('Failed to delete category');
+      toast.error('Failed to delete category');
     } finally {
       setCategoryToDelete(null);
     }
@@ -1608,7 +1608,7 @@ function CategoriesTab({
       onUpdate();
     } catch (error) {
       console.error('Failed to set lead:', error);
-      alert('Failed to set team lead');
+      toast.error('Failed to set team lead');
     }
   };
 
@@ -1768,7 +1768,7 @@ function AddCategoryModal({ open, onClose, projectId, onSuccess, initialData }: 
       onClose();
     } catch (error) {
       console.error('Failed to save category:', error);
-      alert('Failed to save category');
+      toast.error('Failed to save category');
     } finally {
       setLoading(false);
     }
