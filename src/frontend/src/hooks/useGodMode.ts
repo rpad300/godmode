@@ -16,6 +16,7 @@ export const queryKeys = {
   decisions: ['decisions'] as const,
   contacts: ['contacts'] as const,
   files: ['files'] as const,
+  documents: ['documents'] as const,
   pendingFiles: ['pendingFiles'] as const,
   projects: ['projects'] as const,
   chatHistory: ['chatHistory'] as const,
@@ -281,6 +282,66 @@ export function useDeletePendingFile() {
       apiClient.delete(`/api/files/${folder}/${filename}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.pendingFiles });
+    },
+  });
+}
+
+// ── Documents ───────────────────────────────────────────────────────────────
+
+export interface DocumentItem {
+  id: string;
+  filename: string;
+  original_filename?: string;
+  type?: string;
+  status: string;
+  created_at?: string;
+  updated_at?: string;
+  size?: number;
+  content_preview?: string;
+  entity_counts?: { facts?: number; questions?: number; decisions?: number; risks?: number; actions?: number };
+  [key: string]: unknown;
+}
+
+export interface DocumentsResponse {
+  documents: DocumentItem[];
+  total: number;
+  statusCounts?: { processed?: number; pending?: number; processing?: number; failed?: number; deleted?: number };
+}
+
+export function useDocuments(params?: { status?: string; limit?: number; offset?: number; search?: string; type?: string; sort?: string; order?: string }) {
+  const qs = new URLSearchParams();
+  if (params?.status) qs.set('status', params.status);
+  if (params?.limit) qs.set('limit', String(params.limit));
+  if (params?.offset) qs.set('offset', String(params.offset));
+  if (params?.search) qs.set('search', params.search);
+  if (params?.type) qs.set('type', params.type);
+  if (params?.sort) qs.set('sort', params.sort);
+  if (params?.order) qs.set('order', params.order);
+  const queryString = qs.toString();
+  return useQuery({
+    queryKey: [...queryKeys.documents, queryString],
+    queryFn: () => apiClient.get<DocumentsResponse>(`/api/documents${queryString ? `?${queryString}` : ''}`),
+  });
+}
+
+export function useDeleteDocument() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete(`/api/documents/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.documents });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
+  });
+}
+
+export function useReprocessDocument() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.post(`/api/documents/${id}/reprocess`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.documents });
     },
   });
 }
