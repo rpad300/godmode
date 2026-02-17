@@ -1,8 +1,33 @@
 /**
- * Usage Analytics Module
- * Track and analyze system usage patterns
- * 
- * Refactored to use Supabase instead of local JSON files
+ * Purpose:
+ *   Collect, buffer, and analyze system usage data (API requests, queries,
+ *   feature usage, errors) with Supabase as the persistence layer.
+ *
+ * Responsibilities:
+ *   - Buffer analytics events in memory and flush to Supabase every 30
+ *     seconds to reduce write frequency
+ *   - Track four event types: request, query, feature, and error
+ *   - Provide aggregated summaries (today, last 7 days, top endpoints,
+ *     top features) with a 1-minute cache
+ *   - Compute hourly distribution and daily trend over configurable windows
+ *   - Report error rate and popular queries
+ *   - Export a complete analytics snapshot
+ *
+ * Key dependencies:
+ *   - ../supabase/storageHelper: usage_analytics table access (soft-loaded)
+ *
+ * Side effects:
+ *   - Starts a 30-second flush interval on construction
+ *   - Writes batched analytics events to Supabase on flush
+ *   - Reads from Supabase for summary/trend queries
+ *
+ * Notes:
+ *   - If Supabase is unavailable, buffered events accumulate in memory
+ *     until it becomes available or the process restarts (events are lost).
+ *   - Query text is truncated to 500 characters before storage to limit
+ *     row size.
+ *   - Call destroy() before shutdown to flush remaining buffered events
+ *     and clear the interval.
  */
 
 const { logger } = require('../logger');

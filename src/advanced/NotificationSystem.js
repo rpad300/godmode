@@ -125,7 +125,17 @@ class NotificationSystem {
     }
 
     /**
-     * Send a notification
+     * Dispatch a notification for the given event to all matching channels.
+     * Respects quiet hours (unless priority is 'critical') and routing rules.
+     *
+     * @param {string} event - Event identifier (e.g. 'new_insight', 'error')
+     * @param {Object} data - Event payload
+     * @param {Object} [options]
+     * @param {string[]} [options.channels] - Override channel list from rules
+     * @param {string} [options.priority] - Override priority from rules
+     * @param {string} [options.title]
+     * @param {string} [options.message]
+     * @returns {Promise<Object>} The notification record including delivery status per channel
      */
     async notify(event, data, options = {}) {
         if (!this.config.enabled) {
@@ -206,7 +216,11 @@ class NotificationSystem {
     }
 
     /**
-     * Webhook notification
+     * POST the notification payload to the configured webhook URL.
+     * Uses Node's built-in http/https modules with a 10-second timeout.
+     *
+     * @param {Object} notification
+     * @returns {Promise<{ sent: boolean, statusCode?: number, error?: string }>}
      */
     async sendWebhook(notification) {
         const webhookUrl = this.config.channels.webhook?.url;
@@ -291,7 +305,10 @@ class NotificationSystem {
     }
 
     /**
-     * Check if currently in quiet hours
+     * Determine whether the current local time falls within the configured quiet
+     * window. Handles overnight spans (e.g. 22:00 -> 08:00).
+     *
+     * @returns {boolean}
      */
     isQuietHours() {
         if (!this.config.quietHours) return false;
@@ -328,7 +345,14 @@ class NotificationSystem {
     }
 
     /**
-     * Get notification history
+     * Query notification history with optional filters.
+     *
+     * @param {Object} [options]
+     * @param {string} [options.event] - Filter by event type
+     * @param {string} [options.priority] - Filter by priority level
+     * @param {boolean} [options.unreadOnly] - Only unread notifications
+     * @param {number} [options.limit=50]
+     * @returns {Object[]}
      */
     getHistory(options = {}) {
         let notifications = [...this.history];
@@ -399,7 +423,11 @@ class NotificationSystem {
     }
 
     /**
-     * Create SSE handler for real-time notifications
+     * Return an HTTP request handler that establishes a Server-Sent Events stream.
+     * Sends initial unread notifications on connect, then pushes new notifications
+     * in real-time. Includes a 30-second heartbeat to keep the connection alive.
+     *
+     * @returns {Function} (req, res) handler suitable for Express or http.createServer
      */
     createSSEHandler() {
         return (req, res) => {

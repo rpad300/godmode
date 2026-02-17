@@ -1,6 +1,32 @@
 /**
- * Temporal Relations Module
- * Adds timestamps to relationships and enables time-based queries
+ * Purpose:
+ *   Enrich graph relationships with temporal metadata (createdAt, validFrom,
+ *   validTo) and enable point-in-time and timeline queries.
+ *
+ * Responsibilities:
+ *   - Create relationships with automatic temporal properties (createdAt,
+ *     validFrom, optional validTo, confidence)
+ *   - Query relationships valid at a specific timestamp
+ *   - Retrieve a chronological timeline of all relationships for a given
+ *     entity
+ *   - Expire (soft-delete) relationships by setting validTo
+ *   - Retrieve the full history between two specific entities
+ *   - Backfill createdAt/validFrom on existing relationships that lack
+ *     temporal metadata
+ *
+ * Key dependencies:
+ *   - graphProvider (injected): Cypher read/write for temporal properties
+ *
+ * Side effects:
+ *   - Mutates relationship properties in the graph database (SET operations)
+ *   - enrichExistingRelations bulk-updates all relationships missing timestamps
+ *
+ * Notes:
+ *   - Temporal queries rely on relationships having string-formatted ISO
+ *     timestamps stored as properties; native datetime() is used for
+ *     enrichment but string comparison is used for filtering.
+ *   - expireRelation does not delete the relationship; it sets validTo,
+ *     preserving history for audit purposes.
  */
 
 class TemporalRelations {

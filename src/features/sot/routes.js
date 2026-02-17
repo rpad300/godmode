@@ -1,17 +1,64 @@
 /**
- * Source of Truth (SOT) API
- * Extracted from server.js
+ * Purpose:
+ *   Source of Truth (SOT) API. Provides the authoritative project knowledge view
+ *   with health scoring, insights, alerts, timeline, version history, traceability,
+ *   AI-powered chat, inline editing, and multi-format export.
  *
- * Handles:
- * - GET /api/source-of-truth
- * - GET /api/sot/enhanced, health, insights, alerts, delta
- * - GET /api/sot/timeline, /api/timeline
- * - GET /api/sot/versions, versions/:id
- * - GET /api/sot/compare
- * - GET /api/sot/trace/:type/:id
- * - POST /api/sot/executive-summary, sot/chat
- * - PUT /api/sot/facts/:id, sot/decisions/:id
- * - GET /api/sot/export/:format
+ * Responsibilities:
+ *   - Generate and serve the Source of Truth markdown document
+ *   - Enhanced SOT with optional graph context and AI-generated summary
+ *   - Health score calculation based on knowledge completeness
+ *   - Actionable insights and alert generation
+ *   - Change delta tracking between SOT snapshots
+ *   - Chronological timeline of all project events (with filtering)
+ *   - Version history, version retrieval, and version comparison (diff)
+ *   - Source traceability: trace a fact/decision back to its origin
+ *   - Executive summary generation
+ *   - Conversational chat over SOT knowledge using LLM
+ *   - Inline editing of facts and decisions
+ *   - Multi-format export (Markdown, standalone HTML, JSON)
+ *
+ * Key dependencies:
+ *   - ../../advanced/SourceOfTruthEngine: core SOT engine for all analytics
+ *   - ctx.processor: SOT markdown generation, executive summary
+ *   - ctx.llm: text generation for enhanced SOT and chat
+ *   - ../../llm/config: resolve text provider/model
+ *   - ctx.storage: knowledge data (facts, decisions, risks, actions)
+ *
+ * Side effects:
+ *   - PUT /api/sot/facts/:id and decisions/:id mutate storage.knowledge in place
+ *     and call storage.saveKnowledge()
+ *   - Chat endpoint invokes LLM with project context as system prompt
+ *   - Enhanced SOT with AI flag generates an AI summary via LLM
+ *
+ * Notes:
+ *   - The standalone HTML export includes inline CSS styled for both screen and print
+ *   - convertMarkdownToHTML is a simple regex-based converter (not a full parser)
+ *   - The /api/timeline route duplicates /api/sot/timeline with additional filtering
+ *     (types, date range) and pagination; kept as a separate public endpoint
+ *   - Chat context is truncated to the first 20 facts, 10 decisions, 10 risks, 5 insights
+ *     to fit within LLM context windows
+ *   - llmConfig is imported both at module scope and inside handleSot (shadowed)
+ *
+ * Routes:
+ *   GET  /api/source-of-truth          - Raw SOT markdown
+ *   GET  /api/sot/enhanced             - Enhanced SOT (query: ?graph=true&ai=true)
+ *   GET  /api/sot/health               - Health score and contributing factors
+ *   GET  /api/sot/insights             - Actionable insights array
+ *   GET  /api/sot/alerts               - Active alerts array
+ *   GET  /api/sot/delta                - Change delta since last snapshot
+ *   GET  /api/sot/timeline             - Chronological event timeline (query: ?limit=50)
+ *   GET  /api/timeline                 - Public timeline with type/date filtering
+ *   GET  /api/sot/versions             - Version history list
+ *   GET  /api/sot/versions/:id         - Single version snapshot
+ *   GET  /api/sot/compare              - Diff between two versions (query: ?v1=&v2=)
+ *   GET  /api/sot/trace/:type/:id      - Source traceability for a specific item
+ *   POST /api/sot/executive-summary    - Generate executive summary
+ *   POST /api/sot/chat                 - Conversational Q&A over SOT knowledge
+ *     Body: { message, model? }
+ *   PUT  /api/sot/facts/:id            - Edit a fact (body: { content?, category? })
+ *   PUT  /api/sot/decisions/:id        - Edit a decision (body: { content?, owner?, category? })
+ *   GET  /api/sot/export/:format       - Export SOT (format: markdown|html|json)
  */
 
 const { parseBody, parseUrl } = require('../../server/request');

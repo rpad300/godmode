@@ -1,6 +1,34 @@
 /**
- * Scheduled Jobs Module
- * Task scheduler for automated operations
+ * Purpose:
+ *   Interval-based task scheduler for recurring automated operations such as
+ *   backups, data cleanup, graph sync, and integrity checks.
+ *
+ * Responsibilities:
+ *   - Create, update, delete, and persist job definitions to disk
+ *   - Parse human-friendly interval strings ('6h', '30m', '1d') to milliseconds
+ *   - Execute jobs via registered handler functions (one per job type)
+ *   - Maintain an execution log (capped at 100 entries) with timing and status
+ *   - Start/stop the scheduler, managing setInterval timers per job
+ *   - Provide a set of sensible default jobs for GodMode
+ *
+ * Key dependencies:
+ *   - fs / path: persisting job definitions and execution log to scheduled-jobs.json
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - start() creates setInterval timers for every enabled job
+ *   - stop() clears all timers
+ *   - executeJob() invokes the registered handler (arbitrary side effects
+ *     depending on the handler)
+ *   - save() writes to <dataDir>/scheduled-jobs.json
+ *
+ * Notes:
+ *   - This is a simple interval-based scheduler, not a cron expression parser.
+ *     Accepted formats: <number>s, <number>m, <number>h, <number>d.
+ *   - Handlers must be registered before jobs can execute; unregistered types
+ *     cause the execution to fail with an error message.
+ *   - The execution log is intentionally ephemeral (in-memory + file), not
+ *     stored in Supabase, to keep the scheduler lightweight.
  */
 
 const fs = require('fs');
@@ -9,6 +37,17 @@ const { logger } = require('../logger');
 
 const log = logger.child({ module: 'scheduled-jobs' });
 
+/**
+ * Interval-based task scheduler with persistent job definitions and
+ * pluggable handler functions.
+ *
+ * Invariants:
+ *   - Every enabled job has at most one active setInterval timer (tracked in this.timers)
+ *   - executionLog.length <= 100
+ *
+ * Lifecycle: construct (loads from disk) -> registerHandler() for each job type ->
+ *   start() -> jobs execute on their intervals -> stop() before shutdown.
+ */
 class ScheduledJobs {
     constructor(options = {}) {
         this.dataDir = options.dataDir || './data';
@@ -64,7 +103,17 @@ class ScheduledJobs {
     }
 
     /**
-     * Create a scheduled job
+     * Define and persist a new scheduled job. If the scheduler is already running
+     * and the job is enabled, it is immediately scheduled.
+     *
+     * @param {Object} options
+     * @param {string} [options.id] - Unique job ID; auto-generated if omitted
+     * @param {string} [options.name] - Human-readable name
+     * @param {string} options.type - Handler type key (must match a registered handler)
+     * @param {string|number} options.schedule - Interval string ('6h','30m') or ms
+     * @param {boolean} [options.enabled=true]
+     * @param {Object} [options.config={}] - Arbitrary config passed to the handler
+     * @returns {Object} The created job record
      */
     createJob(options) {
         const jobId = options.id || `job_${Date.now()}`;
@@ -101,7 +150,11 @@ class ScheduledJobs {
     }
 
     /**
-     * Parse interval string to milliseconds
+     * Convert a human-friendly interval string to milliseconds.
+     * Accepted suffixes: s (seconds), m (minutes), h (hours), d (days).
+     *
+     * @param {string|number|null} schedule - e.g. '6h', '30m', '1d', or raw ms
+     * @returns {number|null} Milliseconds, or null if unparseable
      */
     parseInterval(schedule) {
         if (!schedule) return null;

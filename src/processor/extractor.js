@@ -1,6 +1,34 @@
 /**
- * Document Extractor Module
- * Handles raw content extraction from files (PDF, DOCX, Images, etc.)
+ * Purpose:
+ *   Extracts raw text content from heterogeneous file types (PDF, DOCX, XLSX,
+ *   PPTX, HTML, images, plain text) so downstream Analyzer / Synthesizer
+ *   modules receive clean textual input.
+ *
+ * Responsibilities:
+ *   - Detect and use MarkItDown CLI (Microsoft) for rich document conversion
+ *   - Fall back to pdf-parse for PDFs when MarkItDown is unavailable
+ *   - Read plain text files directly (txt, md, json, csv, log)
+ *   - Return a sentinel string for image files (vision handled by Analyzer)
+ *   - Convert multi-page PDFs to per-page PNG images (pdftoppm or ImageMagick)
+ *   - Heuristically detect scanned (image-only) PDFs via chars-per-page ratio
+ *
+ * Key dependencies:
+ *   - fs / path (Node built-in): File I/O
+ *   - child_process (Node built-in): Spawning markitdown, pdftoppm, magick
+ *   - pdf-parse (optional): Fallback PDF text extraction
+ *   - ../logger: Structured logging
+ *
+ * Side effects:
+ *   - Reads files from disk
+ *   - Spawns external processes (markitdown, pdftoppm, magick) with timeouts
+ *   - Writes temporary PNG files to <dataDir>/temp/pdf_images/
+ *
+ * Notes:
+ *   - MarkItDown availability is checked once and cached for the instance lifetime
+ *   - extractWithMarkItDown has a 2-minute timeout and 50 MB output buffer
+ *   - convertPdfToImages renders at 150 DPI -- enough for OCR without excessive
+ *     file sizes
+ *   - isPdfScanned uses < 50 chars/page as the scanned threshold
  */
 const fs = require('fs');
 const fsp = require('fs').promises;

@@ -1,7 +1,29 @@
 /**
- * Role Templates
- * Pre-defined role prompts for common roles
- * Now supports loading from Supabase with local fallback
+ * Purpose:
+ *   Maintains a catalog of role templates (title, prompt, keywords, category)
+ *   that seed role selection, filtering, and AI suggestion features.
+ *   Supports loading templates from Supabase with a hardcoded local fallback.
+ *
+ * Responsibilities:
+ *   - Define 14 built-in role templates across 8 categories (technical, management, etc.)
+ *   - Optionally load templates and categories from Supabase (role_templates / role_categories)
+ *   - Provide CRUD-style accessors: getAll, get, getByCategory, search, suggestFromTitle
+ *   - Expose category metadata (name, icon, colour, template count)
+ *
+ * Key dependencies:
+ *   - @supabase/supabase-js (optional, lazy-loaded): remote template storage
+ *   - ../logger: structured logging
+ *   - Environment variables: SUPABASE_URL, SUPABASE_SERVICE_KEY (optional)
+ *
+ * Side effects:
+ *   - First call to loadFromSupabase() makes network requests to Supabase
+ *   - Reads SUPABASE_URL / SUPABASE_SERVICE_KEY env vars
+ *
+ * Notes:
+ *   - loadFromSupabase() is async and must be called explicitly; the sync getAll/get
+ *     methods return Supabase data only after loading completes.
+ *   - If Supabase is unavailable or unconfigured, the hardcoded ROLE_TEMPLATES are used.
+ *   - suggestFromTitle scores templates with a simple title + keyword overlap heuristic.
  */
 
 const { logger } = require('../logger');

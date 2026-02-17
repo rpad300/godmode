@@ -1,6 +1,35 @@
 /**
- * Teams Routes
- * Extracted from src/server.js for modularization
+ * Purpose:
+ *   Team management API routes with bidirectional graph database synchronization.
+ *   Provides CRUD for teams and team membership (contact-based), with every
+ *   mutation mirrored to the Neo4j-style graph database for relationship queries.
+ *
+ * Responsibilities:
+ *   - POST /api/teams: Create a team and MERGE a Team node in the graph
+ *   - GET /api/teams: List all teams with member counts and member details
+ *   - GET /api/teams/:id: Get a single team with its members
+ *   - PUT /api/teams/:id: Update team properties and sync to graph
+ *   - DELETE /api/teams/:id: Delete team and DETACH DELETE from graph
+ *   - POST /api/teams/:id/members: Add a contact to a team; create MEMBER_OF edge in graph
+ *   - DELETE /api/teams/:id/members/:contactId: Remove contact from team; delete MEMBER_OF edge
+ *   - GET /api/teams/:id/members: List team members with count
+ *
+ * Key dependencies:
+ *   - storage: Team and contact data access (addTeam, getTeams, getTeamById, updateTeam,
+ *     deleteTeam, addTeamMember, removeTeamMember, getTeamMembers, getContactById, etc.)
+ *   - storage.getGraphProvider: Neo4j-compatible graph database for relationship modeling
+ *
+ * Side effects:
+ *   - Database: creates/updates/deletes teams and team_members records
+ *   - Graph DB: MERGE/SET/DELETE Team nodes and MEMBER_OF relationships via Cypher queries;
+ *     Contact nodes are auto-created (MERGE) when adding members
+ *
+ * Notes:
+ *   - Graph sync failures are logged as warnings but do not fail the HTTP response;
+ *     the response includes a graphSynced boolean so the client can detect desync
+ *   - Team deletion uses DETACH DELETE which removes all edges (MEMBER_OF, etc.)
+ *   - Duplicate team name errors return 400; other errors return 500
+ *   - Team IDs are expected to be UUID format (hex + dashes pattern in URL regex)
  */
 
 const { parseUrl, parseBody } = require('../../server/request');

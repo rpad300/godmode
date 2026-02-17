@@ -1,3 +1,36 @@
+/**
+ * Purpose:
+ *   Comprehensive project management page with CRUD for projects and four detail
+ *   tabs: General settings, Members (with drag-and-drop team assignment), Roles
+ *   configuration, and Categories management.
+ *
+ * Responsibilities:
+ *   - List all projects from context, create new projects linked to a company
+ *   - ProjectDetail view with tabbed sub-pages:
+ *     - General: edit name, description, role, role prompt, company; delete project
+ *     - Members: invite via email or existing contacts, assign roles via dropdown or
+ *       drag-and-drop between category groups, set team leads
+ *     - Roles: manage project roles (toggle active, assign to categories, create custom)
+ *     - Categories: CRUD for team categories (groups), assign leads per category
+ *
+ * Key dependencies:
+ *   - useProject (ProjectContext): project list and refresh
+ *   - apiClient: direct REST calls for projects, members, roles, categories
+ *   - framer-motion: animated transitions and drag-and-drop visual feedback
+ *   - AlertDialog / Dialog / Select (shadcn): modal confirmations and selection UIs
+ *   - mockProjectRoles: template roles merged with actual project roles
+ *
+ * Side effects:
+ *   - Network: extensive CRUD operations across projects, members, roles, categories
+ *   - Fetches companies list for project creation dropdown
+ *
+ * Notes:
+ *   - Imports are split across the file (apiClient, date-fns, AlertDialog are imported
+ *     mid-file after the GeneralTab component). This is unconventional but functional.
+ *   - Role assignment uses `user_role` field to avoid 400 errors from the system `role`
+ *     enum constraint on the backend.
+ *   - Drag-and-drop in the Members "Teams" view uses native HTML5 drag events.
+ */
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
