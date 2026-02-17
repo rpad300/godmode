@@ -163,18 +163,18 @@ class LLMQueueManager extends EventEmitter {
     }
 
     /**
-     * BYOK: Resolve API key for a project/provider combination
-     * Priority: project secret > system secret > existing providerConfig
+     * BYOK: Resolve API key from Supabase vault for a provider
+     * Priority: project secret > system secret
      * Uses in-memory cache to avoid DB calls on every request
      * @param {string} provider - Provider name (e.g., 'openai', 'anthropic')
-     * @param {string} projectId - Project UUID
+     * @param {string} projectId - Project UUID (optional, if null only checks system)
      * @returns {Promise<{apiKey: string, source: string}|null>} - Resolved key or null
      */
-    async resolveProjectApiKey(provider, projectId) {
-        if (!provider || !projectId) return null;
+    async resolveProjectApiKey(provider, projectId = null) {
+        if (!provider) return null;
 
         const normalizedProvider = this.normalizeProvider(provider);
-        const cacheKey = `${projectId}:${normalizedProvider}`;
+        const cacheKey = `${projectId || 'system'}:${normalizedProvider}`;
 
         // Check cache first
         const cached = this.byokCache.get(cacheKey);
@@ -349,8 +349,9 @@ class LLMQueueManager extends EventEmitter {
             providerConfig  // Add current provider config with API key
         };
 
-        // BYOK: Resolve project-specific API key for retry
-        if (request.projectId && request.provider) {
+        // BYOK: Resolve API key from Supabase vault for retry
+        // All keys come from Supabase - project keys first, then system keys
+        if (request.provider) {
             try {
                 const byokResult = await this.resolveProjectApiKey(request.provider, request.projectId);
                 if (byokResult) {
@@ -361,7 +362,7 @@ class LLMQueueManager extends EventEmitter {
                     log.debug({ event: 'llm_queue_byok_retry_resolved', provider: request.provider, source: byokResult.source, projectId: request.projectId }, `BYOK retry: Using ${byokResult.source} API key`);
                 }
             } catch (byokError) {
-                log.warn({ event: 'llm_queue_byok_retry_error', reason: byokError.message }, 'BYOK retry resolution error (continuing with default)');
+                log.warn({ event: 'llm_queue_byok_retry_error', reason: byokError.message }, 'BYOK retry resolution error (continuing with existing key)');
             }
         }
 
@@ -592,23 +593,46 @@ class LLMQueueManager extends EventEmitter {
         log.debug({ event: 'llm_queue_processing', id: item.id, context, key, activeCount, waitTimeMs: waitTime, remaining: this.queue.length }, 'Processing');
         
         this.emit('processing', { id: item.id, dbId: item.dbId, waitTime, queueSize: this.queue.length, concurrencyKey: key, activeCount });
-        
-        // Check project balance before executing (billing integration)
+
         const projectId = item.request.projectId;
-        if (projectId) {
+
+        // BYOK: Resolve API key from Supabase vault BEFORE billing check
+        // All keys (project + system) come from Supabase vault
+        // When source='project' (BYOK), billing restrictions are bypassed
+        let byokSource = null;
+        if (item.request.provider) {
+            try {
+                const byokResult = await this.resolveProjectApiKey(item.request.provider, projectId);
+                if (byokResult) {
+                    byokSource = byokResult.source; // 'project' or 'system'
+                    item.request.providerConfig = {
+                        ...(item.request.providerConfig || {}),
+                        apiKey: byokResult.apiKey
+                    };
+                    log.debug({ event: 'llm_queue_byok_resolved', id: item.id, provider: item.request.provider, source: byokSource, projectId }, `BYOK: Using ${byokSource} API key`);
+                }
+            } catch (byokError) {
+                log.warn({ event: 'llm_queue_byok_error', reason: byokError.message }, 'BYOK resolution error (continuing with existing key)');
+            }
+        }
+
+        // Billing pre-check: only when using system keys (not BYOK project keys)
+        // When a project uses its own API key, they pay the provider directly
+        const isByokProject = byokSource === 'project';
+        if (projectId && !isByokProject) {
             try {
                 const billing = require('../supabase/billing');
                 const balanceCheck = await billing.checkProjectBalance(projectId);
-                
+
                 if (!balanceCheck.allowed) {
                     // Reject request due to insufficient balance
                     item.status = 'rejected';
-                    
+
                     log.debug({ event: 'llm_queue_blocked_balance', id: item.id, projectId, reason: balanceCheck.reason }, 'Blocked by balance');
-                    
+
                     // Notify project admins
                     await billing.notifyBalanceInsufficient(projectId, balanceCheck.reason);
-                    
+
                     // Update DB with rejection status
                     if (this.dbEnabled && item.dbId) {
                         try {
@@ -622,12 +646,12 @@ class LLMQueueManager extends EventEmitter {
                             log.warn({ event: 'llm_queue_db_balance_reject_failed', reason: dbError.message }, 'Failed to update DB on balance rejection');
                         }
                     }
-                    
+
                     // Clean up and reject
                     this.processingByKey.delete(key);
                     this.lastRequestTimeByKey.set(key, Date.now());
                     setImmediate(() => this.processNext());
-                    
+
                     item.reject(new Error(`Insufficient balance: ${balanceCheck.reason}`));
                     return;
                 }
@@ -635,23 +659,8 @@ class LLMQueueManager extends EventEmitter {
                 // On balance check error, log but continue (don't block)
                 log.warn({ event: 'llm_queue_balance_check_error', reason: balanceError.message }, 'Balance check error (continuing)');
             }
-        }
-
-        // BYOK: Resolve project-specific API key before execution
-        if (projectId && item.request.provider) {
-            try {
-                const byokResult = await this.resolveProjectApiKey(item.request.provider, projectId);
-                if (byokResult) {
-                    // Override the API key in providerConfig
-                    item.request.providerConfig = {
-                        ...(item.request.providerConfig || {}),
-                        apiKey: byokResult.apiKey
-                    };
-                    log.debug({ event: 'llm_queue_byok_resolved', id: item.id, provider: item.request.provider, source: byokResult.source, projectId }, `BYOK: Using ${byokResult.source} API key`);
-                }
-            } catch (byokError) {
-                log.warn({ event: 'llm_queue_byok_error', reason: byokError.message }, 'BYOK resolution error (continuing with default key)');
-            }
+        } else if (isByokProject) {
+            log.debug({ event: 'llm_queue_billing_skipped', id: item.id, projectId, reason: 'byok_project_key' }, 'Billing skipped: project uses own API key');
         }
 
         try {
@@ -674,8 +683,9 @@ class LLMQueueManager extends EventEmitter {
             log.debug({ event: 'llm_queue_completed', id: item.id, processingTimeMs: processingTime, inputTokens, outputTokens, cost: estimatedCost }, 'Completed');
             
             // Track billable cost and debit balance (billing integration)
+            // Skip billing entirely when project uses its own API key (BYOK)
             let billingResult = null;
-            if (projectId && (inputTokens > 0 || outputTokens > 0)) {
+            if (projectId && !isByokProject && (inputTokens > 0 || outputTokens > 0)) {
                 try {
                     const billing = require('../supabase/billing');
                     billingResult = await billing.calculateAndRecordCost({
@@ -689,14 +699,16 @@ class LLMQueueManager extends EventEmitter {
                         context: item.request?.context || 'unknown',
                         requestId: item.dbId
                     });
-                    
+
                     // Check for low balance notification
                     await billing.checkAndNotifyLowBalance(projectId);
-                    
+
                     log.debug({ event: 'llm_queue_billing', id: item.id, providerCost: billingResult.provider_cost_eur, billableCost: billingResult.billable_cost_eur, markup: billingResult.markup_percent }, 'Billing');
                 } catch (billingError) {
                     log.warn({ event: 'llm_queue_billing_error', reason: billingError.message }, 'Billing tracking error (non-blocking)');
                 }
+            } else if (isByokProject) {
+                log.debug({ event: 'llm_queue_billing_skipped_post', id: item.id, projectId, inputTokens, outputTokens }, 'Post-billing skipped: BYOK project key');
             }
             
             // Update database
