@@ -29,6 +29,12 @@
  *     and concatenated-no-space variants for matching
  */
 
+/**
+ * Parses transcript text to isolate a single person's speaking turns
+ * ("interventions"), capturing surrounding context for behavioural analysis.
+ * Supports multiple transcript formats (Krisp, timestamped, Markdown, etc.)
+ * and caches results to Supabase for efficient re-use.
+ */
 class InterventionExtractor {
     constructor(options = {}) {
         this.supabase = options.supabase;

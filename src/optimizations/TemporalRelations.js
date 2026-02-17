@@ -29,6 +29,13 @@
  *     preserving history for audit purposes.
  */
 
+/**
+ * Manages temporal metadata (createdAt, validFrom, validTo) on graph
+ * relationships and enables point-in-time and timeline queries.
+ *
+ * @param {object} options
+ * @param {object} options.graphProvider - Graph database adapter
+ */
 class TemporalRelations {
     constructor(options = {}) {
         this.graphProvider = options.graphProvider;
@@ -39,7 +46,12 @@ class TemporalRelations {
     }
 
     /**
-     * Create a relationship with temporal metadata
+     * Create or update a relationship with temporal metadata fields.
+     * @param {string} fromNode - Source node name
+     * @param {string} toNode - Target node name
+     * @param {string} relationType - Cypher relationship type label
+     * @param {object} [properties] - Additional properties; may include validFrom, validTo, confidence
+     * @returns {Promise<{success?: boolean, relationship?: object, error?: string}>}
      */
     async createTemporalRelation(fromNode, toNode, relationType, properties = {}) {
         if (!this.graphProvider || !this.graphProvider.connected) {
@@ -123,7 +135,13 @@ class TemporalRelations {
     }
 
     /**
-     * Expire a relationship (set validTo)
+     * Soft-expire a relationship by setting its validTo date. The relationship
+     * is not deleted, preserving it for historical queries.
+     * @param {string} fromNode - Source node name
+     * @param {string} toNode - Target node name
+     * @param {string} relationType - Cypher relationship type label
+     * @param {string|null} [expireDate] - ISO date; defaults to now
+     * @returns {Promise<{success?: boolean, error?: string}>}
      */
     async expireRelation(fromNode, toNode, relationType, expireDate = null) {
         if (!this.graphProvider || !this.graphProvider.connected) {

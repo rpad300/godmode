@@ -35,6 +35,12 @@ const { getSupabaseClient } = require('../supabase/client');
 
 const log = logger.child({ module: 'graph-sync' });
 
+/**
+ * Bridges team-analysis data and the graph database by upserting
+ * BehavioralProfile nodes, behavioral relationships, and TeamDynamics nodes
+ * into the graph_nodes / graph_relationships Supabase tables. Also provides
+ * pre-built analytical queries and vis.js-compatible visualisation data.
+ */
 class GraphSync {
     constructor(options = {}) {
         this.supabase = options.supabase || getSupabaseClient();

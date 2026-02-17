@@ -37,6 +37,17 @@ const llmConfig = require('../llm/config');
 
 const log = logger.child({ module: 'smart-dedup' });
 
+/**
+ * Detects and removes duplicate facts and people using text-based (Jaccard)
+ * and embedding-based (cosine) similarity.
+ *
+ * @param {object} options
+ * @param {string|null} options.llmProvider - LLM provider for embedding generation
+ * @param {string|null} options.llmModel - Model identifier
+ * @param {object}  options.llmConfig - Full LLM configuration
+ * @param {object}  options.appConfig - App-level config for per-task resolution
+ * @param {object}  options.storage - Local storage adapter (must expose getFacts, getPeople, deleteFact)
+ */
 class SmartDedup {
     constructor(options = {}) {
         this.llmProvider = options.llmProvider || null;
@@ -55,7 +66,9 @@ class SmartDedup {
     }
 
     /**
-     * Find and merge duplicate facts
+     * Scan all facts for exact-match duplicates (Jaccard >= 0.95) and delete
+     * the redundant copies, keeping the first occurrence.
+     * @returns {Promise<{merged: number, duplicateGroups: number} | {error: string}>}
      */
     async deduplicateFacts() {
         if (!this.storage) return { error: 'Storage not set' };
@@ -327,7 +340,8 @@ class SmartDedup {
     }
 
     /**
-     * Run full deduplication
+     * Run both fact and people deduplication in sequence.
+     * @returns {Promise<{facts: object, people: object}>}
      */
     async runFullDedup() {
         const results = {

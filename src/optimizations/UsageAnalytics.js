@@ -42,6 +42,12 @@ try {
     // Will use in-memory analytics only
 }
 
+/**
+ * Buffers and analyzes system usage events (requests, queries, feature usage,
+ * errors) with periodic batch flushes to Supabase.
+ *
+ * Lifecycle: construct (starts flush timer) -> track* calls -> destroy (flushes remaining).
+ */
 class UsageAnalytics {
     constructor(options = {}) {
         // In-memory buffer for batching writes
@@ -163,7 +169,11 @@ class UsageAnalytics {
     }
 
     /**
-     * Track an API request
+     * Buffer an API request event. Flushed to Supabase on the next 30s cycle.
+     * @param {string} endpoint - API endpoint path
+     * @param {object} [options]
+     * @param {number} [options.duration] - Request duration in ms
+     * @param {string} [options.error] - Error message if the request failed
      */
     trackRequest(endpoint, options = {}) {
         this._buffer.requests.push({
@@ -214,7 +224,8 @@ class UsageAnalytics {
     }
 
     /**
-     * Get usage summary from Supabase
+     * Return an aggregated usage summary (today + last 7 days), cached for 1 minute.
+     * @returns {Promise<{today: object, last7Days: object, topEndpoints: Array, topFeatures: Array, recentErrors: Array}>}
      */
     async getSummary() {
         // Return cached if fresh

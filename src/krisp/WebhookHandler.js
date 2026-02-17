@@ -1,6 +1,36 @@
 /**
- * Krisp Webhook Handler
- * Processes incoming webhook events from Krisp AI Meeting Assistant
+ * Purpose:
+ *   Receives, validates, and ingests incoming webhook events from the Krisp AI
+ *   Meeting Assistant, creating transcript records and triggering the downstream
+ *   processing pipeline for non-quarantined transcripts.
+ *
+ * Responsibilities:
+ *   - Validate webhook requests using token lookup and optional Authorization secret
+ *   - Parse payloads for three event types: transcript_created, notes_generated, transcript_shared
+ *   - Detect unidentified/generic speakers and quarantine those transcripts
+ *   - Deduplicate by (user_id, krisp_meeting_id, event_type) before inserting
+ *   - Insert raw transcript records into krisp_transcripts with appropriate initial status
+ *   - Update webhook statistics (last_event_at, total_events_received)
+ *   - Asynchronously trigger TranscriptProcessor for non-quarantined transcripts via setImmediate
+ *   - CRUD for per-user webhook configuration (create/get, regenerate, toggle, update events)
+ *
+ * Key dependencies:
+ *   - ../supabase/client (getAdminClient): Supabase admin client for DB operations
+ *   - ./TranscriptProcessor (lazy-loaded in setImmediate): downstream processing
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - Reads/writes krisp_transcripts, krisp_user_webhooks in Supabase
+ *   - Calls Supabase RPCs (get_or_create_krisp_webhook, regenerate_krisp_webhook)
+ *   - Fires async processing via setImmediate (non-blocking)
+ *
+ * Notes:
+ *   - The webhook URL includes a unique token per user; the optional Authorization
+ *     header provides a second layer of authentication.
+ *   - Events not in the user's events_enabled list are silently accepted (200) but not stored.
+ *   - KRISP_EVENTS enum defines the three supported event types.
+ *   - Webhook secret validation uses simple string equality, not HMAC.
+ *     Assumption: Krisp does not provide HMAC signatures on webhooks.
  */
 
 const { logger } = require('../logger');

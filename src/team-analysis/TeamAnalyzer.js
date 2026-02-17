@@ -54,6 +54,12 @@ const { getPrompt } = require('../supabase/prompts');
 const llmConfig = require('../llm/config');
 const InterventionExtractor = require('./InterventionExtractor');
 
+/**
+ * Builds and maintains LLM-generated behavioral profiles for individual contacts
+ * and produces team-dynamics analyses (cohesion, alliances, tensions, influence
+ * maps) from accumulated transcript data. Supports both full and incremental
+ * analysis modes to minimise LLM cost when new transcripts are added.
+ */
 class TeamAnalyzer {
     constructor(options = {}) {
         this.supabase = options.supabase || getSupabaseClient();

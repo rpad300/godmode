@@ -42,6 +42,15 @@ const { logger } = require('../logger');
 
 const log = logger.child({ module: 'webhooks' });
 
+/**
+ * Manages webhook endpoint registrations and delivers event-driven HTTP
+ * notifications with HMAC-SHA256 signing and retry support.
+ *
+ * Lifecycle: construct (loads config) -> registerEndpoint -> trigger events.
+ *
+ * @param {object} options
+ * @param {string} [options.dataDir='./data'] - Directory for webhooks.json config file
+ */
 class Webhooks {
     constructor(options = {}) {
         this.dataDir = options.dataDir || './data';
@@ -86,7 +95,13 @@ class Webhooks {
     }
 
     /**
-     * Register a webhook endpoint
+     * Register a new webhook endpoint. Persists to webhooks.json.
+     * @param {object} endpoint
+     * @param {string} endpoint.url - Target URL (http or https)
+     * @param {string[]} [endpoint.events=['all']] - Event types to subscribe to
+     * @param {string|null} [endpoint.secret] - HMAC signing secret
+     * @param {boolean} [endpoint.enabled=true] - Whether the endpoint is active
+     * @returns {object} The created endpoint entry with generated id
      */
     registerEndpoint(endpoint) {
         const entry = {
@@ -124,7 +139,10 @@ class Webhooks {
     }
 
     /**
-     * Trigger an event
+     * Dispatch an event to all matching registered endpoints. Events are
+     * queued and processed serially to avoid overwhelming receivers.
+     * @param {string} eventType - Event type identifier (e.g. 'new_entity')
+     * @param {*} data - Event payload
      */
     async trigger(eventType, data) {
         if (!this.config.enabled) return;
@@ -168,7 +186,12 @@ class Webhooks {
     }
 
     /**
-     * Send webhook request
+     * Send a single webhook HTTP POST. Includes X-Webhook-Event, X-Webhook-ID,
+     * and X-Webhook-Signature (HMAC-SHA256) headers. Retries on non-2xx or error.
+     * @param {object} endpoint - Registered endpoint config
+     * @param {object} event - Serialized event payload
+     * @param {number} [attempt=1] - Current retry attempt
+     * @returns {Promise<{success: boolean, error?: string}>}
      */
     async sendWebhook(endpoint, event, attempt = 1) {
         return new Promise((resolve) => {

@@ -43,6 +43,11 @@ try {
     log.debug({ event: 'ontology_prompts_no_supabase' }, 'Supabase prompts not available, using defaults');
 }
 
+/**
+ * Builds extraction prompts enriched with ontology entity/relation schema.
+ * Loads prompt templates from Supabase (system_prompts) with hard-coded fallback.
+ * Supports document, transcript, conversation, and vision extraction modes.
+ */
 class OntologyAwarePrompts {
     constructor(options = {}) {
         this.ontology = options.ontology || getOntologyManager();

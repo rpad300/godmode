@@ -238,7 +238,12 @@ class Cache {
     }
 }
 
-// Query cache for GraphRAG
+/**
+ * Specialised cache for GraphRAG query results.
+ * Uses normalised (lowercase, whitespace-collapsed) query text as the cache key
+ * so that trivially different phrasings hit the same entry.
+ * Default TTL is 10 minutes (vs 5 for the base Cache).
+ */
 class QueryCache extends Cache {
     constructor(options = {}) {
         super({
