@@ -1,10 +1,27 @@
 #!/usr/bin/env node
 
 /**
- * check-no-legacy-imports.js
+ * Purpose:
+ *   CI guardrail that ensures src/frontend/ contains no stale references to the
+ *   legacy frontend backup directory (frontend_backup_2026_02_11, etc.).
  *
- * Scans src/frontend/ for any imports or references to the legacy backup directory.
- * Exits with code 1 if any are found, 0 if clean.
+ * Responsibilities:
+ *   - Recursively scan src/frontend/ for files matching common web extensions
+ *   - Check each file against a set of forbidden legacy path patterns
+ *   - Report violations with file, line number, and matched pattern
+ *   - Exit 1 on any violation, 0 if clean
+ *
+ * Key dependencies:
+ *   - None (uses only Node.js built-ins: fs, path)
+ *
+ * Side effects:
+ *   - Reads files under src/frontend/ (read-only)
+ *
+ * Notes:
+ *   - EXCLUDED_FILES list allows guardrail configs (e.g. eslint.config.js) that
+ *     legitimately mention legacy patterns
+ *   - Designed to run in CI pipelines; a non-zero exit blocks the build
+ *   - Only scans .ts, .tsx, .js, .jsx, .json, .css, .html files
  *
  * Usage:
  *   node scripts/check-no-legacy-imports.js

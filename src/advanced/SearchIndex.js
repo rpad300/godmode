@@ -117,7 +117,11 @@ class SearchIndex {
     }
 
     /**
-     * Tokenize text
+     * Split text into lowercase tokens, removing punctuation, short words (<= 2 chars),
+     * and stop words. Preserves accented characters for Portuguese support.
+     *
+     * @param {string} text
+     * @returns {string[]} Filtered token array
      */
     tokenize(text) {
         if (!text || typeof text !== 'string') return [];
@@ -130,7 +134,12 @@ class SearchIndex {
     }
 
     /**
-     * Stem word (simple suffix removal)
+     * Reduce a word to an approximate root by stripping known suffixes.
+     * Requires that the remaining stem is at least 4 characters to avoid
+     * over-stemming short words.
+     *
+     * @param {string} word - Lowercase token
+     * @returns {string} Stemmed form (or original if no suffix matched)
      */
     stem(word) {
         // Simple Portuguese/English stemming
@@ -146,7 +155,15 @@ class SearchIndex {
     }
 
     /**
-     * Index a document
+     * Add or update a document in the index. Each field's text is tokenized,
+     * stemmed, and recorded in the inverted index with position data and the
+     * field's configured boost factor.
+     *
+     * @param {string} docId - Unique document identifier
+     * @param {string} docType - Category for filtering (e.g. 'fact', 'contact')
+     * @param {Object} fields - Map of fieldName -> text content to index
+     * @param {Object} [metadata={}] - Arbitrary metadata stored alongside the doc
+     * @returns {{ indexed: boolean, docId: string, fields: number }}
      */
     indexDocument(docId, docType, fields, metadata = {}) {
         // Store document metadata
@@ -220,7 +237,15 @@ class SearchIndex {
     }
 
     /**
-     * Search the index
+     * Execute a full-text search query. Tokens are stemmed and scored via TF-IDF
+     * with field boost multipliers. Results are sorted by descending score.
+     *
+     * @param {string} query - Free-text search query
+     * @param {Object} [options]
+     * @param {string} [options.type] - Filter results to a specific docType
+     * @param {number} [options.limit=20]
+     * @param {number} [options.offset=0]
+     * @returns {{ results: Object[], total: number, query: string, tokens: string[] }}
      */
     search(query, options = {}) {
         const tokens = this.tokenize(query);
@@ -287,7 +312,12 @@ class SearchIndex {
     }
 
     /**
-     * Suggest completions
+     * Return indexed terms that start with the given prefix, sorted by document
+     * frequency (most common first). Useful for autocomplete UIs.
+     *
+     * @param {string} prefix
+     * @param {number} [limit=10]
+     * @returns {Array<{ term: string, frequency: number }>}
      */
     suggest(prefix, limit = 10) {
         const prefixLower = prefix.toLowerCase();
@@ -333,7 +363,11 @@ class SearchIndex {
     }
 
     /**
-     * Rebuild index from scratch
+     * Drop the entire index and re-index from a provided document array.
+     * Automatically persists to disk when complete.
+     *
+     * @param {Array<{ id: string, type: string, fields: Object, metadata?: Object }>} documents
+     * @returns {{ rebuilt: boolean, documents: number }}
      */
     rebuild(documents) {
         this.invertedIndex.clear();

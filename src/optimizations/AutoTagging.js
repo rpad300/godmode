@@ -30,6 +30,16 @@ const llmConfig = require('../llm/config');
 const { logger } = require('../logger');
 const log = logger.child({ module: 'auto-tagging' });
 
+/**
+ * Classifies and tags documents using LLM or keyword-based fallback.
+ *
+ * @param {object} options
+ * @param {string|null} options.llmProvider - LLM provider name
+ * @param {string|null} options.llmModel - Model identifier
+ * @param {object}  options.llmConfig - Full LLM configuration
+ * @param {object}  options.appConfig - App-level config for per-task resolution
+ * @param {string[]} [options.categories] - Allowed category names
+ */
 class AutoTagging {
     constructor(options = {}) {
         this.llmProvider = options.llmProvider || null;

@@ -1,3 +1,30 @@
+/**
+ * Purpose:
+ *   User-facing settings page with three sections: General (appearance and language),
+ *   Profile & Role (project role selection and timezone), and Data & Privacy
+ *   (analytics, error reporting, AI data improvement toggles).
+ *
+ * Responsibilities:
+ *   - General: theme (light/dark/system) and language (en/pt/es/fr/de) selection with localStorage persistence
+ *   - Profile & Role: display active project, select project role from available roles, select timezone
+ *   - Data & Privacy: toggle analytics, error reporting, and AI data improvement preferences
+ *
+ * Key dependencies:
+ *   - useUser: current user profile and update mutation
+ *   - useProject (ProjectContext): current project info and ID
+ *   - apiClient: fetches project roles and timezone list, updates member role
+ *   - Switch (shadcn): toggle component for privacy settings
+ *
+ * Side effects:
+ *   - localStorage: persists theme, language, and privacy preferences
+ *   - DOM: toggles 'dark' class for theme switching
+ *   - Network: fetches roles and timezones, updates user profile and project member role
+ *
+ * Notes:
+ *   - This page differs from SettingsPage.tsx: UserSettingsPage is user-centric (personal
+ *     preferences), while SettingsPage is project/admin-centric (API keys, webhooks, data).
+ *   - An info banner directs users to the Admin section for LLM and graph configuration.
+ */
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Sparkles, Shield, Globe, Languages, Building2, Info, Check, UserCog, Clock } from 'lucide-react';

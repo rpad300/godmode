@@ -44,6 +44,19 @@ try {
     // Will use legacy storage methods
 }
 
+/**
+ * Manages scheduled and on-demand backups of graph data, knowledge base,
+ * and configuration to the local filesystem.
+ *
+ * Lifecycle: construct -> setGraphProvider -> createBackup / startAutoBackup.
+ * Invariant: this.backupDir always exists after construction.
+ *
+ * @param {object} options
+ * @param {object} options.graphProvider - Graph database adapter (must expose .query and .connected)
+ * @param {string} [options.backupDir='./backups'] - Directory for backup storage
+ * @param {number} [options.maxBackups=10] - Maximum retained backups before cleanup
+ * @param {number} [options.autoBackupInterval=86400000] - Auto-backup interval in ms (default 24h)
+ */
 class AutoBackup {
     constructor(options = {}) {
         this.graphProvider = options.graphProvider;
@@ -76,7 +89,10 @@ class AutoBackup {
     }
 
     /**
-     * Create a full backup
+     * Create a full backup of graph, knowledge base, and config.
+     * Writes a manifest.json alongside the data files.
+     * @param {string|null} [name] - Custom backup name; defaults to timestamp-based
+     * @returns {Promise<{success: boolean, name: string, path?: string, files: string[], error?: string}>}
      */
     async createBackup(name = null) {
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -236,7 +252,10 @@ class AutoBackup {
     }
 
     /**
-     * Restore from backup
+     * Restore data from a named backup directory. Restores knowledge base
+     * items additively (does not wipe existing data) and graph nodes via MERGE.
+     * @param {string} backupName - Name of the backup folder
+     * @returns {Promise<{success: boolean, restored: string[], warnings: string[], error?: string}>}
      */
     async restore(backupName) {
         const backupPath = path.join(this.backupDir, backupName);
@@ -448,7 +467,7 @@ class AutoBackup {
     }
 }
 
-// Singleton
+/** Singleton accessor. Updates graphProvider on subsequent calls if provided. */
 let autoBackupInstance = null;
 function getAutoBackup(options = {}) {
     if (!autoBackupInstance) {

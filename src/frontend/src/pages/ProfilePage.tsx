@@ -1,3 +1,31 @@
+/**
+ * Purpose:
+ *   User profile management page with four sections: General (account info, preferences),
+ *   Security (password change, account deletion), Sessions (active login sessions),
+ *   and Integrations (Krisp AI webhook configuration).
+ *
+ * Responsibilities:
+ *   - General: edit username, display name, bio, avatar URL, timezone, language; save via API
+ *   - Security: change password with validation, "danger zone" account deletion prompt
+ *   - Sessions: display current browser session (hardcoded single session); sign-out-all action
+ *   - Integrations: Krisp webhook URL + auth token display, copy-to-clipboard, MCP import button,
+ *     transcript stats, credential regeneration prompt
+ *
+ * Key dependencies:
+ *   - useUser: profile data and updateProfile mutation
+ *   - useAuth (AuthContext): resetPassword, logout
+ *   - framer-motion: section transition animations
+ *
+ * Side effects:
+ *   - Network: profile updates, password reset, logout
+ *   - Clipboard: copies webhook URL and auth token
+ *
+ * Notes:
+ *   - Sessions section currently only shows the current browser session (navigator.userAgent);
+ *     multi-session tracking is not yet implemented.
+ *   - The auth token in IntegrationsSection is hardcoded as a placeholder.
+ *   - Account deletion is not implemented; it shows a toast directing the user to an admin.
+ */
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';

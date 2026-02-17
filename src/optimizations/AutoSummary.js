@@ -28,6 +28,17 @@
 const llm = require('../llm');
 const llmConfig = require('../llm/config');
 
+/**
+ * Generates LLM-powered summaries from graph + storage context.
+ *
+ * @param {object} options
+ * @param {string|null} options.llmProvider - LLM provider name (e.g. 'openai')
+ * @param {string|null} options.llmModel - Model identifier
+ * @param {object}  options.llmConfig - Full LLM configuration including providers map
+ * @param {object}  options.appConfig - App-level config for per-task LLM resolution
+ * @param {object}  options.graphProvider - Graph database adapter
+ * @param {object}  options.storage - Local storage adapter
+ */
 class AutoSummary {
     constructor(options = {}) {
         this.llmProvider = options.llmProvider || null;
@@ -47,7 +58,9 @@ class AutoSummary {
     }
 
     /**
-     * Generate a comprehensive project summary
+     * Generate a structured executive summary covering overview, people,
+     * topics, decisions, risks, questions, and next steps.
+     * @returns {Promise<{summary?: string, context?: object, generatedAt?: string, error?: string}>}
      */
     async generateProjectSummary() {
         const context = await this.gatherContext();
@@ -215,7 +228,11 @@ Keep it under 300 words.`;
     }
 
     /**
-     * Generate summary for a specific entity
+     * Generate a brief summary for a single entity by querying its
+     * properties and relationships from the graph.
+     * @param {string} entityType - Graph label (e.g. 'Person', 'Project')
+     * @param {string} entityName - Entity name property value
+     * @returns {Promise<{entity?: string, type?: string, summary?: string, relationships?: Array, error?: string}>}
      */
     async generateEntitySummary(entityType, entityName) {
         if (!this.graphProvider || !this.graphProvider.connected) {

@@ -1,9 +1,57 @@
 /**
- * Team Analysis API
- * Extracted from server.js
+ * Purpose:
+ *   Team behavioral analysis API. Provides AI-driven person profiling,
+ *   team dynamics analysis, relationship mapping, graph visualization,
+ *   and configurable analysis settings per project.
  *
- * Handles: /api/team-analysis/profiles, team, relationships, graph,
- * sync-graph, query, config
+ * Responsibilities:
+ *   - List and retrieve behavioral profiles for project participants
+ *   - Trigger AI-powered person profile analysis (personality, sentiment, communication)
+ *   - Generate team-level dynamics analysis
+ *   - Map behavioral relationships between team members
+ *   - Provide graph visualization data and sync analysis results to the graph
+ *   - Execute graph queries (influence map, power centers, alliances, tensions, etc.)
+ *   - Manage per-project analysis configuration
+ *   - Admin: list all projects with analysis status, trigger analysis for any project
+ *
+ * Key dependencies:
+ *   - ../../team-analysis (getTeamAnalyzer): person/team analysis with LLM
+ *   - ../../team-analysis (getGraphSync): sync analysis results to graph and visualization
+ *   - storage.supabase: direct Supabase access for projects, team_analysis tables
+ *   - config: LLM configuration passed through to team analyzer
+ *
+ * Side effects:
+ *   - Profile analysis invokes LLM and persists results to Supabase
+ *   - Team dynamics analysis writes to team_analysis table
+ *   - Graph sync creates/updates nodes and relationships in the graph database
+ *   - Config update writes to the projects.settings JSONB column
+ *
+ * Notes:
+ *   - All routes require an active project (projectId from storage.getCurrentProject)
+ *   - Analysis can be forced (forceReanalysis) to bypass cached results
+ *   - The config route maintains backward compatibility with a legacy
+ *     team_analysis_enabled boolean column alongside the JSONB settings
+ *   - Admin analyze endpoint allows analysis even if disabled in project settings
+ *     (intentional: manual admin trigger should always work)
+ *   - Query types: influence_map, power_centers, alliances, tensions, person_network,
+ *     team_cohesion
+ *
+ * Routes:
+ *   GET  /api/team-analysis/profiles                        - List all profiles
+ *   GET  /api/team-analysis/profiles/:personId              - Single profile
+ *   POST /api/team-analysis/profiles/:personId/analyze      - Trigger AI profile analysis
+ *     Body: { relationshipContext?, objective?, forceReanalysis? }
+ *   GET  /api/team-analysis/team                            - Team dynamics summary
+ *   POST /api/team-analysis/team/analyze                    - Trigger team dynamics analysis
+ *   GET  /api/team-analysis/relationships                   - Behavioral relationship map
+ *   GET  /api/team-analysis/graph                           - Graph visualization data
+ *   POST /api/team-analysis/sync-graph                      - Sync analysis to graph DB
+ *   GET  /api/team-analysis/query                           - Execute graph query by type
+ *     Query: ?type=influence_map|power_centers|...&personId=
+ *   GET  /api/team-analysis/config                          - Get analysis configuration
+ *   PUT  /api/team-analysis/config                          - Update analysis configuration
+ *   GET  /api/team-analysis/admin/projects                  - List projects with analysis status
+ *   POST /api/team-analysis/admin/projects/:projectId/analyze - Admin-trigger analysis
  */
 
 const { parseBody, parseUrl } = require('../../server/request');
