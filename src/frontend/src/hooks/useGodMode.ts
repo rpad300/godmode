@@ -640,10 +640,55 @@ export function useDeleteDecision() {
 
 // ── Contacts ────────────────────────────────────────────────────────────────
 
-export function useContacts() {
+export function useContacts(params?: { search?: string; role?: string; organization?: string }) {
+  const qs = new URLSearchParams();
+  if (params?.search) qs.set('search', params.search);
+  if (params?.role) qs.set('role', params.role);
+  if (params?.organization) qs.set('organization', params.organization);
+  const queryString = qs.toString();
   return useQuery({
-    queryKey: queryKeys.contacts,
-    queryFn: () => apiClient.get<Array<Record<string, unknown>>>('/api/contacts'),
+    queryKey: [...queryKeys.contacts, queryString],
+    queryFn: () => apiClient.get<{ contacts: Array<Record<string, unknown>>; total?: number }>(
+      `/api/contacts${queryString ? `?${queryString}` : ''}`
+    ),
+  });
+}
+
+export function useCreateContact() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Record<string, unknown>) =>
+      apiClient.post('/api/contacts', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.contacts });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
+  });
+}
+
+export function useUpdateContact() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...data }: { id: string; [key: string]: unknown }) =>
+      apiClient.put(`/api/contacts/${id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.contacts });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
+  });
+}
+
+export function useDeleteContact() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete(`/api/contacts/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.contacts });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
   });
 }
 

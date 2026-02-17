@@ -3,21 +3,26 @@ import { cn } from '../../lib/utils';
 
 interface DialogProps {
   open: boolean;
-  onClose: () => void;
+  onClose?: () => void;
+  onOpenChange?: (open: boolean) => void;
   children: ReactNode;
 }
 
-export function Dialog({ open, onClose, children }: DialogProps) {
+export function Dialog({ open, onClose, onOpenChange, children }: DialogProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
+  const handleClose = () => {
+    onClose?.();
+    onOpenChange?.(false);
+  };
 
   useEffect(() => {
     if (!open) return;
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') handleClose();
     };
     document.addEventListener('keydown', handleEscape);
     return () => document.removeEventListener('keydown', handleEscape);
-  }, [open, onClose]);
+  }, [open, onClose, onOpenChange]);
 
   if (!open) return null;
 
@@ -26,18 +31,25 @@ export function Dialog({ open, onClose, children }: DialogProps) {
       ref={overlayRef}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
       onClick={(e) => {
-        if (e.target === overlayRef.current) onClose();
+        if (e.target === overlayRef.current) handleClose();
       }}
     >
-      <div
-        className={cn(
-          'bg-[hsl(var(--card))] text-[hsl(var(--card-foreground))]',
-          'rounded-lg border shadow-lg p-6 w-full max-w-md',
-          'animate-in fade-in-0 zoom-in-95'
-        )}
-      >
-        {children}
-      </div>
+      {children}
+    </div>
+  );
+}
+
+export function DialogContent({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <div
+      className={cn(
+        'bg-card text-card-foreground',
+        'rounded-lg border shadow-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto',
+        'animate-in fade-in-0 zoom-in-95',
+        className
+      )}
+    >
+      {children}
     </div>
   );
 }
@@ -51,7 +63,7 @@ export function DialogTitle({ children, className }: { children: ReactNode; clas
 }
 
 export function DialogDescription({ children, className }: { children: ReactNode; className?: string }) {
-  return <p className={cn('text-sm text-[hsl(var(--muted-foreground))] mt-1', className)}>{children}</p>;
+  return <p className={cn('text-sm text-muted-foreground mt-1', className)}>{children}</p>;
 }
 
 export function DialogFooter({ children, className }: { children: ReactNode; className?: string }) {
