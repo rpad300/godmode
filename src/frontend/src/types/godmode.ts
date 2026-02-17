@@ -1,3 +1,27 @@
+/**
+ * Purpose:
+ *   Core domain type definitions for the GodMode application. Covers
+ *   navigation tabs, projects, dashboard stats, extracted entities
+ *   (facts, questions, risks, actions, decisions), contacts and their
+ *   relationships, sprints, user stories, chat messages, processed files,
+ *   and project membership.
+ *
+ * Responsibilities:
+ *   - Provide shared TypeScript interfaces consumed by pages, hooks, and components
+ *   - Declare the Window.electron.storage bridge for Electron desktop builds
+ *
+ * Key dependencies:
+ *   - None (pure type declarations)
+ *
+ * Side effects:
+ *   - Augments the global Window interface with an electron.storage API
+ *
+ * Notes:
+ *   - TabId union must stay in sync with the route definitions in App.tsx.
+ *   - The Window.electron declaration enables type-safe IPC when running inside
+ *     an Electron shell; it is inert in the browser build.
+ *   - ProjectMember.role uses display strings like "Top G", "Admin", etc.
+ */
 export type TabId = 'dashboard' | 'chat' | 'sot' | 'timeline' | 'contacts' | 'team-analysis' | 'files' | 'emails' | 'graph' | 'costs' | 'history' | 'projects' | 'companies' | 'settings' | 'user-settings' | 'admin' | 'profile';
 
 export interface Category {

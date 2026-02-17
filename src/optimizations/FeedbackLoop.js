@@ -38,6 +38,12 @@ try {
     // Will use in-memory cache only
 }
 
+/**
+ * Records user corrections and applies learned rules to future extractions.
+ *
+ * Lifecycle: construct -> recordCorrection / addEntityAlias -> applyCorrections.
+ * The in-memory cache auto-refreshes from Supabase every 5 minutes.
+ */
 class FeedbackLoop {
     constructor(options = {}) {
         // In-memory cache for fast lookups
@@ -100,7 +106,13 @@ class FeedbackLoop {
     }
 
     /**
-     * Record a user correction
+     * Persist a user correction to Supabase and immediately learn from it.
+     * @param {object} correction
+     * @param {string} correction.type - 'entity_rename' | 'entity_merge' | 'relation_type' | 'extraction_rule'
+     * @param {object} correction.original - Original extraction data
+     * @param {object} correction.corrected - User-provided corrected data
+     * @param {object} [correction.context] - Optional context (entityType, entityId, note)
+     * @returns {Promise<string|null>} Feedback record ID or null on failure
      */
     async recordCorrection(correction) {
         try {
@@ -235,7 +247,10 @@ class FeedbackLoop {
     }
 
     /**
-     * Apply learned corrections to new extractions
+     * Transform new extraction results by substituting learned canonical names
+     * for entities, people, and relationship endpoints.
+     * @param {object} extractions - Extraction result with optional .entities, .people, .relationships arrays
+     * @returns {Promise<object>} Corrected extraction (shallow copy)
      */
     async applyCorrections(extractions) {
         await this._refreshCache();

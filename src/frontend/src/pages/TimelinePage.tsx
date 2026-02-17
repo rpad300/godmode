@@ -1,3 +1,27 @@
+/**
+ * Purpose:
+ *   Chronological timeline view of all project events grouped by date. Shows entity
+ *   changes (questions, facts, decisions, risks, actions, documents, contacts, emails)
+ *   with type-specific icons and color coding.
+ *
+ * Responsibilities:
+ *   - Reuse history data (useHistory hook) and present it as a date-grouped timeline
+ *   - Provide entity type filter buttons (question, fact, decision, risk, action, document)
+ *   - Render a vertical timeline with date headers and connected event cards
+ *   - Display event type, operation, description, timestamp, and author per entry
+ *
+ * Key dependencies:
+ *   - useHistory (useGodMode): same data source as HistoryPage, repurposed for timeline view
+ *
+ * Side effects:
+ *   - Network: fetches history/timeline data on mount
+ *
+ * Notes:
+ *   - Shares the same useHistory hook as HistoryPage but presents data in a visual
+ *     timeline layout rather than a flat list.
+ *   - Entity type detection is fuzzy: checks entity_type, type, and table_name fields.
+ *   - entityConfig maps types to icon components and color classes for consistent styling.
+ */
 import { useState, useMemo } from 'react';
 import { useHistory } from '../hooks/useGodMode';
 import {

@@ -1,6 +1,38 @@
 /**
- * Google Drive Sync Service
- * Handles syncing files from Google Drive to local storage + database.
+ * Purpose:
+ *   Pulls new files from a project's Google Drive folders into local storage
+ *   and registers them in the documents table for downstream processing.
+ *
+ * Responsibilities:
+ *   - List files in the project's uploads and newtranscripts Drive folders
+ *   - Skip files already imported (matched via metadata.drive_file_id)
+ *   - Download new files via the drive wrapper, write to local disk, hash content
+ *   - Insert document records with status "pending" so the processor picks them up
+ *   - Update project settings with lastSync timestamp and stats
+ *   - Provide a syncAllProjects() for scheduled/cron-style batch syncing
+ *   - Expose handleSync() for direct API route integration
+ *
+ * Key dependencies:
+ *   - ./drive: Google Drive API wrapper (authentication, download)
+ *   - ../../supabase/storageHelper: Project-scoped storage abstraction
+ *   - ../../supabase/client (getAdminClient): Supabase admin queries
+ *   - fs / path / crypto (Node built-in): Local file I/O and hashing
+ *   - ../../logger: Structured logging
+ *
+ * Side effects:
+ *   - Downloads files from Google Drive (network)
+ *   - Writes files to data/projects/<projectId>/sources/ on local disk
+ *   - Creates directories recursively if missing
+ *   - Inserts rows into the documents table (Supabase)
+ *   - Updates project.settings.googleDrive with sync metadata
+ *
+ * Notes:
+ *   - Filenames are sanitised (non-alphanumeric replaced with underscore)
+ *   - File hash is SHA-256 for deduplication
+ *   - The batch page size per folder is 100 files; pagination is not yet
+ *     implemented -- TODO: confirm if large folders need cursor-based listing
+ *   - syncProject() returns { total, imported, errors } stats
+ *   - syncAllProjects() only syncs projects with googleDrive.enabled in settings
  */
 
 const fs = require('fs');

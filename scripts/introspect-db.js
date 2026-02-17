@@ -1,11 +1,31 @@
 #!/usr/bin/env node
 /**
- * Introspect Supabase/Postgres schema using credentials from src/.env.
- * Outputs tables, columns, RLS policies, and functions to compare with migrations.
+ * Purpose:
+ *   Connects directly to the Supabase Postgres database and extracts a full
+ *   schema snapshot (tables, columns, RLS policies, functions) from the public
+ *   schema. Useful for auditing drift between migrations and the live database.
  *
- * Usage: node scripts/introspect-db.js [--json]
- * Requires: DATABASE_URL in src/.env (Supabase Dashboard → Project Settings → Database → Connection string URI)
- * Optional: --json writes scripts/db-schema-report.json
+ * Responsibilities:
+ *   - Parse DATABASE_URL from src/.env
+ *   - Query information_schema and pg_catalog for schema metadata
+ *   - Print the report as JSON to stdout, or write to scripts/db-schema-report.json
+ *
+ * Key dependencies:
+ *   - pg (npm): PostgreSQL client for direct database connection
+ *
+ * Side effects:
+ *   - Opens a TCP connection to the Supabase Postgres instance (read-only queries)
+ *   - Optionally writes db-schema-report.json to disk (--json flag)
+ *
+ * Notes:
+ *   - Requires DATABASE_URL in src/.env (connection string URI from Supabase Dashboard)
+ *   - SSL is used with rejectUnauthorized=false for Supabase pooler compatibility
+ *   - Pair the output with code-schema-manifest.js to detect tables referenced in
+ *     code but missing from the database, or vice versa
+ *
+ * Usage:
+ *   node scripts/introspect-db.js            # prints JSON to stdout
+ *   node scripts/introspect-db.js --json     # writes scripts/db-schema-report.json
  */
 
 const path = require('path');

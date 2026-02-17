@@ -30,6 +30,15 @@
 const fs = require('fs');
 const path = require('path');
 
+/**
+ * Exports graph data and knowledge base to multiple formats (JSON, Cypher,
+ * GraphML, CSV) and optionally saves to disk.
+ *
+ * @param {object} options
+ * @param {object} options.graphProvider - Graph database adapter
+ * @param {object} options.storage - Local knowledge base storage adapter
+ * @param {string} [options.exportDir='./exports'] - Target directory for file exports
+ */
 class ExportGraph {
     constructor(options = {}) {
         this.graphProvider = options.graphProvider;
@@ -225,7 +234,11 @@ class ExportGraph {
     }
 
     /**
-     * Save export to file
+     * Export data in the given format and write it to disk. CSV produces two
+     * files (nodes + edges); all others produce a single file.
+     * @param {string} [format='json'] - 'json' | 'cypher' | 'graphml' | 'csv' | 'knowledge'
+     * @param {string|null} [filename] - Custom base filename (without extension)
+     * @returns {Promise<{success: boolean, file?: string, files?: string[], path?: string, error?: string}>}
      */
     async saveExport(format = 'json', filename = null) {
         let exportData;

@@ -1,3 +1,28 @@
+/**
+ * Purpose:
+ *   Standalone authentication page supporting login, registration, and password
+ *   reset flows. Redirects to /dashboard if the user is already authenticated.
+ *
+ * Responsibilities:
+ *   - Render a centered auth card with login/register tab switcher and forgot-password mode
+ *   - Validate inputs (password match, min length) before submitting
+ *   - Delegate auth operations to the AuthContext (login, register, forgotPassword)
+ *   - Show loading spinner while auth state is being determined
+ *   - Redirect authenticated users away from this page via <Navigate>
+ *
+ * Key dependencies:
+ *   - useAuth (AuthContext): isAuthenticated, login, register, forgotPassword
+ *   - react-router-dom Navigate: declarative redirect for authenticated users
+ *
+ * Side effects:
+ *   - Network: authentication calls via AuthContext
+ *   - Navigation: redirects to /dashboard on successful login or if already authenticated
+ *
+ * Notes:
+ *   - This is the route-based login page; LandingPage.tsx also contains an embedded
+ *     auth form for unauthenticated users arriving at the root route.
+ *   - Password minimum length is 6 characters, enforced client-side.
+ */
 import { useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { Zap, Loader2, ArrowLeft, Eye, EyeOff } from 'lucide-react';

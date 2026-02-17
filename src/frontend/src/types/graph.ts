@@ -1,3 +1,28 @@
+/**
+ * Purpose:
+ *   Type definitions for the knowledge graph visualisation layer. Extends
+ *   React Flow's Node and Edge interfaces with GodMode-specific fields
+ *   (tier, display metadata, sync status, filter state).
+ *
+ * Responsibilities:
+ *   - GraphNodeData: payload carried by each graph node (tier, colour, display dimensions)
+ *   - GraphNode: extends React Flow Node with optional label, width/height overrides
+ *   - GraphEdge: extends React Flow Edge with optional weight/curvature data
+ *   - GraphSyncStatus: server-reported state of the graph sync pipeline
+ *   - GraphFilterState: UI filter controls (type toggles, search, tier, semantic, layout)
+ *
+ * Key dependencies:
+ *   - @xyflow/react: base Node and Edge types
+ *
+ * Side effects:
+ *   - None (pure type declarations)
+ *
+ * Notes:
+ *   - GraphNodeData uses [key: string]: any for extensibility; consider narrowing
+ *     as the ontology stabilises.
+ *   - GraphFilterState.layout supports three modes: 'concentric' (default),
+ *     'force', and 'hierarchical'.
+ */
 import { Node, Edge } from '@xyflow/react';
 
 // Extend React Flow types directly to ensure compatibility

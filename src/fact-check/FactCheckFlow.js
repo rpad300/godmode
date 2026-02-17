@@ -1,8 +1,33 @@
 /**
- * Fact Check Flow
- * Runs analysis on project facts using the app's configured AI (LLM): detects
- * conflicts/contradictions via LLM, records conflict_detected in fact_events.
- * Prompt is loaded from Supabase (system_prompts key: fact_check_conflicts) and editable in Admin.
+ * Purpose:
+ *   Analyses all project facts to detect genuine contradictions (same topic,
+ *   incompatible claims) using an LLM, and optionally records conflict events
+ *   for downstream alerting and resolution workflows.
+ *
+ * Responsibilities:
+ *   - Retrieve all facts from project-scoped storage
+ *   - Format facts into a numbered list (with optional category) for the LLM prompt
+ *   - Load the prompt template from Supabase (key: fact_check_conflicts)
+ *     or fall back to an inline template
+ *   - Parse the LLM's JSON array response into structured conflict objects
+ *   - Optionally record conflict_detected events on both facts via storage._addFactEvent
+ *
+ * Key dependencies:
+ *   - ../llm: centralised LLM text generation
+ *   - ../llm/config: resolves provider/model from app config (reasoning tier)
+ *   - ../supabase/prompts: loads admin-editable prompt templates
+ *   - storage (passed in): project-scoped storage with getFacts / _addFactEvent
+ *
+ * Side effects:
+ *   - Network call to configured LLM provider
+ *   - Network call to Supabase for prompt template
+ *   - Writes conflict_detected events to fact_events when recordEvents is true
+ *
+ * Notes:
+ *   - Requires at least 2 facts to run; returns empty otherwise.
+ *   - Structurally very similar to DecisionCheckFlow -- same LLM call pattern
+ *     and event-recording mechanism, differing only in prompt and storage method names.
+ *   - Temperature 0.1 for deterministic conflict detection.
  */
 
 const { logger } = require('../logger');

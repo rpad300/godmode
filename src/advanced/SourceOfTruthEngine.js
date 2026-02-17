@@ -744,7 +744,10 @@ class SourceOfTruthEngine {
     }
 
     /**
-     * Generate executive summary
+     * Render a Markdown executive summary combining the health score,
+     * entity counts, top alerts, and key scoring factors.
+     *
+     * @returns {Promise<string>} Markdown-formatted report
      */
     async generateExecutiveSummary() {
         const storage = this._getStorage();
@@ -777,7 +780,11 @@ Generated: ${new Date().toISOString()}
     }
 
     /**
-     * Get complete SOT data
+     * Assemble the full Source of Truth payload consumed by the frontend dashboard.
+     * Includes health score, insights, alerts, timeline (top 20), change delta,
+     * project stats, and raw entity data arrays.
+     *
+     * @returns {Promise<Object>} Complete SOT data bundle
      */
     async getSOTData() {
         const storage = this._getStorage();
@@ -812,7 +819,15 @@ Generated: ${new Date().toISOString()}
     }
 
     /**
-     * Generate enhanced SOT with optional AI summary and graph data
+     * Extended version of getSOTData() that optionally appends an AI-generated
+     * natural-language summary (via an injected LLM provider) and a placeholder
+     * for graph visualization data.
+     *
+     * @param {Object} [options]
+     * @param {boolean} [options.includeGraph=false] - Include graph data placeholder
+     * @param {boolean} [options.includeAISummary=false] - Request AI summary
+     * @param {Object}  [options.llmProvider=null] - Must implement generateText(prompt)
+     * @returns {Promise<Object>} Enhanced SOT payload
      */
     async generateEnhancedSOT(options = {}) {
         const { includeGraph = false, includeAISummary = false, llmProvider = null } = options;
