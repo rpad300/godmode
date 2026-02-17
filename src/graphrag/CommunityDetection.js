@@ -1,11 +1,33 @@
 /**
- * Community Detection & Graph Analysis
- * 
- * SOTA techniques for graph-based analysis:
- * - Louvain-style community detection
- * - Entity resolution and deduplication
- * - Graph centrality metrics
- * - Cluster-aware search expansion
+ * Purpose:
+ *   Provides graph analytics and community detection algorithms that operate
+ *   on top of any GraphProvider backend. Used to identify clusters of related
+ *   entities, rank node importance, and expand search results via community membership.
+ *
+ * Responsibilities:
+ *   - Detect communities via label propagation (lighter-weight alternative to Louvain)
+ *   - Compute degree centrality, approximate betweenness centrality, and PageRank-like scores
+ *   - Identify bridge nodes that connect distinct communities
+ *   - Calculate modularity as a quality metric for the detected community structure
+ *   - Expand search results by including community neighbours (cluster-aware retrieval)
+ *
+ * Key dependencies:
+ *   - ../logger: structured logging
+ *   - A GraphProvider instance (injected via options or setGraphProvider) that supports Cypher-like queries
+ *
+ * Side effects:
+ *   - Executes read-only graph queries against the provider; does not mutate graph data
+ *   - Caches community detection results with a configurable TTL (default 5 min)
+ *
+ * Notes:
+ *   - Label propagation uses randomised iteration order, so results may vary slightly
+ *     between runs when communities are ambiguous.
+ *   - Betweenness centrality is approximated using path-frequency heuristics rather
+ *     than the exact Brandes algorithm, since the graph provider may not support
+ *     native graph algorithms.
+ *   - PageRank here is a simplified degree-weighted approximation, not true random-walk
+ *     PageRank, because fetching the full adjacency matrix is expensive on some backends.
+ *   - A module-level singleton is provided via getCommunityDetection().
  */
 
 const { logger } = require('../logger');

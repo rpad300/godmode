@@ -1,6 +1,32 @@
 /**
- * Google Gemini Provider Adapter
- * Supports Google's Generative AI API
+ * Purpose:
+ *   Provider adapter for Google's Generative AI (Gemini) REST API.
+ *   Supports text generation, multimodal vision, embeddings, and dynamic model listing.
+ *
+ * Responsibilities:
+ *   - Translate the generic BaseLLMProvider interface into Gemini's generateContent /
+ *     embedContent / models endpoints
+ *   - Handle Gemini's unique auth model (API key as query parameter, not header)
+ *   - Categorize models from the /models endpoint by supportedGenerationMethods
+ *
+ * Key dependencies:
+ *   - ./base (BaseLLMProvider): shared retry, error classification, HTTP helpers
+ *
+ * Side effects:
+ *   - Network I/O to generativelanguage.googleapis.com (or custom baseUrl)
+ *   - Filesystem reads when images are passed as file paths in generateVision
+ *
+ * Notes:
+ *   - Gemini has no first-class "system" message. System instructions are emulated
+ *     by prepending a user message followed by a synthetic model acknowledgment.
+ *     This is a common workaround but may behave differently than native system prompts.
+ *   - The API key is passed as a query parameter (?key=...), not in an Authorization
+ *     header. This is a Google-specific pattern.
+ *   - Embedding is done one text at a time (no batch endpoint), so embed() issues
+ *     sequential HTTP calls. This can be slow for large text arrays.
+ *   - Model path must be prefixed with "models/" for the API; the code normalizes this.
+ *   - Vision uses inline_data with mime_type (Google's format), distinct from OpenAI's
+ *     image_url format and Anthropic's source block format.
  */
 
 const BaseLLMProvider = require('./base');
@@ -122,7 +148,10 @@ class GeminiProvider extends BaseLLMProvider {
         try {
             const contents = [];
             
-            // Add system instruction if provided
+            // Gemini lacks a native system-instruction field in the REST API.
+            // Workaround: inject the system prompt as a user turn followed by a
+            // fake model acknowledgment, so the model treats it as prior context.
+            // This is imperfect -- the model may occasionally reference the ack.
             if (system) {
                 contents.push({
                     role: 'user',
@@ -270,7 +299,9 @@ class GeminiProvider extends BaseLLMProvider {
             const embeddingModel = model || 'text-embedding-004';
             const modelPath = embeddingModel.startsWith('models/') ? embeddingModel : `models/${embeddingModel}`;
             
-            // Gemini embedding API processes one text at a time, so batch them
+            // Gemini's embedContent endpoint accepts only a single text per call.
+            // We loop sequentially here; for large batches this will be slow.
+            // TODO: confirm whether Google has added a batch embedding endpoint.
             const embeddings = [];
 
             for (const text of texts) {

@@ -1,7 +1,40 @@
 /**
- * Secrets Module
- * Manages encrypted API keys and sensitive credentials
- * Uses pgcrypto for encryption at rest
+ * Purpose:
+ *   Encrypted storage and retrieval of API keys and sensitive credentials.
+ *   Supports system-wide and per-project scoping, with automatic provider
+ *   detection and a project-then-system fallback chain for key resolution.
+ *
+ * Responsibilities:
+ *   - Encrypt secrets at rest via `encrypt_secret` / `decrypt_secret` pgcrypto RPCs
+ *   - CRUD operations on the `secrets` table (set, get, list, delete)
+ *   - Expose metadata-only views (masked values) safe for frontend display
+ *   - Auto-detect LLM provider from API key prefix patterns
+ *   - Resolve provider API keys with project -> system fallback
+ *   - Mark secrets as invalid after failed API calls
+ *   - Aggregate provider configuration status across scopes
+ *
+ * Key dependencies:
+ *   - ./client (getAdminClient): Supabase admin client
+ *   - ../logger: structured logging
+ *   - pgcrypto (via RPCs): encryption/decryption at the DB level
+ *
+ * Side effects:
+ *   - `setSecret` writes/updates the `secrets` table with encrypted values
+ *   - `getSecret` updates `last_used_at` on every read (for usage tracking)
+ *   - `deleteSecret` permanently removes the row
+ *   - `markSecretInvalid` sets `is_valid = false`
+ *
+ * Notes:
+ *   - The encryption key is sourced from SECRETS_ENCRYPTION_KEY env var,
+ *     falling back to SUPABASE_SERVICE_KEY, then a hardcoded dev default.
+ *     The dev default MUST NOT be used in production.
+ *   - `setSecret` performs an upsert (check-then-update-or-insert) rather
+ *     than a native Supabase upsert, because the unique constraint is on
+ *     (scope, name, project_id) and project_id can be null.
+ *   - `getConfiguredProviders` merges project and system secrets to show
+ *     which providers are configured, preferring project-level keys.
+ *   - `validateSecret` currently only checks for non-empty values;
+ *     per-provider API validation is a TODO.
  */
 
 const { logger } = require('../logger');

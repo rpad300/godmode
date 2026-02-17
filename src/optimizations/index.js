@@ -1,6 +1,24 @@
 /**
- * Optimizations Module
- * Exports all optimization features (24 modules total)
+ * Purpose:
+ *   Central barrel file for the optimizations subsystem. Re-exports every
+ *   optimization module (24 total) along with its singleton accessor.
+ *
+ * Responsibilities:
+ *   - Provide a single import point for all optimization classes and singletons
+ *   - Organize modules into two priority batches (Core vs Advanced) with
+ *     impact tiers (High / Medium / Nice-to-have)
+ *
+ * Key dependencies:
+ *   - Every module under ./  (EntityResolver through MultiLanguageNER)
+ *
+ * Side effects:
+ *   - Importing this file eagerly requires all 24 sub-modules, which may
+ *     trigger their own top-level side effects (logger creation, Supabase
+ *     probing, etc.)
+ *
+ * Notes:
+ *   - The "Batch 1 / Batch 2" split reflects original rollout order, not
+ *     runtime priority. All modules are available simultaneously.
  */
 
 // === BATCH 1: Core Optimizations ===

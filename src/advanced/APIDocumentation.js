@@ -1,11 +1,40 @@
 /**
- * API Documentation Module
- * Auto-generates OpenAPI/Swagger documentation
+ * Purpose:
+ *   Auto-generates OpenAPI 3.0 specifications and renders them as interactive
+ *   Swagger UI pages, static Markdown, or raw JSON for the GodMode API.
+ *
+ * Responsibilities:
+ *   - Register individual or bulk endpoint definitions
+ *   - Produce a valid OpenAPI 3.0 spec object from registered endpoints
+ *   - Render the spec as HTML (Swagger UI), Markdown, or JSON
+ *   - Persist generated docs to disk (openapi.json, index.html, API.md)
+ *   - Provide Express/HTTP middleware to serve docs at runtime
+ *   - Auto-discover endpoints from server source code via regex heuristics
+ *
+ * Key dependencies:
+ *   - fs / path: reading/writing documentation files to the data directory
+ *   - Swagger UI (CDN): the generated HTML loads swagger-ui-dist@5 from unpkg
+ *
+ * Side effects:
+ *   - save() writes three files under <dataDir>/api-docs/
+ *   - createMiddleware() sends HTTP responses directly
+ *
+ * Notes:
+ *   - Singleton instance (getAPIDocumentation) auto-registers default GodMode
+ *     endpoints on first creation via getDefaultEndpoints().
+ *   - autoDiscover() uses simple regex patterns -- it will miss dynamic routes
+ *     or routes registered via middleware abstractions.
  */
 
 const fs = require('fs');
 const path = require('path');
 
+/**
+ * Builds, stores, and serves OpenAPI documentation for the GodMode API.
+ *
+ * Lifecycle: construct -> registerEndpoint(s) -> generate/save/serve.
+ * The internal `endpoints` array is append-only; there is no removal API.
+ */
 class APIDocumentation {
     constructor(options = {}) {
         this.dataDir = options.dataDir || './data';
@@ -17,7 +46,17 @@ class APIDocumentation {
     }
 
     /**
-     * Register an endpoint
+     * Register a single API endpoint definition.
+     *
+     * @param {Object} endpoint
+     * @param {string} endpoint.path        - URL path (may contain {param} placeholders)
+     * @param {string} endpoint.method      - HTTP method (case-insensitive, stored uppercase)
+     * @param {string} [endpoint.summary]
+     * @param {string} [endpoint.description]
+     * @param {string[]} [endpoint.tags=['General']]
+     * @param {Object[]} [endpoint.parameters]
+     * @param {Object}   [endpoint.requestBody]
+     * @param {Object}   [endpoint.responses] - Keyed by HTTP status code
      */
     registerEndpoint(endpoint) {
         this.endpoints.push({
@@ -46,7 +85,10 @@ class APIDocumentation {
     }
 
     /**
-     * Generate OpenAPI 3.0 specification
+     * Build a complete OpenAPI 3.0.0 specification object from all registered endpoints.
+     *
+     * @returns {Object} A plain object conforming to the OpenAPI 3.0 schema, ready
+     *   for JSON serialisation or direct consumption by Swagger UI.
      */
     generateOpenAPI() {
         const paths = {};
@@ -123,7 +165,10 @@ class APIDocumentation {
     }
 
     /**
-     * Generate HTML documentation
+     * Render a self-contained HTML page that loads Swagger UI from a CDN and
+     * inlines the OpenAPI spec as a JSON literal.
+     *
+     * @returns {string} Full HTML document string
      */
     generateHTML() {
         const spec = this.generateOpenAPI();
@@ -215,7 +260,10 @@ class APIDocumentation {
     }
 
     /**
-     * Save documentation to files
+     * Persist all documentation formats to disk under <dataDir>/api-docs/.
+     *
+     * @returns {{ saved: boolean, files: string[], directory: string }}
+     * @side-effect Creates directory and writes openapi.json, index.html, API.md
      */
     save() {
         const docsDir = path.join(this.dataDir, 'api-docs');
@@ -250,7 +298,11 @@ class APIDocumentation {
     }
 
     /**
-     * Create Express/HTTP middleware for serving docs
+     * Return a request handler compatible with Node's http.createServer or Express.
+     * Routes ending in /openapi.json, /docs, or /api-docs.md are handled; all
+     * others fall through (returns false).
+     *
+     * @returns {Function} (req, res) => boolean -- true if the request was handled
      */
     createMiddleware() {
         return (req, res) => {
@@ -274,7 +326,11 @@ class APIDocumentation {
     }
 
     /**
-     * Auto-discover endpoints from server (basic pattern matching)
+     * Scan server source code for route definitions using regex heuristics.
+     * Only recognizes two specific patterns (see inline regexes).
+     *
+     * @param {string} serverCode - Raw JavaScript source text to scan
+     * @returns {Object[]} Array of discovered endpoint descriptors (not yet registered)
      */
     autoDiscover(serverCode) {
         const patterns = [
@@ -305,7 +361,10 @@ class APIDocumentation {
     }
 
     /**
-     * Guess tag from path
+     * Derive an OpenAPI tag name from a URL path segment for grouping purposes.
+     *
+     * @param {string} path - API route path (e.g. '/api/graph/query')
+     * @returns {string} Human-readable tag name
      */
     guessTag(path) {
         if (path.includes('/graph')) return 'Graph Database';
@@ -320,7 +379,12 @@ class APIDocumentation {
     }
 }
 
-// Default endpoints for GodMode
+/**
+ * Return the hard-coded default endpoint catalog for GodMode, covering
+ * Projects, Contacts, Conversations, Chat, Graph, Ontology, and Sync.
+ *
+ * @returns {Object[]} Array of endpoint descriptor objects
+ */
 function getDefaultEndpoints() {
     return [
         // Projects

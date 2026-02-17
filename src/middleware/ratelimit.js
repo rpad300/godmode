@@ -1,23 +1,64 @@
 /**
- * Rate Limiting Middleware
- * Token bucket algorithm for API rate limiting
+ * Purpose:
+ *   Express middleware for per-client API rate limiting using a fixed-window
+ *   counter algorithm, with route-aware limit overrides.
+ *
+ * Responsibilities:
+ *   - Track request counts per client (API key > user ID > IP) in a
+ *     fixed-window bucket
+ *   - Enforce route-specific limits (stricter for auth/search, relaxed for reads)
+ *   - Expose standard RateLimit response headers (X-RateLimit-Limit, -Remaining, -Reset)
+ *   - Return 429 with Retry-After when a client exceeds its quota
+ *   - Provide a factory (createLimiter) for custom one-off limiters
+ *   - Provide tier-based limits for API key consumers (free/pro/enterprise)
+ *
+ * Key dependencies:
+ *   - None (self-contained, no external libraries)
+ *
+ * Side effects:
+ *   - Starts a 60-second setInterval for expired-bucket cleanup (runs for
+ *     the lifetime of the process; call limiter.destroy() to stop)
+ *   - Sets X-RateLimit-* and Retry-After response headers
+ *
+ * Notes:
+ *   - Despite the original docstring mentioning "token bucket", the actual
+ *     implementation is a fixed-window counter (simpler, slightly burstier
+ *     at window boundaries).
+ *   - Route matching uses first-match semantics: exact path, then
+ *     METHOD:path prefix, then plain path prefix, then the global default.
+ *   - The singleton `limiter` is shared across all routes; client identity
+ *     is resolved once per request in getClientId.
  */
 
+/**
+ * Fixed-window rate limiter.
+ *
+ * Each client gets a "bucket" that tracks how many requests it has made
+ * within the current window. Once the window expires, the bucket resets.
+ *
+ * @param {object} options
+ * @param {number} options.defaultLimit - Max requests per window (default 60)
+ * @param {number} options.windowMs     - Window duration in ms (default 60 000)
+ */
 class RateLimiter {
     constructor(options = {}) {
         this.buckets = new Map();
         this.defaultLimit = options.defaultLimit || 60; // requests per minute
         this.windowMs = options.windowMs || 60000; // 1 minute window
-        
+
         // Cleanup old buckets periodically
         this.cleanupInterval = setInterval(() => this.cleanup(), 60000);
     }
 
     /**
-     * Get client identifier from request
+     * Derive a stable identifier for the requesting client.
+     *
+     * Resolution order: API key (first 16 chars for privacy) > authenticated
+     * user ID > client IP. This means an API-key consumer is rate-limited
+     * independently from browser sessions of the same user.
      */
     getClientId(req) {
-        // Try API key first
+        // Try API key first (truncated to avoid storing full secrets in memory)
         const apiKey = req.headers['x-api-key'];
         if (apiKey) {
             return `api:${apiKey.substring(0, 16)}`;
@@ -37,7 +78,12 @@ class RateLimiter {
     }
 
     /**
-     * Check if request is allowed
+     * Check whether the given client may proceed and atomically increment
+     * the request counter. Resets the bucket if the current window has expired.
+     *
+     * @param {string} clientId - Stable client identifier from getClientId
+     * @param {number|null} limit - Override for maxRequests (null = use defaultLimit)
+     * @returns {{allowed: boolean, remaining: number, resetAt: number, retryAfter?: number}}
      */
     isAllowed(clientId, limit = null) {
         const maxRequests = limit || this.defaultLimit;
@@ -138,7 +184,8 @@ const limiter = new RateLimiter({
     windowMs: 60000
 });
 
-// Route-specific limits
+// Route-specific limits (requests per window). Entries are matched by
+// getRouteLimit in priority order: exact path > METHOD:prefix > path prefix.
 const routeLimits = {
     // Auth endpoints - stricter limits
     '/api/auth/login': 10,
@@ -159,7 +206,13 @@ const routeLimits = {
 };
 
 /**
- * Get limit for route
+ * Resolve the per-window request limit for a given method + path.
+ *
+ * Matching priority (first wins):
+ *   1. Exact path match in routeLimits (e.g. '/api/auth/login')
+ *   2. "METHOD:/path" prefix match (e.g. 'POST:/api')
+ *   3. Plain path prefix match (e.g. '/api/search')
+ *   4. Global defaultLimit fallback
  */
 function getRouteLimit(method, path) {
     // Check exact path match first
@@ -186,7 +239,9 @@ function getRouteLimit(method, path) {
 }
 
 /**
- * Rate limit middleware
+ * Express middleware that enforces per-client rate limits.
+ * Automatically resolves client identity and route-specific limits,
+ * sets standard X-RateLimit-* headers, and returns 429 when exceeded.
  */
 function rateLimitMiddleware(req, res, next) {
     const clientId = limiter.getClientId(req);
@@ -220,8 +275,11 @@ function createLimiter(options) {
 }
 
 /**
- * API key specific rate limiting
- * Higher limits for authenticated API keys
+ * Return the per-window request ceiling for a given API key billing tier.
+ * Unknown tiers fall back to the 'free' limit.
+ *
+ * @param {'free'|'pro'|'enterprise'} apiKeyTier
+ * @returns {number} Maximum requests per window
  */
 function getApiKeyLimit(apiKeyTier) {
     const tierLimits = {

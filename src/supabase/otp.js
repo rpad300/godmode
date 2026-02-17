@@ -1,7 +1,36 @@
 /**
- * OTP (One-Time Password) Service
- * Handles generation, verification, and management of email-based OTP codes
- * for passwordless login and email confirmation
+ * Purpose:
+ *   Email-based one-time password (OTP) service for passwordless login and
+ *   email confirmation flows. Generates 6-digit codes, stores their SHA-256
+ *   hashes, and verifies them with rate-limiting and attempt-counting.
+ *
+ * Responsibilities:
+ *   - Generate cryptographically secure 6-digit OTP codes
+ *   - Store hashed codes in the `otp_codes` table with expiry and attempt limits
+ *   - Enforce rate limits (per-minute and per-hour) via `check_otp_rate_limit` RPC
+ *   - Verify submitted codes atomically via `verify_otp_code` RPC
+ *   - Invalidate all pending codes for an email after successful auth
+ *   - Periodic cleanup of expired codes via `cleanup_expired_otp_codes` RPC
+ *   - Expose public config (code length, expiry, cooldown) for frontend display
+ *
+ * Key dependencies:
+ *   - crypto: randomInt for code generation, SHA-256 for hashing
+ *   - ./client (getAdminClient): Supabase admin client
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - `createOTP` inserts into `otp_codes`
+ *   - `verifyOTP` updates consumed_at and attempt_count via RPC
+ *   - `invalidateOTPs` bulk-updates consumed_at for all pending codes
+ *   - `cleanupExpiredOTPs` deletes old records
+ *
+ * Notes:
+ *   - Rate limits fail open (allow the request) on DB errors to avoid
+ *     locking users out due to transient failures.
+ *   - Only the SHA-256 hash of the code is stored; the plaintext is returned
+ *     once to the caller for email delivery.
+ *   - The 10-minute expiry and 5-attempt cap are hardcoded in OTP_CONFIG
+ *     and also enforced server-side in the `verify_otp_code` RPC.
  */
 
 const crypto = require('crypto');

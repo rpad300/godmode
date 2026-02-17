@@ -1,6 +1,51 @@
 /**
- * Google Drive system API (superadmin)
- * GET/POST /api/system/google-drive, POST /api/system/google-drive/bootstrap-all
+ * Purpose:
+ *   Google Drive integration routes for system-level admin configuration
+ *   and per-project Drive sync management.
+ *
+ * Responsibilities:
+ *   - Superadmin: configure Drive integration (root folder, service account credentials)
+ *   - Superadmin: bootstrap Google Drive folder structure for all projects
+ *   - Per-project: trigger manual sync, retrieve sync stats, update sync settings
+ *
+ * Key dependencies:
+ *   - ../../integrations/googleDrive/drive: Drive client factory and folder init
+ *   - ../../integrations/googleDrive/sync: per-project file sync logic
+ *   - ../../supabase/system: system-level config persistence
+ *   - ../../supabase/secrets: encrypted service account JSON storage
+ *   - ../../supabase/projects: project settings read/write
+ *
+ * Side effects:
+ *   - Writes system config and secrets to Supabase
+ *   - Creates Google Drive folders via the Drive API
+ *   - Inserts audit log rows on bootstrap
+ *   - Clears cached Drive client after credential updates
+ *
+ * Notes:
+ *   - All /api/system/google-drive routes require superadmin; returns 403 otherwise
+ *   - /api/google-drive/* routes check project membership but still go through
+ *     requireSuperAdmin (inherited from the shared auth guard at the top of handleGoogleDrive)
+ *   - The `sync` module is required a second time inline (line 223) -- likely a leftover
+ *     from incremental extraction; the top-level import already covers it.
+ *
+ * Routes:
+ *   GET  /api/system/google-drive             - Admin UI state (config, pending/configured projects)
+ *     Auth: superadmin | Resp: { enabled, rootFolderId, hasSystemCredentials, ... }
+ *
+ *   POST /api/system/google-drive             - Save config + optional service account JSON
+ *     Auth: superadmin | Body: { enabled, rootFolderId, serviceAccountJson? }
+ *
+ *   POST /api/system/google-drive/bootstrap-all - Create Drive folder tree for every project
+ *     Auth: superadmin | Resp: { projectsCount, failedCount, bootstrappedAt }
+ *
+ *   POST /api/google-drive/sync               - Manual per-project sync trigger
+ *     Auth: project member | Body: { projectId }
+ *
+ *   GET  /api/google-drive/stats              - Per-project sync statistics
+ *     Auth: project member | Query: projectId
+ *
+ *   POST /api/google-drive/config             - Update per-project sync settings
+ *     Auth: project owner/admin | Body: { projectId, syncFrequency?, autoSync? }
  */
 
 const { parseBody } = require('../../server/request');

@@ -1,20 +1,50 @@
 /**
- * Token Budgeting and Enforcement
- * Manages token limits, truncation, and budget allocation for LLM requests
+ * Purpose:
+ *   Prevents context-window overflows by estimating token usage, computing budgets,
+ *   and (when enforcement is enabled) automatically truncating RAG context and
+ *   conversation history so that the request fits within the model's limits.
+ *
+ * Responsibilities:
+ *   - Token estimation: character-based heuristic (chars/4 * 1.1 safety margin) for
+ *     plain text and multi-part messages (text + images)
+ *   - Limit resolution: merges model metadata, task-level policy, and per-model
+ *     overrides into a single set of effective limits
+ *   - Budget calculation: given system prompt, RAG context, and message history,
+ *     determines whether truncation or blocking is needed
+ *   - Truncation strategies: trim RAG context first (to reservedForRag), then trim
+ *     oldest conversation turns, keeping system messages
+ *   - applyBudget: one-call convenience that calculates + truncates + returns modified inputs
+ *   - getTokenEstimate: lightweight estimation for UI previews (no mutation)
+ *
+ * Key dependencies:
+ *   - ./modelMetadata: provides contextTokens and maxOutputTokens for limit clamping
+ *
+ * Side effects:
+ *   - None (pure computation; inputs are not mutated, copies are returned)
+ *
+ * Notes:
+ *   - The 1-token ~ 4-char heuristic is tuned for English prose; CJK or code-heavy
+ *     content may be under-estimated. A 10 % safety margin partially compensates.
+ *   - Image tokens are estimated at 170 per image (OpenAI "high detail" ballpark).
+ *   - When enforce is false, calculateBudget still populates warnings but never sets
+ *     truncateRag / truncateHistory / blocked, allowing callers to make their own decisions.
+ *   - DEFAULT_POLICY is exported for reference but is always overridden by the user's
+ *     tokenPolicy from config when present.
  */
 
 const modelMetadata = require('./modelMetadata');
 
 /**
- * Approximate token count from text
- * Uses character/4 approximation with safety margin
+ * Approximate token count from text.
+ * Uses a 1-token ~ 4-character heuristic with a 10% safety margin.
+ * This tends to over-estimate for English prose and under-estimate for CJK or code,
+ * but is fast and sufficient for budget gating (exact counts come from the provider
+ * in the response).
  * @param {string} text - Text to count tokens for
  * @returns {number} Estimated token count
  */
 function estimateTokens(text) {
     if (!text) return 0;
-    // Rough approximation: 1 token ≈ 4 characters for English
-    // Add 10% safety margin
     return Math.ceil((text.length / 4) * 1.1);
 }
 
@@ -182,16 +212,20 @@ function calculateBudget({
         }
     };
     
-    // Check if we're within budget
+    // Enforcement logic: when the model's context window is known and enforcement is on,
+    // verify that estimated input + reserved output fits. If not, apply a two-stage
+    // truncation strategy:
+    //   1. Trim RAG context down to reservedForRag (least disruptive -- RAG can be re-fetched)
+    //   2. Trim conversation history from oldest to newest (more disruptive but necessary)
+    // If even the system prompt alone exceeds the window, block the request entirely.
     if (limits.contextTokens && limits.enforce) {
         const availableForInput = limits.contextTokens - limits.maxOutputTokens;
-        
+
         if (totalInputTokens > availableForInput) {
             result.decision.withinBudget = false;
-            
-            // Calculate how much we need to trim
+
             const excess = totalInputTokens - availableForInput;
-            
+
             // Strategy 1: Trim RAG context first
             if (ragTokens > limits.reservedForRag) {
                 result.decision.truncateRag = true;

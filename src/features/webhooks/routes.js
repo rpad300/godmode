@@ -1,15 +1,40 @@
 /**
- * Webhooks feature routes
- * Extracted from server.js
+ * Purpose:
+ *   Full CRUD for project webhooks, plus test-fire, delivery history,
+ *   and secret regeneration endpoints.
  *
- * Handles:
- * - GET /api/projects/:id/webhooks - List webhooks
- * - POST /api/projects/:id/webhooks - Create webhook
- * - PUT /api/webhooks/:id - Update webhook
- * - DELETE /api/webhooks/:id - Delete webhook
- * - POST /api/webhooks/:id/test - Test webhook
- * - GET /api/webhooks/:id/deliveries - Get delivery history
- * - POST /api/webhooks/:id/regenerate-secret - Regenerate secret
+ * Responsibilities:
+ *   - List, create, update, and delete webhooks for a project
+ *   - Trigger a test delivery to verify webhook endpoint connectivity
+ *   - Retrieve paginated delivery history for debugging
+ *   - Regenerate the signing secret (shown once on regeneration)
+ *
+ * Key dependencies:
+ *   - supabase.webhooks: data-access layer for webhook CRUD, test, deliveries
+ *   - supabase.auth: token extraction and user verification (create only)
+ *   - ../../server/security.isValidUUID: validates project IDs
+ *
+ * Side effects:
+ *   - POST /webhooks creates a row and returns the signing secret once only
+ *   - POST /test fires an HTTP request to the webhook URL
+ *   - POST /regenerate-secret replaces the signing secret
+ *   - DELETE removes the webhook record
+ *
+ * Notes:
+ *   - Returns 503 if Supabase is not configured
+ *   - Only webhook creation requires authentication; other mutations are unguarded
+ *     at the route level (Assumption: middleware or RLS handles authorization)
+ *   - The signing secret is displayed only on creation and regeneration
+ *
+ * Routes:
+ *   GET    /api/projects/:id/webhooks              - List webhooks for project
+ *   POST   /api/projects/:id/webhooks              - Create webhook (auth required)
+ *          Body: { name, description, url, events[], custom_headers, max_retries, retry_delay_seconds }
+ *   PUT    /api/webhooks/:id                       - Update webhook
+ *   DELETE /api/webhooks/:id                       - Delete webhook
+ *   POST   /api/webhooks/:id/test                  - Send test delivery
+ *   GET    /api/webhooks/:id/deliveries            - Delivery history (?limit=N, default 20)
+ *   POST   /api/webhooks/:id/regenerate-secret     - Regenerate signing secret
  */
 
 const { parseBody, parseUrl } = require('../../server/request');

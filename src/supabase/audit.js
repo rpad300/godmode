@@ -1,6 +1,35 @@
 /**
- * Audit Module
- * Handles audit log export and compliance features
+ * Purpose:
+ *   Audit log export and compliance reporting layer. Allows project admins
+ *   to export activity data, view summaries, and manage export jobs that
+ *   are processed asynchronously in the background.
+ *
+ * Responsibilities:
+ *   - Create and track export jobs in the `audit_exports` table
+ *   - Process exports asynchronously (fetch from `activity_log`, format, store)
+ *   - Support JSON and CSV export formats
+ *   - Provide audit summary statistics (action breakdown, daily activity, unique actors)
+ *   - List paginated audit logs with severity inference and text search
+ *   - Cleanup expired export artifacts
+ *
+ * Key dependencies:
+ *   - ./client (getAdminClient): Supabase admin client
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - `createExportJob` kicks off `processExportJob` in the background via
+ *     a fire-and-forget Promise (errors are caught and logged, not propagated).
+ *   - Export data is currently stored as a base64 data-URI in `file_url`;
+ *     production should replace this with Supabase Storage uploads.
+ *   - `cleanupExpiredExports` nulls out `file_url` for expired completed exports.
+ *
+ * Notes:
+ *   - Export date range is capped at 1 year to prevent unbounded queries.
+ *   - Severity in `listAuditLogs` is derived heuristically from action names
+ *     and metadata, not from a dedicated DB column. The DB-level filter on
+ *     `severity` may fail if the column does not exist; client-side filtering
+ *     is applied as a fallback. TODO: confirm whether `severity` column exists.
+ *   - `listAuditLogs` joins `user_profiles` via the `actor_id` FK for display names.
  */
 
 const { logger } = require('../logger');
@@ -16,7 +45,16 @@ const EXPORT_FORMATS = {
 };
 
 /**
- * Create an audit export job
+ * Create an audit export job.
+ * Validates the date range (max 1 year), inserts a pending job into `audit_exports`,
+ * then kicks off background processing. The caller receives the job record immediately.
+ * @param {object} params
+ * @param {string} params.projectId - Project UUID
+ * @param {string} params.requestedBy - User UUID requesting the export
+ * @param {string} params.dateFrom - ISO date string (start of range)
+ * @param {string} params.dateTo - ISO date string (end of range)
+ * @param {object} [params.filters] - Optional filters: { action, actor_id, target_type }
+ * @param {string} [params.format='json'] - Export format ('json' | 'csv')
  */
 async function createExportJob({
     projectId,
@@ -80,7 +118,11 @@ async function createExportJob({
 }
 
 /**
- * Process an export job (async background task)
+ * Process an export job (async background task).
+ * Reads all matching activity_log rows (joined with user_profiles), formats them,
+ * and stores the result as a base64 data-URI in `audit_exports.file_url`.
+ * Export files expire after 7 days.
+ * TODO: Replace data-URI storage with Supabase Storage upload for production.
  */
 async function processExportJob(jobId) {
     const supabase = getAdminClient();
@@ -364,7 +406,17 @@ async function getAuditSummary(projectId, days = 30) {
 }
 
 /**
- * List audit logs with pagination and filtering
+ * List audit logs with pagination and filtering.
+ * Reads from `activity_log` with a user_profiles join for actor display names.
+ * Severity is inferred heuristically from action names (error/warning/info)
+ * since there is no dedicated severity column.
+ * Caveat: the DB-level `severity` filter (line ~401) will fail if the column
+ * does not exist; client-side severity filtering is applied as a fallback.
+ * @param {object} params
+ * @param {number} [params.page=1] - Page number (1-indexed)
+ * @param {number} [params.limit=50] - Entries per page
+ * @param {string} [params.search=''] - Text search across action and metadata
+ * @param {string} [params.filter='all'] - Severity filter: 'all' | 'error' | 'warning' | 'info'
  */
 async function listAuditLogs({ page = 1, limit = 50, search = '', filter = 'all' }) {
     const supabase = getAdminClient();

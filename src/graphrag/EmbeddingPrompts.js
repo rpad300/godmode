@@ -1,13 +1,33 @@
 /**
- * EmbeddingPrompts - SOTA Prompt Engineering for Embeddings
- * 
- * Improvements:
- * 1. Instruction-tuned prompts (work better with modern embedding models)
- * 2. Bilingual support (PT/EN)
- * 3. Dense vs Sparse representations
- * 4. Task-specific prompts (retrieval, similarity, classification)
- * 5. Contextual chunking with overlap
- * 6. Query-document asymmetric prompts
+ * Purpose:
+ *   Provides instruction-tuned prompt templates and text preparation utilities for
+ *   generating high-quality embeddings. Implements asymmetric query-document prompting
+ *   and bilingual (PT/EN) support compatible with modern embedding models (e.g.
+ *   text-embedding-3, E5, BGE).
+ *
+ * Responsibilities:
+ *   - Supply task-specific instruction prefixes for both document and query embeddings
+ *   - Maintain structured templates (primary, semantic, searchable, questionBased) for
+ *     each entity type (Person, Project, Meeting, etc.)
+ *   - Enhance queries with synonym expansion, keyword extraction, and variation generation
+ *   - Prepare entity data for embedding via template filling and text cleaning
+ *   - Chunk long texts using sentence-boundary-aware splitting with configurable overlap
+ *   - Prepare batch embedding payloads with metadata for downstream indexing
+ *
+ * Key dependencies:
+ *   - None (pure logic, no external imports)
+ *
+ * Side effects:
+ *   - None (stateless beyond configuration)
+ *
+ * Notes:
+ *   - Modern instruction-tuned embedding models yield measurably better retrieval
+ *     accuracy when the embedding input is prefixed with a task description.
+ *     The prefixes here are designed for the retrieval use-case.
+ *   - The "auto" language mode defaults to English. Portuguese is detected via regex.
+ *   - Chunking splits on sentence boundaries (.!?) and re-includes `chunkOverlap`
+ *     trailing characters from the previous chunk to preserve cross-sentence context.
+ *   - Singleton instance available via getEmbeddingPrompts().
  */
 
 class EmbeddingPrompts {

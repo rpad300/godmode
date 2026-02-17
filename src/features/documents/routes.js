@@ -1,14 +1,51 @@
 /**
- * Documents Routes
- * Extracted from src/server.js for modularization
- * 
- * Handles:
- * - Document listing, get, delete, restore
- * - Document analysis, extraction, versions, compare
- * - Document activity, favorites, sharing
- * - Document reprocess, bulk operations
- * - Document download, thumbnail
- * - SSE streaming for processing status
+ * Purpose:
+ *   Document management API routes. Full lifecycle for documents including listing,
+ *   retrieval, deletion (soft/hard), reprocessing, version control, comparison,
+ *   activity tracking, favorites, sharing, download, thumbnail generation, and bulk ops.
+ *
+ * Responsibilities:
+ *   - List documents with server-side pagination, filtering (status, type, search), and sorting
+ *   - Single document CRUD with Supabase primary, local cache fallback
+ *   - Soft delete with cascade deactivation of extracted entities (facts, decisions, etc.)
+ *   - Document reprocessing (single + bulk) with rate limiting, delegated to processor
+ *   - Version history retrieval and line-by-line diff comparison between versions
+ *   - Extraction data enrichment (matching participants to contacts by name/alias)
+ *   - AI analysis history from ai_analysis_log table
+ *   - Activity log per document with user profile enrichment
+ *   - Favorite toggle and count per user
+ *   - Recent document view count (last 7 days)
+ *   - Share link creation with token, expiration, and max view limits
+ *   - File download with Google Drive and local filesystem support
+ *   - Thumbnail generation with sharp (images) and pdf2pic (PDFs), cached to disk
+ *   - SSE streaming for real-time reprocess status updates (2s polling interval)
+ *   - Bulk delete, bulk reprocess (async background), and bulk export as ZIP
+ *   - Reset stuck documents from "processing" to "completed"
+ *
+ * Key dependencies:
+ *   - storage._supabase.supabase: Supabase client for all DB queries
+ *   - processor: Document reprocessing engine
+ *   - ../../integrations/googleDrive/drive: Google Drive download for gdrive:-prefixed filepaths
+ *   - sharp (optional): Image thumbnail resizing
+ *   - pdf2pic (optional): PDF first-page thumbnail rendering
+ *   - archiver: ZIP archive creation for bulk export
+ *   - ../../server/middleware: Rate limiting (checkRateLimit, getRateLimitKey)
+ *
+ * Side effects:
+ *   - Database: updates documents, document_activity, document_favorites, document_shares,
+ *     document_views; deactivates entities in facts/decisions/risks/action_items/knowledge_questions
+ *   - Graph DB: deletes Document node on document deletion
+ *   - Filesystem: reads/writes thumbnail cache, reads document files for download/reprocess
+ *   - Network: streams SSE events, downloads from Google Drive
+ *   - Background: bulk reprocess runs asynchronously after initial response
+ *
+ * Notes:
+ *   - The SSE stream polls Supabase every 2 seconds; consider websockets for scale
+ *   - Bulk reprocess responds immediately with 200, then processes in background
+ *   - The diff algorithm is a simple line-by-line comparison, not a proper diff (no LCS)
+ *   - Thumbnail generation depends on optional native deps (sharp, pdf2pic);
+ *     falls back to an SVG file-type icon if unavailable
+ *   - Google Drive files use the "gdrive:<fileId>" filepath convention
  */
 const fs = require('fs');
 const fsp = require('fs').promises;

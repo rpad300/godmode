@@ -1,10 +1,37 @@
 /**
- * LLM Queue Database Operations
- * Persistent queue for LLM requests with retry, audit, and project segregation
- * 
- * NOTE: Uses admin client (service_role) because the server processes LLM requests
- * without an authenticated user context. The RLS policies for llm_requests require
- * either an authenticated user or service_role access.
+ * Purpose:
+ *   Persistent, database-backed queue for LLM requests with atomic claim/complete
+ *   semantics, retry logic, and per-project segregation. Serves as the durable
+ *   backbone for all asynchronous AI processing.
+ *
+ * Responsibilities:
+ *   - Enqueue LLM requests into the `llm_requests` table with optional deduplication
+ *   - Atomically claim the next pending request via `claim_next_llm_request` RPC
+ *   - Mark requests as completed, failed (with optional retry), or cancelled
+ *   - Manually retry failed requests or clear an entire project queue
+ *   - Query queue status, pending items, history, per-context stats, and retryable failures
+ *   - Retrieve full request details by ID
+ *
+ * Key dependencies:
+ *   - crypto: SHA-256 input hashing for deduplication
+ *   - ./client (getAdminClient): Supabase admin client (service_role)
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - All mutating operations write to the `llm_requests` table
+ *   - Queue status reads from `llm_requests` and the `llm_context_stats` view
+ *
+ * Notes:
+ *   - Uses admin client (service_role) because the server processes LLM requests
+ *     without an authenticated user context; RLS requires service_role.
+ *   - Claim, complete, fail, cancel, retry, and clear are all implemented as
+ *     Supabase RPCs wrapping atomic PostgreSQL functions to prevent race conditions
+ *     between concurrent workers.
+ *   - Deduplication is opt-in: when `deduplicate=true`, the input payload is
+ *     SHA-256 hashed (truncated to 32 hex chars) and checked against in-flight
+ *     requests within the same project.
+ *   - Status lifecycle: pending -> processing -> completed | failed | cancelled;
+ *     failed requests may transition to retry_pending if within max_attempts.
  */
 
 const { logger } = require('../logger');
@@ -22,7 +49,10 @@ function hashInput(inputData) {
 }
 
 /**
- * Enqueue a new LLM request
+ * Enqueue a new LLM request into the `llm_requests` table.
+ * When `deduplicate=true`, computes a SHA-256 hash of the input payload and
+ * checks for an existing in-flight request with the same hash in the same project.
+ * @returns {Promise<{success: boolean, id?: string, deduplicated?: boolean, error?: string}>}
  */
 async function enqueueRequest({
   projectId,
@@ -102,7 +132,10 @@ async function enqueueRequest({
 }
 
 /**
- * Claim the next pending request (atomic operation)
+ * Atomically claim the next pending request via the `claim_next_llm_request` RPC.
+ * The RPC uses SELECT ... FOR UPDATE SKIP LOCKED to guarantee exactly-once
+ * claiming across concurrent workers. Returns null if no work is available.
+ * @param {string|null} [projectId=null] - Limit to a specific project, or null for any
  */
 async function claimNextRequest(projectId = null) {
   const client = getAdminClient();
@@ -178,7 +211,9 @@ async function completeRequest({
 }
 
 /**
- * Fail a request (with optional retry)
+ * Mark a request as failed. When `retry=true` and the attempt count is below
+ * max_attempts, the RPC transitions the request to 'retry_pending' instead
+ * of 'failed', allowing it to be re-claimed.
  */
 async function failRequest({
   requestId,
@@ -281,7 +316,9 @@ async function clearQueue(projectId) {
 }
 
 /**
- * Get queue status
+ * Get aggregate queue status via the `get_llm_queue_status` RPC.
+ * Returns counts by status, today's completed/failed totals, average
+ * processing time, cost, and a list of currently-processing requests.
  */
 async function getQueueStatus(projectId = null) {
   const client = getAdminClient();
@@ -422,7 +459,8 @@ async function getHistory(projectId = null, limit = 100, offset = 0) {
 }
 
 /**
- * Get statistics by context
+ * Get aggregated statistics grouped by context from the `llm_context_stats` view.
+ * Useful for understanding which extraction/chat contexts drive the most usage.
  */
 async function getStatsByContext(projectId = null) {
   const client = getAdminClient();

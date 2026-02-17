@@ -1,6 +1,43 @@
 /**
- * Cost Tracking Routes
- * Extracted from src/server.js for modularization
+ * Purpose:
+ *   LLM cost tracking and budget management API. Provides summaries,
+ *   per-model stats, pricing tables, CSV/JSON export, and budget controls.
+ *
+ * Responsibilities:
+ *   - Cost summaries by period (day/week/month/all) with daily breakdown
+ *   - Recent LLM request logs and per-model statistics
+ *   - Static pricing table for all supported models
+ *   - Cost data export in CSV or JSON format
+ *   - Budget configuration (get/set) with alert thresholds
+ *   - In-memory cost tracker reset
+ *
+ * Key dependencies:
+ *   - llm.costTracker (ctx): in-memory cost aggregation engine
+ *   - storage._supabase: persisted LLM request logs and budget config
+ *   - ../../llm/costTracker.MODEL_PRICING: static pricing reference data
+ *
+ * Side effects:
+ *   - GET routes may set active project via storage._supabase.setProject()
+ *   - POST /api/costs/reset clears the in-memory cost tracker (no DB change)
+ *   - POST /api/costs/budget writes budget config to Supabase
+ *   - Export routes write directly to res with Content-Disposition headers
+ *
+ * Notes:
+ *   - Project context is resolved from query param project_id or X-Project-Id header
+ *   - CSV export prepends a UTF-8 BOM for Excel compatibility
+ *   - Budget alert_threshold_percent is clamped to [0, 100], defaults to 80
+ *   - No authentication is enforced at route level; relies on upstream middleware
+ *
+ * Routes:
+ *   GET  /api/costs/summary   - Cost summary for a period (?period=day|week|month|all)
+ *   GET  /api/costs           - Full cost summary + recent requests
+ *   GET  /api/costs/recent    - Recent LLM request log (?limit=N, max 100)
+ *   GET  /api/costs/models    - Per-model usage statistics
+ *   GET  /api/costs/pricing   - Static model pricing table
+ *   GET  /api/costs/export    - Export cost data (?period=&format=csv|json)
+ *   GET  /api/costs/budget    - Get budget config for period
+ *   POST /api/costs/budget    - Set budget limit and alert threshold
+ *   POST /api/costs/reset     - Reset in-memory cost tracker
  */
 
 const { parseUrl, parseBody } = require('../../server/request');

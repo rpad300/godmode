@@ -1,10 +1,29 @@
 /**
- * Central structured logger (SOTA observability).
- * - JSON output in production; optional pretty in development.
- * - Levels: trace, debug, info, warn, error, fatal.
- * - Mandatory fields: timestamp, level, service, env, module, event.
- * - Use logger.child({ module, requestId, ... }) for request/job scope.
- * - Use logError(err, context) for normalized error logging (Supabase/Postgres code, hint, details).
+ * Purpose:
+ *   Centralized structured logging for the entire godmode application,
+ *   built on pino for high-throughput JSON log output.
+ *
+ * Responsibilities:
+ *   - Provide a singleton root logger with service-level base fields (service, env)
+ *   - Support scoped child loggers via `child()` for per-module/request context
+ *   - Normalize Supabase/PostgREST errors into a clean, loggable shape via `normalizeError()`
+ *   - Offer a top-level `logError()` boundary helper that avoids duplicate error logging
+ *   - Auto-detect development vs. production: pretty-print in TTY dev, async buffered JSON in prod
+ *
+ * Key dependencies:
+ *   - pino: Core structured logger (JSON transport, log levels, child loggers)
+ *   - pino-pretty (optional): Dev-only pretty-printing when available and stdout is a TTY
+ *
+ * Side effects:
+ *   - Writes log output to stdout (fd 1) with async buffering (minLength: 4096)
+ *   - Increases process.maxListeners to 20 in development to suppress warnings from multiple pino instances
+ *   - Reads env vars: NODE_ENV, LOG_LEVEL, SERVICE_NAME
+ *
+ * Notes:
+ *   - All modules should use `logger.child({ module: 'xxx' })` rather than creating new pino instances
+ *   - `logError()` should only be called at error boundaries; avoid logging the same error in multiple layers
+ *   - Stack traces are included in dev via `normalizeError()`, but `logError()` also forces them in production
+ *     for error-level logs to aid debugging
  */
 
 const pino = require('pino');

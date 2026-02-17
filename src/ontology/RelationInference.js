@@ -1,13 +1,40 @@
 /**
- * RelationInference - Automatic entity and relationship extraction
- * 
- * Uses LLM to:
- * - Extract entities from unstructured text
- * - Infer relationships between entities
- * - Calculate relationship strength
- * - Map extracted data to ontology types
- * 
- * SOTA v3.0 - Native Supabase graph support (no Cypher dependency)
+ * Purpose:
+ *   Extracts structured entities and relationships from unstructured text
+ *   using a layered heuristic + LLM approach, then maps them to the
+ *   canonical ontology types. Also delegates graph-level inference rule
+ *   execution to InferenceEngine for Supabase providers.
+ *
+ * Responsibilities:
+ *   - Pattern-based (heuristic) entity extraction: emails, @mentions,
+ *     project codes, technology names, dates
+ *   - LLM-powered entity and relationship extraction with ontology awareness
+ *   - Sentence-level co-occurrence analysis to infer typed relationships
+ *   - Merge and de-duplicate results from heuristic and LLM sources,
+ *     boosting confidence when both agree
+ *   - Execute ontology inference rules on the graph (delegates to InferenceEngine
+ *     for Supabase, runs Cypher directly for other providers)
+ *   - Calculate relationship strength based on shared context signals
+ *
+ * Key dependencies:
+ *   - ../logger: structured logging
+ *   - ../llm: unified LLM text-generation module
+ *   - ./OntologyManager (singleton): schema metadata and validation
+ *   - ./InferenceEngine (lazy require): native inference for Supabase provider
+ *
+ * Side effects:
+ *   - LLM network calls during extractWithLLM() -- marked as low priority
+ *   - Graph writes (relationship creation) during runInferenceRules()
+ *
+ * Notes:
+ *   - minConfidence (default 0.5) filters both entities and relationships in
+ *     the merged output; tune higher for precision, lower for recall.
+ *   - The heuristic technology regex is case-insensitive and matches common
+ *     names; extend the list for domain-specific stacks.
+ *   - Co-occurrence inference returns a generic RELATED_TO when no typed
+ *     pattern matches but the ontology allows the wildcard relation.
+ *   - Deduplication keys on "type:identifier" so two entities of different
+ *     types with the same name remain separate.
  */
 
 const { logger } = require('../logger');

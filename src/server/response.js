@@ -1,6 +1,29 @@
 /**
- * Response utilities
- * Extracted from server.js for modularity
+ * Purpose:
+ *   Helpers for building HTTP responses: JSON serialization with CORS headers
+ *   and a MIME-type lookup table oriented toward document/office file types.
+ *
+ * Responsibilities:
+ *   - jsonResponse: Send a JSON payload with correct Content-Type, CORS, and
+ *     graceful handling of serialization failures (circular refs, BigInt, etc.)
+ *   - getMimeType: Map a filename extension to its MIME type for download headers
+ *
+ * Key dependencies:
+ *   - path (Node.js built-in): Extension extraction in getMimeType
+ *   - ../logger (lazy-required): Error logging inside jsonResponse's catch path
+ *
+ * Side effects:
+ *   - jsonResponse writes headers and ends the response; callers must not write
+ *     further data after calling it.
+ *   - On serialization failure, jsonResponse logs via logError and downgrades
+ *     the status to 500 with a generic error payload.
+ *
+ * Notes:
+ *   - CORS is set to Allow-Origin: * (open). If origin-restricted CORS is
+ *     needed in the future, this is the single place to change it.
+ *   - getMimeType's table is biased toward office/document types; the separate
+ *     MIME_TYPES map in static.js covers web-asset types for static serving.
+ *   - jsonResponse guards against double-writes with a headersSent check.
  */
 
 const path = require('path');

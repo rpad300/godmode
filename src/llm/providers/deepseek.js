@@ -1,6 +1,29 @@
 /**
- * DeepSeek Provider Adapter
- * Supports DeepSeek API (OpenAI-compatible)
+ * Purpose:
+ *   Provider adapter for DeepSeek's chat completion API.
+ *   DeepSeek exposes an OpenAI-compatible endpoint, so this provider follows
+ *   the standard chat/completions request shape.
+ *
+ * Responsibilities:
+ *   - Text generation via deepseek-chat and deepseek-reasoner models
+ *   - Dynamic model listing with fallback to a hardcoded default set
+ *   - Include per-model pricing metadata in model list responses
+ *
+ * Key dependencies:
+ *   - ./base (BaseLLMProvider): shared retry, error classification, HTTP helpers
+ *   - ../../logger: structured logging for model-listing failures
+ *
+ * Side effects:
+ *   - Network I/O to api.deepseek.com (or custom baseUrl)
+ *
+ * Notes:
+ *   - DeepSeek does NOT support vision or embeddings; those methods return errors.
+ *   - The "deepseek-reasoner" model (R1) may return a `reasoning_content` field
+ *     alongside the standard `content`. Currently this is logged but not surfaced
+ *     to the caller -- only `content` is returned as the text result.
+ *   - getDefaultModels() provides a hardcoded fallback with context-window and
+ *     pricing metadata, used when the /models endpoint is unreachable.
+ *   - stream is explicitly set to false to ensure complete responses.
  */
 
 const BaseLLMProvider = require('./base');
@@ -172,10 +195,12 @@ class DeepSeekProvider extends BaseLLMProvider {
             const choice = response.data?.choices?.[0];
             const usage = response.data?.usage;
 
-            // DeepSeek reasoner may return thinking content
+            // DeepSeek reasoner (R1) returns chain-of-thought in reasoning_content
+            // alongside the final answer in content. We only surface content to the
+            // caller; the reasoning chain is logged for debugging but discarded.
+            // Assumption: callers do not need the intermediate reasoning trace.
             let text = choice?.message?.content || '';
-            
-            // If using reasoner model, content might be in reasoning_content
+
             if (choice?.message?.reasoning_content) {
                 this.log('generateText', { hasThinkingContent: true });
             }

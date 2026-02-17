@@ -1,3 +1,30 @@
+/**
+ * Purpose:
+ *   CRUD operations for the `categories` table, supporting both global
+ *   (project_id IS NULL) and project-scoped categories used to organize
+ *   entities like facts, documents, and decisions.
+ *
+ * Responsibilities:
+ *   - Retrieve categories for a project (merging global defaults with
+ *     project-specific entries)
+ *   - Create, update, and delete individual categories
+ *
+ * Key dependencies:
+ *   - ./client (getAdminClient): all queries bypass RLS
+ *
+ * Side effects:
+ *   - Writes to the `categories` table
+ *
+ * Notes:
+ *   - Global categories (project_id is null) are shared across all
+ *     projects and returned alongside project-specific ones.
+ *   - When no projectId is provided, only global categories are returned.
+ *   - Deletion does not cascade-check whether entities reference the
+ *     category; the caller or a DB constraint must handle that.
+ *
+ * Supabase tables accessed:
+ *   - categories: { id, name, project_id (nullable), ... }
+ */
 
 const { getAdminClient } = require('./client');
 

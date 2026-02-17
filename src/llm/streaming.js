@@ -1,6 +1,33 @@
 /**
- * LLM Streaming Support
- * Provides Server-Sent Events (SSE) streaming for LLM responses
+ * Purpose:
+ *   Enables real-time, incremental delivery of LLM output to the browser via
+ *   Server-Sent Events (SSE). Supports both native provider streaming and a
+ *   simulated fallback for providers that only offer synchronous completions.
+ *
+ * Responsibilities:
+ *   - generateTextStream: async generator yielding { type: 'chunk' | 'done' | 'error' }
+ *     objects, abstracting over native vs. simulated streaming
+ *   - createSSEWriter: sets up the HTTP response headers for SSE and returns a
+ *     write/error/close helper object for structured event emission
+ *   - streamGraphRAGQuery: end-to-end streaming pipeline for GraphRAG queries
+ *     (classify -> search -> stream LLM answer) with per-step progress events
+ *
+ * Key dependencies:
+ *   - ./index (llm): getClient for native streaming, generateText for fallback
+ *
+ * Side effects:
+ *   - Writes directly to the HTTP response object (res.writeHead, res.write, res.end)
+ *   - Network calls to LLM provider APIs
+ *
+ * Notes:
+ *   - When a provider lacks a generateTextStream method, the full response is fetched
+ *     synchronously and then drip-fed in 20-character chunks with a 10 ms delay to
+ *     simulate a streaming UX. This is intentionally simple; the chunk size and delay
+ *     are not tuned for production throughput.
+ *   - Token counts in the 'done' event are rough estimates (length / 4) when the
+ *     provider does not report actual usage.
+ *   - The X-Accel-Buffering: no header disables nginx proxy buffering so chunks reach
+ *     the client immediately.
  */
 
 const llm = require('./index');
@@ -50,8 +77,10 @@ async function* generateTextStream(options) {
                 };
             }
         } else {
-            // Simulate streaming with chunked response
-            // Use llm.generateText to go through the queue
+            // Fallback: provider does not implement generateTextStream.
+            // Fetch the full response synchronously, then drip-feed it in small chunks
+            // to give the client a streaming-like experience. The request goes through
+            // the queue at 'high' priority since streaming implies an interactive user.
             const result = await llm.generateText({
                 provider,
                 providerConfig,

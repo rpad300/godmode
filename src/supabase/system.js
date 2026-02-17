@@ -1,7 +1,38 @@
 /**
- * System Config Module
- * Manages global system-level configuration
- * Only superadmin can write, all authenticated can read
+ * Purpose:
+ *   Centralized system-level configuration store backed by the `system_config`
+ *   table. Provides typed convenience accessors for LLM routing, processing
+ *   settings, graph config, token policies, and quality presets, with an
+ *   in-memory cache and change-notification mechanism.
+ *
+ * Responsibilities:
+ *   - Read/write key-value pairs in the `system_config` table (upsert semantics)
+ *   - Merge DB-stored configs with hardcoded DEFAULTS for graceful fallback
+ *   - Cache all configs in memory with a 1-minute TTL to minimize DB round-trips
+ *   - Notify registered listeners on config changes
+ *   - Typed convenience getters/setters for LLM, processing, prompts, graph,
+ *     routing, token policy, and preset configurations
+ *   - Compute effective config for a project by deep-merging system defaults
+ *     with project-level overrides (including useSystemDefaults revert logic)
+ *
+ * Key dependencies:
+ *   - ./client (getAdminClient): Supabase admin client
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - `setSystemConfig` / `deleteSystemConfig` invalidate the module-level cache
+ *     and fire change callbacks synchronously
+ *   - Writes to `system_config` are protected by RLS (superadmin only)
+ *
+ * Notes:
+ *   - DEFAULTS is the single source of truth for fallback values when the DB
+ *     is empty or unreachable; any new config key should be added there first.
+ *   - `getEffectiveConfig` handles the project-level `useSystemDefaults` map:
+ *     when a task (text/vision/embeddings) has `useSystemDefaults: true`, the
+ *     project override is reverted to the system default for that task.
+ *   - Prompt merging skips empty strings to avoid accidentally clearing system
+ *     prompts with blank project overrides.
+ *   - The deep-merge utility does NOT merge arrays; arrays are replaced wholesale.
  */
 
 const { logger } = require('../logger');

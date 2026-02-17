@@ -1,6 +1,46 @@
 /**
- * Comments Module
- * Handles comments, threading, mentions and resolution
+ * Purpose:
+ *   CRUD for threaded comments attached to any entity (fact, document,
+ *   decision, etc.), with @mention extraction, HTML rendering of mentions,
+ *   notification creation for mentions and replies, and thread resolution.
+ *
+ * Responsibilities:
+ *   - Create comments with automatic thread-depth calculation
+ *   - Extract @username mentions from content and store them in the
+ *     `mentions` table
+ *   - Generate `content_html` with mention spans for frontend rendering
+ *   - Notify mentioned users and parent-comment authors via the
+ *     `notifications` table
+ *   - Retrieve comments for a target entity, optionally organized into
+ *     a nested thread tree
+ *   - Update (with ownership check and `is_edited` flag) and delete
+ *     comments (owner or admin)
+ *   - Resolve / unresolve comment threads
+ *
+ * Key dependencies:
+ *   - ./client (getAdminClient): all queries bypass RLS
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - Writes to `comments`, `mentions`, and `notifications` tables
+ *
+ * Notes:
+ *   - Mentions are matched by the regex /@([a-zA-Z0-9_]+)/. Usernames with
+ *     other characters will not be detected.
+ *   - organizeThreads() builds an in-memory tree; orphaned replies (whose
+ *     parent was deleted) fall to the root level.
+ *   - Thread depth is stored on each comment so the frontend can limit
+ *     nesting visually without re-computing.
+ *   - Self-mentions (author mentioning themselves) are silently ignored.
+ *
+ * Supabase tables accessed:
+ *   - comments: { id, project_id, author_id, target_type, target_id,
+ *     content, content_html, parent_id, thread_depth, is_edited,
+ *     is_resolved, resolved_by, resolved_at, created_at, updated_at }
+ *   - mentions: { comment_id, mentioned_user_id }
+ *   - notifications: { user_id, project_id, type, title, body,
+ *     reference_type, reference_id, actor_id }
+ *   - user_profiles: joined for author display info and mention lookups
  */
 
 const { logger } = require('../logger');
@@ -9,7 +49,23 @@ const { getAdminClient } = require('./client');
 const log = logger.child({ module: 'comments' });
 
 /**
- * Create a new comment
+ * Create a new comment on a target entity.
+ *
+ * Side effects beyond the insert:
+ *   - Calculates thread_depth from parent comment (if parentId given)
+ *   - Extracts @mentions from content and creates rows in `mentions` table
+ *   - Generates content_html with mention spans
+ *   - Creates notifications for mentioned users
+ *   - Creates a reply notification for the parent comment's author
+ *
+ * @param {object} params
+ * @param {string} params.projectId
+ * @param {string} params.authorId
+ * @param {string} params.targetType - e.g. 'fact', 'document', 'decision'
+ * @param {string} params.targetId - UUID of the entity being commented on
+ * @param {string} params.content - Raw text (may contain @mentions)
+ * @param {string} [params.parentId] - Parent comment ID for threading
+ * @returns {Promise<{success: boolean, comment?: object, error?: string}>}
  */
 async function createComment({
     projectId,
@@ -84,7 +140,20 @@ async function createComment({
 }
 
 /**
- * Get comments for a target
+ * Retrieve comments for a target entity with optional thread organization.
+ *
+ * When `includeReplies` is true (default), flat results are reorganized
+ * into a tree via organizeThreads(). Each root comment gets a `replies`
+ * array containing nested children.
+ *
+ * @param {string} projectId
+ * @param {string} targetType
+ * @param {string} targetId
+ * @param {object} [options]
+ * @param {boolean} [options.includeReplies=true] - If false, only top-level
+ * @param {number} [options.limit=50]
+ * @param {number} [options.offset=0]
+ * @returns {Promise<{success: boolean, comments?: object[], total?: number}>}
  */
 async function getComments(projectId, targetType, targetId, options = {}) {
     const supabase = getAdminClient();

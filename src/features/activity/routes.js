@@ -1,9 +1,28 @@
 /**
- * Activity Log feature routes
- * Extracted from server.js
+ * Purpose:
+ *   Retrieves the paginated activity feed for a project, supporting
+ *   filtering by action type and date.
  *
- * Handles:
- * - GET /api/projects/:id/activity - Get project activity
+ * Responsibilities:
+ *   - Return project activity entries with pagination (limit/offset)
+ *   - Support filtering by action type and "since" timestamp
+ *
+ * Key dependencies:
+ *   - supabase.activity: data-access for project activity log
+ *   - ../../server/security.isValidUUID: validates project ID format
+ *
+ * Side effects:
+ *   - None (read-only)
+ *
+ * Notes:
+ *   - Returns 503 if Supabase/auth is not configured
+ *   - Project ID must be a valid UUID (400 otherwise)
+ *   - Default limit is 50, offset 0
+ *
+ * Routes:
+ *   GET /api/projects/:id/activity - Paginated activity feed
+ *       Query: ?limit=&offset=&action=&since=
+ *       Response: { activities[], total }
  */
 
 const { parseUrl } = require('../../server/request');

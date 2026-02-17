@@ -1,6 +1,27 @@
 /**
- * Genspark Provider Adapter
- * Supports Genspark API
+ * Purpose:
+ *   Provider adapter for GenSpark's chat completion API.
+ *   GenSpark exposes an OpenAI-compatible chat/completions endpoint.
+ *
+ * Responsibilities:
+ *   - Text generation via GenSpark's OpenAI-compatible API
+ *   - Provide a manual model list from config when no /models endpoint exists
+ *
+ * Key dependencies:
+ *   - ./base (BaseLLMProvider): shared retry, error classification, HTTP helpers
+ *
+ * Side effects:
+ *   - Network I/O to api.genspark.ai (or custom baseUrl)
+ *
+ * Notes:
+ *   - GenSpark does NOT expose a public /models endpoint; listModels falls back to
+ *     config.manualModels (comma-separated string) or a single "genspark-default".
+ *   - Vision and embeddings are not supported.
+ *   - testConnection treats a 400 response as success (connection works, model name
+ *     may just be wrong), which avoids false negatives when the default model
+ *     placeholder does not match the user's actual provisioned model.
+ *   - Assumption: GenSpark's response format matches OpenAI's choices[].message.content
+ *     structure. TODO: confirm against actual API docs if behavior diverges.
  */
 
 const BaseLLMProvider = require('./base');

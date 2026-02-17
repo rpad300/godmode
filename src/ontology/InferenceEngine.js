@@ -1,11 +1,39 @@
 /**
- * InferenceEngine - Executes ontology inference rules on the graph
- * 
- * Automatically creates inferred relationships based on defined rules.
- * Runs after data sync and periodically to maintain graph consistency.
- * 
- * SOTA v2.0 - State of the Art Ontology Integration
- * SOTA v3.0 - Native Supabase support (no Cypher dependency)
+ * Purpose:
+ *   Executes ontology inference rules against the knowledge graph to
+ *   materialise implicit relationships (e.g. WORKS_WITH, KNOWS, PRODUCED).
+ *   Supports both Cypher-defined rules and hard-coded native rules for
+ *   the Supabase graph provider.
+ *
+ * Responsibilities:
+ *   - Run all ontology-defined Cypher inference rules in sequence
+ *   - For Supabase providers, run built-in native inference rules:
+ *       * WORKS_WITH between people in the same organisation
+ *       * KNOWS between co-attendees of the same meeting
+ *       * PRODUCED linking meetings to their extracted actions
+ *   - Run a single named rule on demand
+ *   - Analyse the graph for new inference rule opportunities
+ *   - Create and optionally persist custom inference rules
+ *   - Support periodic (interval-based) automatic execution
+ *
+ * Key dependencies:
+ *   - ../logger: structured logging
+ *   - ./OntologyManager (singleton): provides inference rule definitions
+ *   - Graph provider (injected): executes queries and creates relationships
+ *
+ * Side effects:
+ *   - Creates new relationship edges in the graph database
+ *   - Graph reads (findNodes, findRelationships, Cypher queries) during analysis
+ *   - setInterval timer for periodic runs (must be stopped on shutdown)
+ *
+ * Notes:
+ *   - Native inference uses createRelationship which silently ignores duplicates,
+ *     so rules are safe to re-run idempotently.
+ *   - The WORKS_WITH rule generates O(n^2) pairs per organisation; for large
+ *     orgs the 500-person limit per findNodes call bounds the explosion.
+ *   - createRule() validates Cypher syntax with EXPLAIN for non-Supabase
+ *     providers; for Supabase it skips validation because Cypher is unused.
+ *   - onSyncComplete() is designed to be wired as a post-sync hook in GraphSync.
  */
 
 const { logger } = require('../logger');

@@ -1,9 +1,51 @@
 /**
- * SupabaseStorage - Complete replacement for JSON-based storage
- * All data is stored in Supabase PostgreSQL with graph sync via outbox
- * 
- * This module replaces the original storage.js completely.
- * All methods are async and interact with Supabase tables.
+ * Purpose:
+ *   Full-featured storage class that replaces the legacy JSON-file-based
+ *   storage layer. Every data operation (facts, documents, decisions,
+ *   contacts, projects, etc.) is persisted in Supabase PostgreSQL and
+ *   optionally synced to the knowledge graph via an outbox pattern.
+ *
+ * Responsibilities:
+ *   - CRUD for projects, facts, documents, decisions, risks, actions,
+ *     questions, contacts, meeting notes, and project configuration
+ *   - Manage per-instance auth context (currentUserId, currentProjectId)
+ *   - In-memory cache with configurable TTL to reduce redundant reads
+ *   - Legacy ID resolution: transparently map non-UUID project IDs to
+ *     Supabase UUIDs for backward compatibility during migration
+ *   - Create local filesystem directories for uploaded files per project
+ *   - Push mutation events to the graph outbox for asynchronous sync
+ *   - Provide a SupabaseGraphProvider instance for graph queries
+ *
+ * Key dependencies:
+ *   - @supabase/supabase-js: Supabase client (created per instance)
+ *   - ../graph/providers/supabase: SupabaseGraphProvider for graph layer
+ *   - ../logger: structured logging
+ *   - Node fs / path: local file directories for uploads
+ *
+ * Side effects:
+ *   - Creates directories under `data/projects/<id>/` on project creation
+ *   - Writes to numerous Supabase tables (projects, project_members,
+ *     project_config, facts, documents, decisions, etc.)
+ *   - Posts events to the `outbox` table for graph synchronization
+ *
+ * Notes:
+ *   - This is a class-based module; consumers instantiate via
+ *     `createSupabaseStorage()` (see storageHelper.js for the singleton).
+ *   - The constructor eagerly initializes a SupabaseGraphProvider. If the
+ *     graph provider module is unavailable, this will throw at require time.
+ *   - `setProject()` clears the in-memory cache to avoid cross-project
+ *     data leakage.
+ *   - `createProjectWithServiceKey()` creates/reuses a "system@godmode.local"
+ *     admin user for server-side automation -- the hardcoded password is
+ *     acceptable because the user is only accessible via service_role key.
+ *   - Deduplication uses a configurable `similarityThreshold` (default 0.90).
+ *
+ * Supabase tables accessed:
+ *   - projects, project_members, project_config, companies
+ *   - facts, documents, decisions, risks, actions, questions
+ *   - contacts, meeting_notes, stats_history
+ *   - graph_sync_status, outbox
+ *   - user_profiles (for owner info and system user creation)
  */
 
 const crypto = require('crypto');

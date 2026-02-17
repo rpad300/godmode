@@ -1,6 +1,29 @@
 /**
- * RBAC (Role-Based Access Control) Module
- * Defines permissions matrix and authorization helpers
+ * Purpose:
+ *   Role-based access control (RBAC) for multi-tenant project authorization.
+ *   Defines a static permissions matrix and provides pure-function helpers to
+ *   check, compare, and enforce roles across the application.
+ *
+ * Responsibilities:
+ *   - Map action strings (e.g. 'content.edit', 'documents.upload') to allowed roles
+ *   - Provide `can()`, `canAll()`, `canAny()` for permission checks in business logic
+ *   - Expose role hierarchy comparisons (`isHigherRole`, `getAssignableRoles`) for
+ *     safe role assignment (prevents privilege escalation)
+ *   - Offer `requirePermission()` as an HTTP middleware helper that sends 403 on denial
+ *
+ * Key dependencies:
+ *   - ./logger: Structured logging for unknown-action warnings
+ *
+ * Side effects:
+ *   - `requirePermission()` writes HTTP 403 responses directly to `res` when denied
+ *
+ * Notes:
+ *   - Role hierarchy: owner (4) > admin (3) > write (2) > read (1) > none (0)
+ *   - The 'owner' role cannot be assigned via `getAssignableRoles()` -- ownership transfer
+ *     must be handled separately
+ *   - PERMISSIONS is the single source of truth; adding a new feature requires a new
+ *     action key here before it can be gated anywhere else
+ *   - All functions are stateless and safe to call from any context (routes, middleware, CLI)
  */
 
 const { logger } = require('./logger');
@@ -194,12 +217,17 @@ function getAssignableRoles(assignerRole) {
 }
 
 /**
- * Middleware helper: Check permission and return error response if denied
- * @param {object} res - HTTP response object
- * @param {string} userRole - User's role
- * @param {string} action - Action to check
- * @param {string} [customMessage] - Custom error message
- * @returns {boolean} - true if allowed, false if denied (response already sent)
+ * Middleware helper: Check permission and return error response if denied.
+ * Intended for use in route handlers -- call early and return if false.
+ *
+ * Side effect: When denied, writes a 403 JSON response to `res` and ends it,
+ * so the caller must NOT write further to `res` after a false return.
+ *
+ * @param {object} res - HTTP response object (node http.ServerResponse or Express res)
+ * @param {string} userRole - User's role in the current project
+ * @param {string} action - Action to check (must exist in PERMISSIONS)
+ * @param {string} [customMessage] - Custom error message override
+ * @returns {boolean} true if allowed, false if denied (response already sent)
  */
 function requirePermission(res, userRole, action, customMessage) {
     if (can(userRole, action)) {

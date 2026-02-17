@@ -1,15 +1,40 @@
 /**
- * OntologyBackgroundWorker - Background optimization for ontology
- * 
- * SOTA v2.0 - Continuous Ontology Optimization
- * SOTA v3.0 - Native Supabase graph support (no Cypher dependency)
- * 
- * Runs in background to:
- * - Analyze graph for gaps between data and schema
- * - Generate suggestions proactively
- * - Execute inference rules
- * - Check for duplicates (people, organizations)
- * - Auto-approve high-confidence suggestions
+ * Purpose:
+ *   Orchestrates background ontology-maintenance jobs: gap analysis, inference
+ *   rule execution, duplicate detection, and auto-approval of high-confidence
+ *   schema suggestions. Intended to be triggered on a schedule or after data syncs.
+ *
+ * Responsibilities:
+ *   - Run a full analysis pipeline (gap check, LLM analysis, type-usage stats)
+ *   - Execute ontology inference rules via the InferenceEngine
+ *   - Detect duplicate Person and Organization nodes via resolver modules
+ *   - Auto-approve ontology suggestions that exceed the confidence threshold
+ *   - Schedule debounced incremental analysis after new data arrives
+ *   - Maintain an in-memory execution log with status, duration, and results
+ *
+ * Key dependencies:
+ *   - ../logger: structured logging
+ *   - ./OntologyAgent (lazy): generates and manages ontology suggestions
+ *   - ./InferenceEngine (lazy): runs inference rules on the graph
+ *   - ./SchemaExporter (lazy): syncs schema to graph
+ *   - ../optimizations/EntityResolver (lazy, optional): person deduplication
+ *   - ../optimizations/OrganizationResolver (lazy, optional): org deduplication
+ *   - Graph provider (injected): Supabase-native or Cypher-based backend
+ *
+ * Side effects:
+ *   - Graph reads and writes during inference and deduplication
+ *   - LLM network calls when useLLM is enabled in runFullAnalysis
+ *   - setTimeout timers for debounced scheduling (must be cancelled on shutdown)
+ *   - Mutates ontology schema via OntologyAgent on auto-approve
+ *
+ * Notes:
+ *   - All sub-module references are lazily loaded to break circular dependency
+ *     chains and to avoid requiring optional modules that may not exist.
+ *   - minNodesForAnalysis (default 10) prevents wasting LLM tokens on nearly
+ *     empty graphs.
+ *   - The execution log is capped at 100 entries; older entries are dropped.
+ *   - _autoMergeDuplicates is a placeholder (TODO) -- merges are not yet
+ *     performed automatically.
  */
 
 const { logger } = require('../logger');

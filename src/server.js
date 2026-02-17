@@ -1,13 +1,57 @@
 #!/usr/bin/env node
 /**
- * GodMode - Unified Server
- * System-agnostic document processing app with Ollama AI integration
- * // Touch to force reload
+ * Purpose:
+ *   Main HTTP server entrypoint for GodMode, a multi-provider AI-powered
+ *   document processing application. Bootstraps configuration, storage,
+ *   authentication, graph database, ontology system, and all API routes.
+ *
+ * Responsibilities:
+ *   - Load environment variables before any module reads them (custom .env parser)
+ *   - Merge configuration from disk, environment, and Supabase system_config
+ *   - Initialize storage (Supabase-backed or local JSON fallback)
+ *   - Wire up the document processor with polling for pending files
+ *   - Register 50+ feature route handlers under /api/*
+ *   - Serve the SPA frontend with client-side routing fallback
+ *   - Provide /health and /ready probes for orchestrators
+ *   - Manage graceful shutdown with connection draining
+ *
+ * Key dependencies:
+ *   - ./storage, ./storageCompat: data persistence (local JSON / Supabase)
+ *   - ./processor: document extraction, analysis, and synthesis pipeline
+ *   - ./llm, ./llm/router: multi-provider LLM abstraction and failover
+ *   - ./supabase: optional auth, realtime sync, and database access
+ *   - ./ontology: SOTA v2.0 ontology schema management and graph sync
+ *   - ./features/*: modular route handlers for each domain
+ *
+ * Side effects:
+ *   - Reads/writes config.json and projects.json under DATA_DIR
+ *   - Binds an HTTP server to PORT (default 3005)
+ *   - Starts interval timers: rate-limit cleanup, document polling, ontology jobs
+ *   - Sets process-level handlers for SIGINT, SIGTERM, unhandledRejection
+ *   - Mutates process.env with values from .env files (only if not already set)
+ *
+ * Notes:
+ *   - The .env loader runs as an IIFE before any require() that needs env vars;
+ *     it intentionally does NOT use dotenv to avoid dependency ordering issues.
+ *   - ENV_TO_PROVIDER environment variables override saved config API keys in
+ *     dev mode only (IS_PACKAGED=false). This is deliberate so .env always wins.
+ *   - Server startup is async (loadConfigAsync -> storage.init -> graph -> ontology)
+ *     but the HTTP listener is created inside the same promise chain, so the port
+ *     is not bound until the core bootstrap completes.
+ *   - Graceful shutdown drains in-flight requests up to DRAIN_TIMEOUT_MS (15s default),
+ *     then force-exits.
  */
 
-// Load .env first so SUPABASE_* and other vars are available before any module reads them
+// Load .env first so SUPABASE_* and other vars are available before any module reads them.
+// This MUST run before any require() that reads process.env (e.g., supabase/client).
 const path = require('path');
 const fs = require('fs');
+/**
+ * Self-executing .env loader. Searches for .env in __dirname and one level up.
+ * Only sets vars that are not already in process.env (no overwrite).
+ * Handles BOM-prefixed files and both single/double quoted values.
+ * Skipped entirely when running as a packaged binary (process.pkg).
+ */
 (function loadEnvFirst() {
     if (typeof process.pkg !== 'undefined') return;
     const envPaths = [
@@ -243,13 +287,23 @@ const DEFAULT_CONFIG = {
     }
 };
 
-// Helper: Mask API key for safe display (show last 4 chars only)
+/**
+ * Mask an API key for safe display, showing only the last 4 characters.
+ * @param {string|null} key - Raw API key
+ * @returns {string|null} Masked key (e.g. "****abcd") or null if empty
+ */
 function maskApiKey(key) {
     if (!key || key.length < 8) return key ? '****' : null;
     return '****' + key.slice(-4);
 }
 
-// Helper: Get LLM config with masked API keys for frontend
+/**
+ * Deep-clone the LLM config and strip raw API keys so it is safe to send
+ * to the browser. Each provider gets an `apiKeyMasked` field and an
+ * `isConfigured` boolean; the raw `apiKey` is deleted.
+ * @param {Object} llmConfig - The full llm configuration object
+ * @returns {Object|null} Sanitized copy, or null if input is falsy
+ */
 function getLLMConfigForFrontend(llmConfig) {
     if (!llmConfig) return null;
 
@@ -275,7 +329,16 @@ function getLLMConfigForFrontend(llmConfig) {
     return masked;
 }
 
-// Helper: Migrate legacy ollama config to llm config
+/**
+ * Migrate legacy ollama-only configuration into the unified multi-provider
+ * LLM config structure. Also auto-populates perTask defaults (text, vision)
+ * when the Admin Panel has not yet been used.
+ *
+ * Mutates and returns the config object.
+ *
+ * @param {Object} config - Application config (will be mutated)
+ * @returns {Object} The same config reference, with llm fields populated
+ */
 function migrateLLMConfig(config) {
     if (!config.llm) {
         config.llm = JSON.parse(JSON.stringify(DEFAULT_CONFIG.llm));
@@ -328,7 +391,15 @@ function migrateLLMConfig(config) {
     return config;
 }
 
-// Load or create config
+/**
+ * Synchronously load application config from CONFIG_PATH, merging with
+ * DEFAULT_CONFIG. Handles deep-merging of LLM provider configs, env-var
+ * API key injection (dev only), project directory resolution, and legacy
+ * migration. Falls back to defaults on any error.
+ *
+ * @returns {Object} Fully merged and migrated configuration
+ * @side-effect Reads CONFIG_PATH and projects.json from disk
+ */
 function loadConfig() {
     try {
         if (fs.existsSync(CONFIG_PATH)) {
@@ -464,6 +535,12 @@ async function loadConfigAsync() {
     return migrateLLMConfig({ ...DEFAULT_CONFIG, dataDir: path.join(DATA_DIR, 'projects', 'default') });
 }
 
+/**
+ * Persist the current config to CONFIG_PATH as formatted JSON.
+ * Creates the DATA_DIR if it does not exist.
+ * @param {Object} config - Configuration to persist
+ * @side-effect Writes to filesystem
+ */
 function saveConfig(config) {
     if (!fs.existsSync(DATA_DIR)) {
         fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -520,7 +597,12 @@ loadConfigAsync().then((c) => {
     // Cookie security helper moved to ./server/middleware.js
 
     // ==================== LOAD GRAPH CONFIG FROM SUPABASE ====================
-    // Try to load graph configuration from Supabase system_config table
+    /**
+     * Attempt to load graph database configuration from the Supabase
+     * system_config table (key='graph'). Returns null if Supabase is not
+     * configured or the row does not exist. Always forces provider to 'supabase'.
+     * @returns {Object|null} Graph config object or null
+     */
     async function loadGraphConfigFromSupabase() {
         if (!supabase || !supabase.isConfigured()) {
             log.info({ event: 'graph_config', source: 'local' }, 'Supabase not configured, using local config');
@@ -558,7 +640,12 @@ loadConfigAsync().then((c) => {
         }
     }
 
-    // Load LLM configuration from Supabase
+    /**
+     * Load per-task LLM configuration (provider + model overrides) from
+     * Supabase system_config and merge into the in-memory config.llm.perTask.
+     * No-op if Supabase is not configured or no llm_pertask row exists.
+     * @side-effect Mutates global `config.llm.perTask`
+     */
     async function loadLLMConfigFromSupabase() {
         if (!supabase || !supabase.isConfigured()) {
             log.info({ event: 'llmconfig', source: 'local' }, 'Supabase not configured, using local config');
@@ -582,7 +669,13 @@ loadConfigAsync().then((c) => {
         }
     }
 
-    // Initialize graph database on startup
+    /**
+     * Initialize the graph database connection on startup.
+     * Order: load config from Supabase -> connect graph provider ->
+     * init ontology system -> auto-sync data if enabled.
+     * The graph name is scoped per-project: "{baseName}_{projectId}".
+     * Failures are logged as warnings; the server continues without graph.
+     */
     async function initGraphOnStartup() {
         // First try Supabase config
         const supabaseGraphConfig = await loadGraphConfigFromSupabase();
@@ -636,7 +729,17 @@ loadConfigAsync().then((c) => {
     }
 
     // ==================== SOTA v2.0: ONTOLOGY SYSTEM ====================
-    // Initialize ontology with Supabase persistence and graph sync
+    /**
+     * Initialize the ontology subsystem: load schema (Supabase or file fallback),
+     * migrate file-based schema to Supabase if needed, sync schema to the graph
+     * (indexes + meta-nodes), start realtime sync listener, and register
+     * background worker jobs for continuous optimization.
+     *
+     * This entire function is wrapped in try/catch -- ontology is optional and
+     * must never crash the server.
+     *
+     * @param {Object} graphProvider - Connected graph provider instance
+     */
     async function initOntologySystem(graphProvider) {
         try {
             const {
@@ -732,7 +835,17 @@ loadConfigAsync().then((c) => {
     }
 
     // ==================== ONTOLOGY BACKGROUND JOBS ====================
-    // Register handlers and create default jobs for continuous ontology optimization
+    /**
+     * Register ontology background job handlers with the scheduler and create
+     * default recurring jobs if they do not already exist:
+     *   - Full analysis: every 6 hours (LLM-assisted)
+     *   - Inference rules: every 1 hour
+     *   - Deduplication: every 4 hours
+     *   - Auto-approve high-confidence suggestions: every 30 minutes
+     *
+     * @param {Object} backgroundWorker - OntologyBackgroundWorker instance
+     * @param {Object} inferenceEngine - InferenceEngine instance
+     */
     function initOntologyBackgroundJobs(backgroundWorker, inferenceEngine) {
         try {
             const { getScheduledJobs } = require('./advanced');
@@ -961,7 +1074,22 @@ loadConfigAsync().then((c) => {
     const { handleSprints } = require('./features/sprints/routes');
     const { handleCategories } = require('./features/categories/routes');
 
-    // API Routes
+    /**
+     * Central API request dispatcher. Wraps every /api/* request with:
+     *   - Request ID assignment and structured logging (start + end)
+     *   - X-Response-Time / X-Request-Id response headers
+     *   - CORS preflight handling
+     *   - Per-request project context switching via X-Project-Id header
+     *   - Response caching for GET /api/config and GET /api/dashboard
+     *   - Sequential delegation to 50+ feature route handlers
+     *   - 404 fallback for unmatched API routes
+     *   - Global error handling (413 for oversized bodies, 500 otherwise)
+     *   - Restoration of the previous project context in `finally`
+     *
+     * @param {http.IncomingMessage} req
+     * @param {http.ServerResponse} res
+     * @param {string} pathname - Parsed URL pathname (e.g. "/api/documents")
+     */
     async function handleAPI(req, res, pathname) {
         const requestStart = Date.now();
         const requestId = requestContext.getRequestId() || req.headers['x-request-id'] || `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
@@ -1391,6 +1519,12 @@ loadConfigAsync().then((c) => {
     // Graceful shutdown: stop accepting new connections, drain in-flight with timeout
     const DRAIN_TIMEOUT_MS = Number(process.env.SERVER_DRAIN_TIMEOUT_MS) || 15000;
 
+    /**
+     * Initiate graceful shutdown: stop accepting new connections, wait for
+     * in-flight requests to finish (up to DRAIN_TIMEOUT_MS), close storage,
+     * then exit. Idempotent -- second calls are no-ops.
+     * @param {string} signal - The signal that triggered shutdown (e.g. "SIGINT")
+     */
     function gracefulShutdown(signal) {
         if (gracefulShutdown.inProgress) return;
         gracefulShutdown.inProgress = true;

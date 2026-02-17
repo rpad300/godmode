@@ -1,6 +1,35 @@
 /**
- * Model Metadata Cache and Mappings
- * Provides context window and capability information for LLM models
+ * Purpose:
+ *   Authoritative registry of model capabilities (context window, max output tokens,
+ *   vision/JSON-mode/embeddings support) and per-million-token pricing. Serves as the
+ *   fallback when a provider's API does not expose this metadata directly.
+ *
+ * Responsibilities:
+ *   - MODEL_MAPPINGS: static lookup table covering OpenAI, Gemini, Claude, Grok,
+ *     DeepSeek, Kimi, MiniMax, and common Ollama models (updated Jan 2026)
+ *   - getModelMetadata: resolves metadata for a (provider, modelId) pair by checking
+ *     the in-memory cache, then the static mappings, with optional user overrides
+ *   - Fuzzy matching via findInMappings: handles version suffixes (:latest), casing
+ *     differences, and prefix/suffix relationships between model IDs
+ *   - enrichModelList: augments a provider's raw model list with capability and pricing info
+ *   - updateFromApiResponse: merges live API data (context_length, max_output_tokens)
+ *     into the cache, superseding static mappings for that model
+ *   - calculateCost / formatPrice / getPriceDisplay: cost utilities consumed by the
+ *     queue manager and admin UI
+ *
+ * Key dependencies:
+ *   - None (self-contained; only uses built-in Map for caching)
+ *
+ * Side effects:
+ *   - Mutates an in-memory metadataCache (Map) with a 24-hour TTL per entry
+ *
+ * Notes:
+ *   - Pricing in MODEL_MAPPINGS may drift from actual provider pricing over time.
+ *     The costTracker module maintains its own MODEL_PRICING table which may differ;
+ *     Assumption: both tables should be kept in sync manually on pricing updates.
+ *   - Ollama models are listed here for context-window awareness but are priced at $0.
+ *   - getKnownModelsForProvider uses hard-coded prefix lists to associate models with
+ *     providers; this will need updating when new provider model families are added.
  */
 
 // Known model context windows, capabilities, and pricing (fallback when API doesn't provide)
@@ -194,18 +223,21 @@ function clearCache(provider = null) {
 }
 
 /**
- * Normalize model ID for lookup (remove version tags, lowercase)
+ * Normalize model ID for lookup.
+ * Strips Ollama-style version tags (e.g. ":latest", ":v1") and lowercases so that
+ * "Llama3:latest" matches "llama3" in MODEL_MAPPINGS.
  */
 function normalizeModelId(modelId) {
     if (!modelId) return '';
-    // Remove version suffixes like :latest, :v1
     let normalized = modelId.split(':')[0];
-    // Also try lowercase
     return normalized.toLowerCase();
 }
 
 /**
- * Find model in mappings with fuzzy matching
+ * Find model in mappings with progressively looser matching.
+ * Order: exact -> lowercase -> normalized (no version tag) -> prefix match.
+ * This is intentionally permissive to handle the wide variety of model ID formats
+ * returned by different provider APIs (e.g. "gpt-4o-2024-05-13" should match "gpt-4o").
  */
 function findInMappings(modelId) {
     if (!modelId) return null;

@@ -1,6 +1,32 @@
 /**
- * Cascade Delete Module
- * Intelligently deletes related items when parent is deleted
+ * Purpose:
+ *   When a parent entity is deleted, automatically removes or unlinks
+ *   dependent data in both the graph database and local storage.
+ *
+ * Responsibilities:
+ *   - Define cascade rules per entity type (contact, conversation, project,
+ *     team, meeting) specifying which Cypher queries to run and which local
+ *     cleanup methods to invoke
+ *   - Execute graph-side cascades (DETACH DELETE, nullify foreign references)
+ *   - Execute local-side cleanups (unassign action items, remove embeddings)
+ *   - Provide a dry-run preview of what a cascade would do
+ *
+ * Key dependencies:
+ *   - graphProvider: Cypher query interface for graph mutations
+ *   - storage: local in-memory data store (actions, decisions, embeddings)
+ *
+ * Side effects:
+ *   - Deletes or mutates graph nodes and relationships
+ *   - Mutates in-memory storage objects (nullifies assignee fields, filters
+ *     embeddings)
+ *
+ * Notes:
+ *   - Cascade rules are defined declaratively in `this.cascadeRules`.
+ *     Adding a new entity type only requires a new entry there.
+ *   - Local cleanup methods (removeFromActionItems, etc.) mutate objects
+ *     in place; the caller must persist storage afterward if needed.
+ *   - `removeRelatedFacts` and `removeRelatedDecisions` for meetings are
+ *     stub implementations (TODO: confirm whether they need real logic).
  */
 
 class CascadeDelete {

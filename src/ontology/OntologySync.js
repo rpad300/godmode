@@ -1,13 +1,41 @@
 /**
- * OntologySync - Real-time synchronization of ontology between Supabase and graph database
- * 
- * Uses Supabase Realtime to:
- * - Watch for ontology_schema changes
- * - Propagate changes to graph database automatically
- * - Keep all connected clients in sync
- * 
- * SOTA v2.0 - State of the Art Ontology Synchronization
- * SOTA v3.0 - Native Supabase graph support (no external graph DB required)
+ * Purpose:
+ *   Keeps the ontology schema in sync between Supabase (source of truth) and
+ *   the graph database by subscribing to Supabase Realtime postgres_changes
+ *   on the ontology_schema table and propagating updates automatically.
+ *
+ * Responsibilities:
+ *   - Subscribe to INSERT/UPDATE/DELETE on the ontology_schema Supabase table
+ *   - Debounce rapid changes and batch-process them
+ *   - Reload OntologyManager from Supabase after each change batch
+ *   - Optionally re-export the schema to the graph via SchemaExporter
+ *   - Optionally re-run inference rules after sync via InferenceEngine
+ *   - Provide a forceSync() method for manual full-sync triggering
+ *   - Broadcast manual local changes to other connected clients
+ *
+ * Key dependencies:
+ *   - ../logger: structured logging
+ *   - ./OntologyManager (singleton): reloads schema from Supabase
+ *   - ./SchemaExporter (singleton): pushes schema metadata to graph DB
+ *   - ./InferenceEngine (singleton): optional post-sync inference pass
+ *   - Supabase client (injected): Realtime subscription and broadcast
+ *   - Graph provider (injected): target for schema sync
+ *
+ * Side effects:
+ *   - Opens a persistent WebSocket connection via Supabase Realtime
+ *   - Graph writes during schema sync (indexes, metadata nodes)
+ *   - setTimeout timers for debounce (cleaned up on stopListening)
+ *   - Calls user-supplied event callbacks: onSchemaChange, onSyncComplete,
+ *     onSyncError
+ *
+ * Notes:
+ *   - The debounce window (default 2 s) batches rapid consecutive changes into
+ *     a single reload+sync cycle to avoid redundant graph writes.
+ *   - If a sync is already in progress when the debounce fires, it reschedules
+ *     after 1 second to avoid concurrent syncs.
+ *   - Sync errors are accumulated in syncErrors array (last 5 shown in status).
+ *   - SOTA v3.0: for Supabase graph providers the schema already lives in
+ *     Supabase tables, so syncToGraph is largely a no-op.
  */
 
 const { logger } = require('../logger');

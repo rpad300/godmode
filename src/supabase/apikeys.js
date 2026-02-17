@@ -1,6 +1,34 @@
 /**
- * API Keys Module
- * Manages API keys for programmatic project access
+ * Purpose:
+ *   Full lifecycle management of API keys for programmatic project access.
+ *   Keys are generated, hashed (SHA-256), and stored; the plaintext is returned
+ *   only once at creation time.
+ *
+ * Responsibilities:
+ *   - Generate cryptographically random API keys with a recognizable prefix (`gm_live_`)
+ *   - CRUD operations on the `api_keys` table (create, list, revoke, update)
+ *   - Validate incoming API keys by hash lookup and expiry check
+ *   - Track per-key usage in the `api_key_usage` table
+ *   - Compute usage statistics (endpoint breakdown, daily breakdown)
+ *   - Provide Express-compatible authentication middleware
+ *
+ * Key dependencies:
+ *   - crypto: random byte generation and SHA-256 hashing
+ *   - ./client (getAdminClient): Supabase admin client for DB access
+ *
+ * Side effects:
+ *   - `validateApiKey` writes to `api_keys` (last_used_at, total_requests)
+ *   - `logUsage` writes to `api_key_usage`
+ *   - `revokeApiKey` soft-deletes by setting is_active=false
+ *
+ * Notes:
+ *   - The full plaintext key is only available at creation time; after that only
+ *     the hash is stored. Losing it requires regeneration.
+ *   - `authenticateApiKey` attaches the validated key object to `req.apiKey`
+ *     but does NOT log the response (caller must do that post-response).
+ *   - `listApiKeys` cannot join user_profiles because `created_by` references
+ *     auth.users(id), not user_profiles directly.
+ *   - Permission model: admin permission implies all other permissions.
  */
 
 const crypto = require('crypto');
@@ -19,8 +47,10 @@ const PERMISSIONS = {
 };
 
 /**
- * Generate a new API key
- * Returns both the full key (to show once) and the hash (to store)
+ * Generate a new API key.
+ * Returns the full key (show to user once), a display prefix, and the SHA-256 hash (stored in DB).
+ * The key format is: "gm_live_" + 32 bytes of base64url randomness.
+ * @returns {{key: string, prefix: string, hash: string}}
  */
 function generateApiKey() {
     const randomBytes = crypto.randomBytes(KEY_LENGTH);
@@ -98,7 +128,11 @@ async function createApiKey({
 }
 
 /**
- * Validate an API key and return its details
+ * Validate an API key: hash it, look it up in `api_keys` (with project join),
+ * check expiry, and atomically bump last_used_at / total_requests.
+ * @param {string} key - The full plaintext API key
+ * @returns {Promise<{success: boolean, apiKey?: object, error?: string}>}
+ *   On success, apiKey includes the joined project object { id, name }.
  */
 async function validateApiKey(key) {
     const supabase = getAdminClient();
@@ -252,7 +286,8 @@ async function updateApiKey(keyId, updates) {
 }
 
 /**
- * Log API key usage
+ * Log a single API key usage event to the `api_key_usage` table.
+ * Fire-and-forget: errors are logged but not propagated.
  */
 async function logUsage(apiKeyId, endpoint, method, statusCode, responseTimeMs, ipAddress, userAgent) {
     const supabase = getAdminClient();
@@ -276,7 +311,11 @@ async function logUsage(apiKeyId, endpoint, method, statusCode, responseTimeMs, 
 }
 
 /**
- * Get API key usage stats
+ * Get API key usage stats for the last N days.
+ * Reads all matching rows from `api_key_usage` and computes aggregates in-memory.
+ * Assumption: usage volume per key is small enough for client-side aggregation.
+ * @param {string} apiKeyId - UUID of the API key
+ * @param {number} [days=7] - Lookback window in days
  */
 async function getUsageStats(apiKeyId, days = 7) {
     const supabase = getAdminClient();
@@ -323,7 +362,10 @@ async function getUsageStats(apiKeyId, days = 7) {
 }
 
 /**
- * Middleware to authenticate API key requests
+ * Authenticate an incoming request by API key.
+ * Checks both `Authorization` and `x-api-key` headers; supports "Bearer KEY" format.
+ * On success, attaches the validated key to `req.apiKey`.
+ * Note: response-time logging must be done by the caller after the response is sent.
  */
 async function authenticateApiKey(req) {
     // Check for API key in header

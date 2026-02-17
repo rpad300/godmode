@@ -1,14 +1,39 @@
 /**
- * Billing Module
- * Handles project balance, pricing configurations, and cost calculations
- * 
- * Features:
- * - Check project balance before LLM requests
- * - Calculate billable cost with tier-based markup
- * - Debit/credit project balance atomically
- * - Get billing summaries and reports
- * - Manage pricing configurations (global and per-project)
- * - Automatic USD/EUR exchange rate support
+ * Purpose:
+ *   Central billing and cost-tracking layer for AI usage. Manages project
+ *   balances, tier-based markup pricing, and USD-to-EUR conversion so that
+ *   every LLM request is metered, costed, and debited atomically.
+ *
+ * Responsibilities:
+ *   - Pre-flight balance checks before LLM requests (`checkProjectBalance`)
+ *   - Atomic debit/credit of project balance via Supabase RPCs
+ *   - Tier-based billable cost calculation with exchange-rate support
+ *   - Period (monthly/weekly) usage aggregation in `update_period_usage` RPC
+ *   - Low-balance and insufficient-balance notifications to project admins
+ *   - Billing summaries for individual projects and admin-wide overviews
+ *   - CRUD for global and per-project pricing configs and pricing tiers
+ *
+ * Key dependencies:
+ *   - ./client (getClient, getAdminClient): Supabase DB access
+ *   - ./notifications: in-app notification creation for balance alerts
+ *   - ../services/exchange-rate: live USD/EUR rates (lazy-loaded to avoid circular deps)
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - Writes to `balance_transactions` (via RPCs) on every debit/credit
+ *   - Sends notifications to project owners/admins on low or zero balance
+ *   - `calculateAndRecordCost` is the full pipeline: calculate + debit + update period
+ *
+ * Notes:
+ *   - All balance-mutating RPCs (check_project_balance, debit_project_balance,
+ *     credit_project_balance) are atomic PostgreSQL functions to prevent races.
+ *   - On any DB error, balance checks and debits fail open (allow the request)
+ *     to avoid blocking legitimate traffic.
+ *   - Exchange rate service is lazy-loaded; if unavailable, a hardcoded 0.92
+ *     USD/EUR fallback is used.
+ *   - `setPricingTiers` replaces all tiers for a config in a non-transactional
+ *     delete-then-insert. Assumption: acceptable because admin-only and rare.
+ *   - Period keys follow "YYYY-MM" (monthly) or "YYYY-WW" (ISO week) format.
  */
 
 const { logger } = require('../logger');
@@ -264,9 +289,24 @@ async function calculateBillableCost(projectId, providerCostUsd, totalTokens) {
 }
 
 /**
- * Calculate cost and record all billing data
- * Complete flow: calculate + debit + update period usage
+ * End-to-end billing pipeline for a single LLM request:
+ * 1. Calculate billable cost (with exchange rate + tier markup)
+ * 2. Atomically debit the project balance
+ * 3. Update period usage aggregates
+ *
+ * If the debit fails for reasons other than "Insufficient balance", it is
+ * logged but does NOT block the caller -- the request has already been served.
+ *
  * @param {object} options
+ * @param {string} options.projectId - Project UUID
+ * @param {number} options.providerCostUsd - Raw provider cost in USD
+ * @param {number} options.tokens - Total tokens (input + output)
+ * @param {number} options.inputTokens - Input token count
+ * @param {number} options.outputTokens - Output token count
+ * @param {string} options.model - Model identifier
+ * @param {string} options.provider - Provider name
+ * @param {string} [options.context] - Human-readable context label
+ * @param {string} [options.requestId] - LLM request UUID for audit trail
  * @returns {Promise<{billable_cost_eur: number, provider_cost_eur: number, markup_percent: number, tier_id?: string, period_key: string}>}
  */
 async function calculateAndRecordCost({
@@ -732,9 +772,12 @@ async function getPricingTiers(configId) {
 }
 
 /**
- * Set pricing tiers for a config (replace all)
- * @param {string} configId - Pricing config ID
- * @param {Array} tiers - Array of tier objects
+ * Replace all pricing tiers for a config.
+ * Deletes existing tiers then inserts the new set. This is NOT wrapped in a
+ * DB transaction, so a failure mid-insert leaves a partial tier set.
+ * Acceptable trade-off because this is an admin-only, infrequent operation.
+ * @param {string} configId - Pricing config UUID
+ * @param {Array<{token_limit: number, markup_percent: number, name: string}>} tiers
  * @returns {Promise<{success: boolean, error?: string}>}
  */
 async function setPricingTiers(configId, tiers) {

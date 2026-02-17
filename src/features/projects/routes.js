@@ -1,10 +1,43 @@
 /**
- * Projects feature routes
- * Extracted from server.js
+ * Purpose:
+ *   Project management API routes covering CRUD operations, team member management,
+ *   role configuration, project activation/switching, import/export, and BYOK
+ *   (Bring Your Own Key) provider key management.
  *
- * Handles:
- * - handleProjectMembers: /api/projects/:id/members
- * - handleProjects: CRUD, activate, config, stats, export, import
+ * Responsibilities:
+ *   - Project CRUD (create, read, update, delete) with Supabase + local storage fallback
+ *   - Project activation/switching, including graph database reconnection per project
+ *   - Project member and role management (add, update, remove members; add/update roles)
+ *   - Contact-to-team-member promotion (add-contact flow with team_profiles)
+ *   - Project configuration (LLM config, prompts, processing settings, UI preferences)
+ *   - Project statistics retrieval
+ *   - Full project export (JSON download) and import (multipart file upload)
+ *   - BYOK: list providers, set/delete/validate per-project API keys via secrets module
+ *   - Default project designation
+ *
+ * Key dependencies:
+ *   - ../../server/request: parseBody, parseMultipart for file uploads
+ *   - ../../server/security: isValidUUID for input validation
+ *   - ../../supabase/secrets: BYOK secret storage and retrieval
+ *   - ../../llm/queue: Queue manager for invalidating BYOK cache on key changes
+ *   - ../../sync: Graph sync for project deletion cleanup
+ *
+ * Side effects:
+ *   - Filesystem: writes JSON files during import, reads during export
+ *   - Database: creates/updates/deletes rows in projects, project_members, project_config,
+ *     team_profiles, contact_projects tables
+ *   - Graph DB: switches graph database per project on activation; syncs on delete
+ *   - LLM queue: invalidates BYOK API key cache when keys are set or removed
+ *   - Config file: saves updated config to disk on project activation
+ *
+ * Notes:
+ *   - handleProjectMembers and handleProjects are separate exports; both are called
+ *     from the main server router in sequence
+ *   - Super admins see all projects; regular users see only their memberships
+ *   - The userId for members can be "contact:<UUID>" for contact-based team members
+ *   - Export is limited to local storage projects (JSON files); Supabase-only data
+ *     is not exported
+ *   - Contains DEBUG logging for a specific project ID that should be cleaned up
  */
 
 const fs = require('fs');

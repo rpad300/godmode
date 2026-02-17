@@ -1,6 +1,27 @@
 /**
- * Request parsing utilities
- * Extracted from server.js for modularity
+ * Purpose:
+ *   Utilities for parsing inbound HTTP requests: URL decomposition, JSON body
+ *   reading with size limits, and raw multipart/form-data parsing for file uploads.
+ *
+ * Responsibilities:
+ *   - parseUrl: WHATWG-compliant URL parsing with graceful fallback for malformed input
+ *   - parseBody: Streaming JSON body reader with configurable max-length guard (DoS protection)
+ *   - parseMultipart: Buffer-level multipart boundary parser that extracts files and form fields
+ *
+ * Key dependencies:
+ *   - None (pure Node.js; avoids the deprecated `url.parse`)
+ *
+ * Side effects:
+ *   - parseBody destroys the request stream on oversized payloads to free resources immediately
+ *   - DEFAULT_MAX_BODY_LENGTH reads process.env.MAX_BODY_LENGTH at module load time
+ *
+ * Notes:
+ *   - parseUrl uses a dummy base ("http://localhost") so it can handle relative paths;
+ *     the base is never exposed to callers.
+ *   - parseMultipart operates on a pre-buffered Buffer, not a stream. Callers must
+ *     accumulate the request body before invoking it.
+ *   - The multipart parser recognises a fixed set of field names (folder, documentDate,
+ *     documentTime, emailId, sprintId, actionId). Unknown fields are silently ignored.
  */
 
 /**
@@ -66,10 +87,21 @@ function parseBody(req, options = {}) {
 }
 
 /**
- * Parse multipart form data
- * @param {Buffer} buffer - The raw request body buffer
- * @param {string} boundary - The multipart boundary string
- * @returns {{ files: Array, folder: string, documentDate: string|null, documentTime: string|null, emailId: string|null }}
+ * Parse multipart/form-data from a fully-buffered request body.
+ *
+ * Splits the buffer on the boundary marker, then inspects each part's
+ * Content-Disposition header to decide whether it is a file (has "filename")
+ * or a plain form field.
+ *
+ * @param {Buffer} buffer - The complete raw request body
+ * @param {string} boundary - The boundary string from the Content-Type header
+ * @returns {{ files: Array<{filename: string, data: Buffer}>,
+ *             folder: string,
+ *             documentDate: string|null,
+ *             documentTime: string|null,
+ *             emailId: string|null,
+ *             sprintId: string|null,
+ *             actionId: string|null }}
  */
 function parseMultipart(buffer, boundary) {
     const result = { files: [], folder: 'newinfo', documentDate: null, documentTime: null, emailId: null, sprintId: null, actionId: null };

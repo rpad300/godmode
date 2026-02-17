@@ -1,6 +1,32 @@
 /**
- * OpenAI Provider Adapter
- * Supports OpenAI API and compatible endpoints (Azure, etc.)
+ * Purpose:
+ *   Provider adapter for OpenAI's Chat Completions, Embeddings, and Models APIs.
+ *   Also serves as the implicit reference implementation for OpenAI-compatible
+ *   providers (Azure OpenAI, etc.) via configurable baseUrl.
+ *
+ * Responsibilities:
+ *   - Full feature coverage: text, vision, embeddings, and dynamic model listing
+ *   - Handle the max_tokens vs max_completion_tokens parameter split introduced
+ *     with newer OpenAI models (gpt-4.1+, o1, o3, o4)
+ *   - Retry transient failures using the base class withRetry mechanism
+ *   - Support optional Organization and Project headers for multi-tenant setups
+ *
+ * Key dependencies:
+ *   - ./base (BaseLLMProvider): shared retry, error classification, HTTP helpers
+ *   - ../../logger: structured logging with provider-scoped child logger
+ *
+ * Side effects:
+ *   - Network I/O to api.openai.com (or custom baseUrl)
+ *   - Filesystem reads when images are passed as file paths in generateVision
+ *
+ * Notes:
+ *   - generateText includes extensive response-field fallback logic (content ->
+ *     reasoning_content -> output -> text -> delta.content) to handle the
+ *     different response shapes across GPT, o1, and o3 model families.
+ *   - listModels categorizes by naming convention heuristics (e.g. "embedding" in id),
+ *     which may need updating as OpenAI releases new model families.
+ *   - This is the only provider that leverages withRetry inside generateText;
+ *     retryable errors are thrown while non-retryable ones are returned directly.
  */
 
 const BaseLLMProvider = require('./base');
@@ -149,22 +175,24 @@ class OpenAIProvider extends BaseLLMProvider {
         }
         messages.push({ role: 'user', content: prompt });
 
-        // Newer models (gpt-4.1+, gpt-5, o1, o3, o4) use max_completion_tokens instead of max_tokens
+        // OpenAI split the token-limit parameter in late 2024: older models use
+        // `max_tokens` while newer ones (gpt-4.1+, o-series) require
+        // `max_completion_tokens`. Sending the wrong one causes a 400 error.
         const useNewTokenParam = model && (
-            model.startsWith('gpt-4.1') || 
-            model.startsWith('gpt-4.5') || 
-            model.startsWith('gpt-5') || 
-            model.startsWith('o1') || 
-            model.startsWith('o3') || 
+            model.startsWith('gpt-4.1') ||
+            model.startsWith('gpt-4.5') ||
+            model.startsWith('gpt-5') ||
+            model.startsWith('o1') ||
+            model.startsWith('o3') ||
             model.startsWith('o4')
         );
-        
+
         const body = {
             model,
             messages,
             temperature
         };
-        
+
         if (useNewTokenParam) {
             body.max_completion_tokens = maxTokens;
         } else {
@@ -203,6 +231,13 @@ class OpenAIProvider extends BaseLLMProvider {
                 const choice = response.data?.choices?.[0];
                 const usage = response.data?.usage;
                 log.debug({ event: 'openai_response', status: response.status, finishReason: choice?.finish_reason }, 'Response received');
+
+                // Fallback chain for extracting text from diverse OpenAI model families:
+                //   1. message.content       - standard GPT chat models
+                //   2. message.reasoning_content - o1/o3 reasoning models
+                //   3. message.output        - some newer structured-output models
+                //   4. choice.text           - legacy completions format
+                //   5. delta.content         - streaming chunk (shouldn't appear here, but defensive)
                 let textContent = '';
                 if (choice?.message?.content !== null && choice?.message?.content !== undefined) {
                     textContent = String(choice.message.content);

@@ -1,26 +1,61 @@
 /**
- * Billing API (Project Cost Control)
- * Extracted from server.js
+ * Purpose:
+ *   Billing and cost-control API for managing project balances, pricing
+ *   configurations, exchange rates, and per-project billing overrides.
  *
- * Superadmin endpoints:
- * - GET /api/admin/billing/projects
- * - GET/POST /api/admin/billing/pricing
- * - GET/POST /api/admin/billing/pricing/tiers
- * - GET/POST /api/admin/billing/exchange-rate
- * - POST /api/admin/billing/exchange-rate/refresh
- * - GET /api/admin/billing/projects/:id
- * - GET/POST /api/admin/billing/projects/:id/balance
- * - GET /api/admin/billing/projects/:id/transactions
- * - GET/POST/DELETE /api/admin/billing/projects/:id/pricing
+ * Responsibilities:
+ *   - Superadmin CRUD for global and per-project pricing, tiered pricing, and exchange rates
+ *   - Project balance management (credit, unlimited flag, block/unblock)
+ *   - Balance transaction history retrieval
+ *   - Read-only billing summary for project members
  *
- * Project member endpoint:
- * - GET /api/projects/:id/billing
+ * Key dependencies:
+ *   - ../../supabase/billing: all billing data-access operations
+ *   - ../../supabase/notifications: sends balance-added notifications to project members
+ *   - supabase (ctx): auth verification, admin client for direct DB updates
+ *
+ * Side effects:
+ *   - Writes to Supabase tables: pricing configs, balance transactions, project status
+ *   - Sends notification records on balance credit
+ *   - May call external exchange-rate API on /exchange-rate/refresh
+ *
+ * Notes:
+ *   - All /api/admin/billing/* routes require superadmin; returns 401/403 otherwise
+ *   - /api/projects/:id/billing is unauthenticated (project-scoped, no auth check)
+ *   - billing module is lazy-required inside handleBilling to avoid circular deps
+ *
+ * Routes:
+ *   Superadmin:
+ *     GET    /api/admin/billing/projects                     - All projects billing overview
+ *     GET    /api/admin/billing/pricing                      - Global pricing config
+ *     POST   /api/admin/billing/pricing                      - Set global pricing config
+ *     GET    /api/admin/billing/pricing/tiers                - Global pricing tiers
+ *     POST   /api/admin/billing/pricing/tiers                - Set global pricing tiers
+ *     GET    /api/admin/billing/exchange-rate                 - Exchange rate config
+ *     POST   /api/admin/billing/exchange-rate                 - Set exchange rate mode (auto/manual)
+ *     POST   /api/admin/billing/exchange-rate/refresh         - Force-refresh exchange rate
+ *     GET    /api/admin/billing/projects/:id                  - Project billing summary
+ *     GET    /api/admin/billing/projects/:id/balance          - Project balance
+ *     POST   /api/admin/billing/projects/:id/balance          - Credit balance or set unlimited
+ *     GET    /api/admin/billing/projects/:id/transactions     - Balance transaction log
+ *     GET    /api/admin/billing/projects/:id/pricing          - Project pricing override
+ *     POST   /api/admin/billing/projects/:id/pricing          - Set project pricing override (+ tiers)
+ *     DELETE /api/admin/billing/projects/:id/pricing          - Remove project pricing override
+ *     POST   /api/admin/billing/projects/:id/block            - Block/unblock project
+ *     POST   /api/admin/billing/projects/:id/unlimited        - Toggle unlimited status
+ *   Project member:
+ *     GET    /api/projects/:id/billing                        - Billing summary (no auth)
  */
 
 const { parseBody, parseUrl } = require('../../server/request');
 const { getLogger } = require('../../server/requestContext');
 const { jsonResponse } = require('../../server/response');
 
+/**
+ * Verify the request is from a superadmin user.
+ * Sends 503/401/403 responses directly if checks fail.
+ * @returns {object|false} The authenticated user object, or false if denied.
+ */
 async function checkSuperAdmin(supabase, req, res) {
     const log = getLogger().child({ module: 'billing' });
     log.debug({ event: 'billing_check_superadmin' }, 'checkSuperAdmin called');
@@ -45,6 +80,10 @@ async function checkSuperAdmin(supabase, req, res) {
     return authResult.user;
 }
 
+/**
+ * Main billing route handler. Returns true if the request was handled, false to pass through.
+ * Matches /api/admin/billing/* (superadmin) and /api/projects/:id/billing (member).
+ */
 async function handleBilling(ctx) {
     const { req, res, pathname, supabase, storage } = ctx;
     const log = getLogger().child({ module: 'billing' });

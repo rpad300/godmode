@@ -1,11 +1,38 @@
 /**
- * EmbeddingEnricher - Enhances embeddings with ontological context
- * 
+ * Purpose:
+ *   Enriches raw entity data into high-quality text representations suitable
+ *   for vector embedding, leveraging ontology metadata (templates, type
+ *   prefixes, relationship context) to improve semantic search precision.
+ *
  * Responsibilities:
- * - Add entity type prefixes to embedding text
- * - Include relationship context in embeddings
- * - Generate combined embeddings for related entities
- * - Improve semantic search accuracy through structure
+ *   - Generate enriched embedding text for a single entity using ontology templates
+ *   - Produce multiple embedding "views" per entity (base, properties, relationships,
+ *     question-style) for multi-vector search strategies
+ *   - Build relationship context strings from an entity's graph neighbourhood
+ *   - Generate question-phrased embeddings (e.g. "Who is X?") to better match
+ *     user queries
+ *   - Enrich user queries with detected entity/relation type hints
+ *   - Produce combined cluster embeddings for groups of related entities
+ *   - Batch-enrich arrays of entities in one pass
+ *   - Calculate embedding priority scores to order batch operations
+ *
+ * Key dependencies:
+ *   - ./OntologyManager (singleton): entity/relation type definitions, embedding
+ *     templates, searchable-property metadata
+ *
+ * Side effects:
+ *   - None -- this module is purely transformational (text in, text out) with
+ *     no I/O, network, or database access.
+ *
+ * Notes:
+ *   - maxRelationsPerEntity (default 5) caps the relationship context to keep
+ *     embedding text within model token limits.
+ *   - generateQuestionStyleEmbedding() has hard-coded entity-type switch cases;
+ *     new entity types added to the ontology will fall through silently.
+ *   - normalizeText() collapses whitespace and punctuation; ensure templates
+ *     do not rely on significant whitespace.
+ *   - getEmbeddingConfig() currently returns a static config; it can be extended
+ *     to vary model/dimensions per entity type in the future.
  */
 
 const { getOntologyManager } = require('./OntologyManager');

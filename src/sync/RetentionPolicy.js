@@ -1,6 +1,37 @@
 /**
- * Retention Policy Module
- * Automatic data retention and cleanup based on policies
+ * Purpose:
+ *   Declarative, policy-driven data lifecycle management. Automatically purges
+ *   soft-deleted items, trims old backups, prunes audit logs, and cleans up
+ *   orphaned graph nodes according to configurable retention windows.
+ *
+ * Responsibilities:
+ *   - Load/save a set of retention policies from `<dataDir>/retention-policy.json`
+ *   - Provide sensible defaults (soft-delete: 30 days, audit: 365 days,
+ *     backup: 90 days, orphan cleanup: weekly)
+ *   - Execute all enabled policies in sequence, recording results and timing
+ *   - Support add/update of individual policies and a global enable/disable toggle
+ *   - Offer a dry-run preview of what each policy would clean up
+ *   - Keep an in-memory execution log (last 50 runs)
+ *
+ * Key dependencies:
+ *   - fs / path: policy file persistence
+ *   - ../logger: structured logging
+ *   - Runtime dependencies injected via `execute(dependencies)`:
+ *     softDelete, auditLog, backupBeforeDelete, graphProvider
+ *
+ * Side effects:
+ *   - `execute` may permanently delete soft-deleted items, backup files, and
+ *     graph nodes depending on which policies are enabled
+ *   - Writes updated policy state (lastExecution, nextExecution) to disk
+ *
+ * Notes:
+ *   - Policies are **disabled by default** (`enabled: false` at the top level)
+ *     to prevent accidental data loss on first deployment.
+ *   - `nextExecution` is set to +24 hours after each run but is informational
+ *     only; there is no built-in scheduler. The caller (e.g. a cron job) must
+ *     invoke `execute()` periodically.
+ *   - The orphan cleanup policy uses a raw Cypher DELETE; ensure the graph
+ *     provider supports this if enabling it.
  */
 
 const fs = require('fs');

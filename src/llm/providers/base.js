@@ -1,6 +1,29 @@
 /**
- * Base LLM Provider Adapter
- * All provider adapters extend this class and implement the required methods
+ * Purpose:
+ *   Abstract base class that defines the contract for all LLM provider adapters.
+ *   Concrete providers (OpenAI, Claude, Gemini, etc.) extend this and override
+ *   the stubbed methods to integrate with their respective APIs.
+ *
+ * Responsibilities:
+ *   - Declare the provider interface: generateText, generateVision, embed, listModels, testConnection
+ *   - Provide shared infrastructure: HTTP with timeout, retry with exponential backoff, error classification
+ *   - Normalize heterogeneous API errors into a uniform {provider, step, code, message, retryable} shape
+ *
+ * Key dependencies:
+ *   - ../httpClient: injectable HTTP client (makes providers testable without real network calls)
+ *   - ../../logger: structured pino logger for observability
+ *
+ * Side effects:
+ *   - Network I/O via fetchWithTimeout (delegated to httpClient)
+ *   - Logging via pino child logger
+ *
+ * Notes:
+ *   - Default timeout is 5 minutes (300 000 ms) to accommodate large-context completions.
+ *   - withRetry uses a gentler 1.5x exponential backoff with a longer base delay (10 s)
+ *     for rate-limit errors, to avoid compounding 429s.
+ *   - classifyErrorCode is intentionally broad and string-match-based because different
+ *     providers return errors in inconsistent formats.
+ *   - Subclasses MUST set this.name in their constructor for log/error attribution.
  */
 
 const httpClient = require('../httpClient');
@@ -119,10 +142,16 @@ class BaseLLMProvider {
     }
 
     /**
-     * Classify error code from status and message
-     * @param {number} statusCode - HTTP status code
-     * @param {string} message - Error message
-     * @returns {string} Error code
+     * Map a raw HTTP status + message into a canonical error code string.
+     *
+     * Order matters: earlier checks take priority (e.g. 401 is 'auth' even
+     * if the body also says "invalid"). The codes are consumed by the router
+     * to decide whether to failover to another provider.
+     *
+     * @param {number} statusCode - HTTP status code (may be null for network errors)
+     * @param {string} message - Error message body from the provider
+     * @returns {string} One of: auth, model_not_found, rate_limit, timeout,
+     *   server_error, overloaded, quota_exceeded, invalid_request, unknown
      */
     classifyErrorCode(statusCode, message = '') {
         const msg = message.toLowerCase();
@@ -220,11 +249,20 @@ class BaseLLMProvider {
     }
 
     /**
-     * Execute a function with retry logic
-     * @param {function} fn - Async function to execute
-     * @param {number} maxRetries - Maximum number of retries (default: 4)
-     * @param {number} delayMs - Initial delay between retries in ms (default: 5000 for rate limits)
-     * @returns {Promise<any>}
+     * Execute a function with retry logic and exponential backoff.
+     *
+     * Retries on: 5xx server errors, 429 rate limits, 408 timeouts, and
+     * transient connection errors (ECONNRESET). Non-retryable failures
+     * (4xx auth/validation) propagate immediately.
+     *
+     * Backoff strategy: base * 1.5^attempt. Rate-limit errors use a 10 s
+     * base (vs 5 s default) to give the provider quota time to recover.
+     *
+     * @param {function} fn - Async function to execute (called with no args)
+     * @param {number} [maxRetries=4] - Maximum retry attempts after the initial call
+     * @param {number} [delayMs=5000] - Initial delay between retries in ms
+     * @returns {Promise<any>} Resolved value from fn
+     * @throws Last error if all attempts exhausted
      */
     async withRetry(fn, maxRetries = 4, delayMs = 5000) {
         let lastError = null;

@@ -1,13 +1,38 @@
 /**
- * OntologyManager - Manages the GodMode knowledge graph ontology
- * 
+ * Purpose:
+ *   Central manager for the GodMode knowledge-graph ontology schema.
+ *   Owns loading, validation, querying, mutation, and persistence of
+ *   entity types, relation types, query patterns, and inference rules.
+ *
  * Responsibilities:
- * - Load and parse ontology schema (from Supabase or file)
- * - Validate entities and relationships against schema
- * - Provide entity type information
- * - Generate embedding templates
- * - Support query pattern matching
- * - Persist schema to Supabase (SOTA v2.0)
+ *   - Load schema from Supabase (primary) with local JSON file fallback
+ *   - Validate entities and relationships against the schema (optional strict mode)
+ *   - Provide entity/relation type metadata and property definitions
+ *   - Generate embedding text from ontology templates
+ *   - Match user queries to predefined query patterns with Cypher expansion
+ *   - Persist schema changes back to Supabase and file
+ *   - Support dynamic addition/removal of entity and relation types at runtime
+ *
+ * Key dependencies:
+ *   - fs / path: read/write the local schema.json fallback file
+ *   - ../logger: structured logging via pino child logger
+ *   - SupabaseStorage (injected): optional Supabase backend for schema persistence
+ *
+ * Side effects:
+ *   - File-system I/O when loading/saving the schema JSON
+ *   - Supabase network calls when useSupabase is true
+ *   - Ontology change log entries written to Supabase on mutations
+ *
+ * Notes:
+ *   - Strict mode (v1.6) throws on unknown types instead of returning errors,
+ *     useful for catching schema drift in development.
+ *   - ensureLoaded() fires load() synchronously (returns a Promise that is not
+ *     awaited), so callers relying on async loading should call `await load()`
+ *     explicitly before first use.
+ *   - Version bumping uses parseFloat arithmetic (e.g. "2.0" -> "2.1"); this
+ *     can lose trailing zeros for versions like "2.10".
+ *   - The singleton getter at module bottom calls load() eagerly but does not
+ *     await it; the schema may not be ready on the very first synchronous access.
  */
 
 const fs = require('fs');
@@ -16,7 +41,26 @@ const { logger } = require('../logger');
 
 const log = logger.child({ module: 'ontology-manager' });
 
+/**
+ * Central ontology schema manager.
+ *
+ * Lifecycle: construct -> setStorage/setProjectId (optional) -> load() -> ready.
+ * After loading, the schema can be queried, validated against, or mutated.
+ * All mutations bump the version and persist to Supabase + file.
+ *
+ * Invariant: after a successful load(), `this.loaded === true` and
+ * `this.schema` is a non-null object with entityTypes, relationTypes,
+ * queryPatterns, and inferenceRules.
+ */
 class OntologyManager {
+    /**
+     * @param {object} options
+     * @param {string} [options.schemaPath] - Path to local schema.json fallback
+     * @param {boolean} [options.strictMode=false] - Throw on unknown types instead of returning errors
+     * @param {object} [options.storage] - SupabaseStorage instance for persistence
+     * @param {string} [options.projectId] - Scope schema to a specific project
+     * @param {boolean} [options.useSupabase] - Disable Supabase even if storage is provided (default true)
+     */
     constructor(options = {}) {
         this.schemaPath = options.schemaPath || path.join(__dirname, 'schema.json');
         this.schema = null;
@@ -944,9 +988,12 @@ class OntologyManager {
     }
 
     /**
-     * Convert pattern string to regex
-     * @param {string} pattern 
-     * @returns {RegExp}
+     * Convert a query-pattern string with {placeholder} tokens into a RegExp.
+     * Escapes all special regex characters first, then replaces escaped
+     * placeholders with capture groups.
+     *
+     * @param {string} pattern - e.g. "who works on {project}"
+     * @returns {RegExp} - case-insensitive regex with capture groups
      */
     patternToRegex(pattern) {
         let regex = pattern
@@ -958,10 +1005,14 @@ class OntologyManager {
     }
 
     /**
-     * Build Cypher query with parameters
-     * @param {string} cypherTemplate 
-     * @param {object} params 
-     * @returns {string}
+     * Build a Cypher query by interpolating matched parameter values into
+     * the template. Values are single-quoted inline -- not parameterised --
+     * so this should only be used with trusted/sanitised input from
+     * matchQueryPattern().
+     *
+     * @param {string} cypherTemplate - Cypher with $param placeholders
+     * @param {object} params - Extracted parameter values
+     * @returns {string} - Ready-to-execute Cypher string
      */
     buildCypher(cypherTemplate, params) {
         let cypher = cypherTemplate;
@@ -997,10 +1048,14 @@ class OntologyManager {
     // ==================== Entity Extraction Methods ====================
 
     /**
-     * Extract potential entity references from text
-     * Uses simple heuristics - for better extraction, use LLM
-     * @param {string} text 
-     * @returns {Array<{type: string, value: string, confidence: number}>}
+     * Extract potential entity and relation references from text using keyword
+     * heuristics. Provides a fast, LLM-free first pass; confidence is fixed
+     * at 0.6 for all matches. For production extraction, prefer RelationInference
+     * which combines heuristics with LLM analysis.
+     *
+     * @param {string} text - Free-form text to scan
+     * @returns {{entityHints: Array<{type: string, keyword: string, confidence: number}>,
+     *            relationHints: Array<{relation: string, keyword: string, confidence: number}>}}
      */
     extractEntityHints(text) {
         const hints = [];

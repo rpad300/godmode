@@ -1,6 +1,37 @@
 /**
- * Soft Delete Module
- * Instead of permanent deletion, marks items as deleted (allows restore)
+ * Purpose:
+ *   Implements a "trash can" pattern -- entities are marked as deleted rather
+ *   than immediately destroyed, giving users a configurable grace period to
+ *   restore them before permanent purging.
+ *
+ * Responsibilities:
+ *   - Mark entities as soft-deleted by attaching `_deleted`, `_deletedAt`,
+ *     `_deletedBy`, and `_expiresAt` metadata fields
+ *   - Persist the set of soft-deleted items to `<dataDir>/deleted-items.json`
+ *   - List, filter, and restore soft-deleted items by type or across all types
+ *   - Permanently purge items whose retention window has expired
+ *   - Provide statistics (counts by type, oldest/newest deletion, items
+ *     expiring within 7 days)
+ *
+ * Key dependencies:
+ *   - fs / path: reading and writing the deleted-items JSON file
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - Every markDeleted/restore/purgeExpired call synchronously writes the
+ *     full deleted-items map to disk
+ *
+ * Notes:
+ *   - The in-memory store is a Map<type, item[]>. It is serialized to a plain
+ *     object for JSON storage and deserialized back on load.
+ *   - `restore` strips all underscore-prefixed metadata fields and returns the
+ *     clean entity, but does NOT re-insert it into the original data store.
+ *     The caller must handle re-insertion.
+ *   - Default retention is 30 days. Items past their `_expiresAt` are only
+ *     removed when `purgeExpired()` is explicitly called (e.g. by
+ *     RetentionPolicy).
+ *   - `ensureInitialized` is a safety net called by the singleton getter to
+ *     guard against the Map being unexpectedly null.
  */
 
 const fs = require('fs');

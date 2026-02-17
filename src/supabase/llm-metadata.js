@@ -1,9 +1,36 @@
 /**
- * LLM Model Metadata - Supabase Integration
- * Dynamic storage and retrieval of LLM model information
- * 
- * NOTE: Uses admin client (service_role) because this module handles server-side
- * operations for LLM model metadata sync and cost calculations without user context.
+ * Purpose:
+ *   Dynamic storage, retrieval, and synchronization of LLM model metadata
+ *   (capabilities, pricing, context limits) used for cost calculation and
+ *   model selection across the platform.
+ *
+ * Responsibilities:
+ *   - Read model metadata from `llm_model_metadata` by provider + model ID
+ *   - Group models by type (text, vision, embedding) for UI selectors
+ *   - Calculate per-request cost via the `calculate_llm_cost` RPC
+ *   - Upsert model metadata (single and bulk) for provider sync pipelines
+ *   - Track sync status per provider via the `llm_models_by_provider` view
+ *   - Mark API-synced models inactive before re-sync to detect removals
+ *   - Expose all pricing data as a flat lookup for local cost fallback
+ *
+ * Key dependencies:
+ *   - ./client (getAdminClient): Supabase admin client (service_role)
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - `upsertModelMetadata` / `bulkUpsertModels` write to `llm_model_metadata`
+ *   - `markProviderModelsInactive` sets `is_active = false` for API-sourced models
+ *
+ * Notes:
+ *   - Uses admin client (service_role) because model metadata sync runs
+ *     server-side without an authenticated user context.
+ *   - `getModelMetadata` falls back to a prefix ilike match for versioned
+ *     model IDs (e.g., "gpt-4o-2024-05-13" matching "gpt-4o").
+ *   - `bulkUpsertModels` processes models sequentially (not in parallel)
+ *     to avoid overwhelming the DB during large syncs.
+ *   - `getAllPricing` returns a model_id-keyed lookup; if two providers share
+ *     the same model_id, only the last one survives. Assumption: model IDs
+ *     are unique across providers in practice.
  */
 
 const { logger } = require('../logger');
@@ -12,7 +39,13 @@ const { getAdminClient } = require('./client');
 const log = logger.child({ module: 'llm-metadata' });
 
 /**
- * Get model metadata from database
+ * Get model metadata from the `llm_model_metadata` table.
+ * First attempts an exact match on (provider, model_id); on failure, falls
+ * back to a prefix ilike match to handle versioned model IDs (e.g.,
+ * "gpt-4o-2024-05-13" matching a row for "gpt-4o").
+ * @param {string} provider - Provider name (e.g., 'openai', 'anthropic')
+ * @param {string} modelId - Model identifier
+ * @returns {Promise<object|null>} Full metadata row or null
  */
 async function getModelMetadata(provider, modelId) {
     const supabase = getAdminClient();
@@ -85,7 +118,15 @@ async function getModelsGroupedByType(provider) {
 }
 
 /**
- * Calculate cost from database pricing
+ * Calculate the USD cost for a request using DB-stored per-model pricing.
+ * Delegates to the `calculate_llm_cost` RPC which looks up the model's
+ * price_input/price_output rates and multiplies by token counts.
+ * Returns 0 on any error (fail-safe for cost tracking, not billing).
+ * @param {string} provider
+ * @param {string} modelId
+ * @param {number} inputTokens
+ * @param {number} outputTokens
+ * @returns {Promise<number>} Cost in USD
  */
 async function calculateCost(provider, modelId, inputTokens, outputTokens) {
     const supabase = getAdminClient();
@@ -109,7 +150,10 @@ async function calculateCost(provider, modelId, inputTokens, outputTokens) {
 }
 
 /**
- * Upsert model metadata (for sync)
+ * Upsert a single model's metadata via the `upsert_llm_model_metadata` RPC.
+ * Used by provider sync pipelines to keep the metadata table current.
+ * @param {object} metadata - Model metadata fields (provider, modelId, displayName, pricing, capabilities, etc.)
+ * @returns {Promise<{success: boolean, id?: string, error?: string}>}
  */
 async function upsertModelMetadata(metadata) {
     const supabase = getAdminClient();
@@ -144,7 +188,8 @@ async function upsertModelMetadata(metadata) {
 }
 
 /**
- * Bulk upsert models
+ * Bulk upsert models sequentially (not parallel) to avoid overwhelming the DB.
+ * Returns aggregate success/failure counts and per-model error details.
  */
 async function bulkUpsertModels(models) {
     const results = { success: 0, failed: 0, errors: [] };
@@ -183,7 +228,10 @@ async function getSyncStatus() {
 }
 
 /**
- * Mark models as inactive for a provider (before sync)
+ * Mark all API-synced models as inactive for a provider before re-sync.
+ * Only affects rows with source='api'; manually-added models are preserved.
+ * Called at the start of a sync cycle so that models removed by the provider
+ * end up with is_active=false after the upsert pass.
  */
 async function markProviderModelsInactive(provider) {
     const supabase = getAdminClient();
@@ -201,7 +249,10 @@ async function markProviderModelsInactive(provider) {
 }
 
 /**
- * Get all pricing data (for cost calculation fallback)
+ * Get all active model pricing as a flat lookup object keyed by model_id.
+ * Used as a local fallback when the `calculate_llm_cost` RPC is unavailable.
+ * Caveat: if two providers share the same model_id, only the last one wins.
+ * @returns {Promise<Object<string, {priceInput: number, priceOutput: number, contextTokens: number, maxOutputTokens: number, supportsVision: boolean, supportsJsonMode: boolean}>>}
  */
 async function getAllPricing() {
     const supabase = getAdminClient();

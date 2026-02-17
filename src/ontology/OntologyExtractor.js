@@ -1,15 +1,34 @@
 /**
- * OntologyExtractor - Extract and manage ontology from graph database
- * 
- * Inspired by GraphRAG-SDK Ontology class
- * Provides functionality to:
- * - Extract ontology from existing graph data
- * - Validate compliance rigorously
- * - Merge ontologies
- * - Discard orphan types
- * 
- * SOTA v2.1 - Advanced Ontology Management
- * SOTA v3.0 - Native Supabase graph support (no Cypher dependency)
+ * Purpose:
+ *   Reverse-engineers an ontology schema from a live graph database and
+ *   provides compliance validation, merging, diffing, and cleanup utilities.
+ *   Inspired by GraphRAG-SDK's Ontology.from_kg_graph() pattern.
+ *
+ * Responsibilities:
+ *   - Extract entity types and relation types (with properties) from graph data
+ *   - Validate existing graph data against the canonical ontology for compliance
+ *   - Merge an extracted or external ontology into the current schema
+ *   - Discard orphan entity types (no relations) and dangling relation types
+ *   - Detect unused ontology types that have no matching graph data
+ *   - Diff two ontologies to surface additions, removals, and property changes
+ *
+ * Key dependencies:
+ *   - ../logger: structured logging
+ *   - ./OntologyManager (singleton): provides the canonical schema for comparison
+ *   - Graph provider (injected): Supabase-native or Cypher-based graph backend
+ *
+ * Side effects:
+ *   - Issues multiple graph queries (native findNodes/findRelationships or Cypher)
+ *     during extraction and validation -- can be expensive on large graphs
+ *   - No writes to the graph; all mutations are returned as data for the caller
+ *
+ * Notes:
+ *   - SOTA v3.0 detects the Supabase provider by duck-typing (getStats, supabase
+ *     property) and avoids Cypher entirely for that path.
+ *   - Property types default to 'string' during extraction; consumers should
+ *     refine types after reviewing the extracted schema.
+ *   - sampleSize limits per-label node sampling; increase for better property
+ *     coverage at the cost of more queries.
  */
 
 const { logger } = require('../logger');
@@ -32,7 +51,23 @@ const ATTRIBUTE_TYPES = {
     'NULL': 'null'
 };
 
+/**
+ * Reverse-engineers ontology schemas from live graph data and provides
+ * validation, merge, diff, and cleanup utilities.
+ *
+ * Lifecycle: construct -> setGraphProvider() -> extractFromGraph() or
+ * validateCompliance() etc.
+ *
+ * Invariant: all public methods that touch the graph check for
+ * graphProvider.connected before proceeding.
+ */
 class OntologyExtractor {
+    /**
+     * @param {object} options
+     * @param {object} [options.graphProvider] - Supabase or Cypher graph backend
+     * @param {object} [options.ontologyManager] - Canonical schema manager (defaults to singleton)
+     * @param {number} [options.sampleSize=100] - Max nodes to sample per label for property extraction
+     */
     constructor(options = {}) {
         this.graphProvider = options.graphProvider || null;
         this.ontologyManager = options.ontologyManager || getOntologyManager();
@@ -754,10 +789,17 @@ class OntologyExtractor {
     }
 
     /**
-     * Generate a diff between two ontologies
-     * @param {object} ontologyA 
-     * @param {object} ontologyB 
-     * @returns {object}
+     * Generate a symmetric diff between two ontology schemas, listing entity
+     * and relation types that are unique to each or shared by both.
+     * Does not compare property-level differences within shared types
+     * (property diffs array is present but unpopulated).
+     *
+     * @param {object} ontologyA - First ontology (e.g. current schema)
+     * @param {object} ontologyB - Second ontology (e.g. extracted schema)
+     * @returns {{entitiesOnlyInA: string[], entitiesOnlyInB: string[],
+     *            entitiesInBoth: string[], relationsOnlyInA: string[],
+     *            relationsOnlyInB: string[], relationsInBoth: string[],
+     *            propertyDifferences: Array}}
      */
     diffOntologies(ontologyA, ontologyB) {
         const diff = {

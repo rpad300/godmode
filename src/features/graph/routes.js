@@ -1,18 +1,67 @@
 /**
- * Graph Database API
- * Extracted from server.js
+ * Purpose:
+ *   Comprehensive graph database management API. Handles connection lifecycle,
+ *   data sync, queries, multi-project graph operations, and cross-project analytics.
  *
- * Handles:
- * - GET /api/graph/providers, config, status, bookmarks, queries, insights, list
- * - POST /api/graph/connect, test, sync, indexes, embeddings
- * - DELETE /api/graph/:graphName, /api/graph/delete/:graphName
- * - POST /api/graph/cleanup-orphans, switch, sync-multi
- * - GET /api/graph/projects, multi-stats
- * - GET /api/cross-project/people, /api/cross-project/connections
- * - GET /api/person/:name/projects
- * - GET /api/graph/sync/status, list-all
- * - POST /api/graph/sync/full, sync/cleanup, cleanup-duplicates, sync-projects, query
- * - GET /api/graph/nodes, relationships
+ * Responsibilities:
+ *   - Provider discovery and connection testing (Supabase-backed graph)
+ *   - Per-project graph creation, switching, deletion, and orphan cleanup
+ *   - Sync documents/entities to graph nodes and relationships
+ *   - Raw Cypher query execution with node/edge extraction
+ *   - Cross-project people and connection discovery via MultiGraphManager
+ *   - Graph insights (density, connectivity, entity distribution)
+ *
+ * Key dependencies:
+ *   - ../../graph/GraphFactory: provider registry and connection testing
+ *   - ../../sync (getGraphSync): full sync, cleanup, incremental sync
+ *   - storage.getGraphProvider(): active graph provider instance
+ *   - storage.getMultiGraphManager(): cross-project graph operations
+ *
+ * Side effects:
+ *   - Persists graph config to local file (saveConfig) and Supabase project_config
+ *   - Creates/deletes graph databases on the backing store
+ *   - Generates embeddings and writes them to the graph
+ *
+ * Notes:
+ *   - Graph config passwords are stripped before returning to the client
+ *   - Bookmarks and saved queries are currently stub implementations (in-memory only)
+ *   - The /api/graph/falkordb-browser endpoint is deprecated but kept for backward compat
+ *   - DELETE /api/graph/:graphName refuses to delete the current project's graph
+ *
+ * Routes (summary -- 30+ endpoints):
+ *   GET  /api/graph/providers          - List available graph providers
+ *   GET  /api/graph/config             - Current graph config (passwords redacted)
+ *   GET  /api/graph/status             - Node/edge counts and connection state
+ *   GET  /api/graph/bookmarks          - Stub: empty bookmarks list
+ *   POST /api/graph/bookmarks          - Stub: create bookmark (in-memory)
+ *   GET  /api/graph/queries            - Stub: saved queries list
+ *   POST /api/graph/queries            - Stub: save query
+ *   GET  /api/graph/insights           - Computed graph analytics (density, degree, recommendations)
+ *   GET  /api/graph/list               - All graphs with project mapping and orphan detection
+ *   DELETE /api/graph/:graphName       - Delete a specific graph (not current)
+ *   POST /api/graph/cleanup-orphans    - Delete graphs whose project no longer exists
+ *   POST /api/graph/connect            - Connect/create project graph and persist config
+ *   POST /api/graph/test               - Test connection to graph provider
+ *   POST /api/graph/sync               - Sync storage data to current graph
+ *   POST /api/graph/indexes            - Create ontology indexes
+ *   POST /api/graph/embeddings         - Generate enriched embeddings
+ *   GET  /api/graph/projects           - Multi-graph project list
+ *   GET  /api/cross-project/people     - Cross-project shared people
+ *   GET  /api/cross-project/connections - Cross-project entity connections
+ *   GET  /api/person/:name/projects    - Projects a person appears in
+ *   POST /api/graph/switch             - Switch active graph
+ *   POST /api/graph/sync-multi         - Sync with multi-graph and ontology support
+ *   GET  /api/graph/multi-stats        - Aggregated multi-graph statistics
+ *   GET  /api/graph/sync/status        - Graph sync status
+ *   POST /api/graph/sync/full          - Full graph sync
+ *   POST /api/graph/sync/cleanup       - Clean up orphaned graph nodes
+ *   POST /api/graph/cleanup-duplicates - Deduplicate meetings, remove orphan relations
+ *   GET  /api/graph/list-all           - Raw graph list from provider
+ *   POST /api/graph/sync-projects      - Sync graphs for all projects
+ *   DELETE /api/graph/delete/:graphName - Alternate delete endpoint
+ *   POST /api/graph/query              - Execute Cypher query, return nodes/edges
+ *   GET  /api/graph/nodes              - Find nodes by label
+ *   GET  /api/graph/relationships      - Find relationships by type
  */
 
 const { parseBody, parseUrl } = require('../../server/request');

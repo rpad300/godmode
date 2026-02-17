@@ -1,11 +1,35 @@
 /**
- * SchemaExporter - Exports ontology schema to graph database
- * 
- * Creates indexes, stores schema metadata, and syncs entity/relation definitions
- * to make graph database fully aware of the ontology structure.
- * 
- * SOTA v2.0 - State of the Art Ontology Integration
- * SOTA v3.0 - Native Supabase graph support (no Cypher dependency)
+ * Purpose:
+ *   Pushes the ontology schema into the graph database so that the graph
+ *   layer is aware of defined entity types, relation types, indexes, and
+ *   schema version metadata. For Supabase providers this is mostly a no-op
+ *   since the schema already lives in Supabase tables.
+ *
+ * Responsibilities:
+ *   - Sync entity type and relation type definitions to the graph
+ *   - Create property indexes for searchable fields (Cypher providers only)
+ *   - Store schema version metadata in a __OntologySchema__ meta-node
+ *   - Detect whether a sync is needed by comparing local vs. graph versions
+ *   - Collect graph schema statistics (node/relation counts by type)
+ *   - Validate live graph data against the ontology and report unknown types
+ *
+ * Key dependencies:
+ *   - ../logger: structured logging
+ *   - ./OntologyManager (singleton): provides the canonical schema to export
+ *   - Graph provider (injected): target database (Supabase-native or Cypher)
+ *
+ * Side effects:
+ *   - Graph writes: creates indexes and __OntologySchema__ / __EntityType__ /
+ *     __RelationType__ meta-nodes (Cypher providers only)
+ *   - Graph reads during stats collection and validation
+ *
+ * Notes:
+ *   - SOTA v3.0: for Supabase providers, syncToGraph() returns immediately
+ *     after confirming the schema is loaded -- no Cypher meta-nodes are needed.
+ *   - _createIndex silently skips already-existing indexes (checks error message
+ *     text), so the sync is idempotent.
+ *   - validateGraphAgainstOntology only checks type existence, not property-level
+ *     compliance; use OntologyExtractor.validateCompliance() for deeper checks.
  */
 
 const { logger } = require('../logger');

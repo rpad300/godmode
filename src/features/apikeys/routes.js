@@ -1,12 +1,34 @@
 /**
- * API Keys feature routes
- * Extracted from server.js
+ * Purpose:
+ *   CRUD and usage-stats API for project-scoped API keys. Keys enable
+ *   programmatic access to project resources with configurable permissions
+ *   and rate limits.
  *
- * Handles:
- * - GET /api/projects/:id/api-keys - List API keys
- * - POST /api/projects/:id/api-keys - Create API key
- * - DELETE /api/api-keys/:id - Revoke API key
- * - GET /api/api-keys/:id/stats - Get usage stats
+ * Responsibilities:
+ *   - List all API keys for a project
+ *   - Create new API keys with permissions, rate limits, and expiry
+ *   - Revoke (soft-delete) an existing API key
+ *   - Retrieve usage statistics for a specific key
+ *
+ * Key dependencies:
+ *   - supabase.apikeys: data-access layer for API key CRUD and stats
+ *   - supabase.auth: token extraction and user verification for create/revoke
+ *   - ../../server/security.isValidUUID: input validation for project IDs
+ *
+ * Side effects:
+ *   - POST creates a key row in Supabase; the raw key is returned once only
+ *   - DELETE marks the key as revoked (soft delete with user attribution)
+ *
+ * Notes:
+ *   - Returns 503 early if Supabase is not configured
+ *   - Project ID is validated as UUID; invalid IDs yield 400
+ *   - The plaintext API key is shown exactly once on creation
+ *
+ * Routes:
+ *   GET    /api/projects/:id/api-keys   - List keys for project (auth: none at route level)
+ *   POST   /api/projects/:id/api-keys   - Create key (auth: Bearer token required)
+ *   DELETE /api/api-keys/:id            - Revoke key (auth: Bearer token required)
+ *   GET    /api/api-keys/:id/stats      - Usage stats (?days=N, default 7)
  */
 
 const { parseBody, parseUrl } = require('../../server/request');

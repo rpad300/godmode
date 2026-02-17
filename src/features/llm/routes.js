@@ -1,23 +1,68 @@
 /**
- * LLM and Ollama feature routes
- * Extracted from server.js
- * 
- * Handles:
- * - GET /api/llm/providers
- * - GET/POST /api/llm/queue/*
- * - POST /api/llm/test/:provider
- * - POST /api/llm/test
- * - GET /api/llm/models
- * - GET /api/llm/capabilities
- * - GET /api/llm/model-info
- * - POST /api/llm/token-estimate
- * - POST /api/llm/token-policy
- * - GET/POST /api/llm/routing/*
- * - POST /api/llm/preflight
- * - GET /api/ollama/test
- * - GET /api/ollama/models
- * - GET /api/ollama/recommended
- * - POST /api/ollama/pull
+ * Purpose:
+ *   LLM provider management, queue operations, token budgeting, routing, and
+ *   Ollama-specific model management (test, list, pull).
+ *
+ * Responsibilities:
+ *   - List available LLM providers and their capabilities
+ *   - Test connectivity to any configured provider (apiKey resolved from Supabase/env)
+ *   - List and enrich model metadata (context window, pricing, capabilities)
+ *   - Token estimation and per-model token policy configuration
+ *   - LLM request queue management: status, history, pending, retryable, pause/resume, clear
+ *   - Intelligent routing: status, reset health, per-task routing config
+ *   - Preflight tests for LLM configuration
+ *   - Ollama: test connection, list categorized models, recommended models, pull/download
+ *
+ * Key dependencies:
+ *   - ../../llm/config: resolve provider/model for text and embeddings
+ *   - ../../llm/modelMetadata: enriched model metadata and caching
+ *   - ../../llm/tokenBudget: token estimation and budget policies
+ *   - ../../llm/router: intelligent routing and per-task model mapping
+ *   - ../../llm/healthRegistry: provider health tracking and reset
+ *   - ../../llm/queue: persistent LLM request queue with retry logic
+ *   - ../../supabase/secrets: load API keys from encrypted Supabase secrets
+ *   - ctx.llm: LLM client facade (testConnection, listModels, getClient, pullModel)
+ *
+ * Side effects:
+ *   - Writes token policy and routing config to local config file via saveConfig
+ *   - Queue operations mutate persistent queue state (Supabase-backed)
+ *   - Provider health reset clears in-memory circuit breaker state
+ *   - Ollama pull downloads models to the Ollama server
+ *
+ * Notes:
+ *   - API key resolution order: request body > local config > Supabase secrets > env vars
+ *   - Provider passwords/keys are never returned to the client
+ *   - Model metadata cache is cleared after fetching fresh model lists
+ *   - Helper functions loadApiKeyFromSupabase and getApiKeyFromEnv are module-private
+ *
+ * Routes (summary):
+ *   GET  /api/llm/providers             - Supported providers with enabled status
+ *   GET  /api/llm/queue/status          - Queue stats and current processing item
+ *   GET  /api/llm/queue/history         - Recent queue execution history
+ *   GET  /api/llm/queue/pending         - Pending queue items
+ *   GET  /api/llm/queue/retryable       - Failed items eligible for retry
+ *   POST /api/llm/queue/retry/:id       - Retry a specific failed item
+ *   POST /api/llm/queue/retry-all       - Retry all retryable items
+ *   POST /api/llm/queue/cancel/:id      - Cancel a pending item
+ *   POST /api/llm/queue/clear           - Clear queue by status
+ *   POST /api/llm/queue/pause           - Pause queue processing
+ *   POST /api/llm/queue/resume          - Resume queue processing
+ *   POST /api/llm/queue/config          - Update queue configuration
+ *   POST /api/llm/test/:provider        - Test provider connection (provider in URL)
+ *   POST /api/llm/test                  - Test provider connection (provider in body)
+ *   GET  /api/llm/models                - List models with enriched metadata
+ *   GET  /api/llm/capabilities          - Provider capability matrix
+ *   GET  /api/llm/model-info            - Single model metadata lookup
+ *   POST /api/llm/token-estimate        - Estimate tokens for a request
+ *   POST /api/llm/token-policy          - Update token budget policy
+ *   GET  /api/llm/routing/status        - Routing status and provider health
+ *   POST /api/llm/routing/reset         - Reset provider health counters
+ *   POST /api/llm/routing/config        - Update routing mode and task mapping
+ *   POST /api/llm/preflight             - Run LLM preflight diagnostics
+ *   GET  /api/ollama/test               - Test Ollama connectivity
+ *   GET  /api/ollama/models             - Categorized Ollama models (text, vision)
+ *   GET  /api/ollama/recommended        - Recommended models with install status
+ *   POST /api/ollama/pull               - Download/pull an Ollama model
  */
 
 const { parseBody, parseUrl } = require('../../server/request');

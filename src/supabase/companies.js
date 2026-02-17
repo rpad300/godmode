@@ -1,6 +1,48 @@
 /**
- * Companies Module
- * CRUD and templates for user company profiles (branding, A4/PPT templates)
+ * Purpose:
+ *   CRUD for company entities including branding assets, HTML document
+ *   templates (A4 / PPT), and AI-generated company analysis reports
+ *   stored in a companion `company_analyses` table.
+ *
+ * Responsibilities:
+ *   - List, create, read, update, delete companies owned by a user
+ *   - Enforce an allowlist of updatable fields and a 500 KB size cap on
+ *     template HTML to prevent abuse
+ *   - Get / upsert structured company analysis data (one row per company
+ *     in `company_analyses`) with Portuguese-named section columns
+ *   - Merge analysis data (colors, AI context, report sections) into the
+ *     `brand_assets` JSONB when returning a company via `getCompany()`
+ *   - Read and write A4/PPT template HTML via convenience helpers
+ *
+ * Key dependencies:
+ *   - ./client (getAdminClient): all queries bypass RLS; caller must
+ *     enforce authorization
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - Writes to `companies` and `company_analyses` tables
+ *   - Deletion fails with a Postgres RESTRICT error if any project still
+ *     references the company via `company_id`
+ *
+ * Notes:
+ *   - ANALYSIS_SECTION_COLUMNS lists the Portuguese-language analysis
+ *     sections (e.g. ficha_identidade, visao_geral, swot). These are
+ *     stored as individual TEXT columns in `company_analyses`, not inside
+ *     a JSONB blob.
+ *   - getCompany() augments the raw `companies` row with analysis data,
+ *     so callers see a unified `brand_assets.analysis_report` object.
+ *   - updateCompany() with no valid fields delegates to getCompany() and
+ *     returns the current state (no-op update).
+ *
+ * Supabase tables accessed:
+ *   - companies: { id, name, description, logo_url, website_url,
+ *     linkedin_url, brand_assets (JSONB), a4_template_html,
+ *     ppt_template_html, owner_id }
+ *   - company_analyses: { company_id (unique), analyzed_at,
+ *     primary_color, secondary_color, ai_context, ficha_identidade,
+ *     visao_geral, produtos_servicos, publico_alvo, equipa_lideranca,
+ *     presenca_digital, analise_competitiva, indicadores_crescimento,
+ *     swot, conclusoes }
  */
 
 const { logger } = require('../logger');

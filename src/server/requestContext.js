@@ -1,6 +1,30 @@
 /**
- * Request context via AsyncLocalStorage for tracing and logging.
- * Use getRequestId() / getLogger() anywhere in the request pipeline.
+ * Purpose:
+ *   Provides implicit, per-request context propagation using Node.js
+ *   AsyncLocalStorage. Any code running inside a request handler can retrieve
+ *   the current request ID or a request-scoped logger without explicit parameter
+ *   threading.
+ *
+ * Responsibilities:
+ *   - runWithContext: Establish a new async-local scope for a request
+ *   - getRequestId / getLogger / getContext: Read context from any depth in the
+ *     call stack within the same async continuation
+ *
+ * Key dependencies:
+ *   - async_hooks (Node.js built-in): AsyncLocalStorage
+ *   - ../logger: Root pino logger used as fallback when outside a request scope
+ *
+ * Side effects:
+ *   - Creates one module-level AsyncLocalStorage instance; negligible overhead
+ *     when no context is active.
+ *
+ * Notes:
+ *   - getLogger() always returns a usable logger -- a request-scoped child if
+ *     available, otherwise a generic 'api'-module child of the root logger.
+ *   - The context object is intentionally kept small ({ requestId, logger }) but
+ *     can be extended for distributed tracing (traceId, spanId) in the future.
+ *   - This module is NOT re-exported via the barrel index.js to keep its usage
+ *     explicit and avoid accidental coupling.
  */
 const { AsyncLocalStorage } = require('async_hooks');
 const { logger } = require('../logger');

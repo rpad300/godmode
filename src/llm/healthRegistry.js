@@ -1,6 +1,28 @@
 /**
- * Provider Health Registry
- * Tracks provider failures, cooldowns, and availability for failover routing
+ * Purpose:
+ *   In-memory registry of per-provider health state used by the LLM router to make
+ *   failover decisions. Tracks consecutive failures, applies cooldown periods with
+ *   exponential back-off, and exposes a sorted "healthiest-first" ordering.
+ *
+ * Responsibilities:
+ *   - recordSuccess / recordFailure: called by the router after each provider attempt
+ *   - isInCooldown / getCooldownRemaining: gate checks before dispatching to a provider
+ *   - sortByHealth: reorders a candidate list so healthy providers are tried first
+ *   - getStatusSummary: returns a diagnostic snapshot for the admin API
+ *
+ * Key dependencies:
+ *   - ../logger: structured logging for cooldown and failure events
+ *
+ * Side effects:
+ *   - None beyond mutating the in-memory healthState Map
+ *
+ * Notes:
+ *   - State is purely in-memory; it resets on process restart. This is intentional:
+ *     stale cooldowns from a previous run should not block providers in a fresh start.
+ *   - Cooldown uses exponential back-off: cooldownMs * 2^(consecutiveFailures-1),
+ *     capped at 5 minutes (300 000 ms). A single success clears the cooldown entirely.
+ *   - The "isHealthy" flag in getStatusSummary is a convenience heuristic:
+ *     not in cooldown AND fewer than 3 consecutive failures.
  */
 
 const { logger: rootLogger } = require('../logger');
@@ -114,9 +136,12 @@ function recordFailure(providerId, error, cooldownMs = 60000) {
     state.totalRequests++;
     state.totalFailures++;
     
-    // Apply cooldown for retryable errors
+    // Apply cooldown for retryable errors only. Non-retryable errors (e.g. auth)
+    // increment failure counts but do NOT trigger a cooldown, because retrying later
+    // with the same broken credentials would still fail.
     if (error.retryable && cooldownMs > 0) {
-        // Exponential backoff for consecutive failures (max 5 minutes)
+        // Exponential backoff: base * 2^(n-1), capped at multiplier=5 (i.e. 5x base).
+        // With default cooldownMs=60s, max effective cooldown = min(60s*5, 300s) = 300s.
         const backoffMultiplier = Math.min(Math.pow(2, state.consecutiveFailures - 1), 5);
         const effectiveCooldown = Math.min(cooldownMs * backoffMultiplier, 300000);
         state.cooldownUntil = now + effectiveCooldown;

@@ -1,7 +1,28 @@
 /**
- * Claude (Anthropic) Provider Adapter
- * Supports Anthropic's Claude API
- * https://platform.claude.com/docs/en/home
+ * Purpose:
+ *   Provider adapter for Anthropic's Claude models (Messages API).
+ *
+ * Responsibilities:
+ *   - Translate the generic BaseLLMProvider interface into Anthropic Messages API calls
+ *   - Handle Claude-specific auth via x-api-key header and anthropic-version header
+ *   - Support multimodal (vision) requests using Claude's native image content blocks
+ *
+ * Key dependencies:
+ *   - ./base (BaseLLMProvider): shared retry, error classification, HTTP helpers
+ *
+ * Side effects:
+ *   - Network I/O to api.anthropic.com (or custom baseUrl)
+ *   - Filesystem reads when images are passed as file paths in generateVision
+ *
+ * Notes:
+ *   - Anthropic has no /models listing endpoint; listModels returns a hardcoded set.
+ *   - Anthropic does not offer an embeddings API; embed() always returns an error.
+ *   - Unlike OpenAI, Claude uses a top-level `system` field rather than a system message
+ *     in the messages array.
+ *   - Vision timeout is extended to 10 minutes (600 000 ms) because image processing
+ *     is significantly slower than text-only completions.
+ *   - testConnection sends a minimal real completion (not a health endpoint) because
+ *     Anthropic has no lightweight auth-check route.
  */
 
 const BaseLLMProvider = require('./base');
@@ -166,6 +187,14 @@ class ClaudeProvider extends BaseLLMProvider {
         }
     }
 
+    /**
+     * Generate a vision completion using Claude's native image content blocks.
+     *
+     * Unlike OpenAI's image_url format, Anthropic expects images as inline
+     * base64 objects with an explicit media_type and source.type = 'base64'.
+     * Images are placed before the text prompt in the content array, which
+     * Anthropic recommends for better attention to visual content.
+     */
     async generateVision(options) {
         const { model, prompt, images, temperature = 0.7, maxTokens = 4096 } = options;
         const fs = require('fs');

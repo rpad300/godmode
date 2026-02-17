@@ -1,11 +1,47 @@
 /**
- * Graph Sync Module
- * Keeps graph database in sync with application data
- * Supports Supabase graph tables (graph_nodes, graph_relationships)
- * 
- * SOTA v2.0 - Now includes ontology validation before sync
- * SOTA v2.1 - Background worker integration for continuous optimization
- * SOTA v3.0 - Native Supabase graph support (no Cypher dependency)
+ * Purpose:
+ *   Bidirectional synchronisation layer between the application's domain
+ *   entities (contacts, facts, decisions, risks, actions, questions, emails,
+ *   meetings, documents, briefings, sprints, user stories) and the graph
+ *   database. Ensures the knowledge graph stays consistent with upstream data
+ *   changes (creates, updates, deletes).
+ *
+ * Responsibilities:
+ *   - Sync individual entities to graph nodes with proper labels and properties
+ *   - Create typed relationships (MEMBER_OF, MADE_DECISION, ASSIGNED_TO,
+ *     PART_OF, DEPENDS_ON, SENT_BY, etc.)
+ *   - Remove graph nodes/relationships when entities are deleted
+ *   - Validate entities and relationships against an ontology schema before
+ *     writing (strict mode blocks invalid data; lenient mode logs warnings)
+ *   - Generate embedding text from ontology templates for downstream vector
+ *     search
+ *   - Trigger background analysis after a configurable number of sync ops
+ *   - Provide full-sync and incremental-sync bulk operations
+ *   - Clean up orphaned nodes and check overall sync status
+ *
+ * Key dependencies:
+ *   - ../logger: structured logging
+ *   - ../ontology/OntologyManager: entity/relationship type validation
+ *   - ../ontology/InferenceEngine: optional post-sync inference rules
+ *   - graphProvider: abstraction over Neo4j or Supabase graph tables; must
+ *     expose createNode, createRelationship, deleteNode, findNodes, getStats
+ *   - storage: local or Supabase data store (contacts, facts, decisions, etc.)
+ *
+ * Side effects:
+ *   - All sync* / on*Deleted methods mutate the graph database
+ *   - `_triggerBackgroundAnalysis` may schedule asynchronous analysis work
+ *   - `ensureProjectAndCompany` dynamically requires ../supabase/companies
+ *
+ * Notes:
+ *   - SOTA v3.0: prefers native provider methods (createNode, deleteNode) for
+ *     Supabase compatibility; falls back to Cypher for advanced queries
+ *     (e.g. syncAnsweredByContact, findExpertsForQuestion, getRelatedQuestions).
+ *   - Person node IDs are derived from names (`person_<lowercase_underscored>`);
+ *     name changes can lead to duplicate nodes. TODO: confirm dedup strategy.
+ *   - Delete handlers attempt both the raw ID and a prefixed variant
+ *     (e.g. `fact_<id>`) to handle legacy ID formats.
+ *   - Singleton: `getGraphSync()` returns a process-wide instance; subsequent
+ *     calls with different options update graphProvider/storage on the fly.
  */
 
 const { logger } = require('../logger');

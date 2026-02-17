@@ -1,6 +1,42 @@
 /**
- * Search Module
- * Unified search across projects, users, comments
+ * Purpose:
+ *   Provides unified search across users, comments, and projects for
+ *   use in the global search bar, @mention autocomplete, and filtered
+ *   searches within a project context.
+ *
+ * Responsibilities:
+ *   - Search users by username or display_name (optionally scoped to a
+ *     project's members)
+ *   - Full-text-like search on comment content within a project
+ *   - Search projects the current user has access to
+ *   - Aggregate all search types into a single globalSearch response
+ *   - Provide fast @mention suggestions filtered by prefix and project
+ *     membership
+ *
+ * Key dependencies:
+ *   - ./client (getAdminClient): all searches use the service-role client
+ *     so results are not filtered by RLS; authorization must be enforced
+ *     by the caller
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - Read-only queries; no writes
+ *
+ * Notes:
+ *   - All text matching uses Postgres `ilike` (case-insensitive), not
+ *     full-text search (tsvector). For large datasets a dedicated search
+ *     index would improve performance.
+ *   - globalSearch runs individual searches in parallel via Promise.all
+ *     and gracefully drops any subset that fails.
+ *   - getMentionSuggestions does an in-memory filter after loading all
+ *     project members, capped at 8 results.
+ *
+ * Supabase tables accessed:
+ *   - user_profiles: { id, username, display_name, avatar_url }
+ *   - project_members: { project_id, user_id } (for scoping)
+ *   - comments: { project_id, content, created_at, author_id }
+ *     + joined user_profiles for author info
+ *   - projects: { id, name, description, created_at }
  */
 
 const { logger } = require('../logger');
@@ -9,7 +45,15 @@ const { getAdminClient } = require('./client');
 const log = logger.child({ module: 'search' });
 
 /**
- * Search users (for mentions autocomplete)
+ * Search users by username or display_name using case-insensitive ilike.
+ * Optionally scoped to members of a specific project.
+ *
+ * @param {string} query - Search term
+ * @param {object} [options]
+ * @param {string} [options.projectId] - If set, restrict to project members
+ * @param {number} [options.limit=10]
+ * @returns {Promise<{success: boolean, users?: object[], error?: string}>}
+ *   Each user: { id, username, display_name, avatar_url }
  */
 async function searchUsers(query, options = {}) {
     const supabase = getAdminClient();
@@ -129,7 +173,19 @@ async function searchProjects(query, userId, options = {}) {
 }
 
 /**
- * Global search across multiple types
+ * Aggregate search across users, comments, and projects. Runs individual
+ * searches in parallel. Any failing sub-search is silently dropped from
+ * the result (partial success).
+ *
+ * @param {string} query - Search term
+ * @param {string} userId - Calling user (used to scope project results)
+ * @param {string} [projectId] - Optional project scope for comments/users
+ * @param {object} [options]
+ * @param {boolean} [options.includeUsers=true]
+ * @param {boolean} [options.includeComments=true]
+ * @param {boolean} [options.includeProjects=true]
+ * @param {number} [options.limit=5] - Per-type limit
+ * @returns {Promise<{success: boolean, results?: {users, comments, projects}}>}
  */
 async function globalSearch(query, userId, projectId = null, options = {}) {
     const supabase = getAdminClient();
@@ -188,7 +244,13 @@ async function globalSearch(query, userId, projectId = null, options = {}) {
 }
 
 /**
- * Get mention suggestions (optimized for typing)
+ * Fast @mention autocomplete for a project. Loads all project members
+ * then filters in-memory by prefix match on username (startsWith) or
+ * display_name (includes). Returns at most 8 suggestions.
+ *
+ * @param {string} prefix - Characters typed after '@'
+ * @param {string} projectId
+ * @returns {Promise<{success: boolean, suggestions?: object[]}>}
  */
 async function getMentionSuggestions(prefix, projectId) {
     const supabase = getAdminClient();

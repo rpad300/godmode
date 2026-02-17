@@ -1,6 +1,36 @@
 /**
- * LLM Abstraction Layer
- * Provides a unified interface for multiple LLM providers
+ * Purpose:
+ *   Central facade for the LLM subsystem. Every LLM operation in the application
+ *   (text generation, vision, embeddings) is funnelled through this module so that
+ *   callers never interact with provider implementations directly.
+ *
+ * Responsibilities:
+ *   - Maintains a registry of provider classes and a cache of provider instances
+ *   - Exposes high-level operations (generateText, generateVision, embed) with
+ *     automatic queue integration, cost tracking, and structured logging
+ *   - Provides helper queries: model listing, vision detection, connection testing
+ *   - Ollama-specific helpers (pullModel, unloadModels) that are no-ops for cloud providers
+ *
+ * Key dependencies:
+ *   - ./providers/*: concrete provider implementations (OpenAI, Gemini, Claude, etc.)
+ *   - ./costTracker: every successful call records token usage and estimated cost
+ *   - ./queue (lazy-loaded): when queueing is enabled, requests are serialized through
+ *     the queue manager to respect per-provider concurrency limits
+ *   - ./modelMetadata: used by isVisionModel / getModelInfo for capability lookups
+ *   - ./constants: OLLAMA_VISION_PATTERNS used for Ollama vision model detection
+ *
+ * Side effects:
+ *   - Network calls to LLM provider APIs
+ *   - Writes cost-tracking records (buffered, flushed to Supabase)
+ *   - Emits structured log events under the 'llm' module namespace
+ *
+ * Notes:
+ *   - Provider cache keys include serialized config, so the same provider with
+ *     different API keys yields separate instances.
+ *   - The queue module is required lazily inside generateTextQueued / generateVision /
+ *     embed to break the circular dependency (queue -> index -> queue).
+ *   - listModels falls back to `config.manualModels` (comma-separated) when the
+ *     provider API is unreachable or returns no models.
  */
 
 const { logger: rootLogger } = require('../logger');
@@ -192,6 +222,9 @@ async function generateText(options) {
     }
 }
 
+// Global toggle for the request queue. When disabled, generateText / generateVision / embed
+// bypass the queue and call the provider directly. Useful for debugging or when running in
+// environments where the queue's concurrency control is unnecessary.
 let queueEnabled = true;
 
 function isQueueEnabled() {
@@ -322,7 +355,8 @@ async function embed(options) {
         log.debug({ event: 'llm_embed', provider, model: rest.model, context: context || 'none', texts: rest.texts?.length || 0, latencyMs: latency, success: result.success }, 'embed');
         
         // Track costs (embeddings are input-only)
-        // Estimate tokens: ~4 chars per token average
+        // Embeddings are input-only; providers rarely return token counts, so we
+        // estimate using the same ~4 chars/token heuristic used elsewhere.
         const estimatedTokens = rest.texts?.reduce((sum, t) => sum + Math.ceil(t.length / 4), 0) || 0;
         costTracker.track({
             provider,
@@ -429,6 +463,9 @@ async function findBestModel(providerId, taskType = 'text', providerConfig = {})
         const allText = text.map(m => (typeof m === 'string' ? { name: m } : m));
         const hasSize = (allVision[0] || allText[0])?.size != null;
 
+        // When model objects include a `size` property (Ollama reports model file size),
+        // prefer the largest model as a proxy for "most capable". Otherwise keep the
+        // provider's default ordering (typically newest/recommended first).
         const pickBest = (arr) => {
             if (arr.length === 0) return null;
             const sorted = hasSize ? [...arr].sort((a, b) => (b.size || 0) - (a.size || 0)) : arr;

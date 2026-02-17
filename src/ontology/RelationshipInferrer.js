@@ -1,17 +1,54 @@
 /**
- * RelationshipInferrer - AI-powered comprehensive relationship discovery
- * 
- * Analyzes ALL data in the platform and infers relationships:
- * - Contacts (organization, department, roles)
- * - Teams (memberships)
- * - Questions (who asked, who should answer)
- * - Risks (owner, affected people)
- * - Decisions (maker, affected people)
- * - Actions (assignee, creator)
- * - Facts (mentioned people, topics)
- * - Documents (uploader, mentioned people)
- * - Meetings/Transcripts (participants)
- * - Conversations (participants)
+ * Purpose:
+ *   Performs a comprehensive, platform-wide sweep of all data types to discover
+ *   and materialise relationships in the knowledge graph. Unlike RelationInference
+ *   (which works on ad-hoc text), this class processes structured Supabase records
+ *   across every domain entity: contacts, teams, questions, risks, decisions,
+ *   actions, facts, documents, meetings/transcripts, and conversations.
+ *
+ * Responsibilities:
+ *   - Infer WORKS_WITH / REPORTS_TO from contact org/dept/role data
+ *   - Infer MEMBER_OF from explicit team membership records
+ *   - Link questions, risks, decisions, actions, facts, and documents to the
+ *     contacts who own, created, or are mentioned in them
+ *   - Infer KNOWS / PARTICIPATED_IN from meeting attendee lists
+ *   - Link knowledge items (facts, questions, risks, decisions, actions) back
+ *     to the meeting/transcript that produced them via source_file matching
+ *   - Create RELATED_TO edges between items extracted from the same source
+ *   - Persist high-confidence relationships directly to the graph; queue
+ *     low-confidence ones as suggestions for human review
+ *   - Write contact-to-contact relationships to the contact_relationships
+ *     Supabase table for the social graph
+ *
+ * Key dependencies:
+ *   - ../logger: structured logging
+ *   - ../llm (getLLM): available but currently unused (reserved for future
+ *     AI-assisted inference)
+ *   - Storage layer (injected): Supabase-backed data access for all entity types
+ *   - Graph provider (injected via storage): writes nodes and relationships
+ *
+ * Side effects:
+ *   - Creates graph nodes (Meeting, Question, Risk, Decision, Action, Fact,
+ *     Document) and relationship edges
+ *   - Writes to Supabase tables: contact_relationships, ontology_changes
+ *   - Performs many Supabase SELECT queries across multiple tables
+ *   - Accesses this.storage._supabase.supabase for direct queries -- relies on
+ *     internal storage implementation detail
+ *
+ * Notes:
+ *   - autoApproveThreshold (default 0.8) controls which inferred relationships
+ *     are written directly vs. queued as suggestions.
+ *   - Contact name matching (findContactByName) uses case-insensitive partial
+ *     matching; this can produce false positives for short or common first names.
+ *   - The source_file -> transcript matching in inferMeetingRelationships uses
+ *     a 1-hour timestamp tolerance window, which may mis-match rapid successive
+ *     transcripts.
+ *   - linkItemsFromSameSource creates Meeting nodes from source_file identifiers
+ *     even when no transcript record exists -- these act as synthetic grouping
+ *     nodes.
+ *   - The O(n^2) pair generation (WORKS_WITH, KNOWS) can be expensive for large
+ *     teams or meetings; no explicit cap is applied beyond the upstream query
+ *     limits.
  */
 
 const { logger } = require('../logger');

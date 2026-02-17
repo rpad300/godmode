@@ -1,6 +1,50 @@
 /**
- * Notifications Module
- * Handles user notifications, read status, and preferences
+ * Purpose:
+ *   Manages in-app notifications (create, list, read-status, delete) and
+ *   a "watched items" subscription system that automatically fans out
+ *   notifications to users who have opted into updates on specific entities.
+ *   Also includes billing-specific notification helpers.
+ *
+ * Responsibilities:
+ *   - Create, retrieve, mark-as-read, and delete notifications
+ *   - Paginated listing with optional unread-only and project filters
+ *   - Bulk mark-all-as-read per user (optionally scoped to project)
+ *   - Cleanup old read notifications (retention policy)
+ *   - Watch/unwatch items with per-type preference flags (comments,
+ *     updates, mentions)
+ *   - Fan-out: notifyWatchers() creates a notification for every watcher
+ *     of an item, respecting individual preferences and excluding the actor
+ *   - Billing notifications: low balance, request blocked, balance added
+ *     (targeted at project owners/admins)
+ *
+ * Key dependencies:
+ *   - ./client (getAdminClient): all queries bypass RLS
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - Writes to `notifications` and `watched_items` tables
+ *   - deleteOldNotifications removes read notifications older than N days
+ *
+ * Notes:
+ *   - NOTIFICATION_TYPES enum includes both collaboration types (mention,
+ *     reply, invite) and billing types (balance_low, request_blocked,
+ *     balance_added).
+ *   - watched_items uses a composite unique constraint:
+ *     (user_id, project_id, target_type, target_id).
+ *   - notifyWatchers iterates watchers sequentially; for high fan-out
+ *     consider batching inserts.
+ *   - Billing notifications fetch project admins/owners from
+ *     `project_members` to determine recipients.
+ *
+ * Supabase tables accessed:
+ *   - notifications: { id, user_id, project_id, type, title, body,
+ *     reference_type, reference_id, actor_id, is_read, read_at,
+ *     created_at }
+ *   - watched_items: { user_id, project_id, target_type, target_id,
+ *     notify_comments, notify_updates, notify_mentions }
+ *   - user_profiles: joined via actor_id for actor display info
+ *   - projects: joined via project_id for project name
+ *   - project_members: queried for billing notification recipients
  */
 
 const { logger } = require('../logger');

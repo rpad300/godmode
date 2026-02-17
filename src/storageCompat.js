@@ -1,23 +1,50 @@
 /**
- * Storage Compatibility Layer
- * 
- * This module provides backward compatibility with the old synchronous Storage API
- * while using SupabaseStorage internally. This allows gradual migration of the
- * codebase without breaking existing functionality.
- * 
+ * Purpose:
+ *   Compatibility bridge between the legacy synchronous Storage API (JSON files)
+ *   and the new async Supabase-backed storage. Allows the rest of the codebase to
+ *   migrate incrementally without a big-bang rewrite.
+ *
+ * Responsibilities:
+ *   - Present the same method signatures as Storage (getFacts, addFact, getDocuments, etc.)
+ *     but delegate to SupabaseStorage when available
+ *   - Maintain an in-memory cache (_cache) for sync-style reads; refresh from Supabase
+ *     on init, project switch, and explicit refreshCache() calls
+ *   - Mirror cached data into legacy structure properties (this.knowledge, this.questions,
+ *     this.documents) so code that reads those directly still works
+ *   - Fall back to local JSON files (via projects.json) when Supabase is unavailable
+ *   - Provide CRUD for all entity types: facts, decisions, risks, actions, questions,
+ *     people, documents, contacts (with aliases, relationships, teams), conversations,
+ *     sprints, user stories, briefings, chat sessions, emails, and ontology
+ *   - Handle legacy project ID resolution (non-UUID IDs from the JSON storage era)
+ *   - Support contact import/export (JSON and CSV), duplicate detection, and merge
+ *
+ * Key dependencies:
+ *   - ./supabase/storageHelper (optional, try-loaded): Supabase storage backend
+ *   - ./logger: Structured logging
+ *   - fs / path: Local fallback for projects.json and file-based paths
+ *
+ * Side effects:
+ *   - On init, reads Supabase DB (all entity tables) to populate the in-memory cache
+ *   - Falls back to reading local projects.json if Supabase is unavailable
+ *   - All write methods (add*, update*, delete*) mutate Supabase AND the in-memory cache
+ *   - Supabase module load failure is non-fatal (caught and logged as warning)
+ *
+ * Notes:
+ *   - Many methods return sync values from cache but perform async Supabase writes;
+ *     callers that need write confirmation should await the async methods
+ *   - The _isSupabaseMode flag can flip to false mid-session if Supabase init fails,
+ *     causing a graceful degradation to cache-only mode
+ *   - Contact alias matching is case-insensitive and trimmed
+ *   - Document status mapping: legacy 'processed' == Supabase 'completed'
+ *
  * Usage:
- *   // Replace:
- *   const Storage = require('./storage');
- *   const storage = new Storage(dataDir);
- *   
- *   // With:
+ *   // Async (preferred):
  *   const { createCompatStorage } = require('./storageCompat');
  *   const storage = await createCompatStorage(dataDir);
- * 
- * The compatibility layer:
- * - Wraps async SupabaseStorage methods in sync-like interface where possible
- * - Maintains in-memory cache for frequently accessed data
- * - Falls back to local JSON storage if Supabase is not available
+ *
+ *   // Sync fallback (may have stale data):
+ *   const { createSyncCompatStorage } = require('./storageCompat');
+ *   const storage = createSyncCompatStorage(dataDir);
  */
 
 const path = require('path');
@@ -34,6 +61,22 @@ try {
     log.warn({ event: 'supabase_module_unavailable', err: e.message, code: e.code }, 'Supabase module not available, using local storage fallback');
 }
 
+/**
+ * Compatibility wrapper that presents the legacy Storage interface while delegating
+ * to SupabaseStorage for persistence.
+ *
+ * Lifecycle: construct -> init() -> ready.
+ * After init(), data is available synchronously via cache properties.
+ *
+ * Dual-write pattern: writes go to Supabase first, then update the local cache.
+ * Reads always return from cache for speed. Cache is refreshed on init() and
+ * switchProject(), or manually via refreshCache().
+ *
+ * Invariants:
+ *   - this._cache always reflects the current project's data
+ *   - this.knowledge / this.questions / this.documents mirror _cache for backward compat
+ *   - If _supabase is null, all operations are cache-only (no persistence)
+ */
 class StorageCompat {
     constructor(dataDir, supabaseStorage = null) {
         this.dataDir = dataDir;
@@ -85,7 +128,13 @@ class StorageCompat {
     }
 
     /**
-     * Initialize and sync with Supabase
+     * Initialize the storage layer: connect to Supabase, load current project,
+     * and populate the in-memory cache.
+     *
+     * Falls back to local projects.json for project context if Supabase is unavailable
+     * or has no projects. Sets _isSupabaseMode = false on failure for graceful degradation.
+     *
+     * @returns {StorageCompat} this (for chaining)
      */
     async init() {
         if (this._isSupabaseMode && this._supabase) {
@@ -155,7 +204,17 @@ class StorageCompat {
     }
 
     /**
-     * Refresh cache from Supabase
+     * Refresh the entire in-memory cache from Supabase for the current project.
+     *
+     * Fetches all entity types in parallel (facts, decisions, risks, actions,
+     * questions, people, documents, contacts, teams, relationships) and updates
+     * both _cache and legacy structure properties.
+     *
+     * Handles legacy (non-UUID) project IDs by resolving them through
+     * setProjectWithLegacySupport before fetching data.
+     *
+     * Called automatically on init() and switchProject(). Can also be called
+     * manually when external changes to the DB need to be reflected.
      */
     async _refreshCache() {
         if (!this._supabase || !this.currentProjectId) return;

@@ -1,7 +1,51 @@
 /**
- * LLM Queue Manager - Global queue for LLM requests
- * Ensures only one LLM request is processed at a time to avoid rate limits
- * Hybrid: In-memory for real-time + Database for persistence & retry
+ * Purpose:
+ *   Global, priority-aware queue that serializes LLM requests per provider+apiKey
+ *   combination, preventing rate-limit storms while still allowing parallel requests
+ *   to different providers. Provides a hybrid persistence model: in-memory for low-latency
+ *   real-time processing, with optional Supabase-backed durability for auditing, retry,
+ *   and cross-restart recovery.
+ *
+ * Responsibilities:
+ *   - Accepts requests via enqueue() and resolves a Promise with the LLM result
+ *   - Groups in-flight requests by concurrency key (provider + hashed API key) so
+ *     only one request per key runs at a time, while different keys run in parallel
+ *   - Implements priority ordering (HIGH > NORMAL > LOW > BATCH) within the queue
+ *   - Automatic retry with exponential back-off on rate-limit (429) and timeout errors
+ *   - Persists every request lifecycle (enqueue, processing, complete, fail) to the
+ *     llm_queue table in Supabase when a database connection is available
+ *   - Background retry processor reclaims "retry_pending" rows from the database
+ *   - BYOK (Bring Your Own Key): resolves per-project API keys from Supabase vault,
+ *     skipping billing checks when the project supplies its own key
+ *   - Pre-flight billing check: rejects requests when the project's balance is insufficient
+ *     (only for system-key usage, not BYOK)
+ *   - Post-completion billing: records cost via the billing module and triggers low-balance alerts
+ *
+ * Key dependencies:
+ *   - ./index (lazy-loaded to break circular dep): executes the actual LLM call
+ *   - ./modelMetadata.calculateCost: estimates USD cost from token counts
+ *   - ./config: resolves provider when the request's provider is missing/unknown
+ *   - ../supabase/llm-queue: database persistence layer
+ *   - ../supabase/billing: balance checks and cost recording
+ *   - ../supabase/secrets: BYOK API key resolution from vault
+ *   - ../supabase/storageHelper: captures current projectId for billing context
+ *
+ * Side effects:
+ *   - Network calls to LLM provider APIs (via ./index)
+ *   - Database reads/writes to llm_queue, billing, and secrets tables
+ *   - Timers: flush interval for retry processor, setTimeout for rate-limit delays
+ *   - EventEmitter events: 'enqueue', 'processing', 'completed', 'failed', 'cancelled',
+ *     'paused', 'resumed', 'cleared'
+ *
+ * Notes:
+ *   - The singleton is created lazily by getQueueManager(). All module-level convenience
+ *     functions (enqueue, getStatus, ...) delegate to the singleton.
+ *   - The constructor calls initDatabase() which is async but is intentionally not awaited;
+ *     if Supabase is unavailable the queue degrades gracefully to in-memory-only mode.
+ *   - Images are NOT persisted to the database (replaced with '[images]' placeholder)
+ *     to avoid bloating storage.
+ *   - The billing pre-check is best-effort: on error it logs a warning and lets the
+ *     request proceed, to avoid blocking production on a transient billing-service issue.
  */
 
 const EventEmitter = require('events');
@@ -221,8 +265,11 @@ class LLMQueueManager extends EventEmitter {
     }
 
     /**
-     * Generate concurrency key from request
-     * Key is: provider + hash of API key (first 8 chars)
+     * Generate concurrency key from request.
+     * Requests sharing the same key are serialized (one at a time); requests with
+     * different keys may run in parallel. The key combines the provider name with a
+     * truncated hash of the API key, so the same provider with different keys (e.g.
+     * two projects using separate OpenAI accounts) are independent lanes.
      */
     getConcurrencyKey(request) {
         const provider = request.provider || 'unknown';
@@ -396,7 +443,14 @@ class LLMQueueManager extends EventEmitter {
     }
     
     /**
-     * Enqueue an LLM request
+     * Enqueue an LLM request.
+     * Returns a Promise that resolves with the LLM result once the request has been
+     * processed (which may be delayed if the queue is busy or the concurrency key is
+     * occupied). The caller can treat this as a normal async call; the queue is transparent.
+     *
+     * Invariant: the returned Promise is never left unresolved -- it will eventually
+     * resolve (success), reject (permanent failure or cancellation), or reject on timeout.
+     *
      * @param {object} request - The LLM request (provider, model, prompt, etc.)
      * @param {string} priority - Priority level: 'high', 'normal', 'low', 'batch'
      * @returns {Promise<object>} - Resolves with the LLM response
@@ -498,8 +552,11 @@ class LLMQueueManager extends EventEmitter {
     }
     
     /**
-     * Process next item(s) in queue
-     * Now supports parallel processing for different concurrency keys
+     * Process next item(s) in queue.
+     * Scans the priority-sorted queue for items whose concurrency key is not currently
+     * occupied, respects per-key minimum delay, and kicks off parallel processing for
+     * each eligible item. Called after every enqueue, completion, and failure to keep
+     * the pipeline saturated.
      */
     async processNext() {
         // Check if we can process anything

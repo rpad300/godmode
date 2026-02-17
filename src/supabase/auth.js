@@ -1,6 +1,40 @@
 /**
- * Supabase Auth Module
- * Handles user authentication, registration, password reset
+ * Purpose:
+ *   Wraps Supabase Auth (GoTrue) and the custom `user_profiles` table to
+ *   provide registration, login, logout, password management, profile CRUD,
+ *   and Express-compatible auth middleware for the application.
+ *
+ * Responsibilities:
+ *   - Register / login / logout via Supabase Auth (email + password)
+ *   - Password reset flow (request + update)
+ *   - Token refresh and user retrieval from access tokens
+ *   - CRUD on the `user_profiles` table (app-level profile data)
+ *   - Superadmin role check and promotion
+ *   - Express middleware: extractToken, requireAuth, requireSuperAdmin
+ *
+ * Key dependencies:
+ *   - ./client (getClient, getAdminClient): public client for auth flows,
+ *     admin client for profile operations that bypass RLS
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - Reads APP_URL env var for password-reset redirect URL
+ *   - Writes to the Supabase `user_profiles` table (upsertUserProfile)
+ *   - Sets HTTP response status/body in middleware helpers (requireAuth,
+ *     requireSuperAdmin)
+ *
+ * Notes:
+ *   - Password minimum is 12 characters; there is no complexity rule beyond
+ *     length (passphrase-friendly policy).
+ *   - sanitizeUser() strips sensitive Supabase fields before returning user
+ *     objects to callers.
+ *   - requestPasswordReset always returns success to avoid email enumeration.
+ *   - extractToken checks Authorization header first, then the
+ *     `sb-access-token` cookie.
+ *
+ * Supabase tables accessed:
+ *   - user_profiles: { id (FK auth.users), username, display_name,
+ *     avatar_url, role, updated_at, ... }
  */
 
 const { getClient, getAdminClient } = require('./client');

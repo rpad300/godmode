@@ -1,6 +1,36 @@
 /**
- * Graph Integrity Check Module
- * Validates consistency between local storage and graph database
+ * Purpose:
+ *   Detects and optionally repairs inconsistencies between the local data
+ *   store and the graph database (missing nodes, extra nodes, orphans,
+ *   dangling relationships).
+ *
+ * Responsibilities:
+ *   - Compare local contacts against graph Person nodes to find missing or
+ *     extra entries
+ *   - Compare local conversations against graph Conversation nodes
+ *   - Detect orphaned graph nodes (nodes with no relationships, excluding
+ *     known standalone types like Person, Project, Organization)
+ *   - Detect dangling relationships where one endpoint is null (data corruption)
+ *   - Provide an `autoFix` method that removes orphaned nodes
+ *   - Expose a lightweight `quickCheck` returning total node/edge counts
+ *
+ * Key dependencies:
+ *   - graphProvider: Cypher query interface (MATCH, DELETE)
+ *   - storage: local data store (getContacts, getConversations)
+ *
+ * Side effects:
+ *   - `runCheck` is read-only (queries only)
+ *   - `autoFix` deletes orphaned nodes from the graph database
+ *
+ * Notes:
+ *   - Contact comparison is name-based (case-insensitive); contacts without
+ *     names are silently ignored.
+ *   - autoFix preserves Person, Project, Organization, and Technology nodes
+ *     even if they have no relationships, since these are expected to exist
+ *     as standalone entities.
+ *   - The Cypher query for dangling relationships (`WHERE a IS NULL OR b IS
+ *     NULL`) may not behave as expected in all graph engines; verify against
+ *     your provider.
  */
 
 class IntegrityCheck {

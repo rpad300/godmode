@@ -1,11 +1,34 @@
 /**
- * Advanced Reranker Module
- * Implements Cross-Encoder reranking and Reciprocal Rank Fusion (RRF)
- * 
- * SOTA techniques:
- * - Cross-Encoder reranking using LLM-based relevance scoring
- * - Reciprocal Rank Fusion (RRF) for combining multi-source results
- * - Query-dependent reranking with adaptive scoring
+ * Purpose:
+ *   Provides result reranking strategies for RAG pipelines: Reciprocal Rank Fusion
+ *   (RRF) for merging multiple retrieval sources, LLM-based cross-encoder scoring,
+ *   and query-type-aware boosting.
+ *
+ * Responsibilities:
+ *   - Fuse ranked result lists from heterogeneous sources using RRF
+ *   - Score query-document pairs via an LLM "cross-encoder" prompt
+ *     (batch scoring with JSON array output)
+ *   - Combine RRF fusion + cross-encoder in a two-stage hybrid pipeline
+ *   - Apply query-dependent boosts (e.g. person-type results boosted for "who" queries)
+ *   - Cache cross-encoder results to avoid redundant LLM calls (5-minute TTL)
+ *
+ * Key dependencies:
+ *   - ../llm: LLM text generation for relevance scoring
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - Calls external LLM API during cross-encoder scoring
+ *   - Maintains an in-memory LRU-ish cache (Map, max 100 entries)
+ *
+ * Notes:
+ *   - RRF uses score(d) = sum(1/(k + rank + 1)) with k=60 by default,
+ *     which dampens rank differences and works well for heterogeneous sources.
+ *   - Cross-encoder scoring uses very low temperature (0.1) for consistency.
+ *     If the LLM fails or returns unparseable output, all items receive a
+ *     default score of 0.5 to avoid discarding results.
+ *   - queryDependentRerank is a lightweight, LLM-free heuristic suitable for
+ *     latency-sensitive paths.
+ *   - Singleton instance available via getReranker().
  */
 
 const { logger } = require('../logger');

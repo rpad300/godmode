@@ -1,6 +1,32 @@
 /**
- * Ollama Provider Adapter
- * Wraps the existing OllamaClient for use with the LLM abstraction layer
+ * Purpose:
+ *   Provider adapter for locally-running Ollama instances. Unlike all other
+ *   providers, this does NOT make direct HTTP calls -- it delegates to the
+ *   existing OllamaClient class which handles the Ollama-specific REST API.
+ *
+ * Responsibilities:
+ *   - Adapt OllamaClient's interface to the BaseLLMProvider contract
+ *   - Full feature coverage: text, vision, embeddings, model listing
+ *   - Expose Ollama-specific operations (unloadModels, pullModel,
+ *     getCategorizedModels, getRecommendedModels) not available on cloud providers
+ *
+ * Key dependencies:
+ *   - ./base (BaseLLMProvider): base class (though most HTTP helpers are unused here)
+ *   - ../../ollama (OllamaClient): actual Ollama REST API client
+ *
+ * Side effects:
+ *   - Network I/O to local Ollama server (default 127.0.0.1:11434)
+ *   - Filesystem reads when images are passed as file paths in generateVision
+ *   - pullModel triggers model downloads that consume disk space and bandwidth
+ *   - unloadModels frees GPU/RAM on the local machine
+ *
+ * Notes:
+ *   - No API key required; isConfigured() only checks host + port.
+ *   - System prompts are concatenated into the user prompt (no separate system
+ *     field in Ollama's generate API), which is a lossy approximation.
+ *   - Ollama does not report input token counts, so usage.inputTokens is always 0.
+ *   - The extra methods (pullModel, unloadModels, etc.) go beyond the base class
+ *     contract and are used by Ollama-specific API routes.
  */
 
 const BaseLLMProvider = require('./base');
@@ -86,7 +112,9 @@ class OllamaProvider extends BaseLLMProvider {
         const { model, prompt, system, temperature = 0.7, maxTokens = 4096 } = options;
 
         try {
-            // Build the full prompt with system if provided
+            // Ollama's generate API has no dedicated system-prompt field, so we
+            // concatenate system + user prompt. This loses the semantic distinction
+            // but is the best available approximation for single-turn generation.
             let fullPrompt = prompt;
             if (system) {
                 fullPrompt = `${system}\n\n${prompt}`;

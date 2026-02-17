@@ -1,7 +1,30 @@
 /**
- * MiniMax Provider Adapter
- * Supports MiniMax M2 API (OpenAI-compatible)
- * https://minimax-m2.com/docs/api/
+ * Purpose:
+ *   Provider adapter for MiniMax M2 models via their OpenAI-compatible API.
+ *   Supports text, vision, and embeddings.
+ *
+ * Responsibilities:
+ *   - Text and vision generation via chat/completions endpoint
+ *   - Embedding generation via embeddings endpoint (model "embo-01")
+ *   - Provide a hardcoded model list (no /models discovery endpoint)
+ *
+ * Key dependencies:
+ *   - ./base (BaseLLMProvider): shared retry, error classification, HTTP helpers
+ *
+ * Side effects:
+ *   - Network I/O to minimax-m2.com (or custom baseUrl)
+ *   - Filesystem reads when images are passed as file paths in generateVision
+ *
+ * Notes:
+ *   - MiniMax has no public /models listing endpoint; listModels returns hardcoded
+ *     known models (MiniMax-M2, MiniMax-M2-Stable, embo-01).
+ *   - Supports an optional groupId config (X-Group-Id header) required for some
+ *     MiniMax features / enterprise accounts.
+ *   - Vision uses OpenAI's image_url format with base64 data URIs.
+ *   - MiniMax-M2 supports 204K context; MiniMax-M2-Stable is optimized for
+ *     high-concurrency workloads.
+ *   - Unlike OpenAI, no need for the max_completion_tokens split; all models
+ *     accept max_tokens.
  */
 
 const BaseLLMProvider = require('./base');

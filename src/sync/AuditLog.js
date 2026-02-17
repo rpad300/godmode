@@ -1,6 +1,30 @@
 /**
- * Audit Log Module
- * Records all delete operations for compliance/auditing
+ * Purpose:
+ *   Provides an append-only audit trail for all destructive operations
+ *   (delete, restore, purge) for compliance and debugging.
+ *
+ * Responsibilities:
+ *   - Record DELETE, RESTORE, and PURGE actions with full context and optional
+ *     entity snapshots
+ *   - Persist the log to a JSON file on disk (audit-log.json)
+ *   - Support filtered queries, free-text search, time-windowed statistics,
+ *     and CSV/JSON export
+ *
+ * Key dependencies:
+ *   - fs / path: reading and writing the JSON audit log file
+ *   - ../logger: structured logging via child logger
+ *
+ * Side effects:
+ *   - Every log* call writes synchronously to `<dataDir>/audit-log.json`
+ *   - Entries are capped at `maxEntries` (default 10 000); oldest entries are
+ *     silently dropped when the cap is exceeded
+ *
+ * Notes:
+ *   - Entries are ordered newest-first (unshift). Query helpers rely on this.
+ *   - IDs include a timestamp + random suffix -- not guaranteed globally unique
+ *     under heavy concurrency, but sufficient for single-process use.
+ *   - The `snapshot` field in logDelete may contain the full entity payload;
+ *     callers should be mindful of log file size.
  */
 
 const fs = require('fs');

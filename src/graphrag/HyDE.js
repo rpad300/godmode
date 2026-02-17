@@ -1,11 +1,39 @@
 /**
- * HyDE - Hypothetical Document Embeddings
- * 
- * SOTA technique for improving retrieval quality:
- * Instead of embedding the raw query, generate a hypothetical answer document
- * and embed that. This aligns the query embedding with the document embedding space.
- * 
- * Reference: "Precise Zero-Shot Dense Retrieval without Relevance Labels" (Gao et al., 2022)
+ * Purpose:
+ *   Implements Hypothetical Document Embeddings (HyDE), a zero-shot retrieval
+ *   technique that improves recall by embedding LLM-generated hypothetical answer
+ *   documents rather than the raw user query. This bridges the lexical gap between
+ *   questions and stored documents.
+ *
+ * Responsibilities:
+ *   - Generate one or more hypothetical "answer documents" via an LLM prompt
+ *   - Produce a single averaged (and L2-normalised) embedding from the query
+ *     and its hypothetical documents
+ *   - Support multi-vector retrieval: retrieve with each hypothetical embedding
+ *     independently, then merge results via Reciprocal Rank Fusion (RRF)
+ *   - Expand queries into diverse rephrasings for broader recall
+ *   - Cache hypothetical documents with a 10-minute TTL
+ *
+ * Key dependencies:
+ *   - ../llm: LLM text generation and embedding APIs
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - Calls external LLM API for hypothetical document generation
+ *   - Calls external embedding API for vector generation
+ *   - Maintains an in-memory LRU-ish cache (Map, max 200 entries)
+ *
+ * Notes:
+ *   - Reference: "Precise Zero-Shot Dense Retrieval without Relevance Labels"
+ *     (Gao et al., 2022).
+ *   - Temperature is intentionally varied across multiple hypothetical documents
+ *     (0.7, 0.8, ...) to increase diversity.
+ *   - When LLM generation fails entirely, the raw query is used as a fallback
+ *     so retrieval is never completely blocked.
+ *   - The averaged embedding is L2-normalised to maintain unit-vector semantics
+ *     expected by cosine-similarity search.
+ *   - Bilingual prompt builders (PT/EN) are selected via regex language detection.
+ *   - Singleton instance available via getHyDE().
  */
 
 const { logger } = require('../logger');
