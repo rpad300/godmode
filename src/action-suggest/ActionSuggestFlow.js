@@ -33,6 +33,13 @@ const llm = require('../llm');
 const llmConfig = require('../llm/config');
 const promptsService = require('../supabase/prompts');
 
+/**
+ * Format up to 50 project contacts into a bullet list for the LLM prompt.
+ * Each line: "- Name | Role: ... | Org" (role and org are omitted if empty).
+ *
+ * @param {Array<{name: string, role?: string, organization?: string}>} contacts
+ * @returns {string} Multi-line string, or empty string if no valid contacts
+ */
 function buildContactsList(contacts) {
     if (!Array.isArray(contacts) || contacts.length === 0) return '';
     const lines = contacts.slice(0, 50).map(c => {

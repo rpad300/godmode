@@ -1,3 +1,26 @@
+/**
+ * Purpose:
+ *   LLM cost tracking page. Displays total spend and per-model cost breakdown
+ *   for a selectable time period, with JSON export functionality.
+ *
+ * Responsibilities:
+ *   - Fetch cost data for a selected period (day/week/month/all) via useCosts hook
+ *   - Display a prominent total cost card
+ *   - Render a model-by-model breakdown table (model name, request count, cost)
+ *   - Export current filtered data as a downloadable JSON file
+ *
+ * Key dependencies:
+ *   - useCosts (useGodMode): fetches cost aggregation from the backend
+ *   - Button (shadcn): styled export button
+ *
+ * Side effects:
+ *   - Network: fetches cost data on mount and period change
+ *   - DOM: creates and clicks a temporary anchor element for JSON file download
+ *
+ * Notes:
+ *   - Handles two possible API response shapes: `{ totalCost, breakdown }` and `{ total, models }`.
+ *   - Cost values are formatted to 4 decimal places for precision with token-based pricing.
+ */
 import { useState } from 'react';
 import { DollarSign, Download } from 'lucide-react';
 import { useCosts } from '../hooks/useGodMode';

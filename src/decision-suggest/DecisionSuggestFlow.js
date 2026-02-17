@@ -1,7 +1,28 @@
 /**
- * Decision Suggest Flow
- * Suggests rationale, impact, impact_summary, and one-line summary from decision content
- * using the app's configured AI. Prompt is loaded from Supabase (system_prompts key: decision_suggest).
+ * Purpose:
+ *   Given a decision's content (and optional existing rationale), uses an LLM to
+ *   suggest supporting metadata: rationale, impact level, impact summary, and a
+ *   one-line summary -- reducing manual documentation effort for decision records.
+ *
+ * Responsibilities:
+ *   - Load the prompt template from Supabase (key: decision_suggest) or fall back
+ *     to an inline template
+ *   - Call the LLM and parse a JSON response with rationale, impact, impact_summary, summary
+ *   - Normalise the impact level to one of "high", "medium", "low"
+ *   - Return structured suggestion fields with safe string trimming/truncation
+ *
+ * Key dependencies:
+ *   - ../llm: centralised LLM text generation
+ *   - ../llm/config: resolves provider/model from app config (reasoning tier)
+ *   - ../supabase/prompts: loads admin-editable prompt templates
+ *
+ * Side effects:
+ *   - Network call to configured LLM provider
+ *   - Network call to Supabase for prompt template
+ *
+ * Notes:
+ *   - Temperature 0.3 for consistent, focused suggestions.
+ *   - Summary is truncated to 500 chars to fit UI constraints.
  */
 
 const { logger } = require('../logger');

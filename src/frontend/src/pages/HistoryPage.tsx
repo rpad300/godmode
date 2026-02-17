@@ -1,3 +1,26 @@
+/**
+ * Purpose:
+ *   Processing history page. Shows a searchable, filterable, expandable list of all
+ *   document processing events with status indicators and raw JSON detail view.
+ *
+ * Responsibilities:
+ *   - Fetch processing history from the backend
+ *   - Client-side search (full JSON text match) and status filter (processed/completed/processing/pending/failed)
+ *   - Render expandable entries with status badges, timestamps, and raw JSON detail on expand
+ *   - Export filtered results as a downloadable JSON file
+ *
+ * Key dependencies:
+ *   - useHistory (useGodMode): fetches processing history data
+ *
+ * Side effects:
+ *   - Network: fetches history entries on mount
+ *   - DOM: creates temporary anchor for JSON download on export
+ *
+ * Notes:
+ *   - Entries are loosely typed as Record<string, unknown> to accommodate varied backend schemas.
+ *   - Timestamp field is resolved from multiple possible keys (timestamp, changed_at, created_at, processed_at).
+ *   - Search performs a brute-force JSON.stringify check on each entry.
+ */
 import { useState, useMemo } from 'react';
 import { useHistory } from '../hooks/useGodMode';
 import { Clock, Loader2, Download, Search, ChevronDown } from 'lucide-react';

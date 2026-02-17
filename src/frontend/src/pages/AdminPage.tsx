@@ -1,3 +1,25 @@
+/**
+ * Purpose:
+ *   Admin-only page for platform oversight: system statistics, LLM provider
+ *   configuration status, and audit log of data changes.
+ *
+ * Responsibilities:
+ *   - System Stats tab: display key-value stat cards (user counts, document counts, etc.)
+ *   - LLM Providers tab: list configured providers with enabled/disabled and health status badges
+ *   - Audit Log tab: chronological list of data mutation events with operation, table, user, timestamp
+ *
+ * Key dependencies:
+ *   - useAdminStats / useAdminProviders / useAdminAuditLog (useGodMode): admin-scoped API hooks
+ *   - Badge component: status and variant indicators
+ *
+ * Side effects:
+ *   - Network: fetches admin stats, provider list, and audit log entries
+ *
+ * Notes:
+ *   - All three hooks fail gracefully with "You may not have admin access" messages,
+ *     effectively serving as a soft auth guard.
+ *   - Assumption: admin access is enforced server-side; no client-side role check here.
+ */
 import { useState } from 'react';
 import { Shield, Activity, Server, FileText, Clock } from 'lucide-react';
 import { Badge } from '../components/ui/Badge';

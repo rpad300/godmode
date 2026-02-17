@@ -1,3 +1,30 @@
+/**
+ * Purpose:
+ *   Populates the local CollaborativeRoles data store with a predefined set of
+ *   demo/test users including superadmins, admins, regular users, and edge-case
+ *   statuses (inactive, suspended).
+ *
+ * Responsibilities:
+ *   - Skip seeding if users already exist (idempotent)
+ *   - Map each mock user to the CollaborativeRoles.addUser() contract
+ *   - Assign permission arrays based on role (superadmin > admin > user)
+ *   - Set non-active statuses (inactive, suspended) via updateUser post-creation
+ *
+ * Key dependencies:
+ *   - src/roles/CollaborativeRoles: file-backed user/role management module
+ *
+ * Side effects:
+ *   - Writes user records to the data/ directory (JSON files)
+ *
+ * Notes:
+ *   - The hardcoded adminUsers array mirrors the shape of the frontend admin-data.ts
+ *   - CollaborativeRoles.addUser defaults status to 'active', so non-active
+ *     statuses require a separate updateUser call
+ *   - Must be run from the project root (uses process.cwd() for data dir resolution)
+ *
+ * Usage:
+ *   node scripts/seed-users.js
+ */
 const { getCollaborativeRoles } = require('../src/roles/CollaborativeRoles');
 const path = require('path');
 

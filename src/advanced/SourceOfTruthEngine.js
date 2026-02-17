@@ -1,8 +1,40 @@
 /**
- * SOTA Source of Truth Engine
- * Advanced knowledge management with AI-powered insights
- * 
- * Refactored to use SupabaseStorage instead of local JSON files
+ * Purpose:
+ *   Central analytics and reporting engine that synthesizes all knowledge-base
+ *   entities (facts, decisions, risks, actions, questions, documents, emails,
+ *   conversations) into actionable dashboards: health score, insights, alerts,
+ *   timeline, change deltas, and executive summaries.
+ *
+ * Responsibilities:
+ *   - Calculate a 0-100 project health score from weighted penalty/bonus factors
+ *   - Generate rule-based insights (workload imbalance, unmitigated risks,
+ *     upcoming deadlines, knowledge gaps, recent progress)
+ *   - Produce severity-sorted alerts for overdue actions, critical risks, and
+ *     critical questions
+ *   - Build a unified activity timeline across all entity types
+ *   - Track per-user change deltas between dashboard views (via Supabase)
+ *   - Render Markdown executive summaries and persist SOT version snapshots
+ *   - Optionally enrich with an AI-generated summary via an injected LLM provider
+ *
+ * Key dependencies:
+ *   - ../logger: structured logging (pino child logger)
+ *   - ../supabase/storageHelper: optional -- when unavailable, falls back to
+ *     legacy storage passed via constructor
+ *   - Storage backend (SupabaseStorage or compatible): provides getXxx() for
+ *     every entity type, getProjectStats(), saveSOTVersion(), etc.
+ *
+ * Side effects:
+ *   - markAsViewed() upserts a row in the sot_last_view Supabase table
+ *   - saveVersion() delegates persistence to the storage backend
+ *   - generateEnhancedSOT() may call an external LLM API if a provider is given
+ *
+ * Notes:
+ *   - Health score factors and weights are hard-coded. Adjustments require code
+ *     changes -- there is no runtime configuration for them.
+ *   - Timeline generation uses Promise.allSettled so that a failure in one data
+ *     source does not prevent others from appearing.
+ *   - The Supabase import is wrapped in try/catch to handle the known folder-name
+ *     shadowing issue.
  */
 
 const { logger } = require('../logger');
@@ -17,6 +49,16 @@ try {
     // Will use legacy storage passed via constructor
 }
 
+/**
+ * Synthesizes project data into health scores, insights, alerts, and timelines.
+ *
+ * Accepts either a legacy storage object (duck-typed via getFacts()) or resolves
+ * storage from the Supabase helper. The optional `processor` parameter is
+ * currently unused but reserved for future NLP pipelines.
+ *
+ * Lifecycle: construct (with storage/options) -> calculateHealthScore() /
+ *   generateInsights() / generateTimeline() / getSOTData() as needed.
+ */
 class SourceOfTruthEngine {
     constructor(storageOrOptions = null, processor = null) {
         this.processor = processor;
@@ -38,7 +80,11 @@ class SourceOfTruthEngine {
     }
 
     /**
-     * Calculate Project Health Score (0-100)
+     * Compute a 0-100 project health score by applying weighted penalties
+     * (critical risks, overdue actions, critical questions, unmitigated risks)
+     * and bonuses (documentation coverage, resolved questions, completed actions).
+     *
+     * @returns {Promise<{ score: number, status: string, color: string, factors: Object[], calculatedAt: string }>}
      */
     async calculateHealthScore() {
         const storage = this._getStorage();
@@ -134,7 +180,11 @@ class SourceOfTruthEngine {
     }
 
     /**
-     * Generate AI-powered insights
+     * Produce an array of rule-based insight objects by analyzing current project
+     * data for patterns: workload concentration, unmitigated risks, upcoming
+     * deadlines, open knowledge gaps, and recent decision progress.
+     *
+     * @returns {Promise<Array<{ type: string, icon: string, title: string, message: string, suggestion: string, category: string }>>}
      */
     async generateInsights() {
         const storage = this._getStorage();
@@ -237,7 +287,11 @@ class SourceOfTruthEngine {
     }
 
     /**
-     * Generate alerts for critical items
+     * Build a severity-sorted list of actionable alerts for items requiring
+     * immediate attention: overdue actions, open critical risks, and critical
+     * unanswered questions.
+     *
+     * @returns {Promise<Array<{ severity: string, type: string, title: string, message: string, id: string }>>}
      */
     async generateAlerts() {
         const storage = this._getStorage();
@@ -299,7 +353,11 @@ class SourceOfTruthEngine {
     }
 
     /**
-     * Get change delta since last view
+     * Compare current entity counts against the snapshot saved at the user's last
+     * dashboard view. Returns per-metric deltas (e.g. "+3 facts", "-1 risk").
+     * Relies on the sot_last_view Supabase table for persistence.
+     *
+     * @returns {Promise<{ lastViewed: string|null, isFirstView: boolean, changes: Object[], summary: string }>}
      */
     async getChangeDelta() {
         const storage = this._getStorage();
@@ -373,7 +431,11 @@ class SourceOfTruthEngine {
     }
 
     /**
-     * Mark as viewed (for delta calculation)
+     * Persist the current entity counts as the user's "last seen" snapshot in
+     * Supabase, so that subsequent getChangeDelta() calls can report what changed.
+     *
+     * @returns {Promise<{ timestamp: string, counts: Object }|null>}
+     * @side-effect Upserts into sot_last_view table
      */
     async markAsViewed() {
         const storage = this._getStorage();
@@ -405,9 +467,15 @@ class SourceOfTruthEngine {
     }
 
     /**
-     * Generate timeline data - complete project activity
-     * Includes: documents, transcripts, emails, conversations, chat sessions,
-     * facts, questions, decisions, risks, actions
+     * Aggregate all entity types into a single chronologically-sorted event stream.
+     * Uses Promise.allSettled so that a failing data source does not block others.
+     *
+     * Supported entity types: decisions, risks, actions (created + deadline),
+     * documents/transcripts, facts, questions (raised + answered), emails,
+     * conversations, and chat sessions.
+     *
+     * @returns {Promise<Object[]>} Events sorted by date descending, each with
+     *   type, icon, color, date, title, content, and optional owner/metadata
      */
     async generateTimeline() {
         const storage = this._getStorage();

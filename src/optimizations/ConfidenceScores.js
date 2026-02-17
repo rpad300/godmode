@@ -25,6 +25,14 @@
  *     to 0.5 before boosting.
  */
 
+/**
+ * Manages confidence metadata on graph nodes and relationships.
+ *
+ * Invariant: all confidence values are in the range [0, 1].
+ *
+ * @param {object} options
+ * @param {object} options.graphProvider - Graph database adapter
+ */
 class ConfidenceScores {
     constructor(options = {}) {
         this.graphProvider = options.graphProvider;
@@ -46,7 +54,14 @@ class ConfidenceScores {
     }
 
     /**
-     * Calculate confidence score for an extraction
+     * Calculate a composite confidence score from multiple signals.
+     * @param {object} options
+     * @param {string} [options.source] - Source type key (see this.sourceWeights)
+     * @param {number} [options.aiConfidence] - AI model's reported confidence (0-1)
+     * @param {number} [options.multipleOccurrences] - How many times the entity appeared
+     * @param {boolean} [options.hasContext] - Whether surrounding context was available
+     * @param {boolean} [options.partialMatch] - Whether the match was partial
+     * @returns {number} Confidence score in [0, 1], rounded to two decimals
      */
     calculateConfidence(options = {}) {
         let score = this.sourceWeights[options.source] || 0.5;

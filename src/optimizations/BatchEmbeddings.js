@@ -31,6 +31,16 @@ const llm = require('../llm');
 
 const log = logger.child({ module: 'batch-embeddings' });
 
+/**
+ * Batches embedding API calls with an in-memory LRU-style cache.
+ *
+ * @param {object} options
+ * @param {number} [options.batchSize=20] - Texts per API call
+ * @param {number} [options.maxConcurrent=3] - Max parallel batches
+ * @param {number} [options.retryAttempts=3] - Retries per failed batch
+ * @param {number} [options.retryDelay=1000] - Base delay between retries in ms
+ * @param {number} [options.cacheMaxSize=10000] - Max cached embeddings
+ */
 class BatchEmbeddings {
     constructor(options = {}) {
         this.batchSize = options.batchSize || 20;
@@ -54,7 +64,11 @@ class BatchEmbeddings {
     }
 
     /**
-     * Get embeddings for multiple texts efficiently
+     * Compute embeddings for an array of texts, returning cached results
+     * where available and batching the rest.
+     * @param {string[]} texts - Input texts
+     * @param {object} [options] - Override provider/model
+     * @returns {Promise<{success: boolean, embeddings: Array, processed?: number, fromCache?: number|boolean, stats: object}>}
      */
     async embedTexts(texts, options = {}) {
         if (!texts || texts.length === 0) {
@@ -122,7 +136,10 @@ class BatchEmbeddings {
     }
 
     /**
-     * Process a single batch
+     * Send a single batch of texts to the embedding provider with retries.
+     * @param {string[]} texts - Batch of input texts
+     * @param {object} [options] - Override provider/model
+     * @returns {Promise<{success: boolean, embeddings: Array}>}
      */
     async processBatch(texts, options = {}) {
         const embedCfg = this.appConfig ? require('../llm/config').getEmbeddingsConfig(this.appConfig) : null;

@@ -1,6 +1,30 @@
 #!/usr/bin/env node
 /**
- * Delete all projects from Supabase for testing
+ * Purpose:
+ *   Destructive utility that deletes ALL projects (and their members) from the
+ *   Supabase database and resets the local data/projects.json file. Intended
+ *   for dev/test teardown only.
+ *
+ * Responsibilities:
+ *   - List every row in the projects table
+ *   - For each project, delete related project_members first (FK constraint)
+ *   - Delete the project itself
+ *   - Reset the local projects.json to an empty state
+ *
+ * Key dependencies:
+ *   - @supabase/supabase-js: Supabase admin client
+ *
+ * Side effects:
+ *   - PERMANENTLY DELETES all project and project_member rows in Supabase
+ *   - Overwrites data/projects.json on disk
+ *
+ * Notes:
+ *   - There is NO confirmation prompt -- all projects are deleted immediately
+ *   - Safe to run multiple times; a second run finds zero projects
+ *   - Does NOT delete auth users or user_profiles
+ *
+ * Usage:
+ *   node scripts/delete-supabase-project.js
  */
 
 const fs = require('fs');

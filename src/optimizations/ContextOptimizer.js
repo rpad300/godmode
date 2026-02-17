@@ -36,6 +36,14 @@ const llmConfig = require('../llm/config');
 
 const log = logger.child({ module: 'context-optimizer' });
 
+/**
+ * Reduces LLM context size via scoring, selection, compression, and dedup.
+ *
+ * @param {object} options
+ * @param {number} [options.maxTokens=4000] - Token budget for the prompt
+ * @param {object} [options.llmConfig] - LLM configuration for abstractive compression
+ * @param {object} [options.appConfig] - App-level config for per-task resolution
+ */
 class ContextOptimizer {
     constructor(options = {}) {
         this.maxTokens = options.maxTokens || 4000;
@@ -58,7 +66,13 @@ class ContextOptimizer {
     }
 
     /**
-     * Optimize context for LLM call
+     * Select and optionally compress the highest-value contexts within the
+     * token budget. Reserves 20% of the budget for the LLM response.
+     * @param {Array<{type: string, content: string, timestamp?: string, importance?: string}>} contexts
+     * @param {object} [options]
+     * @param {string} [options.query] - User query for relevance boosting
+     * @param {number} [options.maxTokens] - Override default token budget
+     * @returns {Promise<{contexts: Array, totalTokens: number, compressionRatio: number}>}
      */
     async optimize(contexts, options = {}) {
         const maxTokens = options.maxTokens || this.maxTokens;

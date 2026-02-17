@@ -39,6 +39,17 @@ const llmConfig = require('../llm/config');
 
 const log = logger.child({ module: 'entity-resolver' });
 
+/**
+ * Detects and merges duplicate Person entities using multi-signal similarity
+ * (name, email, organization, role) plus optional LLM disambiguation.
+ *
+ * @param {object} options
+ * @param {number} [options.similarityThreshold=0.75] - Minimum similarity to flag as candidate
+ * @param {string|null} options.llmProvider - LLM provider for AI-assisted resolution
+ * @param {string|null} options.llmModel - LLM model for AI-assisted resolution
+ * @param {object}  options.llmConfig - Full LLM configuration
+ * @param {object}  options.appConfig - App-level config for per-task resolution
+ */
 class EntityResolver {
     constructor(options = {}) {
         this.similarityThreshold = options.similarityThreshold || 0.75;
@@ -232,7 +243,13 @@ class EntityResolver {
     }
 
     /**
-     * Merge two entities in the graph
+     * Merge two Person entities in the graph: transfer all relationships from
+     * the secondary to the primary, update primary properties, then delete
+     * the secondary node.
+     * @param {object} graphProvider - Graph database adapter
+     * @param {object} e1 - First entity
+     * @param {object} e2 - Second entity
+     * @param {object} merged - Resolved merged properties (from suggestMerge)
      */
     async mergeEntities(graphProvider, e1, e2, merged) {
         const primaryName = merged.name;

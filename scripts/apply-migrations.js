@@ -1,7 +1,32 @@
 #!/usr/bin/env node
 /**
- * Apply Supabase Migrations
- * Run with: node scripts/apply-migrations.js
+ * Purpose:
+ *   Reads SQL migration files from supabase/migrations/ and attempts to apply
+ *   them against a remote Supabase instance. In practice, the actual SQL
+ *   execution is stubbed out and the script prints manual-application instructions.
+ *
+ * Responsibilities:
+ *   - Load Supabase credentials from src/.env
+ *   - Test the Supabase connection via auth.getSession()
+ *   - Enumerate and sort .sql files from supabase/migrations/
+ *   - Split each file into individual SQL statements (basic semicolon split)
+ *   - Print step-by-step instructions for manual application via Dashboard or CLI
+ *
+ * Key dependencies:
+ *   - @supabase/supabase-js: Supabase client (used for connection test only)
+ *
+ * Side effects:
+ *   - Makes an auth request to the Supabase API to verify connectivity
+ *   - Reads .env and migration SQL files from disk
+ *
+ * Notes:
+ *   - The actual SQL execution loop is a no-op (increments successCount but does
+ *     not call any RPC). This is intentional -- see the manual instructions printed
+ *     at the end. For automated execution, use supabase/run-migrations.js instead.
+ *   - Requires SUPABASE_PROJECT_URL and SUPABASE_PROJECT_SERVICE_ROLE_KEY
+ *
+ * Usage:
+ *   node scripts/apply-migrations.js
  */
 
 const fs = require('fs');

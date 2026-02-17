@@ -70,7 +70,11 @@ class AutoTagging {
     }
 
     /**
-     * Auto-tag a document
+     * Classify a single document, returning category, tags, importance, and
+     * optional key topics. Falls back to keyword matching when LLM is
+     * unavailable or the document is too short.
+     * @param {object} document - Must have content/text and optionally title/name
+     * @returns {Promise<{category: string, tags: string[], importance: string, ...}>}
      */
     async tagDocument(document) {
         const content = document.content || document.text || '';
@@ -211,7 +215,10 @@ Be concise and accurate.`;
     }
 
     /**
-     * Suggest related documents based on tags
+     * Rank documents by shared-tag similarity with a target tag set.
+     * @param {string[]} targetTags - Tags to match against
+     * @param {object[]} allDocuments - Each must have a .tags array
+     * @returns {Array<{document: string, commonTags: string[], similarity: number}>} sorted desc by similarity
      */
     findRelatedDocuments(targetTags, allDocuments) {
         const related = [];
