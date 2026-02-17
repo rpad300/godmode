@@ -1,3 +1,14 @@
+/**
+ * Purpose:
+ *   404 error page displayed when the user navigates to a non-existent route.
+ *
+ * Responsibilities:
+ *   - Log the invalid route path to console.error for debugging
+ *   - Render a minimal centered 404 message with a link back to the home page
+ *
+ * Side effects:
+ *   - Console: logs the attempted path on mount
+ */
 import { useLocation } from "react-router-dom";
 import { useEffect } from "react";
 

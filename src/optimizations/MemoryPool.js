@@ -37,6 +37,21 @@ const { logger } = require('../logger');
 
 const log = logger.child({ module: 'memory-pool' });
 
+/**
+ * Application-level memory pool with named pools, capacity limits,
+ * frequency-recency eviction, and automatic heap monitoring.
+ *
+ * Lifecycle: construct (starts monitoring) -> allocate/get -> stopMonitoring.
+ *
+ * @param {object} options
+ * @param {number} [options.maxHeapMB=512] - Heap usage ceiling for threshold calculations
+ * @param {number} [options.warningThreshold=0.8] - Fraction of maxHeapMB that triggers a warning
+ * @param {number} [options.criticalThreshold=0.9] - Fraction that triggers emergency cleanup
+ * @param {number} [options.embeddingsLimit=5000] - Max entries in the embeddings pool
+ * @param {number} [options.documentsLimit=1000] - Max entries in the documents pool
+ * @param {number} [options.cacheLimit=10000] - Max entries in the cache pool
+ * @param {number} [options.monitorInterval=30000] - Heap check interval in ms
+ */
 class MemoryPool {
     constructor(options = {}) {
         // Memory limits (in MB)
@@ -70,7 +85,12 @@ class MemoryPool {
     }
 
     /**
-     * Allocate item to a pool
+     * Store a keyed item in the named pool, evicting 20% of entries when
+     * the pool reaches its capacity limit.
+     * @param {string} poolName - 'embeddings' | 'documents' | 'cache'
+     * @param {string} key - Unique identifier within the pool
+     * @param {*} value - Data to store
+     * @returns {boolean} false if the pool name is unknown
      */
     allocate(poolName, key, value) {
         const pool = this.pools[poolName];

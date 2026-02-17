@@ -39,6 +39,7 @@ interface RequestOptions extends RequestInit {
     responseType?: 'json' | 'blob';
 }
 
+/** Typed HTTP error with status code and optional structured details. */
 class ApiError extends Error {
     status: number;
     details?: unknown;
@@ -60,6 +61,10 @@ export function getCurrentProjectId(): string | null {
     return currentProjectId;
 }
 
+/**
+ * Core request function. Attaches auth token and project ID headers,
+ * handles error parsing, and surfaces global toast for 5xx/network errors.
+ */
 async function request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
     const { params, ...init } = options;
 

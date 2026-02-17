@@ -189,6 +189,11 @@ function toast({ ...props }: Toast) {
   };
 }
 
+/**
+ * Hook that subscribes to the global toast state. Returns the current toast list
+ * plus the `toast` function for creating new toasts and `dismiss` for removing them.
+ * Re-renders whenever any toast is added, updated, dismissed, or removed.
+ */
 function useToast() {
   const [state, setState] = React.useState<State>(memoryState);
 

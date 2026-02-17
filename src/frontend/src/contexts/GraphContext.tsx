@@ -56,6 +56,10 @@ const DEFAULT_FILTERS: GraphFilterState = {
 
 const GraphContext = createContext<GraphContextType | undefined>(undefined);
 
+/**
+ * Provides graph filter and selection state to all graph-related components.
+ * Re-renders consumers when filters, selectedNodeId, or hoveredNodeId change.
+ */
 export function GraphProvider({ children }: { children: ReactNode }) {
     const [filters, setFilters] = useState<GraphFilterState>(DEFAULT_FILTERS);
     const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -86,6 +90,9 @@ export function GraphProvider({ children }: { children: ReactNode }) {
     );
 }
 
+/**
+ * Convenience hook to consume GraphContext. Throws if used outside GraphProvider.
+ */
 export function useGraphState() {
     const context = useContext(GraphContext);
     if (context === undefined) {

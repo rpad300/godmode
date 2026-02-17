@@ -41,6 +41,13 @@ try {
     // Will use in-memory state only
 }
 
+/**
+ * Tracks MD5 content hashes to enable incremental (change-only) processing
+ * of documents, conversations, and entities.
+ *
+ * @param {object} options
+ * @param {string} [options.syncType='default'] - Identifier for this sync lane
+ */
 class IncrementalSync {
     constructor(options = {}) {
         this.syncType = options.syncType || 'default';
@@ -146,7 +153,11 @@ class IncrementalSync {
     }
 
     /**
-     * Check if a document needs syncing
+     * Determine whether a document has changed since its last sync by
+     * comparing the MD5 hash of its content against the stored hash.
+     * @param {string} docPath - Document path (used as key)
+     * @param {string} content - Current document content
+     * @returns {Promise<boolean>} true if the document needs re-processing
      */
     async needsSync(docPath, content) {
         await this._loadState();
@@ -281,7 +292,7 @@ class IncrementalSync {
     }
 }
 
-// Singleton per sync type
+/** Singleton per sync type (unlike other modules which use a single global instance). */
 const instances = new Map();
 function getIncrementalSync(options = {}) {
     const syncType = options.syncType || 'default';

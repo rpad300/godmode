@@ -1,3 +1,33 @@
+/**
+ * Purpose:
+ *   Root application shell. Acts as the auth gate and tab-based page router.
+ *   Shows the LandingPage when unauthenticated, or the AppLayout with the
+ *   active page when a valid session exists.
+ *
+ * Responsibilities:
+ *   - Check and listen for Supabase auth session changes
+ *   - Map the `activeTab` state to the correct page component via a switch statement
+ *   - Sync the active tab with the browser URL (bi-directional: URL -> tab and tab -> URL)
+ *   - Render global import modals (documents, transcripts, emails, conversations) triggered
+ *     from the sidebar via AppLayout's importFileType callback
+ *
+ * Key dependencies:
+ *   - supabase: session management (getSession, onAuthStateChange)
+ *   - AppLayout: sidebar + header shell with tab switching and import triggers
+ *   - All page components: rendered inside the layout based on activeTab
+ *   - Import modals: ImportDocumentModal, ImportTranscriptModal, AddEmailModal, ImportConversationModal
+ *
+ * Side effects:
+ *   - Network: Supabase session check on mount
+ *   - Navigation: pushes to browser history when tabs change
+ *   - Auth listener subscription (cleaned up on unmount)
+ *
+ * Notes:
+ *   - This is not a traditional router; it uses a single-route pattern with internal
+ *     tab state, while react-router handles the URL sync. The parent router maps URL
+ *     paths to `initialTab` prop values.
+ *   - The `initialFileId` prop allows deep-linking to a specific file in FilesPage.
+ */
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';

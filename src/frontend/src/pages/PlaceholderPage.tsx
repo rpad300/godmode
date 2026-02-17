@@ -1,3 +1,16 @@
+/**
+ * Purpose:
+ *   Generic "coming soon" placeholder component used for routes whose feature
+ *   pages have not yet been implemented.
+ *
+ * Responsibilities:
+ *   - Render a centered construction icon with a configurable title and description
+ *   - Provide a sensible default description prompting backend connection
+ *
+ * Notes:
+ *   - Accepts `title` (required) and `description` (optional) via props.
+ *   - Intended to be swapped out once the actual feature page is built.
+ */
 import { Construction } from 'lucide-react';
 
 interface PlaceholderPageProps {

@@ -42,6 +42,15 @@ interface AuthContextValue extends AuthState {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+/**
+ * Wraps the component tree with authentication state and actions.
+ * On mount, retrieves the existing Supabase session and subscribes to
+ * auth state changes (login, logout, token refresh).
+ *
+ * Context value shape:
+ *   - session, user, isLoading, isAuthenticated (state)
+ *   - login, register, logout, forgotPassword, resetPassword (actions)
+ */
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -104,6 +113,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * Convenience hook to consume AuthContext. Throws if used outside AuthProvider
+ * to surface wiring mistakes during development.
+ */
 export function useAuth() {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error('useAuth must be used within AuthProvider');

@@ -47,6 +47,11 @@ interface ProjectContextType {
 
 const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
 
+/**
+ * Provides the project list, active project selection, and refresh capability.
+ * Fetches projects on mount and auto-selects a default when the stored ID
+ * is stale or missing.
+ */
 export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [projects, setProjects] = useState<Project[]>([]);
     const [currentProjectId, setCurrentProjectId] = useState<string>(() => {
@@ -129,6 +134,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     );
 };
 
+/**
+ * Convenience hook to consume ProjectContext. Throws if used outside ProjectProvider.
+ */
 export const useProject = () => {
     const context = useContext(ProjectContext);
     if (context === undefined) {
