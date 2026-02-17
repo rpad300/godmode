@@ -286,6 +286,39 @@ export function useDeletePendingFile() {
   });
 }
 
+// ── Project Config ──────────────────────────────────────────────────────────
+
+export interface ProjectConfig {
+  projectName?: string;
+  llm?: {
+    provider?: string;
+    models?: Record<string, string>;
+    embeddingsProvider?: string;
+    providers?: Record<string, { apiKey?: string; baseUrl?: string; host?: string; port?: number; manualModels?: string[] }>;
+  };
+  prompts?: Record<string, string>;
+  pdfToImages?: boolean;
+  [key: string]: unknown;
+}
+
+export function useProjectConfig() {
+  return useQuery({
+    queryKey: ['config'],
+    queryFn: () => apiClient.get<ProjectConfig>('/api/config'),
+  });
+}
+
+export function useUpdateProjectConfig() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Partial<ProjectConfig>) =>
+      apiClient.post<ProjectConfig>('/api/config', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['config'] });
+    },
+  });
+}
+
 // ── Documents ───────────────────────────────────────────────────────────────
 
 export interface DocumentItem {
