@@ -1,5 +1,7 @@
-import { Moon, Sun, Zap, Menu } from 'lucide-react';
+import { Moon, Sun, Zap, Menu, LogOut } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '../ui/Button';
+import { useAuth } from '../../contexts/AuthContext';
 import type { Project } from '../../hooks/useGodMode';
 
 interface HeaderProps {
@@ -9,6 +11,21 @@ interface HeaderProps {
   currentProjectId: string | null;
   onSelectProject: (id: string | null) => void;
   onToggleSidebar: () => void;
+}
+
+function LogoutButton() {
+  const { logout } = useAuth();
+  const navigate = useNavigate();
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      title="Sign out"
+      onClick={async () => { await logout(); navigate('/login'); }}
+    >
+      <LogOut className="h-4 w-4" />
+    </Button>
+  );
 }
 
 export function Header({
@@ -49,6 +66,7 @@ export function Header({
         <Button variant="ghost" size="icon" onClick={onToggleTheme} title="Toggle theme">
           {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </Button>
+        <LogoutButton />
       </div>
     </header>
   );
