@@ -1,3 +1,27 @@
+/**
+ * Purpose:
+ *   Quick diagnostic that retrieves OS-level system stats (CPU load, disk space)
+ *   using platform-specific shell commands. Currently Windows-only (PowerShell).
+ *
+ * Responsibilities:
+ *   - Read CPU load via Win32_Processor WMI class
+ *   - Read disk info (size, free space) via Win32_LogicalDisk WMI class
+ *   - Print parsed results to stdout
+ *
+ * Key dependencies:
+ *   - PowerShell (Windows only): used for WMI/CIM queries
+ *
+ * Side effects:
+ *   - Spawns PowerShell child processes to query system metrics
+ *
+ * Notes:
+ *   - On non-Windows platforms, both tests are skipped with a log message
+ *   - Assumption: this was written for a Windows dev environment; consider
+ *     adding Linux/macOS support if cross-platform stats are needed
+ *
+ * Usage:
+ *   node scripts/test-system-stats.js
+ */
 const { exec } = require('child_process');
 const util = require('util');
 const execAsync = util.promisify(exec);

@@ -38,6 +38,13 @@ try {
     // Will use in-memory suggestions only
 }
 
+/**
+ * Provides typeahead query suggestions from history, popularity, and templates.
+ *
+ * @param {object} options
+ * @param {object} options.graphProvider - Graph database adapter (reserved for future use)
+ * @param {number} [options.maxHistory=500] - Maximum history entries to load from Supabase
+ */
 class QuerySuggestions {
     constructor(options = {}) {
         this.graphProvider = options.graphProvider;

@@ -1,6 +1,40 @@
 /**
- * Krisp Available Meetings Service
- * Manages the catalog of meetings fetched from Krisp MCP
+ * Purpose:
+ *   Manages the "available meetings" catalog -- meetings discovered from Krisp
+ *   MCP that can be selectively imported into GodMode projects. Handles sync,
+ *   import, transcript/audio retrieval, change detection, and data propagation
+ *   to already-imported krisp_transcripts.
+ *
+ * Responsibilities:
+ *   - Sync meetings from MCP search results into krisp_available_meetings (upsert)
+ *   - List available meetings with filtering, pagination, and search
+ *   - Import selected meetings: create krisp_transcripts records, trigger processing
+ *   - Track which meetings need full transcript fetch (needs_full_transcript flag)
+ *   - Store full transcripts retrieved from MCP get_document calls
+ *   - Extract and download audio recording files from transcript content (S3 URLs)
+ *   - Detect and propagate data changes to already-imported transcripts (hash-based)
+ *   - Generate AI summaries for meetings using the centralised LLM layer
+ *   - Provide sync/import statistics for dashboard display
+ *
+ * Key dependencies:
+ *   - @supabase/supabase-js: direct Supabase client for DB operations
+ *   - ./TranscriptProcessor: processes imported transcripts (speaker matching, doc creation)
+ *   - ../llm, ../llm/config: LLM for AI summary generation (optional)
+ *   - ../logger: structured logging
+ *   - Environment variables: SUPABASE_URL, SUPABASE_SERVICE_KEY
+ *
+ * Side effects:
+ *   - Reads/writes krisp_available_meetings, krisp_transcripts, documents tables in Supabase
+ *   - Downloads audio files to data/krisp-audio/ on the local filesystem
+ *   - Network calls to Supabase RPCs (upsert_krisp_available_meeting, get_krisp_import_stats, etc.)
+ *   - Optional LLM network calls for summary generation
+ *
+ * Notes:
+ *   - Superadmin users bypass user_id scoping on queries.
+ *   - Data hash (MD5) is used to detect changes between available meetings and imported transcripts.
+ *   - Audio URLs from Krisp S3 are temporary (~7 days); expired downloads fail gracefully.
+ *   - buildTranscriptText is a fallback when full_transcript is unavailable; it assembles
+ *     a readable document from key_points, action_items, and summary.
  */
 
 const { createClient } = require('@supabase/supabase-js');

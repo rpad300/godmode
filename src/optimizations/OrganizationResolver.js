@@ -39,6 +39,17 @@ const llm = require('../llm');
 
 const log = logger.child({ module: 'organization-resolver' });
 
+/**
+ * Deduplicates organization entities via name normalization, domain matching,
+ * multi-signal similarity scoring, and optional LLM disambiguation.
+ *
+ * @param {object} options
+ * @param {object} options.storage - Storage adapter with searchOrganizations
+ * @param {object} options.graphProvider - Graph database adapter
+ * @param {object} options.llmConfig - LLM configuration for AI-assisted resolution
+ * @param {object} options.appConfig - App-level config for per-task resolution
+ * @param {number} [options.cacheTTL=600000] - Duplicate-search cache TTL in ms
+ */
 class OrganizationResolver {
     constructor(options = {}) {
         this.storage = options.storage;

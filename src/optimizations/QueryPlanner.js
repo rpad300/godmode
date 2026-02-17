@@ -30,6 +30,13 @@
  *     periodic pruning.
  */
 
+/**
+ * Statically analyzes and rewrites Cypher queries for performance, and
+ * collects runtime execution statistics for profiling and index suggestions.
+ *
+ * @param {object} options
+ * @param {object} options.graphProvider - Graph database adapter (stored for future EXPLAIN use)
+ */
 class QueryPlanner {
     constructor(options = {}) {
         this.graphProvider = options.graphProvider;
@@ -65,7 +72,9 @@ class QueryPlanner {
     }
 
     /**
-     * Optimize a Cypher query
+     * Apply regex-based rewrites to a Cypher query and ensure a safety LIMIT.
+     * @param {string} query - Original Cypher query
+     * @returns {{original: string, optimized: string, optimizations: Array, wasOptimized: boolean}}
      */
     optimize(query) {
         let optimized = query;
@@ -115,7 +124,10 @@ class QueryPlanner {
     }
 
     /**
-     * Analyze query for potential issues
+     * Check a Cypher query for common anti-patterns and return issues,
+     * suggestions, and a quality score (0-100).
+     * @param {string} query - Cypher query to analyze
+     * @returns {{query: string, issues: Array, suggestions: string[], score: number}}
      */
     analyze(query) {
         const issues = [];
@@ -185,7 +197,10 @@ class QueryPlanner {
     }
 
     /**
-     * Record query execution stats
+     * Record a query's execution time and result count for profiling.
+     * @param {string} query - Executed Cypher query
+     * @param {number} duration - Execution duration in ms
+     * @param {number} resultCount - Number of returned results
      */
     recordExecution(query, duration, resultCount) {
         const normalized = query.toLowerCase().trim();

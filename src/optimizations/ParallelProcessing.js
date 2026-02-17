@@ -36,6 +36,15 @@ const { logger } = require('../logger');
 
 const log = logger.child({ module: 'parallel-processing' });
 
+/**
+ * Executes async work across item collections with configurable concurrency,
+ * timeouts, rate limiting, and priority ordering.
+ *
+ * @param {object} options
+ * @param {number} [options.maxWorkers=4] - Default concurrency level
+ * @param {number} [options.batchSize=5] - Items per chunk (for chunking utilities)
+ * @param {number} [options.timeout=60000] - Per-item timeout in ms
+ */
 class ParallelProcessing {
     constructor(options = {}) {
         this.maxWorkers = options.maxWorkers || 4;
