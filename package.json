@@ -24,6 +24,7 @@
     "llm:preflight": "node scripts/llm-preflight.js",
     "llm:preflight:live": "node scripts/llm-preflight.js --live",
     "llm:preflight:auto": "node scripts/llm-preflight.js --live --auto",
+    "check:legacy": "node scripts/check-no-legacy-imports.js",
     "benchmark": "node scripts/benchmark.js health",
     "benchmark:all": "node scripts/benchmark.js all"
   },

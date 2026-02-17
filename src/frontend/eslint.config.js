@@ -21,6 +21,14 @@ export default tseslint.config(
       ...reactHooks.configs.recommended.rules,
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
       "@typescript-eslint/no-unused-vars": "off",
+      "no-restricted-imports": ["error", {
+        patterns: [
+          {
+            group: ["*frontend_backup*", "*frontend-legacy*"],
+            message: "Do not import from the legacy frontend backup. Use src/frontend/ components only.",
+          },
+        ],
+      }],
     },
   },
 );
