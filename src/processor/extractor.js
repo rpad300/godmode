@@ -40,6 +40,11 @@ const { logger: rootLogger } = require('../logger');
 
 const log = rootLogger.child({ module: 'processor-extractor' });
 
+/**
+ * Extracts raw text from heterogeneous file types using a cascading strategy:
+ * MarkItDown CLI (if installed) > pdf-parse > direct read.
+ * Also converts scanned PDFs to per-page PNG images for downstream OCR.
+ */
 class DocumentExtractor {
     constructor(config) {
         this.config = config;

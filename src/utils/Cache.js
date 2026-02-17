@@ -26,6 +26,11 @@ const { logger } = require('../logger');
 
 const log = logger.child({ module: 'cache' });
 
+/**
+ * Generic in-memory cache backed by a JS Map.
+ * Entries carry a TTL and are evicted LRU-style when the map is full.
+ * A 60-second cleanup interval removes expired entries proactively.
+ */
 class Cache {
     constructor(options = {}) {
         this.maxSize = options.maxSize || 1000;

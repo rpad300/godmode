@@ -37,6 +37,17 @@ const llmConfig = require('../llm/config');
 
 const log = logger.child({ module: 'semantic-cache' });
 
+/**
+ * Two-tier cache: exact string match then cosine-similarity search over
+ * embedding vectors. Supports TTL expiration and LRU-style eviction.
+ *
+ * @param {object} options
+ * @param {number} [options.maxSize=1000] - Maximum cache entries
+ * @param {number} [options.similarityThreshold=0.92] - Minimum cosine similarity for a semantic hit
+ * @param {number} [options.ttl=1800000] - Time-to-live in ms (default 30 min)
+ * @param {object} [options.llmConfig] - LLM configuration for embedding generation
+ * @param {object} [options.appConfig] - App-level config for per-task resolution
+ */
 class SemanticCache {
     constructor(options = {}) {
         this.maxSize = options.maxSize || 1000;
@@ -59,7 +70,10 @@ class SemanticCache {
     }
 
     /**
-     * Get cached response for a query (exact or semantic match)
+     * Look up a cached response. Tries exact normalized match first, then
+     * brute-force cosine similarity over stored embeddings.
+     * @param {string} query - User query
+     * @returns {Promise<{hit: boolean, type?: 'exact'|'semantic', similarity?: number, data?: *, originalQuery?: string}>}
      */
     async get(query) {
         this.stats.totalQueries++;
@@ -106,7 +120,11 @@ class SemanticCache {
     }
 
     /**
-     * Store query and response in cache
+     * Store a query/response pair in the cache along with its embedding vector.
+     * Evicts 10% of entries when at capacity.
+     * @param {string} query - The query string
+     * @param {*} response - The response data to cache
+     * @returns {Promise<boolean>} true on success
      */
     async set(query, response) {
         const normalizedQuery = this.normalizeQuery(query);

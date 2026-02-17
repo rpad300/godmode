@@ -59,6 +59,11 @@ try {
 
 const log = rootLogger.child({ module: 'processor-analyzer' });
 
+/**
+ * Orchestrates LLM-based extraction from a single document, transcript, or image.
+ * Owns prompt assembly, API dispatch, JSON sanitisation, validation, and
+ * post-extraction intelligence (auto-resolve questions, auto-complete actions).
+ */
 class DocumentAnalyzer {
     constructor(config) {
         this.config = config;

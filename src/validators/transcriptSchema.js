@@ -52,7 +52,8 @@ const ENUMS = {
 };
 
 /**
- * Validation result object
+ * Accumulates errors (blocking) and warnings (advisory) during schema validation.
+ * `valid` is true if and only if no errors have been added.
  */
 class ValidationResult {
     constructor() {

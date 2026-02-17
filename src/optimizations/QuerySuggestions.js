@@ -156,7 +156,12 @@ class QuerySuggestions {
     }
 
     /**
-     * Get suggestions for a partial query
+     * Return ranked suggestions for a partial query string, combining
+     * autocomplete from Supabase, popular queries from cache, and
+     * static templates matched by question pattern.
+     * @param {string} partial - User's partial query input
+     * @param {number} [limit=10] - Max suggestions to return
+     * @returns {Promise<Array<{type: string, query: string, count?: number}>>}
      */
     async getSuggestions(partial, limit = 10) {
         await this._refreshCache();

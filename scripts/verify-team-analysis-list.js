@@ -1,10 +1,33 @@
+/**
+ * Purpose:
+ *   Verifies that the team-analysis data layer works correctly by querying
+ *   Supabase directly (bypassing the HTTP server) and checking that the data
+ *   shape matches what the /api/team-analysis endpoint would return.
+ *
+ * Responsibilities:
+ *   - Fetch all projects and their team_analysis_enabled flag
+ *   - Fetch all team_analysis records and join by project_id
+ *   - Map and display the combined result for manual inspection
+ *
+ * Key dependencies:
+ *   - src/supabase/client (getAdminClient): Supabase admin client factory
+ *   - dotenv: loads src/.env
+ *   - node-fetch: imported but not currently used (Assumption: leftover from
+ *     an earlier version that also hit the HTTP endpoint)
+ *
+ * Side effects:
+ *   - Makes read-only queries to the Supabase projects and team_analysis tables
+ *
+ * Notes:
+ *   - Does NOT require the server to be running -- queries Supabase directly
+ *   - Prints a sample of up to 3 mapped records for quick visual verification
+ *
+ * Usage:
+ *   node scripts/verify-team-analysis-list.js
+ */
 const { getAdminClient } = require('../src/supabase/client');
 require('dotenv').config({ path: 'src/.env' });
 const fetch = require('node-fetch');
-
-// Mock request to testing the endpoint logic without full server if possible, 
-// but since it's an API endpoint, we might need the server running.
-// Instead, let's just use the Supabase client to verify the data that the endpoint WOULD return.
 
 async function verifyData() {
     console.log('Verifying Team Analysis Data Access...');

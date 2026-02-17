@@ -83,6 +83,13 @@ try {
     log.debug({ event: 'content_processor_organization_resolver_unavailable' }, 'OrganizationResolver not available');
 }
 
+/**
+ * Central AI engine for structured knowledge extraction.
+ * Processes documents, transcripts, and conversations through the configured LLM,
+ * validates output, deduplicates entities (via EntityResolver / OrganizationResolver),
+ * syncs Person entities to the contacts directory, and generates Cypher queries
+ * for graph population.
+ */
 class AIContentProcessor {
     constructor(options = {}) {
         // IMPORTANT: Provider and model should come from config, not defaults

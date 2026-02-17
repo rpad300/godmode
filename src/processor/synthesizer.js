@@ -45,6 +45,12 @@ const crypto = require('crypto');
 
 const log = rootLogger.child({ module: 'processor-synthesizer' });
 
+/**
+ * Cross-document knowledge synthesizer. Batches raw content files through the
+ * LLM to extract and deduplicate facts, decisions, risks, questions, and people
+ * against the existing knowledge base. Tracks which files have been synthesised
+ * to enable efficient incremental re-runs.
+ */
 class DocumentSynthesizer {
     constructor(storage, config, analyzer) {
         this.storage = storage;

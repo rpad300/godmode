@@ -1,6 +1,32 @@
 /**
- * Krisp Quarantine Worker
- * Periodically reprocesses quarantined transcripts to check if speakers can now be identified
+ * Purpose:
+ *   Background worker that periodically retries quarantined and ambiguous
+ *   transcripts, checking whether new speaker mappings or manual project
+ *   assignments now allow them to be fully processed.
+ *
+ * Responsibilities:
+ *   - Query krisp_transcripts in quarantine/ambiguous status that are eligible for retry
+ *   - For each, check if new speaker mappings or manual assignments make processing possible
+ *   - Re-invoke TranscriptProcessor.processTranscript with forceReprocess
+ *   - Track retry counts and timestamps; respect maxRetries and retryIntervalHours
+ *   - Provide start/stop lifecycle for the periodic interval
+ *   - Expose forceRetry for on-demand manual retries and getStats for monitoring
+ *
+ * Key dependencies:
+ *   - ../supabase/client (getAdminClient): Supabase admin client for DB queries
+ *   - ./TranscriptProcessor: the actual transcript processing pipeline
+ *   - ./SpeakerMatcher: checks for new Krisp speaker mappings
+ *
+ * Side effects:
+ *   - Reads/writes krisp_transcripts (status, retry_count, last_retry_at)
+ *   - Creates documents and updates transcript status via processTranscript
+ *   - Runs a setInterval timer when started; must be stopped to avoid leaks
+ *
+ * Notes:
+ *   - Default config: retry every 1 hour, max 10 retries, batch of 50.
+ *   - isRunning guard prevents overlapping cycles.
+ *   - A 100ms delay between items avoids overwhelming the database.
+ *   - Module-level state (isRunning, intervalId) means this is a singleton worker.
  */
 
 const { logger } = require('../logger');
