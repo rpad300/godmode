@@ -422,7 +422,6 @@ godmode/
 ├── tests/                                 # Test suites
 ├── supabase/                              # Database migrations
 ├── docs/                                  # Documentation
-├── Goddmode Lovable/                      # External template (reference only)
 ├── data/                                  # Project data (gitignored)
 ├── .env.example                           # Environment template
 ├── docker-compose.yml                     # Docker services
@@ -435,13 +434,13 @@ godmode/
 |--------|------|--------|------------|
 | **Active UI** | `src/frontend/` | Active, maintained | React 19, Vite 7, TypeScript, Tailwind CSS v4 |
 | **Legacy Backup** | `src/frontend_backup_2026_02_11/` | Frozen, read-only | Vanilla TypeScript, custom routing |
-| **Lovable Template** | `Goddmode Lovable/godmode-unleashed/` | External reference | Vite (separate project) |
+| **Reference Components** | `src/frontend/src/ui-reference/` | Import area | Selected components from external templates |
 
 **Rules:**
 - All new development goes in `src/frontend/`.
 - The legacy backup must NOT be edited (see `DO_NOT_EDIT.md` inside it).
 - Run `npm run check:legacy` to verify no imports leak from legacy into active UI.
-- The Lovable template is used as a visual/component reference only.
+- External reference components are imported incrementally into `src/frontend/src/ui-reference/`.
 
 ---
 
