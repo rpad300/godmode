@@ -41,7 +41,28 @@ const { getOntologyManager } = require('./OntologyManager');
 
 const log = logger.child({ module: 'inference-engine' });
 
+/**
+ * Executes ontology inference rules to materialise implicit relationships
+ * in the knowledge graph.
+ *
+ * Two execution paths exist:
+ *   1. Cypher-based: reads rule definitions from the ontology and executes
+ *      them as raw Cypher queries.
+ *   2. Native (Supabase): runs hard-coded JavaScript inference logic using
+ *      findNodes/createRelationship provider methods.
+ *
+ * Lifecycle: construct -> setGraphProvider() -> runAllRules() (or register
+ * as a post-sync hook via onSyncComplete). Optionally startPeriodicRun()
+ * for interval-based execution.
+ */
 class InferenceEngine {
+    /**
+     * @param {object} options
+     * @param {object} [options.ontology] - OntologyManager instance (defaults to singleton)
+     * @param {object} [options.graphProvider] - Graph backend
+     * @param {boolean} [options.autoRunAfterSync=true] - Run rules automatically after sync
+     * @param {number} [options.periodicInterval] - Interval in ms for periodic runs (null = disabled)
+     */
     constructor(options = {}) {
         this.ontology = options.ontology || getOntologyManager();
         this.graphProvider = options.graphProvider || null;
@@ -203,7 +224,11 @@ class InferenceEngine {
     }
 
     /**
-     * Infer WORKS_WITH relationships between people in same organization
+     * Infer WORKS_WITH relationships between Person nodes that share the
+     * same organisation property. Generates O(n^2) pairs per org; the
+     * 500-person findNodes limit bounds total work.
+     *
+     * @returns {Promise<{success: boolean, created: number, checked: number, error?: string}>}
      */
     async _inferWorksWithRelationships() {
         const result = { success: true, created: 0, checked: 0 };
@@ -253,7 +278,11 @@ class InferenceEngine {
     }
 
     /**
-     * Infer KNOWS relationships from meeting attendance
+     * Infer KNOWS relationships between Person nodes that co-attended the
+     * same Meeting (linked via PARTICIPATED_IN edges). Creates bidirectional
+     * pairs for all participants of each meeting.
+     *
+     * @returns {Promise<{success: boolean, created: number, checked: number, error?: string}>}
      */
     async _inferKnowsFromMeetings() {
         const result = { success: true, created: 0, checked: 0 };
@@ -301,7 +330,12 @@ class InferenceEngine {
     }
 
     /**
-     * Infer PRODUCED relationships between meetings and actions/decisions/facts
+     * Infer PRODUCED relationships from Meeting nodes to Action nodes by
+     * matching Action.source_file or Action.meeting against a deterministic
+     * meeting ID (meeting_{source}). Only links when the meeting node
+     * actually exists in the graph.
+     *
+     * @returns {Promise<{success: boolean, created: number, checked: number, error?: string}>}
      */
     async _inferActionMeetingLinks() {
         const result = { success: true, created: 0, checked: 0 };

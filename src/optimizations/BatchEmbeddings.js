@@ -1,6 +1,29 @@
 /**
- * Batch Embeddings Module
- * Process embeddings in batches for better performance
+ * Purpose:
+ *   Efficiently compute embeddings for large numbers of texts by batching
+ *   requests and caching results in memory.
+ *
+ * Responsibilities:
+ *   - Split input texts into configurable batch sizes and process them
+ *     with retry logic against the LLM embedding endpoint
+ *   - Maintain an in-memory embedding cache (LRU-style eviction at 10%
+ *     when the cache reaches capacity)
+ *   - Provide both sequential (embedTexts) and parallel (embedTextsParallel)
+ *     processing modes with concurrency control
+ *   - Track hit/miss statistics for cache efficiency monitoring
+ *
+ * Key dependencies:
+ *   - ../llm: embedding API calls
+ *   - ../llm/config: per-task embeddings provider/model resolution
+ *
+ * Side effects:
+ *   - Makes network calls to the configured embeddings provider
+ *
+ * Notes:
+ *   - The cache key is a simple hash of the first/last characters and
+ *     length of the text; collisions are unlikely but theoretically
+ *     possible for texts that share prefix, suffix, and length.
+ *   - Retry delay increases linearly (retryDelay * attemptNumber).
  */
 
 const { logger } = require('../logger');

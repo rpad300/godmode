@@ -214,7 +214,14 @@ class OntologyAgent {
     }
 
     /**
-     * Analyze extracted data and suggest ontology updates
+     * Analyse the output of an entity/relationship extraction pass and
+     * generate suggestions for any types or properties not yet defined
+     * in the ontology. Suggestions are de-duplicated against the pending
+     * queue before being added.
+     *
+     * @param {object} extraction - { entities: [{type, name, properties}], relationships: [{relation, from, to}] }
+     * @param {string} [source='unknown'] - Identifier for the data source (e.g. file name)
+     * @returns {Promise<Array>} - Newly created suggestions (subset of what was added to pending)
      */
     async analyzeExtraction(extraction, source = 'unknown') {
         const suggestions = [];
@@ -463,7 +470,13 @@ Respond in JSON:
     }
 
     /**
-     * Approve a suggestion and update ontology
+     * Approve a pending suggestion: apply it to the ontology schema, move it
+     * to history, and update Supabase. Optional modifications (name, description,
+     * properties) are merged into the suggestion before application.
+     *
+     * @param {string} suggestionId - ID of the pending suggestion
+     * @param {object} [modifications] - Override fields before applying
+     * @returns {Promise<{success: boolean, message?: string, error?: string}>}
      */
     async approveSuggestion(suggestionId, modifications = {}) {
         log.debug({ event: 'ontology_agent_approving', suggestionId, pendingCount: this.suggestions.pending.length }, 'Approving suggestion');

@@ -147,7 +147,9 @@ function notifyConfigChange(key, value) {
 }
 
 /**
- * Get a system config value by key
+ * Get a single system config value by key from the `system_config` table.
+ * Resolution order: in-memory cache -> database -> hardcoded DEFAULTS.
+ * Returns { value, source } where source is 'cache' | 'database' | 'default'.
  */
 async function getSystemConfig(key) {
     // 1. Check cache first (optimization)
@@ -419,8 +421,14 @@ function invalidateCache() {
 }
 
 /**
- * Get effective config for a project
- * Merges system defaults with project overrides
+ * Compute the effective configuration for a project by deep-merging
+ * system defaults with project-level overrides.
+ *
+ * Special merge rules:
+ * - llm_pertask: tasks with useSystemDefaults[task]=true revert to system defaults
+ * - processing_settings: mapped to the 'processing' key in the effective config
+ * - prompts: empty string values do NOT override system prompts
+ * - graph_config: only merged if graph_config.enabled is true
  */
 async function getEffectiveConfig(projectId, projectConfig = null) {
     // Get system defaults

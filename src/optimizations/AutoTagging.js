@@ -1,6 +1,28 @@
 /**
- * Auto-Tagging Module
- * Automatically classify and tag documents based on content
+ * Purpose:
+ *   Classify and tag documents automatically using a two-tier strategy:
+ *   LLM-based extraction for accurate results, with a keyword-based
+ *   fallback when the LLM is unavailable.
+ *
+ * Responsibilities:
+ *   - Assign a category, subcategory, importance level, tags, and key
+ *     topics to individual documents
+ *   - Batch-tag multiple documents sequentially
+ *   - Find related documents by shared tags (Jaccard-style similarity)
+ *   - Produce aggregate tag and category statistics
+ *
+ * Key dependencies:
+ *   - ../llm: LLM text generation for smart tagging
+ *   - ../llm/config: per-task provider/model resolution
+ *
+ * Side effects:
+ *   - Makes LLM API calls when an LLM provider is configured
+ *
+ * Notes:
+ *   - The LLM prompt sends only the first 3000 characters of document
+ *     content to stay within token budgets.
+ *   - fallbackTagging uses simple keyword matching and is deterministic;
+ *     it produces a "method: 'fallback'" flag in its output.
  */
 
 const llm = require('../llm');

@@ -1,6 +1,25 @@
 /**
- * Search Routes
- * Extracted from src/server.js for modularization
+ * Purpose:
+ *   Search API routes providing user search, @mention suggestions, and cross-entity
+ *   global search across the application.
+ *
+ * Responsibilities:
+ *   - GET /api/search/users: Search users by name/email within a project context
+ *   - GET /api/search/mentions: Autocomplete suggestions for @mention in comments/chat
+ *   - GET /api/search: Global authenticated search across users, comments, and projects
+ *
+ * Key dependencies:
+ *   - supabase.search: Search service with users(), mentionSuggestions(), global() methods
+ *   - supabase.auth: Token extraction and user verification for authenticated search
+ *
+ * Side effects:
+ *   - None (read-only endpoints)
+ *
+ * Notes:
+ *   - All endpoints require Supabase to be configured (503 otherwise)
+ *   - Global search (/api/search) requires authentication; user and mention searches do not
+ *   - The global search allows toggling result types via query params (users, comments, projects)
+ *   - Default limit is 10 for user search, 5 for global search
  */
 
 const { parseUrl } = require('../../server/request');

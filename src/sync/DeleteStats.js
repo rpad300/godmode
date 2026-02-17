@@ -42,6 +42,16 @@ try {
     log.warn({ event: 'delete_stats_supabase_unavailable' }, 'Supabase not available, using in-memory tracking only');
 }
 
+/**
+ * Dual-layer statistics tracker: persists to Supabase when available, and
+ * always maintains in-memory session counters as a fallback.
+ *
+ * Read path: `getStats` and `getDashboard` merge cached Supabase data with
+ * session counters. The cache is refreshed at most once per `_cacheTTL` ms.
+ *
+ * Write path: each `record*` method writes to Supabase (if reachable) and
+ * unconditionally increments the session counter.
+ */
 class DeleteStats {
     constructor(options = {}) {
         // In-memory stats for current session

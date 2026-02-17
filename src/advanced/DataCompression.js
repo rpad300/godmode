@@ -1,12 +1,43 @@
 /**
- * Data Compression Module
- * Compress embeddings and large data for storage efficiency
+ * Purpose:
+ *   Provide gzip-based compression for in-memory data, embedding vectors,
+ *   and on-disk JSON files to reduce storage and transfer sizes.
+ *
+ * Responsibilities:
+ *   - Compress / decompress arbitrary data (string or JSON-serializable)
+ *   - Compress / decompress arrays of embedding objects, replacing the
+ *     raw float arrays with gzip+base64 representations
+ *   - Compress / decompress individual files and entire directories of
+ *     JSON files
+ *   - Track cumulative compression statistics
+ *
+ * Key dependencies:
+ *   - zlib (Node built-in): gzip/gunzip operations (synchronous variants)
+ *   - fs / path: file and directory I/O for compressFile / compressDirectory
+ *
+ * Side effects:
+ *   - compressFile / decompressFile / compressDirectory write to the filesystem
+ *   - compressDirectory with deleteOriginal=true removes source .json files
+ *
+ * Notes:
+ *   - All compression uses zlib.gzipSync; output is base64-encoded for safe
+ *     embedding in JSON payloads (encoding tag: 'gzip+base64').
+ *   - Data smaller than minSizeToCompress (default 1 KB) is returned as-is
+ *     to avoid overhead on tiny payloads.
+ *   - Compression is skipped when the compressed output is not smaller than
+ *     the original.
  */
 
 const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
 
+/**
+ * Stateful gzip compressor with configurable level and minimum-size threshold.
+ *
+ * All public methods are synchronous except where noted. Compression level
+ * defaults to 6 (zlib's default), balancing speed and ratio.
+ */
 class DataCompression {
     constructor(options = {}) {
         this.dataDir = options.dataDir || './data';
@@ -24,7 +55,13 @@ class DataCompression {
     }
 
     /**
-     * Compress data
+     * Compress a value using gzip and return a descriptor object.
+     * Returns uncompressed if the input is below minSizeToCompress or if
+     * compression does not reduce size.
+     *
+     * @param {string|Object|Array} data - String or JSON-serializable value
+     * @returns {Object} Descriptor with `compressed` flag, `data` (base64 if
+     *   compressed, raw string otherwise), sizes, and ratio.
      */
     compress(data) {
         const input = typeof data === 'string' ? data : JSON.stringify(data);
@@ -77,7 +114,11 @@ class DataCompression {
     }
 
     /**
-     * Decompress data
+     * Decompress a previously compressed payload.
+     *
+     * @param {string} compressedData - Base64-encoded gzip data
+     * @param {string} [encoding='gzip+base64'] - Must match the encoding used at compression
+     * @returns {{ success: boolean, data?: string, error?: string }}
      */
     decompress(compressedData, encoding = 'gzip+base64') {
         try {
@@ -96,7 +137,13 @@ class DataCompression {
     }
 
     /**
-     * Compress embeddings array
+     * Compress embedding vectors in-place within an array of embedding objects.
+     * Each object with an `embedding` array larger than 512 bytes gets its vector
+     * replaced with `embeddingCompressed` / `embeddingEncoding` fields.
+     *
+     * @param {Object[]} embeddings - Array of objects, each optionally containing
+     *   an `embedding` float array
+     * @returns {Object} Summary with counts, sizes, ratio, and the transformed array
      */
     compressEmbeddings(embeddings) {
         if (!Array.isArray(embeddings) || embeddings.length === 0) {

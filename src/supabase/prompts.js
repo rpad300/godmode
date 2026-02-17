@@ -405,10 +405,13 @@ async function buildDomainMap(projectId, maxTokens = 300) {
 }
 
 /**
- * Build all context variables for a project
+ * Build all context variables for a project in parallel.
+ * Allocates a token budget proportionally across variable types
+ * (contacts 50%, orgs 15%, projects 15%, usernames 10%, domains 10%).
+ * Also fetches company branding from the projects -> companies join.
  * @param {string} projectId - Project ID
- * @param {number} availableTokens - Total available tokens for context
- * @returns {Promise<object>} Object with all context variable strings
+ * @param {number} [availableTokens=4000] - Total available tokens for context
+ * @returns {Promise<object>} Object with all context variable strings plus company vars
  */
 async function buildContextVariables(projectId, availableTokens = 4000) {
     if (!projectId) {
@@ -490,7 +493,10 @@ function generateContentHash(content) {
 }
 
 /**
- * Render a prompt template with variables
+ * Render a prompt template by substituting {{PLACEHOLDER}} variables.
+ * Auto-generates CONTENT_HASH from CONTENT if not explicitly provided.
+ * Strips any unmatched {{UPPERCASE_PLACEHOLDERS}} after substitution so
+ * prompts degrade gracefully when context variables are unavailable.
  * @param {string} template - Prompt template with {{PLACEHOLDERS}}
  * @param {object} variables - Variables to substitute
  * @returns {string} Rendered prompt

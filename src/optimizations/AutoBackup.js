@@ -1,9 +1,34 @@
 /**
- * Auto-Backup Module
- * Automatic backup of graph and data
- * 
- * Note: Backups are stored locally on disk (not in Supabase)
- * but knowledge data is fetched from SupabaseStorage
+ * Purpose:
+ *   Automated backup and restore of the knowledge graph, knowledge base,
+ *   and configuration data. Backups are written to the local filesystem
+ *   while source data is fetched from Supabase and the graph provider.
+ *
+ * Responsibilities:
+ *   - Create timestamped full backups (graph nodes/edges, knowledge base, config)
+ *   - Restore backups into Supabase storage and the graph database
+ *   - Manage backup retention via a configurable max-backups limit
+ *   - Optionally run on a repeating interval (startAutoBackup)
+ *
+ * Key dependencies:
+ *   - fs / path: local backup directory I/O
+ *   - ../supabase/storageHelper: knowledge base and config reads for backup,
+ *     writes for restore (soft-loaded; may be unavailable)
+ *   - graphProvider (injected): Cypher queries for graph export/import
+ *
+ * Side effects:
+ *   - Writes backup directories and JSON files under this.backupDir
+ *   - Creates the backup directory on construction if it does not exist
+ *   - Deletes old backup directories when retention limit is exceeded
+ *   - Redacts API keys when backing up configuration
+ *
+ * Notes:
+ *   - Supabase import is wrapped in try/catch because the project folder
+ *     name can collide with the "supabase" package name in some setups.
+ *   - Restore is additive (facts, decisions, risks); it does not wipe
+ *     existing data before importing.
+ *   - Graph restore uses MERGE, so duplicate nodes may be created if
+ *     property sets differ from the originals.
  */
 
 const fs = require('fs');

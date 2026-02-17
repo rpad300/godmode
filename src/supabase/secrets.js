@@ -85,8 +85,18 @@ function detectProvider(key) {
 }
 
 /**
- * Create or update a secret
- * Encrypts the value before storing
+ * Create or update a secret in the `secrets` table.
+ * Encrypts the value via the `encrypt_secret` pgcrypto RPC before storing.
+ * Uses a manual check-then-insert/update pattern instead of native upsert
+ * because the unique constraint spans (scope, name, project_id) and project_id
+ * may be null for system-scoped secrets.
+ * @param {object} params
+ * @param {string} params.scope - 'system' or 'project'
+ * @param {string} [params.projectId] - Required when scope='project'
+ * @param {string} params.name - Secret name (e.g., 'openai_api_key')
+ * @param {string} params.value - Plaintext value to encrypt
+ * @param {string} [params.provider] - Provider name (auto-detected from key prefix if omitted)
+ * @param {string} [params.userId] - User performing the action
  */
 async function setSecret({
     scope,
@@ -201,8 +211,10 @@ async function setSecret({
 }
 
 /**
- * Get a secret (decrypted)
- * Only use this when you need the actual value for API calls
+ * Get a secret (decrypted) via the `decrypt_secret` pgcrypto RPC.
+ * ONLY call this when you actually need the plaintext for an API call;
+ * for display purposes use `getSecretInfo` which returns the masked value.
+ * Side effect: updates `last_used_at` on every successful read.
  */
 async function getSecret(scope, name, projectId = null) {
     const supabase = getAdminClient();
@@ -421,8 +433,9 @@ async function validateSecret(scope, name, projectId = null) {
 }
 
 /**
- * Get API key for a provider with fallback logic
- * First checks project secrets, then falls back to system secrets
+ * Resolve an API key for a provider using project -> system fallback.
+ * Naming convention: the secret name is `{provider}_api_key`.
+ * Returns the source ('project' or 'system') so callers know which scope was used.
  */
 async function getProviderApiKey(provider, projectId = null) {
     const name = `${provider}_api_key`;

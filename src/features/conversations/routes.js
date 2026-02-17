@@ -1,16 +1,53 @@
 /**
- * Conversations API
- * Extracted from server.js
+ * Purpose:
+ *   Conversation import, management, and AI-enrichment pipeline. Handles
+ *   parsing multi-format chat transcripts, AI-powered title/summary generation,
+ *   entity extraction, knowledge-base population, and vector re-embedding.
  *
- * Handles:
- * - POST /api/conversations/parse - Preview parse conversation without saving
- * - POST /api/conversations - Import conversation
- * - GET /api/conversations - List conversations
- * - GET /api/conversations/:id - Get single conversation
- * - PUT /api/conversations/:id - Update conversation metadata
- * - DELETE /api/conversations/:id - Delete conversation
- * - POST /api/conversations/:id/reembed - Re-index conversation
- * - GET /api/conversations/stats - Get conversation statistics
+ * Responsibilities:
+ *   - Parse conversations from various formats (Slack, WhatsApp, Teams, etc.)
+ *   - Import conversations with optional AI processing (title, summary, entity extraction)
+ *   - Populate knowledge base with extracted facts, decisions, risks, questions, actions, people
+ *   - Auto-detect answers to pending questions from imported conversation content
+ *   - Sync extracted entities and questions to the knowledge graph
+ *   - CRUD operations on stored conversations
+ *   - Re-embed conversation chunks via the configured embeddings provider
+ *   - Aggregate conversation statistics
+ *
+ * Key dependencies:
+ *   - ../../conversations: parser and chunk builder for embedding
+ *   - ../../ai.getAIContentProcessor: entity/relationship extraction from conversations
+ *   - ../../ontology.getOntologyAgent: optional ontology analysis of extracted data
+ *   - ../../sync.getGraphSync: graph database synchronization for questions and entities
+ *   - ../../llm/config: LLM provider/model resolution for text and embeddings
+ *   - llm (ctx): text generation and embedding APIs
+ *   - storage (ctx): conversation, knowledge, embedding, and contact persistence
+ *
+ * Side effects:
+ *   - POST /api/conversations writes conversation, knowledge items, embeddings, and graph nodes
+ *   - DELETE removes conversation, its embeddings, and graph references
+ *   - POST /reembed replaces all embedding vectors for a conversation
+ *   - Import triggers multiple LLM calls (title, extraction, answer detection)
+ *   - Contacts are tracked from conversation participants
+ *
+ * Notes:
+ *   - Parse preview is limited to 20 messages for performance
+ *   - AI processing can be skipped via { skipAI: true } in the import body
+ *   - Graph population is best-effort; individual Cypher failures are logged and skipped
+ *   - Answer auto-detection uses keyword overlap heuristic + LLM confirmation
+ *   - Conversation IDs match [a-f0-9-] (UUID format)
+ *
+ * Routes:
+ *   POST   /api/conversations/parse         - Parse preview (no save)
+ *          Body: { text, formatHint, meta }
+ *   POST   /api/conversations               - Import conversation
+ *          Body: { text, formatHint, meta, skipAI }
+ *   GET    /api/conversations               - List (?sourceApp=&participant=)
+ *   GET    /api/conversations/stats         - Aggregated statistics
+ *   GET    /api/conversations/:id           - Single conversation
+ *   PUT    /api/conversations/:id           - Update metadata
+ *   DELETE /api/conversations/:id           - Delete conversation + embeddings + graph
+ *   POST   /api/conversations/:id/reembed   - Re-generate embedding vectors
  */
 
 const { parseBody, parseUrl } = require('../../server/request');

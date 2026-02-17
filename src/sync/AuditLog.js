@@ -33,6 +33,15 @@ const { logger } = require('../logger');
 
 const log = logger.child({ module: 'audit-log' });
 
+/**
+ * Append-only audit log backed by a single JSON file.
+ *
+ * Lifecycle: constructed with a dataDir, immediately loads existing entries
+ * from disk. Every mutation (logDelete/logRestore/logPurge) persists the
+ * full array synchronously.
+ *
+ * Invariant: entries are always ordered newest-first.
+ */
 class AuditLog {
     constructor(options = {}) {
         this.dataDir = options.dataDir || './data';
@@ -143,7 +152,9 @@ class AuditLog {
     }
 
     /**
-     * Get audit log entries
+     * Query audit log entries with optional filters and pagination.
+     * All filters are AND-ed. Returns { total, entries } where total is the
+     * count after filtering but before pagination.
      */
     getEntries(options = {}) {
         let filtered = [...this.entries];
@@ -222,7 +233,9 @@ class AuditLog {
     }
 
     /**
-     * Export audit log
+     * Serialize the full audit log as a string.
+     * @param {'json'|'csv'} format - Output format; CSV uses a fixed header order
+     * @returns {string}
      */
     export(format = 'json') {
         if (format === 'csv') {

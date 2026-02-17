@@ -1,7 +1,36 @@
 /**
- * Entity Resolution Module
- * Resolves duplicate entities: "João Silva" = "J. Silva" = "joao.silva@cgi.com"
- * Uses fuzzy matching and context-aware merging
+ * Purpose:
+ *   Detect and merge duplicate Person entities in the knowledge graph by
+ *   combining fuzzy name matching, email comparison, and optional LLM
+ *   disambiguation.
+ *
+ * Responsibilities:
+ *   - Compare all Person node pairs using a weighted similarity score
+ *     (name 50%, email 30%, organization 15%, role 5%)
+ *   - Auto-merge pairs above 0.9 similarity; surface lower matches as
+ *     candidates for human review
+ *   - Merge graph relationships from the secondary entity onto the primary,
+ *     then delete the secondary node
+ *   - Provide an LLM-assisted resolution path for ambiguous cases
+ *
+ * Key dependencies:
+ *   - ../llm: optional AI-based entity comparison
+ *   - ../llm/config: per-task provider/model resolution
+ *   - graphProvider (injected): Cypher queries for entity retrieval and merge
+ *
+ * Side effects:
+ *   - Deletes duplicate Person nodes and rewires their relationships in
+ *     the graph during auto-merge
+ *   - Makes LLM API calls when resolveWithAI is invoked
+ *
+ * Notes:
+ *   - Name normalization strips non-alpha characters and lowercases;
+ *     accented characters are removed, which may cause false positives
+ *     for names that differ only by diacritics.
+ *   - Levenshtein distance computation is O(m*n); this is acceptable
+ *     for person name lengths but should not be used on large texts.
+ *   - Relationship transfer uses a generic RELATES_TO type, losing the
+ *     original relationship type. TODO: confirm if this is intentional.
  */
 
 const { logger } = require('../logger');

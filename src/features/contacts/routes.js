@@ -1,6 +1,45 @@
 /**
- * Contacts Routes
- * Extracted from src/server.js for modularization
+ * Purpose:
+ *   Contact management API routes. Provides full CRUD, relationship management,
+ *   team membership, project associations, participant linking, deduplication,
+ *   import/export, and AI-powered contact enrichment.
+ *
+ * Responsibilities:
+ *   - Contact CRUD: create, read (single + list with filters), update, delete
+ *   - List contacts enriched with team memberships (N:N) from all teams
+ *   - Contact roles list and creation
+ *   - Companies metadata endpoint for dropdowns (uses admin client to bypass RLS)
+ *   - Participant-to-contact linking and unlinking (alias management)
+ *   - Unmatched participant discovery and name-based contact matching
+ *   - Duplicate contact detection and merge
+ *   - Import/export in JSON and CSV formats
+ *   - Contact relationships CRUD (directional, typed relationships between contacts)
+ *   - Contact mentions aggregation from documents/emails
+ *   - Full association view (all teams + all projects for a contact)
+ *   - Team membership management (add/remove contact from teams)
+ *   - Project association sync and management
+ *   - Contact activity feed
+ *   - AI enrichment: LLM-powered suggestions for role, department, tags, notes
+ *
+ * Key dependencies:
+ *   - storage: Contact data access layer with Supabase and local fallbacks
+ *   - ../../sync (getGraphSync): Graph database sync for contact/team/alias changes
+ *   - ../../llm/config: LLM provider resolution for AI enrichment
+ *   - llm: Text generation for enrichment suggestions
+ *
+ * Side effects:
+ *   - Database: creates/updates/deletes contacts, relationships, team memberships,
+ *     project associations, and aliases in Supabase
+ *   - Graph DB: syncs Contact nodes, MEMBER_OF edges, ALIAS_OF edges, and
+ *     typed relationship edges on every mutation
+ *   - LLM API: calls text generation for contact enrichment
+ *
+ * Notes:
+ *   - Project context is resolved from X-Project-Id header or request body
+ *   - Team enrichment on GET /api/contacts finds ALL teams per contact (not just primary)
+ *   - Graph sync uses Cypher MERGE to be idempotent; failures are logged but non-blocking
+ *   - The merge endpoint requires at least 2 contact IDs
+ *   - Relationship type is used directly in Cypher edge labels (uppercased, spaces to underscores)
  */
 
 const { parseUrl, parseBody } = require('../../server/request');

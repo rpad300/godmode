@@ -1,6 +1,28 @@
 /**
- * Auto-Summary Module
- * Generates automatic project summaries based on the knowledge graph
+ * Purpose:
+ *   Generate LLM-powered summaries of the project by combining data from
+ *   the knowledge graph and the local storage layer.
+ *
+ * Responsibilities:
+ *   - Build a context object from storage (people, decisions, risks, facts,
+ *     questions) and the graph (projects, technologies, meetings)
+ *   - Produce executive project summaries, periodic digests, and per-entity
+ *     summaries via the configured LLM provider
+ *
+ * Key dependencies:
+ *   - ../llm: text generation for summaries
+ *   - ../llm/config: resolve per-task LLM provider/model settings
+ *   - storage (injected): local knowledge base (facts, people, decisions, etc.)
+ *   - graphProvider (injected): Cypher queries against the knowledge graph
+ *
+ * Side effects:
+ *   - Makes LLM API calls (network I/O, token consumption)
+ *
+ * Notes:
+ *   - If neither provider nor model is configured, methods return early with
+ *     an error object rather than throwing.
+ *   - Context gathering is best-effort; graph query failures are silently
+ *     swallowed so that storage-only summaries can still be produced.
  */
 
 const llm = require('../llm');

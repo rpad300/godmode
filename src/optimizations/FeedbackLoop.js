@@ -1,8 +1,29 @@
 /**
- * Feedback Loop Module
- * Learn from user corrections to improve future extractions
- * 
- * Refactored to use Supabase instead of local JSON files
+ * Purpose:
+ *   Record user corrections (renames, merges, relation-type fixes) and
+ *   apply the learned rules to future extractions so that the same
+ *   mistakes are not repeated.
+ *
+ * Responsibilities:
+ *   - Persist corrections as feedback entries in Supabase
+ *   - Maintain an in-memory cache of entity aliases, relation patterns,
+ *     and custom extraction rules (refreshed every 5 minutes)
+ *   - Translate new extractions through learned aliases (applyCorrections)
+ *   - Suggest corrections for incoming extractions based on known aliases
+ *   - Import/export learned rules for cross-project reuse
+ *
+ * Key dependencies:
+ *   - ../supabase/storageHelper: feedback persistence (soft-loaded)
+ *
+ * Side effects:
+ *   - Reads from and writes to the Supabase "feedback" table
+ *   - In-memory cache is invalidated (lastRefresh=0) after each write
+ *
+ * Notes:
+ *   - When Supabase is unavailable, the module still works using only its
+ *     in-memory cache; corrections will not survive a restart.
+ *   - getCanonicalNameSync is a synchronous variant for hot paths; it
+ *     relies on the cache having been refreshed by a prior async call.
  */
 
 const { logger } = require('../logger');

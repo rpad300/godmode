@@ -35,6 +35,17 @@ const { logger } = require('../logger');
 
 const log = logger.child({ module: 'backup-before-delete' });
 
+/**
+ * Pre-delete backup manager that stores full entity snapshots as individual
+ * JSON files under a `delete-backups/` directory, indexed by an on-disk
+ * manifest (backup-index.json).
+ *
+ * Lifecycle: on construction, loads the existing index; on every create/delete,
+ * persists the updated index synchronously.
+ *
+ * Invariant: `backupIndex` length never exceeds `maxBackups`; oldest entries
+ * are trimmed (and their files deleted) automatically.
+ */
 class BackupBeforeDelete {
     constructor(options = {}) {
         this.dataDir = options.dataDir || './data';
@@ -167,7 +178,8 @@ class BackupBeforeDelete {
     }
 
     /**
-     * Restore from backup
+     * Return the backed-up entity data for re-insertion by the caller.
+     * Does NOT perform the actual storage/graph restoration.
      */
     restoreFromBackup(backupId) {
         const backup = this.getBackup(backupId);

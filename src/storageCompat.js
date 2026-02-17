@@ -907,6 +907,11 @@ class StorageCompat {
 
     // ==================== Documents ====================
 
+    /**
+     * Get documents, optionally filtered by status.
+     * Handles the legacy/Supabase status mismatch: code uses 'processed',
+     * Supabase uses 'completed'. Filtering for 'processed' matches both.
+     */
     getDocuments(status = null) {
         let docs = this._cache.documents;
         if (status) {
@@ -928,6 +933,16 @@ class StorageCompat {
         );
     }
 
+    /**
+     * Add a document to storage with field name normalization.
+     *
+     * The legacy Storage API used inconsistent field names (name vs filename,
+     * path vs filepath vs content_path, hash vs content_hash, etc.).
+     * This method normalizes all variants into the canonical Supabase column names
+     * before persisting, so callers don't need to worry about naming conventions.
+     *
+     * Falls back to cache-only storage if the Supabase write fails.
+     */
     async addDocument(doc) {
         if (this._supabase) {
             // Normalize field names for Supabase storage
@@ -1137,8 +1152,16 @@ class StorageCompat {
     }
 
     /**
-     * Link a participant name to an existing contact
-     * Adds the participant name as an alias for future auto-matching
+     * Link a participant name to an existing contact by adding it as an alias.
+     * Once linked, future calls to findContactByNameOrAlias() will auto-match
+     * this participant name to the contact without manual intervention.
+     *
+     * Skips silently if the name already matches the contact's primary name
+     * or is already in the aliases list. Persists to Supabase and updates cache.
+     *
+     * @param {string} participantName - The name to register as an alias
+     * @param {string} contactId - The contact to link to
+     * @returns {{ linked: boolean, reason?: string, contactId?, contactName?, alias? }}
      */
     async linkParticipantToContact(participantName, contactId) {
         log.debug({ event: 'link_participant_start', participantName, contactId }, 'linkParticipantToContact');
@@ -4372,8 +4395,14 @@ class StorageCompat {
 }
 
 /**
- * Create a compatible storage instance
- * Falls back to local JSON storage if Supabase is not available
+ * Factory: create and initialize a StorageCompat instance (async).
+ *
+ * Tries to connect to Supabase if SUPABASE_URL and SUPABASE_ANON_KEY env vars
+ * are set and the supabase helper module loaded successfully. Falls back to
+ * cache-only mode (no remote persistence) otherwise.
+ *
+ * @param {string} dataDir - Root data directory for local file fallback
+ * @returns {Promise<StorageCompat>} Initialized storage instance
  */
 async function createCompatStorage(dataDir) {
     let supabaseStorage = null;

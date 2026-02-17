@@ -1,6 +1,33 @@
 /**
- * Graph Database Provider Interface
- * Base class for all graph database backends
+ * Purpose:
+ *   Abstract base class defining the contract that every graph database backend
+ *   must implement. Provides stub implementations that return "Not implemented"
+ *   errors, making it safe to call any method on an un-overridden provider.
+ *
+ * Responsibilities:
+ *   - Declare the full surface area for graph operations: connect/disconnect,
+ *     CRUD for nodes and relationships, Cypher query execution, path traversal,
+ *     text/vector search, bulk operations, and graph lifecycle management
+ *   - Supply sensible no-op defaults so concrete providers only override what
+ *     they support
+ *   - Provide shared utility methods (ID generation, Cypher escaping, logging)
+ *   - Expose static `capabilities` and `info` getters for feature negotiation
+ *
+ * Key dependencies:
+ *   - ../logger: structured logging (used by the log() utility method)
+ *
+ * Side effects:
+ *   - None at the base class level (all operations return stub results)
+ *
+ * Notes:
+ *   - Subclasses should override the static `capabilities` getter to declare
+ *     which features they actually support (cypher, traversal, vectorSearch, etc.).
+ *   - The `connected` flag is managed manually; subclasses must set it in connect()
+ *     and disconnect().
+ *   - bulkCreateNodes/bulkCreateRelationships provide naive sequential fallbacks;
+ *     concrete providers should override with batched implementations for performance.
+ *   - generateId() uses a timestamp + random suffix -- suitable for single-process
+ *     uniqueness but not collision-safe across distributed workers.
  */
 
 const { logger } = require('../logger');

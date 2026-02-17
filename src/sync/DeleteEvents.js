@@ -37,6 +37,14 @@ const { logger } = require('../logger');
 
 const log = logger.child({ module: 'delete-events' });
 
+/**
+ * EventEmitter subclass that broadcasts delete/restore events to both
+ * in-process listeners (via `on('delete', ...)`) and remote clients
+ * (via WebSocket push or SSE stream).
+ *
+ * Maintains a bounded history ring of recent events for late-joining
+ * subscribers.
+ */
 class DeleteEvents extends EventEmitter {
     constructor(options = {}) {
         super();
@@ -174,7 +182,11 @@ class DeleteEvents extends EventEmitter {
     }
 
     /**
-     * Create SSE stream for delete events
+     * Returns an Express-compatible request handler that opens an SSE stream.
+     * The handler sends a `connected` message immediately, then streams every
+     * delete and restore event as `data:` frames. A 30-second heartbeat keeps
+     * the connection alive through proxies. All listeners are cleaned up when
+     * the client disconnects.
      */
     createSSEHandler() {
         return (req, res) => {

@@ -1,14 +1,37 @@
 /**
- * MultiGraphManager - Manages multiple graphs for multi-project architecture
- * 
- * Architecture:
- * - One shared graph (_shared) for common entities: Person, Technology, Client, Organization
- * - One graph per project (project_{id}) for project-specific data: Facts, Meetings, Decisions, etc.
- * 
- * This allows:
- * - No duplication of people across projects
- * - Easy cross-project queries ("In which projects is João?")
- * - Project isolation for sensitive data
+ * Purpose:
+ *   Manages a partitioned graph topology where shared entities (people,
+ *   technologies, clients, organisations) live in a single "_shared" graph
+ *   and project-specific data (facts, meetings, decisions, etc.) lives in
+ *   per-project graphs ("project_{id}"). This avoids entity duplication
+ *   while preserving project-level data isolation.
+ *
+ * Responsibilities:
+ *   - Route node creation and queries to the correct graph based on entity type
+ *   - Stamp shared entities with a `projects` array for cross-project membership
+ *   - Provide cross-graph reference nodes (_CrossRef) linking shared to project entities
+ *   - Query across all project graphs in sequence and aggregate results
+ *   - Discover cross-project relationships (e.g. people bridging multiple projects)
+ *   - Collect aggregate statistics across all graphs
+ *   - Sync a heterogeneous data payload, splitting shared vs project-specific data
+ *
+ * Key dependencies:
+ *   - A GraphProvider instance that supports switchGraph() for multi-graph isolation
+ *
+ * Side effects:
+ *   - Calls provider.switchGraph() frequently, which changes the active graph context
+ *     on the underlying provider. Operations are NOT parallelised across graphs to
+ *     avoid context-switching race conditions.
+ *   - Writes _CrossRef nodes into project graphs for cross-graph relationships
+ *
+ * Notes:
+ *   - The provider must support switchGraph(); the Supabase provider implements this
+ *     by changing the graph_name filter on all queries.
+ *   - listProjectGraphs() currently only returns graphs already seen in the local
+ *     graphCache Map. It does NOT query the provider for a full graph list, so newly
+ *     created graphs outside this manager will not be discovered. TODO: confirm intent.
+ *   - Singleton available via getMultiGraphManager(provider). resetMultiGraphManager()
+ *     clears the singleton, e.g. for test teardown.
  */
 
 class MultiGraphManager {

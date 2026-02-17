@@ -531,7 +531,10 @@ async function getStats(projectId = null) {
 }
 
 /**
- * Cleanup old completed events
+ * Permanently delete completed outbox events older than N days.
+ * This is a hard delete, not a soft delete; completed events are no longer needed
+ * once the graph sync has been confirmed.
+ * @param {number} [daysOld=7] - Delete events processed more than this many days ago
  */
 async function cleanup(daysOld = 7) {
     const supabase = getAdminClient();

@@ -277,7 +277,12 @@ async function regenerateSecret(webhookId) {
 }
 
 /**
- * Trigger webhooks for an event
+ * Trigger all active webhooks subscribed to the given event type for a project.
+ * Uses Supabase `contains` filter to match webhooks whose `events` array
+ * includes the given event type. Delivers each webhook sequentially.
+ * @param {string} projectId
+ * @param {string} eventType - One of WEBHOOK_EVENTS values
+ * @param {object} payload - Event data to send
  */
 async function triggerWebhooks(projectId, eventType, payload) {
     const supabase = getAdminClient();
@@ -304,7 +309,15 @@ async function triggerWebhooks(projectId, eventType, payload) {
 }
 
 /**
- * Deliver a webhook
+ * Deliver a single webhook payload via HTTP POST.
+ * Creates a delivery record in `webhook_deliveries` before the request,
+ * updates it with the response (or error), and updates webhook-level stats.
+ * On failure, schedules a retry via setTimeout with linear backoff
+ * (delay * attemptNumber). Note: retries are in-process and not durable.
+ * @param {object} webhook - Full webhook row from DB (including secret)
+ * @param {string} eventType - Event being delivered
+ * @param {object} payload - Event data
+ * @param {number} [attemptNumber=1] - Current attempt (1-indexed)
  */
 async function deliverWebhook(webhook, eventType, payload, attemptNumber = 1) {
     const supabase = getAdminClient();

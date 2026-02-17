@@ -80,8 +80,17 @@ async function listByUser(userId) {
 }
 
 /**
- * Get a company by ID (admin client bypasses RLS; caller must enforce auth).
- * Attaches analysis_report from company_analyses table when present.
+ * Get a company by ID, enriched with analysis data.
+ *
+ * Fetches the row from `companies`, then fetches the matching
+ * `company_analyses` row. If analysis exists, its sections are merged
+ * into `company.brand_assets.analysis_report` and color/AI-context
+ * fields are hoisted onto `brand_assets`.
+ *
+ * The admin client bypasses RLS; the caller must enforce authorization.
+ *
+ * @param {string} id - Company UUID
+ * @returns {Promise<{success: boolean, company?: object, error?: string}>}
  */
 async function getCompany(id) {
     const supabase = getAdminClient();
@@ -136,7 +145,15 @@ async function getCompanyAnalysis(companyId) {
 }
 
 /**
- * Upsert company analysis (one row per company; used after analyze)
+ * Upsert company analysis data (one row per company in `company_analyses`).
+ *
+ * Called after the AI analysis pipeline completes. Uses `company_id` as
+ * the conflict key to update an existing row or insert a new one.
+ *
+ * @param {string} companyId
+ * @param {object} payload - Analysis fields: { analyzed_at, primary_color,
+ *   secondary_color, ai_context, ficha_identidade, visao_geral, ... }
+ * @returns {Promise<{success: boolean, analysis?: object, error?: string}>}
  */
 async function upsertCompanyAnalysis(companyId, payload) {
     const supabase = getAdminClient();
@@ -233,7 +250,12 @@ async function updateCompany(id, updates) {
 }
 
 /**
- * Delete a company (fails if any project references it, per RESTRICT)
+ * Delete a company. Will fail with a Postgres foreign-key violation if
+ * any project still references this company (RESTRICT constraint on
+ * projects.company_id).
+ *
+ * @param {string} id - Company UUID
+ * @returns {Promise<{success: boolean, error?: string}>}
  */
 async function deleteCompany(id) {
     const supabase = getAdminClient();

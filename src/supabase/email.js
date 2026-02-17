@@ -51,7 +51,19 @@ function isConfigured() {
 }
 
 /**
- * Send an email via Resend
+ * Send an email via the Resend REST API.
+ *
+ * Returns early with an error result if Resend is not configured.
+ * The `to` param is normalized to an array for the API payload.
+ *
+ * @param {object} params
+ * @param {string|string[]} params.to - Recipient email(s)
+ * @param {string} params.subject
+ * @param {string} params.html - HTML body
+ * @param {string} [params.text] - Plaintext fallback
+ * @param {string} [params.from] - Defaults to DEFAULT_FROM
+ * @param {string} [params.replyTo]
+ * @returns {Promise<{success: boolean, id?: string, error?: string}>}
  */
 async function sendEmail({ to, subject, html, text, from = DEFAULT_FROM, replyTo }) {
     if (!isConfigured()) {
@@ -92,7 +104,18 @@ async function sendEmail({ to, subject, html, text, from = DEFAULT_FROM, replyTo
 }
 
 /**
- * Send project invitation email
+ * Send a branded project invitation email with inviter name, project name,
+ * role badge, optional personal message, and CTA button linking to the
+ * invite acceptance URL.
+ *
+ * @param {object} params
+ * @param {string} params.to - Recipient email
+ * @param {string} params.inviterName
+ * @param {string} params.projectName
+ * @param {string} params.role - 'admin' or other (displayed as "Team Member")
+ * @param {string} [params.message] - Optional personal note from inviter
+ * @param {string} params.inviteLink - Full URL to accept the invitation
+ * @returns {Promise<{success: boolean, id?: string, error?: string}>}
  */
 async function sendInvitationEmail({ to, inviterName, projectName, role, message, inviteLink }) {
     const subject = `${inviterName} invited you to join ${projectName} on GodMode`;

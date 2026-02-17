@@ -431,7 +431,9 @@ async function createReplyNotification(supabase, comment, parentId) {
 }
 
 /**
- * Organize comments into threaded structure
+ * Organize a flat array of comments into a nested tree.
+ * Each node gets a `replies` array. Orphaned replies (parent deleted)
+ * are promoted to root level rather than being dropped.
  */
 function organizeThreads(comments) {
     const byId = {};

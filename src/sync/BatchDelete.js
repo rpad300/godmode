@@ -33,6 +33,14 @@ const { logger } = require('../logger');
 
 const log = logger.child({ module: 'batch-delete' });
 
+/**
+ * Coordinates bulk deletion of multiple entities, chaining soft-delete,
+ * cascade, audit, and a single batched graph DELETE per operation.
+ *
+ * Dependencies (softDelete, auditLog, cascadeDelete, graphProvider, storage)
+ * are optional and injected late via `setDependencies`. If a dependency is
+ * missing, the corresponding step is silently skipped.
+ */
 class BatchDelete {
     constructor(options = {}) {
         this.graphProvider = options.graphProvider;
@@ -148,7 +156,10 @@ class BatchDelete {
     }
 
     /**
-     * Delete items matching a filter
+     * Retrieve all items of `type` from storage, apply the given predicate,
+     * and batch-delete the matching set. If more than 10 items match and
+     * `options.confirmed` is not true, returns a confirmation prompt instead
+     * of proceeding -- a safety guard against accidental mass deletion.
      */
     async deleteByFilter(type, filter, options = {}) {
         let items = [];

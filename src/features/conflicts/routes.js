@@ -1,12 +1,33 @@
 /**
- * Conflicts, Fact-check and Decision-check API
- * Extracted from server.js
+ * Purpose:
+ *   AI-powered conflict detection for facts and decisions. Provides both
+ *   read-only detection (no side effects) and trigger endpoints that
+ *   record conflict_detected events into the event log.
  *
- * Handles:
- * - GET /api/conflicts - Detect conflicting facts (no events)
- * - POST /api/fact-check/run - Trigger fact-check flow (records events)
- * - GET /api/conflicts/decisions - Detect conflicting decisions (no events)
- * - POST /api/decision-check/run - Trigger decision-check flow (records events)
+ * Responsibilities:
+ *   - Detect contradictory or conflicting facts via LLM analysis
+ *   - Detect conflicting decisions via LLM analysis
+ *   - Optionally record conflict events for audit/timeline purposes
+ *
+ * Key dependencies:
+ *   - ../../fact-check.runFactCheck: AI fact-conflict detection pipeline
+ *   - ../../decision-check/DecisionCheckFlow.runDecisionCheck: AI decision-conflict pipeline
+ *   - storage, config (ctx): knowledge store and LLM configuration
+ *
+ * Side effects:
+ *   - GET routes: none (recordEvents: false)
+ *   - POST routes: write conflict_detected events to the event log
+ *
+ * Notes:
+ *   - Fact-check requires at least 2 facts to compare; returns a message otherwise
+ *   - Both modules are lazy-required to avoid loading AI deps at startup
+ *   - Error responses still include an empty conflicts array for UI stability
+ *
+ * Routes:
+ *   GET  /api/conflicts            - Detect fact conflicts (read-only)
+ *   POST /api/fact-check/run       - Run fact-check and record events
+ *   GET  /api/conflicts/decisions  - Detect decision conflicts (read-only)
+ *   POST /api/decision-check/run   - Run decision-check and record events
  */
 
 const { jsonResponse } = require('../../server/response');

@@ -1,11 +1,25 @@
 /**
- * Cache - Simple in-memory cache with TTL support
- * 
- * Features:
- * - TTL (time-to-live) for automatic expiration
- * - LRU eviction when max size reached
- * - Statistics tracking
- * - Namespace support
+ * Purpose:
+ *   Provides an in-memory key-value cache with TTL expiration, LRU eviction,
+ *   and a specialised QueryCache subclass for GraphRAG query results.
+ *
+ * Responsibilities:
+ *   - Store/retrieve values with automatic TTL expiration
+ *   - Evict least-recently-used entries when capacity is reached
+ *   - Track hit/miss/eviction statistics for observability
+ *   - Namespace keys to isolate cache domains
+ *   - QueryCache normalises query text for consistent cache keys
+ *
+ * Key dependencies:
+ *   - ../logger: Structured logging (pino)
+ *
+ * Side effects:
+ *   - Starts a 60-second setInterval for expired-entry cleanup; call destroy() to clear
+ *
+ * Notes:
+ *   - LRU eviction is O(n) over the Map; acceptable for the default 1000-entry cap
+ *   - getOrCompute() is not concurrency-safe -- parallel callers may compute simultaneously
+ *   - Singleton factories (getCache / getQueryCache) ignore options after first call
  */
 
 const { logger } = require('../logger');

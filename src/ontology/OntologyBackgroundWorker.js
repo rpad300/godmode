@@ -41,7 +41,30 @@ const { logger } = require('../logger');
 
 const log = logger.child({ module: 'ontology-background-worker' });
 
+/**
+ * Background worker that orchestrates periodic and on-demand ontology
+ * maintenance jobs. All sub-module dependencies are lazily loaded to
+ * avoid circular requires and to tolerate missing optional modules.
+ *
+ * Lifecycle: construct -> setGraphProvider/setStorage/setLLMConfig ->
+ * runFullAnalysis() | scheduleAnalysis() | runInferenceRules() | etc.
+ *
+ * Invariant: only one job runs at a time (guarded by this.isRunning).
+ * Concurrent calls to scheduleAnalysis() are debounced; only the last
+ * one within the debounce window fires.
+ */
 class OntologyBackgroundWorker {
+    /**
+     * @param {object} options
+     * @param {object} [options.graphProvider] - Graph backend
+     * @param {object} [options.storage] - Supabase storage
+     * @param {object} [options.llmConfig] - LLM configuration for AI analysis
+     * @param {object} [options.appConfig] - App-level config
+     * @param {string} [options.dataDir='./data'] - Data directory for sub-modules
+     * @param {number} [options.analysisDebounceMs=300000] - Debounce window (5 min default)
+     * @param {number} [options.autoApproveThreshold=0.85] - Confidence threshold for auto-approve
+     * @param {number} [options.minNodesForAnalysis=10] - Skip analysis below this node count
+     */
     constructor(options = {}) {
         this.graphProvider = options.graphProvider || null;
         this.storage = options.storage || null;

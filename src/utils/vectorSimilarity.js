@@ -1,7 +1,22 @@
 /**
- * Vector similarity utilities (cosine similarity, findSimilar).
- * Provider-agnostic; used by GraphRAG, RAG routes, and Chat routes
- * so they do not depend on the Ollama client.
+ * Purpose:
+ *   Pure-math vector similarity functions decoupled from any embedding provider,
+ *   shared by GraphRAG, RAG routes, and Chat routes.
+ *
+ * Responsibilities:
+ *   - Compute cosine similarity between two embedding vectors
+ *   - Rank a list of items by similarity to a query embedding and return top-K
+ *
+ * Key dependencies:
+ *   - None (zero external dependencies)
+ *
+ * Side effects:
+ *   - None
+ *
+ * Notes:
+ *   - cosineSimilarity returns 0 for mismatched lengths or zero-magnitude vectors
+ *     rather than throwing, so callers should validate embeddings upstream
+ *   - findSimilar filters out items with empty/missing embeddings before scoring
  */
 
 /**

@@ -1,13 +1,47 @@
 /**
- * Optimizations feature routes
- * Extracted from server.js
+ * Purpose:
+ *   Platform optimization and operational tooling API. Covers graph analytics,
+ *   entity deduplication, exports, auto-tagging, caching, query planning,
+ *   health monitoring, webhooks, backups, NER, and context optimization.
  *
- * Handles:
- * - /api/optimizations/* - analytics, insights, resolve-duplicates, summary, digest, dedup,
- *   export, tag, feedback, sync-stats, health, memory, cache, query, indexes, suggestions,
- *   usage, ratelimit, ner, context/optimize
- * - /api/webhooks - GET/POST (optimizations getWebhooks), DELETE /:id, POST /:id/test
- * - /api/backups - GET, POST, :name/restore
+ * Responsibilities:
+ *   - Graph analytics and actionable insights
+ *   - Entity duplicate resolution using LLM-powered matching
+ *   - Auto-generated project summaries and periodic digests
+ *   - Smart deduplication across all storage entity types
+ *   - Multi-format graph export (JSON, Cypher, GraphML, CSV, knowledge base)
+ *   - Auto-tagging of documents via LLM
+ *   - Feedback loop for correction tracking
+ *   - Webhook endpoint management (register, delete, test)
+ *   - Incremental sync stats, system health monitoring, memory pool stats
+ *   - Semantic cache management, query planning and optimization
+ *   - Graph indexing, query suggestions, usage analytics, rate limiting stats
+ *   - Multi-language Named Entity Recognition (NER)
+ *   - RAG context optimization (token-aware context selection)
+ *   - Backup creation and restore
+ *
+ * Key dependencies:
+ *   - ../../optimizations: all optimization modules (getGraphAnalytics, getEntityResolver,
+ *     getAutoSummary, getSmartDedup, getExportGraph, getAutoTagging, getFeedbackLoop,
+ *     getWebhooks, getIncrementalSync, getHealthMonitor, getMemoryPool, getSemanticCache,
+ *     getQueryPlanner, getGraphIndexing, getQuerySuggestions, getUsageAnalytics,
+ *     getRateLimiter, getMultiLanguageNER, getContextOptimizer, getAutoBackup)
+ *   - storage.getGraphProvider(): graph database access
+ *   - config.llm: LLM configuration for AI-powered features
+ *
+ * Side effects:
+ *   - Backup creation writes to the filesystem
+ *   - Export writes files to disk (POST export with filename)
+ *   - Cache clear removes in-memory semantic cache entries
+ *   - Index creation modifies graph database schema
+ *   - Feedback corrections are persisted to local data directory
+ *   - Webhook registration and removal modify persistent webhook store
+ *
+ * Notes:
+ *   - /api/webhooks routes here serve optimizations-specific webhooks; they may overlap
+ *     with a separate webhooks feature if one exists -- this handler runs as a fallback
+ *   - /api/backups routes provide graph/storage-level backup, distinct from sync backups
+ *   - All routes are wrapped in a try/catch returning { ok: false, error } on failure
  */
 
 const { parseBody, parseUrl } = require('../../server/request');

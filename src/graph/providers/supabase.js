@@ -1,15 +1,47 @@
 /**
- * SupabaseGraphProvider - Graph database using Supabase PostgreSQL
- * 
- * Uses Supabase (already in the project) to store graph data.
- * No additional infrastructure needed!
- * 
- * Features:
- * - Uses existing Supabase connection
- * - Real-time sync capabilities
- * - Full PostgreSQL power (JSON, arrays, full-text search)
- * - RLS security
- * - Multi-graph support via project_id
+ * Purpose:
+ *   Concrete GraphProvider implementation backed by Supabase PostgreSQL.
+ *   Stores graph nodes and relationships in two tables (`graph_nodes`,
+ *   `graph_relationships`) using JSONB properties, enabling full graph
+ *   operations without a dedicated graph database.
+ *
+ * Responsibilities:
+ *   - CRUD for nodes and relationships, using upsert for idempotent writes
+ *   - Multi-graph isolation via a `graph_name` column on every row
+ *   - Project-scoped queries via an optional `project_id` filter
+ *   - Translate a subset of Cypher patterns into Supabase PostgREST queries
+ *     (count, node match, relationship match, detach delete, merge)
+ *   - Full-text search using PostgreSQL websearch with ILIKE fallback
+ *   - Graph statistics: node/relationship counts, label and type distributions
+ *   - Sync status tracking via `graph_sync_status` table
+ *   - Data hygiene: prune stale entries, deduplicate Meeting nodes, clean
+ *     orphaned relationships
+ *
+ * Key dependencies:
+ *   - ../GraphProvider: abstract base class
+ *   - ../../logger: structured logging
+ *   - A Supabase JS client instance (injected via config.supabase)
+ *
+ * Side effects:
+ *   - All write operations mutate the `graph_nodes`, `graph_relationships`,
+ *     and `graph_sync_status` tables in Supabase
+ *   - connect() probes the `graph_nodes` table; if missing, returns an error
+ *     indicating the migration has not been run
+ *   - disconnect() is a no-op because the Supabase client is shared/external
+ *
+ * Notes:
+ *   - _executeCypher() is a pattern-matching translator, NOT a full Cypher parser.
+ *     It recognises specific Cypher shapes (count, match-return, detach-delete,
+ *     merge-set) and silently returns empty results for unsupported patterns.
+ *   - Relationship IDs default to `{type}:{fromId}:{toId}`, making them
+ *     deterministic and idempotent under upsert.
+ *   - updateNode() enforces project-level access control: if a project context
+ *     is set, nodes belonging to a different project are rejected.
+ *   - deleteNode() cascades to relationships referencing the deleted node.
+ *   - getSprintReportContext() performs a manual multi-hop join
+ *     (Sprint <- IN_SPRINT <- Action <- ASSIGNED_TO <- Person) via three
+ *     sequential Supabase queries, since the Cypher translator cannot handle
+ *     this pattern natively.
  */
 
 const { logger } = require('../../logger');

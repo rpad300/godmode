@@ -1,7 +1,28 @@
 /**
- * Confidence Scores Module
- * Adds confidence scores to entities and relationships
- * Tracks source reliability and extraction confidence
+ * Purpose:
+ *   Attach, update, and query numerical confidence scores on graph nodes
+ *   and relationships to reflect extraction reliability.
+ *
+ * Responsibilities:
+ *   - Calculate a composite confidence score from source type, AI confidence,
+ *     occurrence count, context availability, and partial-match penalties
+ *   - Persist confidence metadata (score, source, timestamp) on graph nodes
+ *     and relationships via Cypher SET operations
+ *   - Retrieve low-confidence items for human review
+ *   - Incrementally boost confidence when corroborating evidence arrives
+ *   - Report aggregate confidence statistics (avg, min, max)
+ *
+ * Key dependencies:
+ *   - graphProvider (injected): Cypher read/write against the knowledge graph
+ *
+ * Side effects:
+ *   - Mutates node and relationship properties in the graph database
+ *
+ * Notes:
+ *   - Source weights are hardcoded (manual=1.0 down to unknown=0.5).
+ *     Future extension could allow per-project overrides.
+ *   - boostConfidence caps scores at 1.0 and initialises missing values
+ *     to 0.5 before boosting.
  */
 
 class ConfidenceScores {

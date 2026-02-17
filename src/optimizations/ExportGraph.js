@@ -1,6 +1,30 @@
 /**
- * Export Graph Module
- * Export knowledge graph to various formats (JSON, Neo4j, RDF, etc.)
+ * Purpose:
+ *   Export the knowledge graph and knowledge base to multiple portable
+ *   formats for external consumption or migration.
+ *
+ * Responsibilities:
+ *   - Export graph data to JSON, Neo4j Cypher script, GraphML (XML), and
+ *     CSV (separate nodes + edges files)
+ *   - Export the knowledge base (facts, decisions, risks, etc.) to JSON
+ *   - Save any export format to the local filesystem under a configurable
+ *     export directory
+ *
+ * Key dependencies:
+ *   - fs / path: file I/O for saved exports
+ *   - graphProvider (injected): Cypher queries for graph node/relationship reads
+ *   - storage (injected): local knowledge base data retrieval
+ *
+ * Side effects:
+ *   - Writes export files to this.exportDir (created on demand)
+ *   - Graph exports issue full-scan Cypher queries (MATCH (n) / MATCH ()-[r]->())
+ *     which can be expensive on large graphs
+ *
+ * Notes:
+ *   - Cypher export uses CREATE (not MERGE), so re-running the script on
+ *     an existing database will create duplicates.
+ *   - CSV export uses a fixed column set (id, label, name, role, org, email);
+ *     nodes with additional properties will lose those columns.
  */
 
 const fs = require('fs');

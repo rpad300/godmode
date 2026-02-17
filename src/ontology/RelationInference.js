@@ -43,7 +43,26 @@ const llm = require('../llm');
 
 const log = logger.child({ module: 'relation-inference' });
 
+/**
+ * Hybrid heuristic + LLM entity and relationship extractor.
+ *
+ * Works on raw text input: first applies regex-based heuristic patterns
+ * for high-precision extraction, then optionally calls an LLM for
+ * higher-recall extraction. Results are merged with confidence boosting
+ * when both sources agree, and filtered by a minimum confidence threshold.
+ *
+ * Also provides graph-level inference rule execution (delegating to
+ * InferenceEngine for Supabase providers).
+ */
 class RelationInference {
+    /**
+     * @param {object} options
+     * @param {object} [options.ontology] - OntologyManager instance (defaults to singleton)
+     * @param {object} [options.llmProvider] - Legacy direct LLM provider reference
+     * @param {object} [options.llmConfig] - LLM configuration for text generation
+     * @param {number} [options.minConfidence=0.5] - Filter threshold for merged results
+     * @param {boolean} [options.enableLLMExtraction=true] - Whether to use LLM extraction
+     */
     constructor(options = {}) {
         this.ontology = options.ontology || getOntologyManager();
         this.llmProvider = options.llmProvider; // Legacy - kept for compatibility
@@ -550,10 +569,20 @@ Respond with this JSON structure:
     }
 
     /**
-     * Calculate relationship strength between entities
-     * @param {object} entity1 
-     * @param {object} entity2 
-     * @param {Array} sharedContext - Things they have in common
+     * Calculate a 0-1 relationship strength score between two entities based
+     * on shared context signals: same organisation, shared projects, shared
+     * meetings. The score is additive with a hard cap at 1.0.
+     *
+     * Scoring breakdown:
+     *   - Base: +0.1 (any relation at all)
+     *   - Shared context items: +0.1 each, max +0.4
+     *   - Same organisation: +0.2
+     *   - Shared projects: +0.1 each, max +0.2
+     *   - Shared meetings: +0.05 each, max +0.1
+     *
+     * @param {object} entity1
+     * @param {object} entity2
+     * @param {Array} sharedContext - Array of {type, ...} objects they share
      * @returns {number} - Strength from 0 to 1
      */
     calculateRelationStrength(entity1, entity2, sharedContext = []) {

@@ -88,7 +88,13 @@ class CascadeDelete {
     }
 
     /**
-     * Execute cascade delete for an item
+     * Execute all cascade rules for the given entity type.
+     * Runs graph-side Cypher queries first, then local cleanup methods.
+     * Errors in individual steps are collected but do not abort the cascade.
+     *
+     * @param {string} type - Entity type key matching a cascadeRules entry
+     * @param {object} item - Entity with at least { id, name }
+     * @returns {Promise<object>} Summary of deleted graph data, local cleanups, and errors
      */
     async cascadeDelete(type, item) {
         const results = {

@@ -69,7 +69,18 @@ const NOTIFICATION_TYPES = {
 };
 
 /**
- * Create a notification
+ * Insert a single notification row.
+ *
+ * @param {object} params
+ * @param {string} params.userId - Recipient user ID
+ * @param {string} [params.projectId] - Associated project (nullable for system-wide)
+ * @param {string} params.type - One of NOTIFICATION_TYPES values
+ * @param {string} params.title - Short display title
+ * @param {string} [params.body] - Longer description
+ * @param {string} [params.referenceType] - Entity type (e.g. 'comment', 'billing')
+ * @param {string} [params.referenceId] - Entity UUID for deep-linking
+ * @param {string} [params.actorId] - User who triggered the notification
+ * @returns {Promise<{success: boolean, notification?: object, error?: string}>}
  */
 async function createNotification({
     userId,
@@ -282,7 +293,11 @@ async function deleteNotification(notificationId, userId) {
 }
 
 /**
- * Delete old notifications (cleanup)
+ * Cleanup: delete read notifications older than `daysOld` days.
+ * Unread notifications are preserved regardless of age.
+ *
+ * @param {number} [daysOld=30]
+ * @returns {Promise<{success: boolean, deleted?: number, error?: string}>}
  */
 async function deleteOldNotifications(daysOld = 30) {
     const supabase = getAdminClient();
@@ -312,7 +327,19 @@ async function deleteOldNotifications(daysOld = 30) {
 // ==================== Watched Items ====================
 
 /**
- * Watch an item for notifications
+ * Subscribe a user to notifications for a specific entity. Uses upsert
+ * on the composite key (user_id, project_id, target_type, target_id) so
+ * calling this again updates preference flags rather than duplicating.
+ *
+ * @param {object} params
+ * @param {string} params.userId
+ * @param {string} params.projectId
+ * @param {string} params.targetType - e.g. 'fact', 'document'
+ * @param {string} params.targetId
+ * @param {boolean} [params.notifyComments=true]
+ * @param {boolean} [params.notifyUpdates=true]
+ * @param {boolean} [params.notifyMentions=true]
+ * @returns {Promise<{success: boolean, watch?: object, error?: string}>}
  */
 async function watchItem({
     userId,
@@ -438,7 +465,25 @@ async function getUserWatchedItems(userId, projectId = null) {
 }
 
 /**
- * Notify watchers of an item (except the actor)
+ * Fan-out a notification to all watchers of an item, excluding the actor
+ * and respecting each watcher's preference flag.
+ *
+ * Iterates sequentially (not batched). For high fan-out scenarios
+ * (hundreds of watchers), consider a bulk insert instead.
+ *
+ * @param {object} params
+ * @param {string} params.projectId
+ * @param {string} params.targetType
+ * @param {string} params.targetId
+ * @param {string} params.type - Notification type
+ * @param {string} params.title
+ * @param {string} [params.body]
+ * @param {string} params.actorId - Excluded from recipients
+ * @param {string} [params.referenceType]
+ * @param {string} [params.referenceId]
+ * @param {string} [params.checkPreference='notify_updates'] - Which
+ *   watched_items boolean column to check (e.g. 'notify_comments')
+ * @returns {Promise<{success: boolean, notified: number}>}
  */
 async function notifyWatchers({
     projectId,

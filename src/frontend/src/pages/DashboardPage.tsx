@@ -1,3 +1,27 @@
+/**
+ * Purpose:
+ *   Main dashboard page displaying a high-level overview of the current project's
+ *   knowledge base: stat cards, a bar chart summary, and recent activity feed.
+ *
+ * Responsibilities:
+ *   - Fetch and display aggregate counts (questions, facts, risks, actions, decisions, contacts, documents)
+ *   - Render a Recharts bar chart for visual comparison across entity types
+ *   - Show a "no project selected" prompt when no active project exists
+ *   - List recent activity entries with timestamps
+ *
+ * Key dependencies:
+ *   - useDashboard / useStats (useGodMode): server data for counters and activity
+ *   - useProject: provides the currently selected project ID
+ *   - recharts: bar chart visualization
+ *
+ * Side effects:
+ *   - Network: fetches /dashboard and /stats endpoints on mount
+ *
+ * Notes:
+ *   - `counters` falls back through dashboard.stats -> stats -> empty object to handle
+ *     both legacy and current API shapes.
+ *   - Stat cards are clickable and navigate to the relevant detail page (/sot, /contacts, /files).
+ */
 import { useNavigate } from 'react-router-dom';
 import { useDashboard, useStats } from '../hooks/useGodMode';
 import { useProject } from '../hooks/useProject';

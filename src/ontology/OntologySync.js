@@ -45,7 +45,31 @@ const { getInferenceEngine } = require('./InferenceEngine');
 
 const log = logger.child({ module: 'ontology-sync' });
 
+/**
+ * Real-time ontology synchronisation bridge between Supabase and the graph
+ * database. Listens for changes on the ontology_schema table via Supabase
+ * Realtime and propagates them to OntologyManager and (optionally) the graph.
+ *
+ * Lifecycle: construct -> startListening() -> (receives changes) ->
+ * stopListening() on shutdown.
+ *
+ * Invariant: at most one sync operation runs at a time (guarded by
+ * this.syncInProgress). If a new batch arrives during an active sync,
+ * processing is rescheduled after 1 second.
+ */
 class OntologySync {
+    /**
+     * @param {object} options
+     * @param {object} [options.supabase] - Supabase client for Realtime subscriptions
+     * @param {object} [options.graphProvider] - Graph backend for schema sync
+     * @param {object} [options.storage] - Supabase storage (injected into OntologyManager)
+     * @param {boolean} [options.autoSyncToGraph=true] - Push schema to graph after Supabase changes
+     * @param {boolean} [options.runInferenceOnSync=false] - Re-run inference rules after each sync
+     * @param {number} [options.debounceMs=2000] - Batch window for rapid changes
+     * @param {Function} [options.onSchemaChange] - Called immediately on each change event
+     * @param {Function} [options.onSyncComplete] - Called after successful batch processing
+     * @param {Function} [options.onSyncError] - Called on processing errors
+     */
     constructor(options = {}) {
         this.supabase = options.supabase;
         this.graphProvider = options.graphProvider;

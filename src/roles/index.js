@@ -1,6 +1,24 @@
 /**
- * Role Management System
- * Comprehensive role-based features for personalized project management
+ * Purpose:
+ *   Central barrel file and facade for the role management subsystem.
+ *   Aggregates every role-related module behind a single unified API (RoleManager).
+ *
+ * Responsibilities:
+ *   - Re-exports individual role module classes and their singleton accessors
+ *   - Provides initRoleModules() to wire shared dependencies (storage, dataDir, llmConfig)
+ *   - Exposes RoleManager as a high-level facade that delegates to each module
+ *
+ * Key dependencies:
+ *   - All sibling modules in ./roles/: each handles one feature domain
+ *
+ * Side effects:
+ *   - Singleton instances are created lazily; once created they persist for the process lifetime
+ *
+ * Notes:
+ *   - Storage and dataDir are injected after construction via setter methods so modules
+ *     can be instantiated before the project context is known.
+ *   - getRoleManager() returns a process-wide singleton; reinitializing with different
+ *     options after first call has no effect.
  */
 
 const { RoleTemplates, getRoleTemplates } = require('./RoleTemplates');
@@ -17,7 +35,13 @@ const { RoleOnboarding, getRoleOnboarding } = require('./RoleOnboarding');
 const { RoleExport, getRoleExport } = require('./RoleExport');
 
 /**
- * Initialize all role modules with shared dependencies
+ * Initialize all role modules with shared dependencies.
+ *
+ * @param {Object} options
+ * @param {Object} [options.storage]   - Project-scoped storage adapter
+ * @param {string} [options.dataDir]   - Filesystem path for JSON persistence
+ * @param {Object} [options.llmConfig] - LLM provider/model configuration
+ * @returns {Object} Map of instantiated module singletons keyed by feature name
  */
 function initRoleModules(options = {}) {
     const { storage, dataDir, llmConfig } = options;
@@ -71,7 +95,13 @@ function initRoleModules(options = {}) {
 }
 
 /**
- * Role Manager - Unified interface for all role features
+ * Unified facade for all role features.
+ *
+ * Delegates every call to the appropriate sub-module singleton so callers
+ * do not need to know about individual modules. Methods are thin wrappers
+ * grouped by domain (templates, AI suggestions, analytics, etc.).
+ *
+ * Lifecycle: instantiate once via getRoleManager(options).
  */
 class RoleManager {
     constructor(options = {}) {
