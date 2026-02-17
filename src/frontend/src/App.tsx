@@ -14,6 +14,9 @@ import CostsPage from './pages/CostsPage';
 import HistoryPage from './pages/HistoryPage';
 import SettingsPage from './pages/SettingsPage';
 import AdminPage from './pages/AdminPage';
+import ProjectsPage from './pages/ProjectsPage';
+import ProfilePage from './pages/ProfilePage';
+import { ProjectProvider } from './contexts/ProjectContext';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -28,6 +31,7 @@ const queryClient = new QueryClient({
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
+      <ProjectProvider>
       <BrowserRouter basename="/app">
         <Routes>
           <Route element={<Layout />}>
@@ -44,11 +48,14 @@ export default function App() {
             <Route path="/costs" element={<CostsPage />} />
             <Route path="/history" element={<HistoryPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/projects" element={<ProjectsPage />} />
+            <Route path="/profile" element={<ProfilePage />} />
             <Route path="/admin" element={<AdminPage />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Route>
         </Routes>
       </BrowserRouter>
+      </ProjectProvider>
     </QueryClientProvider>
   );
 }
