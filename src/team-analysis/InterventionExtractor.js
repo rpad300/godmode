@@ -1,8 +1,40 @@
 /**
- * InterventionExtractor
- * Extracts person-specific interventions from transcripts for efficient analysis
+ * Purpose:
+ *   Extracts a single person's speaking turns ("interventions") from meeting
+ *   transcripts, preserving surrounding context, so the TeamAnalyzer can
+ *   send only relevant content to the LLM instead of entire transcripts.
+ *
+ * Responsibilities:
+ *   - Parse transcript lines to detect speaker changes across multiple formats
+ *     (Krisp "**Name | HH:MM**", "Name: text", "[timestamp] Name:", Markdown, etc.)
+ *   - Match speakers to the target person using fuzzy name variants and aliases
+ *   - Capture preceding context (last 2 non-target statements) for each intervention
+ *   - Format interventions for LLM prompts with token-budget awareness
+ *   - Cache extraction results to `transcript_interventions` table in Supabase
+ *   - Batch-extract across all transcripts for a person with cache-first strategy
+ *
+ * Key dependencies:
+ *   - Supabase client (injected): Caching extracted interventions per person/document
+ *
+ * Side effects:
+ *   - Reads/writes `transcript_interventions` table for caching
+ *
+ * Notes:
+ *   - Minimum meaningful intervention is 10 characters; shorter turns are dropped
+ *   - formatForPrompt() sorts by word count (longest first) then re-sorts by
+ *     timeline order to maximise information within the token budget while
+ *     maintaining chronological coherence
+ *   - Token estimation uses 1 token ~= 4 characters (rough heuristic)
+ *   - generateNameVariants() produces lowercase full name, first name, last name,
+ *     and concatenated-no-space variants for matching
  */
 
+/**
+ * Parses transcript text to isolate a single person's speaking turns
+ * ("interventions"), capturing surrounding context for behavioural analysis.
+ * Supports multiple transcript formats (Krisp, timestamped, Markdown, etc.)
+ * and caches results to Supabase for efficient re-use.
+ */
 class InterventionExtractor {
     constructor(options = {}) {
         this.supabase = options.supabase;

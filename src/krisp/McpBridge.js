@@ -1,9 +1,32 @@
 /**
- * Krisp MCP Bridge
- * Handles communication with Krisp MCP and imports meetings into GodMode
- * 
- * Note: The MCP requires OAuth2 authentication which is handled by Cursor.
- * This bridge provides utilities to process meeting data received from the frontend.
+ * Purpose:
+ *   Bridge between the Krisp MCP (Model Context Protocol) and GodMode's
+ *   transcript pipeline. Normalises meeting data from MCP get_document
+ *   responses and inserts them into krisp_transcripts for processing.
+ *
+ * Responsibilities:
+ *   - Check which Krisp meeting IDs have already been imported (deduplication)
+ *   - Import a single meeting or a batch, with duplicate and force-reimport handling
+ *   - Extract and normalise transcript data from varying MCP response formats
+ *     (speakers, transcript text, action items, key points, duration)
+ *   - Trigger TranscriptProcessor.processTranscript after insertion
+ *   - Provide import history queries for UI display
+ *
+ * Key dependencies:
+ *   - ../supabase/client (getAdminClient): Supabase admin client for DB operations
+ *   - ./TranscriptProcessor: downstream processing (speaker matching, project ID, document)
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - Reads/writes krisp_transcripts in Supabase
+ *   - May delete existing records on forceReimport
+ *
+ * Notes:
+ *   - OAuth2 authentication with Krisp is handled externally by Cursor; this module
+ *     only processes already-fetched meeting data from the frontend.
+ *   - extractTranscriptText tries four locations for transcript content: string, .text,
+ *     .content, and .segments (speaker-attributed lines).
+ *   - parseDuration handles "1h 30m" / "90 minutes" / numeric formats.
  */
 
 const { logger } = require('../logger');

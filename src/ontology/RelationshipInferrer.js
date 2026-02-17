@@ -1,17 +1,54 @@
 /**
- * RelationshipInferrer - AI-powered comprehensive relationship discovery
- * 
- * Analyzes ALL data in the platform and infers relationships:
- * - Contacts (organization, department, roles)
- * - Teams (memberships)
- * - Questions (who asked, who should answer)
- * - Risks (owner, affected people)
- * - Decisions (maker, affected people)
- * - Actions (assignee, creator)
- * - Facts (mentioned people, topics)
- * - Documents (uploader, mentioned people)
- * - Meetings/Transcripts (participants)
- * - Conversations (participants)
+ * Purpose:
+ *   Performs a comprehensive, platform-wide sweep of all data types to discover
+ *   and materialise relationships in the knowledge graph. Unlike RelationInference
+ *   (which works on ad-hoc text), this class processes structured Supabase records
+ *   across every domain entity: contacts, teams, questions, risks, decisions,
+ *   actions, facts, documents, meetings/transcripts, and conversations.
+ *
+ * Responsibilities:
+ *   - Infer WORKS_WITH / REPORTS_TO from contact org/dept/role data
+ *   - Infer MEMBER_OF from explicit team membership records
+ *   - Link questions, risks, decisions, actions, facts, and documents to the
+ *     contacts who own, created, or are mentioned in them
+ *   - Infer KNOWS / PARTICIPATED_IN from meeting attendee lists
+ *   - Link knowledge items (facts, questions, risks, decisions, actions) back
+ *     to the meeting/transcript that produced them via source_file matching
+ *   - Create RELATED_TO edges between items extracted from the same source
+ *   - Persist high-confidence relationships directly to the graph; queue
+ *     low-confidence ones as suggestions for human review
+ *   - Write contact-to-contact relationships to the contact_relationships
+ *     Supabase table for the social graph
+ *
+ * Key dependencies:
+ *   - ../logger: structured logging
+ *   - ../llm (getLLM): available but currently unused (reserved for future
+ *     AI-assisted inference)
+ *   - Storage layer (injected): Supabase-backed data access for all entity types
+ *   - Graph provider (injected via storage): writes nodes and relationships
+ *
+ * Side effects:
+ *   - Creates graph nodes (Meeting, Question, Risk, Decision, Action, Fact,
+ *     Document) and relationship edges
+ *   - Writes to Supabase tables: contact_relationships, ontology_changes
+ *   - Performs many Supabase SELECT queries across multiple tables
+ *   - Accesses this.storage._supabase.supabase for direct queries -- relies on
+ *     internal storage implementation detail
+ *
+ * Notes:
+ *   - autoApproveThreshold (default 0.8) controls which inferred relationships
+ *     are written directly vs. queued as suggestions.
+ *   - Contact name matching (findContactByName) uses case-insensitive partial
+ *     matching; this can produce false positives for short or common first names.
+ *   - The source_file -> transcript matching in inferMeetingRelationships uses
+ *     a 1-hour timestamp tolerance window, which may mis-match rapid successive
+ *     transcripts.
+ *   - linkItemsFromSameSource creates Meeting nodes from source_file identifiers
+ *     even when no transcript record exists -- these act as synthetic grouping
+ *     nodes.
+ *   - The O(n^2) pair generation (WORKS_WITH, KNOWS) can be expensive for large
+ *     teams or meetings; no explicit cap is applied beyond the upstream query
+ *     limits.
  */
 
 const { logger } = require('../logger');
@@ -19,7 +56,28 @@ const { getLLM } = require('../llm');
 
 const log = logger.child({ module: 'relationship-inferrer' });
 
+/**
+ * Platform-wide relationship discovery engine.
+ *
+ * Unlike RelationInference (which processes ad-hoc text), this class sweeps
+ * structured Supabase data across every domain: contacts, teams, questions,
+ * risks, decisions, actions, facts, documents, meetings, and conversations.
+ *
+ * Lifecycle: construct -> setStorage() -> inferAllRelationships().
+ *
+ * The main entry point (inferAllRelationships) runs all 10 domain-specific
+ * inference methods sequentially, collects nodes and relationships, creates
+ * graph nodes, then saves relationships (auto-approved to graph or queued
+ * as suggestions depending on confidence).
+ */
 class RelationshipInferrer {
+    /**
+     * @param {object} options
+     * @param {object} [options.storage] - Supabase-backed storage layer
+     * @param {object} [options.graphProvider] - Graph backend (also set via storage)
+     * @param {string} [options.llmProvider='openai'] - Reserved for future AI-assisted inference
+     * @param {number} [options.autoApproveThreshold=0.8] - Confidence cutoff for direct graph writes
+     */
     constructor(options = {}) {
         this.storage = options.storage || null;
         this.graphProvider = options.graphProvider || null;
@@ -1117,7 +1175,21 @@ class RelationshipInferrer {
     }
     
     /**
-     * Link items that came from the same source (same meeting/transcript)
+     * Group knowledge items by their source_file and create Meeting nodes +
+     * PRODUCED edges to link them. Also creates cross-type RELATED_TO edges
+     * between items sharing the same source. This fills in graph structure
+     * even when no transcript record exists in the DB.
+     *
+     * Assumption: source_file values that match indicate the items were
+     * extracted from the same meeting/transcript.
+     *
+     * @param {Array} facts - Fact records with source_file
+     * @param {Array} questions - Question records with source_file
+     * @param {Array} risks - Risk records with source_file
+     * @param {Array} decisions - Decision records with source_file
+     * @param {Array} actions - Action records with source_file
+     * @param {Array} relationships - Accumulator array (mutated)
+     * @param {Array} nodes - Accumulator array (mutated)
      */
     async linkItemsFromSameSource(facts, questions, risks, decisions, actions, relationships, nodes) {
         log.debug({ event: 'relationship_inferrer_link_sources' }, 'Linking items from same sources');
@@ -1270,7 +1342,13 @@ class RelationshipInferrer {
     }
 
     /**
-     * Find contact by name (fuzzy matching)
+     * Find a contact by name using case-insensitive fuzzy matching.
+     * Tries exact match first, then substring containment in either
+     * direction, then first-name-only match. Returns the first match
+     * found; may produce false positives for common short names.
+     *
+     * @param {string} name - Full or partial contact name
+     * @returns {object|null} - Matched contact record or null
      */
     findContactByName(name) {
         if (!name) return null;
@@ -1297,7 +1375,13 @@ class RelationshipInferrer {
     }
 
     /**
-     * Extract contacts mentioned in text content
+     * Scan text for mentions of known contacts. Uses full-name matching
+     * first, then requires both first and last name (each > 2 chars) to
+     * appear in the text for split-name matching -- this reduces false
+     * positives from common first names.
+     *
+     * @param {string} text - Content to scan
+     * @returns {Array<object>} - Matched contact records
      */
     extractMentionedContacts(text) {
         if (!text) return [];
@@ -1332,7 +1416,11 @@ class RelationshipInferrer {
     }
 
     /**
-     * Save relationship to graph and Supabase
+     * Persist a high-confidence relationship to both the graph database and
+     * (for contact-to-contact relations) the Supabase contact_relationships
+     * table. Uses upsert with ignoreDuplicates to handle idempotent re-runs.
+     *
+     * @param {object} rel - Relationship with fromId, toId, type, confidence, reason, source
      */
     async saveRelationship(rel) {
         // Save to graph
@@ -1384,7 +1472,10 @@ class RelationshipInferrer {
     }
 
     /**
-     * Save low-confidence relationship as suggestion
+     * Store a low-confidence inferred relationship as an ontology_changes
+     * record with change_type 'relationship_suggestion' for human review.
+     *
+     * @param {object} rel - Relationship with fromId, toId, type, confidence, reason, source
      */
     async saveSuggestion(rel) {
         // Store in ontology suggestions for user review

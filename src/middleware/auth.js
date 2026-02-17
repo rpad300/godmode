@@ -1,23 +1,48 @@
 /**
- * Authentication Middleware
- * Enforces mandatory authentication on all protected routes
- * 
+ * Purpose:
+ *   Express middleware for JWT-based authentication and role-based
+ *   authorization, backed by Supabase Auth.
+ *
+ * Responsibilities:
+ *   - Token extraction from Authorization header, cookie, or x-access-token header
+ *   - JWT verification via Supabase Auth (getUser)
+ *   - Route-level guards: requireAuth, requireProjectAccess, requireAdmin, requireSuperAdmin
+ *   - Optional auth for mixed public/private endpoints
+ *   - Basic per-user/IP rate limiting (fixed window) and multi-tier OTP rate limiting
+ *   - Global auth handler that protects all /api routes except a PUBLIC_ROUTES allowlist
+ *
+ * Key dependencies:
+ *   - ../supabase: Supabase client for token verification and role lookups
+ *     (loaded with a try/catch so the server can still start without it)
+ *   - ../logger: Structured logging (pino-based)
+ *
+ * Side effects:
+ *   - Mutates `req` by attaching: user, token, projectId, projectRole
+ *   - rateLimitMap / otpRateLimitMap grow unboundedly in memory (no eviction);
+ *     acceptable for moderate traffic but could leak under sustained attack
+ *
+ * Notes:
+ *   - In development without SUPABASE_URL, requireAuth silently passes all requests
+ *     to ease local dev. This is gated on NODE_ENV === 'development'.
+ *   - requireProjectAccess and requireAdmin each call verifyToken independently
+ *     rather than chaining requireAuth, so they are self-contained middleware.
+ *   - OTP rate limiting uses three sliding windows (minute/hour/day) keyed by
+ *     email (preferred) or IP, to mitigate brute-force OTP guessing.
+ *
  * Usage:
  *   const { requireAuth, requireProjectAccess, optionalAuth } = require('./middleware/auth');
- *   
- *   // Require authentication
- *   app.get('/api/facts', requireAuth, (req, res) => { ... });
- *   
- *   // Require project access
- *   app.get('/api/projects/:projectId/facts', requireProjectAccess, (req, res) => { ... });
- *   
- *   // Optional auth (adds user to req if authenticated)
- *   app.get('/api/public', optionalAuth, (req, res) => { ... });
+ *
+ *   app.get('/api/facts', requireAuth, handler);
+ *   app.get('/api/projects/:projectId/facts', requireProjectAccess, handler);
+ *   app.get('/api/public', optionalAuth, handler);
  */
 
 const { logger: rootLogger } = require('../logger');
 const log = rootLogger.child({ module: 'auth-middleware' });
 
+// Supabase is loaded lazily so the server can start even when credentials are
+// missing (e.g. local dev, CI). When null, requireAuth falls through in
+// development mode and returns 503 in production.
 let supabase = null;
 try {
     supabase = require('../supabase');
@@ -66,7 +91,13 @@ function isPublicRoute(path) {
 }
 
 /**
- * Extract and verify JWT token from request
+ * Extract and verify a JWT token from the incoming request.
+ *
+ * Token lookup order: Authorization Bearer header > access_token cookie > x-access-token header.
+ *
+ * @param {import('express').Request} req
+ * @returns {Promise<{valid: boolean, user?: object, token?: string, error?: string}>}
+ *   `valid` is true only when Supabase confirms the token maps to an active user.
  */
 async function verifyToken(req) {
     if (!supabase) {
@@ -144,8 +175,15 @@ async function requireAuth(req, res, next) {
 }
 
 /**
- * Require project access middleware
- * Checks that user has access to the specified project
+ * Require project access middleware.
+ * Verifies auth, then checks that the user holds any membership role on the
+ * target project. The project ID is resolved from params, query, or header
+ * (in that order).
+ *
+ * Attaches to req: user, token, projectId, projectRole.
+ *
+ * @returns 400 if no project ID is supplied, 401 if unauthenticated,
+ *          403 if the user has no role on the project, 500 on lookup failure.
  */
 async function requireProjectAccess(req, res, next) {
     // First, require authentication
@@ -210,8 +248,9 @@ async function optionalAuth(req, res, next) {
 }
 
 /**
- * Require admin role middleware
- * User must have admin or owner role in the project
+ * Require admin role middleware.
+ * Like requireProjectAccess, but restricts to 'admin' or 'owner' roles.
+ * Returns 403 if the user is a regular member.
  */
 async function requireAdmin(req, res, next) {
     // First, require project access
@@ -293,7 +332,13 @@ async function requireSuperAdmin(req, res, next) {
 }
 
 /**
- * Rate limiting middleware (basic implementation)
+ * Basic fixed-window rate limiter scoped to this auth module.
+ * Keyed by authenticated user ID (preferred) or raw IP.
+ *
+ * NOTE: This is a simpler, secondary rate limiter that lives in the auth
+ * module. The primary, route-aware rate limiter lives in ./ratelimit.js.
+ * The rateLimitMap is never pruned -- stale entries accumulate until the
+ * process restarts. Acceptable for low-to-moderate traffic.
  */
 const rateLimitMap = new Map();
 const RATE_LIMIT_WINDOW = 60000; // 1 minute
@@ -328,8 +373,13 @@ function rateLimit(req, res, next) {
 }
 
 /**
- * OTP-specific rate limiting middleware
- * More restrictive than general rate limiting
+ * OTP-specific rate limiter with three independent fixed windows
+ * (minute, hour, day). Intentionally aggressive to prevent brute-force
+ * OTP enumeration.
+ *
+ * Keying strategy: email address from the request body when available
+ * (normalised to lowercase), otherwise client IP. Email-based keying
+ * prevents an attacker from rotating IPs to bypass limits.
  */
 const otpRateLimitMap = new Map();
 const OTP_RATE_LIMITS = {
@@ -418,7 +468,11 @@ function otpRateLimit(req, res, next) {
 }
 
 /**
- * Get client IP address from request
+ * Resolve the originating client IP from proxy headers, falling back to
+ * the socket address. When behind a reverse proxy, x-forwarded-for may
+ * contain a comma-separated list; only the first (leftmost) entry is used.
+ *
+ * @returns {string} IP address or 'unknown'
  */
 function getClientIp(req) {
     return req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||

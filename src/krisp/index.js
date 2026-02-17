@@ -1,6 +1,24 @@
 /**
- * Krisp AI Meeting Assistant Integration
- * Main module exports
+ * Purpose:
+ *   Barrel file for the Krisp AI Meeting Assistant integration. Aggregates and
+ *   re-exports all Krisp sub-modules so consumers can import from a single path.
+ *
+ * Responsibilities:
+ *   - Re-export WebhookHandler (webhook processing and config)
+ *   - Re-export SpeakerMatcher (speaker-to-contact matching, project identification)
+ *   - Re-export TranscriptProcessor (processing pipeline, project assignment, document creation)
+ *   - Re-export QuarantineWorker (periodic retry of unresolved transcripts)
+ *   - Re-export McpBridge (MCP-based meeting import utilities)
+ *   - Re-export AvailableMeetings (meeting catalog synced from Krisp MCP)
+ *
+ * Key dependencies:
+ *   - All sibling modules in ./krisp/
+ *
+ * Notes:
+ *   - TranscriptProcessor is exported both as-is (for .processTranscript access)
+ *     and spread (for destructured imports). This allows both usage patterns.
+ *   - QuarantineWorker.start/stop are also re-exported as top-level functions
+ *     for convenient lifecycle management.
  */
 
 const WebhookHandler = require('./WebhookHandler');

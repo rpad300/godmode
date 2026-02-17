@@ -1,13 +1,31 @@
 /**
- * Comments feature routes
- * Extracted from server.js
+ * Purpose:
+ *   Comment system API routes. Supports threaded comments on any target entity
+ *   (documents, contacts, etc.) with project scoping, reply chains, and thread resolution.
  *
- * Handles:
- * - GET /api/comments - List comments for a target
- * - POST /api/comments - Create comment
- * - PUT /api/comments/:id - Update comment
- * - DELETE /api/comments/:id - Delete comment
- * - POST /api/comments/:id/resolve - Resolve comment thread
+ * Responsibilities:
+ *   - List comments for a target entity (two access patterns: path-style and query-string)
+ *   - Create comments with optional parent_id for threaded replies
+ *   - Update comment content (author-only enforcement in supabase layer)
+ *   - Delete comments (author-only enforcement in supabase layer)
+ *   - Resolve/unresolve comment threads (toggles resolved state)
+ *
+ * Key dependencies:
+ *   - supabase.comments: Data access for getComments, createComment, updateComment,
+ *     deleteComment, resolveComment
+ *   - supabase.auth: Token-based user identification for write operations
+ *   - storage: Project context resolution via getCurrentProject / getProjectId
+ *
+ * Side effects:
+ *   - Database: creates, updates, and deletes rows in the comments table
+ *
+ * Notes:
+ *   - Two URL patterns for GET and POST: path-style /api/comments/:targetType/:targetId
+ *     (project inferred from context) and query-string /api/comments?project_id=...&target_type=...
+ *   - Read operations (GET) do not require user auth; write operations do
+ *   - On error, GET endpoints return empty arrays ({ comments: [], total: 0 }) rather
+ *     than error responses, so the UI always gets a valid shape
+ *   - The resolve endpoint defaults to resolved=true; pass { resolved: false } to unresolve
  */
 
 const { parseBody, parseUrl } = require('../../server/request');

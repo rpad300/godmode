@@ -1,7 +1,31 @@
 #!/usr/bin/env node
 /**
- * Setup Supabase Project
- * Creates a system user and default project for local development
+ * Purpose:
+ *   One-time bootstrap script that creates the default Supabase project, system
+ *   user, user profile, and project membership needed for local development.
+ *
+ * Responsibilities:
+ *   - Check if a project with LEGACY_PROJECT_ID already exists (idempotent)
+ *   - Create a system auth user (system@godmode.local) via Supabase Admin API
+ *   - Upsert a user_profiles row with role=superadmin
+ *   - Insert a projects row with the legacy_id for backward compatibility
+ *   - Add the owner as a project_member with role=owner
+ *
+ * Key dependencies:
+ *   - @supabase/supabase-js: Supabase admin client for auth and table operations
+ *
+ * Side effects:
+ *   - Creates rows in auth.users, user_profiles, projects, and project_members
+ *   - Reads src/.env for Supabase credentials
+ *
+ * Notes:
+ *   - Idempotent: re-running when the project already exists is safe (early return)
+ *   - The hardcoded SYSTEM_PASSWORD is for local/dev only; rotate for any shared env
+ *   - LEGACY_PROJECT_ID ('3ab44397') ties the new UUID-based project to the legacy
+ *     local-file-based project ID
+ *
+ * Usage:
+ *   node scripts/setup-supabase-project.js
  */
 
 const fs = require('fs');

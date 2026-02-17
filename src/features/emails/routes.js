@@ -1,16 +1,52 @@
 /**
- * Email Processing API
- * Extracted from server.js
+ * Purpose:
+ *   Email ingestion, AI analysis, and response drafting API. Accepts emails from
+ *   multiple sources (paste, .eml upload, .msg upload, structured API), performs
+ *   LLM-powered extraction of facts/decisions/risks/actions/questions/people,
+ *   manages contact matching and creation, and provides AI-drafted responses.
  *
- * Handles:
- * - GET /api/emails - List emails for current project
- * - GET /api/emails/:id - Get single email
- * - POST /api/emails - Process new email (paste, .eml, .msg upload)
- * - DELETE /api/emails/:id - Delete email
- * - POST /api/emails/:id/response - Generate draft response
- * - POST /api/emails/:id/mark-responded - Mark email as responded
- * - POST /api/emails/sync-graph - Re-sync all emails to graph
- * - GET /api/emails/needing-response - Get emails needing response
+ * Responsibilities:
+ *   - List emails with optional filters (requires_response, direction, limit)
+ *   - Retrieve single email with recipient details
+ *   - Ingest new emails from four input methods: .eml base64, .msg base64, pasted text,
+ *     or structured JSON fields
+ *   - Deduplication via MD5 content hash (from + subject + body[0:1000] + date)
+ *   - Automatic contact matching: lookup sender/recipients by email or name, auto-create
+ *     contacts from email metadata and signature extraction
+ *   - LLM analysis pipeline: configurable prompt with ontology mode, custom prompts,
+ *     Supabase prompt templates, and context variables; extracts structured entities
+ *   - Entity extraction: persists facts, decisions, risks, action items, questions, and
+ *     people entities from AI analysis into their respective storage tables
+ *   - Graph database sync: creates email nodes and links to extracted entities
+ *   - Draft response generation: builds a context-aware prompt from project facts, decisions,
+ *     and open questions, then generates a response via LLM
+ *   - Mark email as responded (clears requires_response flag)
+ *   - Bulk re-sync all emails to graph database
+ *   - List emails needing response
+ *   - Delete emails
+ *
+ * Key dependencies:
+ *   - ../../emailParser: .eml/.msg parsing, manual email parsing, analysis prompt building,
+ *     response prompt building
+ *   - ../../llm/config: LLM provider and model resolution
+ *   - ../../sync (getGraphSync): Graph sync for email nodes and entity relationships
+ *   - ../../supabase/prompts: Custom prompt templates and context variable building
+ *   - storage: Email persistence, contact lookup/creation, entity persistence
+ *
+ * Side effects:
+ *   - Database: creates emails, email_recipients, contacts, facts, decisions, risks,
+ *     action_items, knowledge_questions, and people records
+ *   - Graph DB: syncs email nodes and links to extracted entities
+ *   - LLM API: calls text generation for analysis and response drafting
+ *
+ * Notes:
+ *   - The content hash deduplication prevents the same email from being processed twice
+ *     but uses a simple MD5 of limited fields, so nearly identical emails could slip through
+ *   - Entity extraction is done in serial per entity type; for large AI outputs this could
+ *     be slow. Consider batching storage operations for performance
+ *   - The /sync-graph and /needing-response routes must be matched before the :id routes
+ *     to avoid "sync-graph" being captured as an email ID
+ *   - Sprint and action IDs can be associated with emails during ingestion for traceability
  */
 
 const crypto = require('crypto');

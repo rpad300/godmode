@@ -1,7 +1,32 @@
 /**
- * HTTP Client Wrapper with Injectable Transport
- * Provides a centralized HTTP layer for LLM providers that can be mocked for testing.
- * Includes optional circuit breaker: after N consecutive failures, reject fast for cooldown.
+ * Purpose:
+ *   Thin HTTP client wrapper used by LLM provider implementations. Centralizes
+ *   timeout handling, JSON parsing, and circuit-breaker logic so that individual
+ *   providers do not need to re-implement these concerns.
+ *
+ * Responsibilities:
+ *   - Provides request(), get(), post() convenience methods
+ *   - Default transport uses Node.js built-in http/https modules
+ *   - Injectable transport: call setTransport(fn) to swap the network layer (for tests)
+ *   - Circuit breaker (default transport only): after LLM_CIRCUIT_THRESHOLD consecutive
+ *     failures, the circuit opens and immediately rejects requests for
+ *     LLM_CIRCUIT_COOLDOWN_MS, avoiding a pile-up against a down service
+ *
+ * Key dependencies:
+ *   - Node.js built-in http / https modules (default transport)
+ *   - ../logger: logs circuit-open events
+ *
+ * Side effects:
+ *   - Outbound HTTP(S) requests to LLM API endpoints
+ *   - Mutates module-level circuitState on every request outcome
+ *
+ * Notes:
+ *   - Circuit breaker is disabled when a custom transport is set (tests should not trip it).
+ *   - LLM_CIRCUIT_THRESHOLD and LLM_CIRCUIT_COOLDOWN_MS are configurable via env vars;
+ *     defaults are 5 failures and 60 s cooldown respectively.
+ *   - createRequestMeta() intentionally strips headers to avoid leaking API keys into logs.
+ *   - The circuit transitions: closed -> open (after threshold) -> half-open (after cooldown)
+ *     -> closed (on next success) or back to open (on next failure).
  */
 
 const https = require('https');
@@ -11,11 +36,16 @@ const { logger: rootLogger } = require('../logger');
 
 const log = rootLogger.child({ module: 'llm-http' });
 
+// Circuit breaker configuration (env-overridable).
+// The circuit counts consecutive transport-level failures (not HTTP 4xx/5xx status codes
+// from the provider -- those are handled by the router/healthRegistry). It only protects
+// against the underlying network being completely unreachable.
 const LLM_CIRCUIT_THRESHOLD = Number(process.env.LLM_CIRCUIT_THRESHOLD) || 5;
 const LLM_CIRCUIT_COOLDOWN_MS = Number(process.env.LLM_CIRCUIT_COOLDOWN_MS) || 60000;
 const circuitState = { failures: 0, lastFailureAt: 0, state: 'closed' };
 
-// Transport layer - can be swapped for testing
+// Pluggable transport layer. When null, defaultTransport (Node http/https) is used.
+// Tests call setTransport() with a mock function to avoid real network calls.
 let transport = null;
 
 /**

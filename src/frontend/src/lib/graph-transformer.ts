@@ -1,3 +1,34 @@
+/**
+ * Purpose:
+ *   Transforms raw graph data from the database into a styled, de-duplicated,
+ *   and layout-ready format for the React Flow visualisation. Implements the
+ *   graph display specification rules for tier assignment, edge styling,
+ *   Person/Contact merging, and edge bundling.
+ *
+ * Responsibilities:
+ *   - Assign tiers (0 = Project centre, 1 = entities, 2 = details) via TIER_CONFIG
+ *   - Assign node dimensions and colour tokens via NODE_DIMENSIONS and getNodeColorToken
+ *   - Merge Person nodes into their linked Contact nodes (by ID, name, or alias)
+ *     and redirect edges accordingly
+ *   - Apply edge colour/width/opacity/dash styles from EDGE_STYLES
+ *   - Hide "hairball" edges (WORKS_WITH, BELONGS_TO_PROJECT) via HIDDEN_EDGE_TYPES
+ *   - Bundle duplicate WORKS_WITH edges between the same pair into one representative
+ *
+ * Key dependencies:
+ *   - @/types/graph: GraphNode, GraphEdge
+ *
+ * Side effects:
+ *   - None (pure function)
+ *
+ * Notes:
+ *   - Person/Contact merging prevents duplicate nodes when both a Person and a
+ *     Contact record exist for the same individual. Matching cascades:
+ *     linked_person_id > normalised name > aliases.
+ *   - BELONGS_TO_PROJECT edges have opacity 0 by default and are also in the
+ *     hidden set -- double-guarded to keep the graph clean.
+ *   - Edge labels are set to undefined to avoid visual clutter; the original
+ *     label is preserved in edge.data.originalLabel for tooltips.
+ */
 import { GraphNode, GraphEdge } from '@/types/graph';
 
 // ---------------------------------------------------------------------------
@@ -84,6 +115,15 @@ const HIDDEN_EDGE_TYPES = new Set([
     'BELONGS_TO_PROJECT',
 ]);
 
+/**
+ * Transforms raw graph nodes and edges into styled, de-duplicated structures
+ * ready for React Flow rendering. Handles Person/Contact merging, tier
+ * assignment, edge styling, and edge bundling.
+ *
+ * @param rawNodes - unprocessed nodes from the database
+ * @param rawEdges - unprocessed edges from the database
+ * @returns {{ nodes: GraphNode[], edges: GraphEdge[] }} styled and filtered graph data
+ */
 export function transformGraphData(rawNodes: GraphNode[], rawEdges: GraphEdge[]) {
 
     // 0. Pre-process: Identify Person nodes that are already represented by a Contact
@@ -266,7 +306,7 @@ export function transformGraphData(rawNodes: GraphNode[], rawEdges: GraphEdge[])
     return { nodes, edges: processedEdges };
 }
 
-// Helper: Get color token string for Tailwind (used in styles)
+/** Maps a node type to a Tailwind colour token name for consistent theming. */
 function getNodeColorToken(type: string): string {
     switch (type) {
         case 'Project': return 'blue';

@@ -8,8 +8,8 @@ Decisions are aligned with the same SOTA patterns as Facts: persistence in Supab
 |--------|-------------|
 | **Persistence** | `decisions` table (005), extended with rationale, made_by, approved_by, decided_at, impact, reversible (042); `deleted_at` (soft delete), `created_by`, `source_document_id`, `source_file`, `generation_source` |
 | **Timeline / audit** | `decision_events` (042): created, updated, conflict_detected, deleted, restored with actor_user_id, actor_name |
-| **Soft delete + restore** | deleteDecision (soft), getDeletedDecisions, restoreDecision; outbox sync (Decision node removed/restored in FalkorDB) |
-| **Graph / FalkorDB** | Decision node CREATE/UPDATE/DELETE via outbox; project graph `project_${projectId}` |
+| **Soft delete + restore** | deleteDecision (soft), getDeletedDecisions, restoreDecision; outbox sync (Decision node removed/restored in graph) |
+| **Graph (Supabase)** | Decision node CREATE/UPDATE/DELETE via outbox; project graph `project_${projectId}` |
 | **UI** | DecisionsPanel aligned with Facts: header (title + count), filter select, **By Status** / **By Source** view tabs, **Search decisions…**, Check Conflicts, + Add; grouping by status or by source; SOTA cards (status bar, badges, content, source chip, timestamp, View / Approve / Reject); DecisionDetailView (timeline, similar decisions, edit, delete) |
 | **Conflict detection** | DecisionCheckFlow (LLM): detect contradictions; record conflict_detected in decision_events; resolve (keep one, delete other); re-run decision-check and approve kept decision |
 | **Removed decisions** | Section "Removed decisions" with Restore; restore syncs back to graph |

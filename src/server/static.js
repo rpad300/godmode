@@ -1,6 +1,35 @@
 /**
- * Static file serving utilities
- * Extracted from server.js for modularity
+ * Purpose:
+ *   Serves static web assets from disk, bootstraps the on-disk directory
+ *   structure for document storage, and provides helpers for the SOTA
+ *   (State Of The Art) date-partitioned document layout.
+ *
+ * Responsibilities:
+ *   - serveStatic: Read and send a single file with the correct MIME type
+ *   - ensureDirectories: Idempotently create the full directory tree (legacy +
+ *     SOTA) under the data directory on server startup
+ *   - getDocumentSOTAPath / ensureDocumentSOTADir: Compute and materialise the
+ *     year/month-partitioned path for a document and its sub-folders
+ *   - generateFileIconSVG: Produce a coloured placeholder SVG thumbnail keyed
+ *     by file extension
+ *
+ * Key dependencies:
+ *   - fs (Node.js built-in): File reads, existsSync/mkdirSync for directory creation
+ *   - path (Node.js built-in): Cross-platform path joining and extension extraction
+ *
+ * Side effects:
+ *   - ensureDirectories and ensureDocumentSOTADir create directories on the
+ *     filesystem synchronously (mkdirSync with recursive: true).
+ *   - serveStatic performs an async file read and writes the HTTP response.
+ *
+ * Notes:
+ *   - MIME_TYPES here covers web-asset content types (HTML, CSS, JS, images).
+ *     For document-oriented MIME types (PDF, DOCX, XLSX, etc.) see getMimeType
+ *     in response.js.
+ *   - The SOTA layout is: documents/library/{YYYY}/{MM}/{docId}/{original,versions,content,media}.
+ *     Legacy folders (newinfo, newtranscripts, archived) are retained for backward compat.
+ *   - serveStatic does NOT guard against path traversal; callers must sanitise
+ *     filePath before invoking it. See security.js for helpers.
  */
 
 const fs = require('fs');
@@ -41,8 +70,14 @@ function serveStatic(res, filePath) {
 }
 
 /**
- * Ensure data directories exist (SOTA structure)
- * @param {string} dataDir - The base data directory
+ * Idempotently create the complete directory tree under the data root.
+ *
+ * Includes both legacy flat folders (newinfo, newtranscripts, archived) for
+ * backward compatibility and the newer SOTA date-partitioned layout
+ * (documents/inbox, documents/library, etc.). Safe to call on every server
+ * start -- existing directories are left untouched.
+ *
+ * @param {string} dataDir - Absolute path to the base data directory
  */
 function ensureDirectories(dataDir) {
     const dirs = [
@@ -123,11 +158,13 @@ function getDocumentSOTAPath(docId, dataDir, createdAt = new Date()) {
 }
 
 /**
- * Ensure document SOTA directory exists with subdirs
- * @param {string} docId - The document ID
- * @param {string} dataDir - The base data directory
- * @param {Date|string} createdAt - Creation date (default: now)
- * @returns {string} - Full path to document SOTA directory
+ * Materialise the SOTA directory for a single document, including its four
+ * standard sub-folders: original, versions, content, media.
+ *
+ * @param {string} docId - The document UUID
+ * @param {string} dataDir - Absolute path to the base data directory
+ * @param {Date|string} createdAt - Creation timestamp used for year/month partitioning (default: now)
+ * @returns {string} - Absolute path to the document's root SOTA directory
  */
 function ensureDocumentSOTADir(docId, dataDir, createdAt = new Date()) {
     const docPath = getDocumentSOTAPath(docId, dataDir, createdAt);

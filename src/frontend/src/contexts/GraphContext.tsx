@@ -1,3 +1,24 @@
+/**
+ * Purpose:
+ *   Holds shared UI state for the knowledge graph view: filter toggles,
+ *   search query, tier visibility, layout mode, and node selection/hover.
+ *
+ * Responsibilities:
+ *   - Store and expose GraphFilterState (type toggles, search, tier, semantic, layout)
+ *   - Track which node is currently selected or hovered
+ *   - Provide a toggleType helper for checkbox-style entity filtering
+ *
+ * Key dependencies:
+ *   - @/types/graph: GraphFilterState type definition
+ *
+ * Side effects:
+ *   - None (pure in-memory state)
+ *
+ * Notes:
+ *   - Email and Contact types are hidden by default (toggled off in DEFAULT_FILTERS)
+ *   - minTier defaults to 2, meaning all tiers are visible initially
+ *   - Context value updates whenever filters, selectedNodeId, or hoveredNodeId change
+ */
 import React, { createContext, useContext, useState, ReactNode } from 'react';
 import { GraphFilterState } from '@/types/graph';
 
@@ -35,6 +56,10 @@ const DEFAULT_FILTERS: GraphFilterState = {
 
 const GraphContext = createContext<GraphContextType | undefined>(undefined);
 
+/**
+ * Provides graph filter and selection state to all graph-related components.
+ * Re-renders consumers when filters, selectedNodeId, or hoveredNodeId change.
+ */
 export function GraphProvider({ children }: { children: ReactNode }) {
     const [filters, setFilters] = useState<GraphFilterState>(DEFAULT_FILTERS);
     const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -65,6 +90,9 @@ export function GraphProvider({ children }: { children: ReactNode }) {
     );
 }
 
+/**
+ * Convenience hook to consume GraphContext. Throws if used outside GraphProvider.
+ */
 export function useGraphState() {
     const context = useContext(GraphContext);
     if (context === undefined) {

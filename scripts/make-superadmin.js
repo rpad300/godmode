@@ -1,7 +1,25 @@
 #!/usr/bin/env node
 /**
- * Make user superadmin
- * 
+ * Purpose:
+ *   Promotes an existing Supabase auth user to the superadmin role by upserting
+ *   their user_profiles row with role='superadmin'.
+ *
+ * Responsibilities:
+ *   - Look up the user by email via Supabase Auth Admin API
+ *   - Display the current profile (if any) for confirmation
+ *   - Upsert user_profiles with role='superadmin'
+ *
+ * Key dependencies:
+ *   - @supabase/supabase-js: Supabase admin client (auth.admin.listUsers, from().upsert)
+ *
+ * Side effects:
+ *   - Modifies the user_profiles row in Supabase for the target user
+ *
+ * Notes:
+ *   - Requires SUPABASE_PROJECT_URL and SUPABASE_PROJECT_SERVICE_ROLE_KEY in src/.env
+ *   - The script lists all users if the target email is not found, for debugging
+ *   - Upsert on conflict='id' ensures this works whether or not a profile exists
+ *
  * Usage:
  *   node scripts/make-superadmin.js <email>
  *   node scripts/make-superadmin.js system@godmode.local

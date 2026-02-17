@@ -1,7 +1,40 @@
 /**
- * Secrets Module
- * Manages encrypted API keys and sensitive credentials
- * Uses pgcrypto for encryption at rest
+ * Purpose:
+ *   Encrypted storage and retrieval of API keys and sensitive credentials.
+ *   Supports system-wide and per-project scoping, with automatic provider
+ *   detection and a project-then-system fallback chain for key resolution.
+ *
+ * Responsibilities:
+ *   - Encrypt secrets at rest via `encrypt_secret` / `decrypt_secret` pgcrypto RPCs
+ *   - CRUD operations on the `secrets` table (set, get, list, delete)
+ *   - Expose metadata-only views (masked values) safe for frontend display
+ *   - Auto-detect LLM provider from API key prefix patterns
+ *   - Resolve provider API keys with project -> system fallback
+ *   - Mark secrets as invalid after failed API calls
+ *   - Aggregate provider configuration status across scopes
+ *
+ * Key dependencies:
+ *   - ./client (getAdminClient): Supabase admin client
+ *   - ../logger: structured logging
+ *   - pgcrypto (via RPCs): encryption/decryption at the DB level
+ *
+ * Side effects:
+ *   - `setSecret` writes/updates the `secrets` table with encrypted values
+ *   - `getSecret` updates `last_used_at` on every read (for usage tracking)
+ *   - `deleteSecret` permanently removes the row
+ *   - `markSecretInvalid` sets `is_valid = false`
+ *
+ * Notes:
+ *   - The encryption key is sourced from SECRETS_ENCRYPTION_KEY env var,
+ *     falling back to SUPABASE_SERVICE_KEY, then a hardcoded dev default.
+ *     The dev default MUST NOT be used in production.
+ *   - `setSecret` performs an upsert (check-then-update-or-insert) rather
+ *     than a native Supabase upsert, because the unique constraint is on
+ *     (scope, name, project_id) and project_id can be null.
+ *   - `getConfiguredProviders` merges project and system secrets to show
+ *     which providers are configured, preferring project-level keys.
+ *   - `validateSecret` currently only checks for non-empty values;
+ *     per-provider API validation is a TODO.
  */
 
 const { logger } = require('../logger');
@@ -52,8 +85,18 @@ function detectProvider(key) {
 }
 
 /**
- * Create or update a secret
- * Encrypts the value before storing
+ * Create or update a secret in the `secrets` table.
+ * Encrypts the value via the `encrypt_secret` pgcrypto RPC before storing.
+ * Uses a manual check-then-insert/update pattern instead of native upsert
+ * because the unique constraint spans (scope, name, project_id) and project_id
+ * may be null for system-scoped secrets.
+ * @param {object} params
+ * @param {string} params.scope - 'system' or 'project'
+ * @param {string} [params.projectId] - Required when scope='project'
+ * @param {string} params.name - Secret name (e.g., 'openai_api_key')
+ * @param {string} params.value - Plaintext value to encrypt
+ * @param {string} [params.provider] - Provider name (auto-detected from key prefix if omitted)
+ * @param {string} [params.userId] - User performing the action
  */
 async function setSecret({
     scope,
@@ -168,8 +211,10 @@ async function setSecret({
 }
 
 /**
- * Get a secret (decrypted)
- * Only use this when you need the actual value for API calls
+ * Get a secret (decrypted) via the `decrypt_secret` pgcrypto RPC.
+ * ONLY call this when you actually need the plaintext for an API call;
+ * for display purposes use `getSecretInfo` which returns the masked value.
+ * Side effect: updates `last_used_at` on every successful read.
  */
 async function getSecret(scope, name, projectId = null) {
     const supabase = getAdminClient();
@@ -388,8 +433,9 @@ async function validateSecret(scope, name, projectId = null) {
 }
 
 /**
- * Get API key for a provider with fallback logic
- * First checks project secrets, then falls back to system secrets
+ * Resolve an API key for a provider using project -> system fallback.
+ * Naming convention: the secret name is `{provider}_api_key`.
+ * Returns the source ('project' or 'system') so callers know which scope was used.
  */
 async function getProviderApiKey(provider, projectId = null) {
     const name = `${provider}_api_key`;

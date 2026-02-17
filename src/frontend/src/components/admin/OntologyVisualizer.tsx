@@ -1,4 +1,31 @@
-
+/**
+ * Purpose:
+ *   Interactive React Flow visualization of the ontology schema, rendering
+ *   entity types as draggable cards and relationship types as labeled edges.
+ *
+ * Responsibilities:
+ *   - Converts OntologySchema entityTypes into React Flow nodes arranged
+ *     in a grid layout (sqrt-based column count)
+ *   - Converts relationTypes into smoothstep animated edges with arrow
+ *     markers; handles array-typed from/to and filters out wildcards
+ *   - EntityNode: custom node component showing entity name and up to 5
+ *     property badges with types
+ *   - Supports node dragging, edge connections (addEdge), minimap, and
+ *     zoom controls
+ *
+ * Key dependencies:
+ *   - @xyflow/react: ReactFlow, Controls, MiniMap, Background
+ *   - OntologySchema (ontology types): schema shape with entityTypes
+ *     and relationTypes
+ *
+ * Side effects:
+ *   - None (receives schema as prop; graph state is local)
+ *
+ * Notes:
+ *   - Grid layout spacing (250x200px) works well for up to ~20 entities;
+ *     larger schemas may benefit from a force-directed layout.
+ *   - Wildcard ('*') source/target entries are skipped.
+ */
 import React, { useCallback, useMemo } from 'react';
 import {
     ReactFlow,

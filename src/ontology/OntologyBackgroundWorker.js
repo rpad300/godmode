@@ -1,22 +1,70 @@
 /**
- * OntologyBackgroundWorker - Background optimization for ontology
- * 
- * SOTA v2.0 - Continuous Ontology Optimization
- * SOTA v3.0 - Native Supabase graph support (no Cypher dependency)
- * 
- * Runs in background to:
- * - Analyze graph for gaps between data and schema
- * - Generate suggestions proactively
- * - Execute inference rules
- * - Check for duplicates (people, organizations)
- * - Auto-approve high-confidence suggestions
+ * Purpose:
+ *   Orchestrates background ontology-maintenance jobs: gap analysis, inference
+ *   rule execution, duplicate detection, and auto-approval of high-confidence
+ *   schema suggestions. Intended to be triggered on a schedule or after data syncs.
+ *
+ * Responsibilities:
+ *   - Run a full analysis pipeline (gap check, LLM analysis, type-usage stats)
+ *   - Execute ontology inference rules via the InferenceEngine
+ *   - Detect duplicate Person and Organization nodes via resolver modules
+ *   - Auto-approve ontology suggestions that exceed the confidence threshold
+ *   - Schedule debounced incremental analysis after new data arrives
+ *   - Maintain an in-memory execution log with status, duration, and results
+ *
+ * Key dependencies:
+ *   - ../logger: structured logging
+ *   - ./OntologyAgent (lazy): generates and manages ontology suggestions
+ *   - ./InferenceEngine (lazy): runs inference rules on the graph
+ *   - ./SchemaExporter (lazy): syncs schema to graph
+ *   - ../optimizations/EntityResolver (lazy, optional): person deduplication
+ *   - ../optimizations/OrganizationResolver (lazy, optional): org deduplication
+ *   - Graph provider (injected): Supabase-native or Cypher-based backend
+ *
+ * Side effects:
+ *   - Graph reads and writes during inference and deduplication
+ *   - LLM network calls when useLLM is enabled in runFullAnalysis
+ *   - setTimeout timers for debounced scheduling (must be cancelled on shutdown)
+ *   - Mutates ontology schema via OntologyAgent on auto-approve
+ *
+ * Notes:
+ *   - All sub-module references are lazily loaded to break circular dependency
+ *     chains and to avoid requiring optional modules that may not exist.
+ *   - minNodesForAnalysis (default 10) prevents wasting LLM tokens on nearly
+ *     empty graphs.
+ *   - The execution log is capped at 100 entries; older entries are dropped.
+ *   - _autoMergeDuplicates is a placeholder (TODO) -- merges are not yet
+ *     performed automatically.
  */
 
 const { logger } = require('../logger');
 
 const log = logger.child({ module: 'ontology-background-worker' });
 
+/**
+ * Background worker that orchestrates periodic and on-demand ontology
+ * maintenance jobs. All sub-module dependencies are lazily loaded to
+ * avoid circular requires and to tolerate missing optional modules.
+ *
+ * Lifecycle: construct -> setGraphProvider/setStorage/setLLMConfig ->
+ * runFullAnalysis() | scheduleAnalysis() | runInferenceRules() | etc.
+ *
+ * Invariant: only one job runs at a time (guarded by this.isRunning).
+ * Concurrent calls to scheduleAnalysis() are debounced; only the last
+ * one within the debounce window fires.
+ */
 class OntologyBackgroundWorker {
+    /**
+     * @param {object} options
+     * @param {object} [options.graphProvider] - Graph backend
+     * @param {object} [options.storage] - Supabase storage
+     * @param {object} [options.llmConfig] - LLM configuration for AI analysis
+     * @param {object} [options.appConfig] - App-level config
+     * @param {string} [options.dataDir='./data'] - Data directory for sub-modules
+     * @param {number} [options.analysisDebounceMs=300000] - Debounce window (5 min default)
+     * @param {number} [options.autoApproveThreshold=0.85] - Confidence threshold for auto-approve
+     * @param {number} [options.minNodesForAnalysis=10] - Skip analysis below this node count
+     */
     constructor(options = {}) {
         this.graphProvider = options.graphProvider || null;
         this.storage = options.storage || null;
@@ -146,8 +194,19 @@ class OntologyBackgroundWorker {
     }
 
     /**
-     * Run full analysis pipeline
-     * This is the main entry point for scheduled jobs
+     * Run the full analysis pipeline: gap detection, optional LLM analysis,
+     * and type-usage statistics. This is the main entry point for scheduled
+     * or manually triggered background jobs.
+     *
+     * Pipeline steps:
+     *   1. Check graph connectivity and minimum node count
+     *   2. Detect gaps between graph labels and ontology definitions
+     *   3. (Optional) Run LLM-powered deep analysis if llmConfig is set
+     *   4. Collect type-usage statistics
+     *
+     * @param {object} [config]
+     * @param {boolean} [config.useLLM=true] - Set false to skip LLM analysis
+     * @returns {Promise<object>} - Execution record with status, results, and duration
      */
     async runFullAnalysis(config = {}) {
         const startTime = Date.now();
@@ -371,8 +430,11 @@ class OntologyBackgroundWorker {
     }
 
     /**
-     * Schedule incremental analysis (debounced)
-     * Called after new data is synced
+     * Schedule a debounced analysis run. Repeated calls within the debounce
+     * window (default 5 min) reset the timer so only the final trigger fires.
+     * Typically called by data-sync hooks after new content arrives.
+     *
+     * @param {string} [type='incremental'] - 'incremental' (gaps + inference) or 'full'
      */
     scheduleAnalysis(type = 'incremental') {
         if (this.pendingAnalysis) {
@@ -633,7 +695,11 @@ class OntologyBackgroundWorker {
     }
 
     /**
-     * Normalize name for comparison
+     * Normalize a person name for duplicate comparison: lowercase, strip
+     * non-alphanumeric characters, collapse whitespace.
+     *
+     * @param {string|null} name
+     * @returns {string|null} - Normalised name or null if input is falsy
      */
     _normalizeName(name) {
         if (!name) return null;

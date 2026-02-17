@@ -1,6 +1,32 @@
 /**
- * Notification System Module
- * Alerts via email, webhook, and in-app notifications
+ * Purpose:
+ *   Multi-channel notification system supporting in-app (pub/sub), outbound
+ *   webhooks, and email (stubbed). Notifications are routed through
+ *   configurable rules that map event types to channels and priority levels.
+ *
+ * Responsibilities:
+ *   - Dispatch notifications to in-app subscribers, webhook URLs, and email
+ *   - Persist notification history (capped at 500) and configuration to disk
+ *   - Support quiet-hours suppression (bypassed for "critical" priority)
+ *   - Provide an SSE (Server-Sent Events) handler for real-time browser push
+ *   - Track read/unread state per notification
+ *
+ * Key dependencies:
+ *   - http / https (Node built-in): outbound webhook POST requests
+ *   - fs / path: config and history file persistence
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - notify() writes to notification-history.json on every call
+ *   - sendWebhook() makes outbound HTTP(S) POST requests (10 s timeout)
+ *   - createSSEHandler() keeps connections open and writes periodic heartbeats
+ *
+ * Notes:
+ *   - Email channel is intentionally stubbed (returns "not implemented").
+ *     Use the webhook channel to integrate with external email services.
+ *   - Quiet hours support overnight spans (e.g. 22:00-08:00) by detecting
+ *     whether startTime > endTime and adjusting the range check accordingly.
+ *   - History is capped at 500 entries; oldest are silently dropped.
  */
 
 const fs = require('fs');
@@ -11,6 +37,17 @@ const { logger } = require('../logger');
 
 const log = logger.child({ module: 'notifications' });
 
+/**
+ * Event-driven notification dispatcher with in-app pub/sub, webhook,
+ * and (stubbed) email channels.
+ *
+ * Lifecycle: construct (loads config + history) -> notify() / subscribe()
+ *   -> createSSEHandler() for real-time browser clients.
+ *
+ * Invariants:
+ *   - history.length <= 500 (trimmed on every notify())
+ *   - subscribers Map keys are unique string IDs; values are callbacks
+ */
 class NotificationSystem {
     constructor(options = {}) {
         this.dataDir = options.dataDir || './data';
@@ -88,7 +125,17 @@ class NotificationSystem {
     }
 
     /**
-     * Send a notification
+     * Dispatch a notification for the given event to all matching channels.
+     * Respects quiet hours (unless priority is 'critical') and routing rules.
+     *
+     * @param {string} event - Event identifier (e.g. 'new_insight', 'error')
+     * @param {Object} data - Event payload
+     * @param {Object} [options]
+     * @param {string[]} [options.channels] - Override channel list from rules
+     * @param {string} [options.priority] - Override priority from rules
+     * @param {string} [options.title]
+     * @param {string} [options.message]
+     * @returns {Promise<Object>} The notification record including delivery status per channel
      */
     async notify(event, data, options = {}) {
         if (!this.config.enabled) {
@@ -169,7 +216,11 @@ class NotificationSystem {
     }
 
     /**
-     * Webhook notification
+     * POST the notification payload to the configured webhook URL.
+     * Uses Node's built-in http/https modules with a 10-second timeout.
+     *
+     * @param {Object} notification
+     * @returns {Promise<{ sent: boolean, statusCode?: number, error?: string }>}
      */
     async sendWebhook(notification) {
         const webhookUrl = this.config.channels.webhook?.url;
@@ -254,7 +305,10 @@ class NotificationSystem {
     }
 
     /**
-     * Check if currently in quiet hours
+     * Determine whether the current local time falls within the configured quiet
+     * window. Handles overnight spans (e.g. 22:00 -> 08:00).
+     *
+     * @returns {boolean}
      */
     isQuietHours() {
         if (!this.config.quietHours) return false;
@@ -291,7 +345,14 @@ class NotificationSystem {
     }
 
     /**
-     * Get notification history
+     * Query notification history with optional filters.
+     *
+     * @param {Object} [options]
+     * @param {string} [options.event] - Filter by event type
+     * @param {string} [options.priority] - Filter by priority level
+     * @param {boolean} [options.unreadOnly] - Only unread notifications
+     * @param {number} [options.limit=50]
+     * @returns {Object[]}
      */
     getHistory(options = {}) {
         let notifications = [...this.history];
@@ -362,7 +423,11 @@ class NotificationSystem {
     }
 
     /**
-     * Create SSE handler for real-time notifications
+     * Return an HTTP request handler that establishes a Server-Sent Events stream.
+     * Sends initial unread notifications on connect, then pushes new notifications
+     * in real-time. Includes a 30-second heartbeat to keep the connection alive.
+     *
+     * @returns {Function} (req, res) handler suitable for Express or http.createServer
      */
     createSSEHandler() {
         return (req, res) => {

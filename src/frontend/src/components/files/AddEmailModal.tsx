@@ -1,3 +1,27 @@
+/**
+ * Purpose:
+ *   Modal dialog for importing email content into the system via three
+ *   input methods: paste text, upload .eml/.msg file, or manual entry.
+ *
+ * Responsibilities:
+ *   - Tab-based UI with paste, upload, and manual entry modes
+ *   - Paste tab: freeform textarea for pasted email content with headers
+ *   - Upload tab: drag-and-drop / click-to-browse file input (.eml, .msg)
+ *   - Manual tab: structured fields for from, to, cc, subject, body, date
+ *   - SprintTaskAssociation selector for linking the email to a sprint/task
+ *   - Resets all form state on close or submission
+ *
+ * Key dependencies:
+ *   - Dialog (shadcn/ui): modal container
+ *   - SprintTaskAssociation: sprint/task selector sub-component
+ *
+ * Side effects:
+ *   - None (delegates import action to parent via onImport callback)
+ *
+ * Notes:
+ *   - The onImport payload includes the raw tab value so the parent
+ *     can decide how to parse based on input method.
+ */
 import { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Mail } from 'lucide-react';

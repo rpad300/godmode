@@ -1,8 +1,33 @@
 /**
- * Cost Tracker Module
- * Tracks LLM API usage costs across providers and models
- * 
- * Refactored to use Supabase instead of local JSON files
+ * Purpose:
+ *   Tracks cumulative LLM API spend broken down by provider, model, operation, and
+ *   context (e.g. 'document', 'chat', 'email'). Provides cost summaries, daily
+ *   history, and budget-awareness data for the admin dashboard and billing system.
+ *
+ * Responsibilities:
+ *   - Maintains an in-memory pricing table (MODEL_PRICING) for per-million-token costs
+ *   - Buffers incoming track() calls and flushes them to Supabase every 10 s (or
+ *     immediately when the buffer reaches 10 entries)
+ *   - Caches aggregated summaries (total cost, by-model, daily) with a 1-minute TTL
+ *     to avoid hammering the database on every dashboard refresh
+ *   - getSummaryForPeriod: returns a CostSummary-shaped object including period-over-period
+ *     comparison, budget limit, and alert status for the /api/costs/summary endpoint
+ *
+ * Key dependencies:
+ *   - ../supabase/storageHelper: Supabase storage adapter for reading/writing cost rows
+ *     (loaded with try/catch because the import can fail in certain project-folder setups)
+ *
+ * Side effects:
+ *   - Periodic writes to Supabase (llm_costs table) via the flush interval
+ *   - setInterval timer created in constructor (cleared on destroy())
+ *
+ * Notes:
+ *   - Exported as a singleton instance; the CostTracker class is also exported for testing.
+ *   - Ollama models are priced at $0 (local inference). Unknown cloud models default to
+ *     $1.00 / $3.00 per 1M tokens as a conservative estimate.
+ *   - If Supabase is unavailable, tracking degrades to in-memory only; data is lost on restart.
+ *   - setDataDir() is a no-op retained for backward compatibility with callers that
+ *     previously used local-file storage.
  */
 
 const { logger: rootLogger } = require('../logger');
@@ -71,7 +96,8 @@ const MODEL_PRICING = {
     'ollama': { input: 0, output: 0 }
 };
 
-// Default pricing for unknown models
+// Conservative fallback for models not in the table above. Deliberately higher than
+// most actual prices to encourage maintaining MODEL_PRICING and to avoid under-reporting.
 const DEFAULT_PRICING = { input: 1.00, output: 3.00 };
 
 class CostTracker {
@@ -103,18 +129,21 @@ class CostTracker {
     }
 
     /**
-     * Flush buffered requests to Supabase
+     * Flush buffered requests to Supabase.
+     * Snapshot-and-clear pattern: the buffer is copied and emptied before the async
+     * writes begin, so new track() calls during the flush go into a fresh buffer.
+     * On failure the snapshot is prepended back for retry on the next flush cycle.
      */
     async _flush() {
         if (this._buffer.length === 0) return;
-        
+
         const toFlush = [...this._buffer];
         this._buffer = [];
-        
+
         try {
             const storage = this._getStorage();
             if (!storage) return;
-            
+
             for (const request of toFlush) {
                 await storage.trackLLMCost(
                     request.provider,
@@ -125,37 +154,39 @@ class CostTracker {
                     request.cost,
                     request.latencyMs,
                     request.success,
-                    request.context  // Pass context to storage
+                    request.context
                 );
             }
-            
-            // Invalidate cache
+
+            // Invalidate cache so next getSummary picks up the new data
             this._cache.lastRefresh = 0;
         } catch (e) {
             log.warn({ event: 'cost_tracker_flush_failed', reason: e.message }, 'Could not flush to Supabase');
-            // Re-add to buffer for retry
+            // Re-add to buffer for retry on next flush cycle
             this._buffer.unshift(...toFlush);
         }
     }
 
     /**
-     * Get pricing for a model
+     * Get pricing for a model.
+     * Resolution order: exact match -> ollama (always free) -> substring match -> default.
+     * Substring matching handles versioned model names (e.g. "gpt-4o-2024-05-13" matches "gpt-4o").
      */
     getPricing(model, provider = 'unknown') {
         if (MODEL_PRICING[model]) {
             return MODEL_PRICING[model];
         }
-        
+
         if (provider === 'ollama') {
             return { input: 0, output: 0 };
         }
-        
+
         for (const [key, pricing] of Object.entries(MODEL_PRICING)) {
             if (model.toLowerCase().includes(key.toLowerCase())) {
                 return pricing;
             }
         }
-        
+
         return DEFAULT_PRICING;
     }
 

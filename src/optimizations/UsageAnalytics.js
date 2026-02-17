@@ -1,8 +1,33 @@
 /**
- * Usage Analytics Module
- * Track and analyze system usage patterns
- * 
- * Refactored to use Supabase instead of local JSON files
+ * Purpose:
+ *   Collect, buffer, and analyze system usage data (API requests, queries,
+ *   feature usage, errors) with Supabase as the persistence layer.
+ *
+ * Responsibilities:
+ *   - Buffer analytics events in memory and flush to Supabase every 30
+ *     seconds to reduce write frequency
+ *   - Track four event types: request, query, feature, and error
+ *   - Provide aggregated summaries (today, last 7 days, top endpoints,
+ *     top features) with a 1-minute cache
+ *   - Compute hourly distribution and daily trend over configurable windows
+ *   - Report error rate and popular queries
+ *   - Export a complete analytics snapshot
+ *
+ * Key dependencies:
+ *   - ../supabase/storageHelper: usage_analytics table access (soft-loaded)
+ *
+ * Side effects:
+ *   - Starts a 30-second flush interval on construction
+ *   - Writes batched analytics events to Supabase on flush
+ *   - Reads from Supabase for summary/trend queries
+ *
+ * Notes:
+ *   - If Supabase is unavailable, buffered events accumulate in memory
+ *     until it becomes available or the process restarts (events are lost).
+ *   - Query text is truncated to 500 characters before storage to limit
+ *     row size.
+ *   - Call destroy() before shutdown to flush remaining buffered events
+ *     and clear the interval.
  */
 
 const { logger } = require('../logger');
@@ -17,6 +42,12 @@ try {
     // Will use in-memory analytics only
 }
 
+/**
+ * Buffers and analyzes system usage events (requests, queries, feature usage,
+ * errors) with periodic batch flushes to Supabase.
+ *
+ * Lifecycle: construct (starts flush timer) -> track* calls -> destroy (flushes remaining).
+ */
 class UsageAnalytics {
     constructor(options = {}) {
         // In-memory buffer for batching writes
@@ -138,7 +169,11 @@ class UsageAnalytics {
     }
 
     /**
-     * Track an API request
+     * Buffer an API request event. Flushed to Supabase on the next 30s cycle.
+     * @param {string} endpoint - API endpoint path
+     * @param {object} [options]
+     * @param {number} [options.duration] - Request duration in ms
+     * @param {string} [options.error] - Error message if the request failed
      */
     trackRequest(endpoint, options = {}) {
         this._buffer.requests.push({
@@ -189,7 +224,8 @@ class UsageAnalytics {
     }
 
     /**
-     * Get usage summary from Supabase
+     * Return an aggregated usage summary (today + last 7 days), cached for 1 minute.
+     * @returns {Promise<{today: object, last7Days: object, topEndpoints: Array, topFeatures: Array, recentErrors: Array}>}
      */
     async getSummary() {
         // Return cached if fresh

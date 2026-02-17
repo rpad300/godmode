@@ -1,11 +1,39 @@
 /**
- * Email Parser Module
- * Handles parsing of emails from various sources:
- * - Manual paste (with multi-language header detection)
- * - .eml file uploads (RFC822 format)
- * - .msg file uploads (Outlook format)
- * 
- * @module emailParser
+ * Purpose:
+ *   Parse email content from multiple input formats (copy-paste, .eml, .msg) and
+ *   extract structured metadata: headers, body, signature, contacts, and AI-ready
+ *   analysis prompts for knowledge-graph integration.
+ *
+ * Responsibilities:
+ *   - Parse RFC 822 .eml files via mailparser
+ *   - Parse Outlook .msg files (tries @pnp/msgraph-parser, msg-reader, msgreader)
+ *   - Parse manually pasted email text with multi-language header recognition
+ *     (English, Portuguese, Dutch, German, Swedish, Polish, Italian, French, Spanish)
+ *   - Detect and extract email signatures (delimiter-based and heuristic scoring)
+ *   - Extract structured contact info from signatures (phone, role, org, skills)
+ *   - Match extracted contacts against an existing database via callback functions
+ *   - Build AI prompts for full entity extraction (facts, decisions, risks, actions)
+ *   - Build AI prompts for drafting email responses with project context
+ *
+ * Key dependencies:
+ *   - mailparser (simpleParser): RFC 822 / .eml parsing
+ *   - ./logger: structured logging
+ *   - ./supabase/prompts (optional): Supabase-managed prompt templates (v1.6)
+ *   - msgreader / msg-reader / @pnp/msgraph-parser (optional): .msg file support
+ *
+ * Side effects:
+ *   - Lazy-loads .msg parser libraries at call time (parseMsgFile)
+ *   - Lazy-loads ./supabase/prompts at module init (silently ignored if absent)
+ *
+ * Notes:
+ *   - Header regex patterns are intentionally broad to cover multiple languages;
+ *     false positives on body lines that happen to start with "De:" are possible.
+ *   - parseManualEmail uses the first blank line as the header/body boundary,
+ *     which mirrors RFC 822 convention but may misfire on loosely formatted pastes.
+ *   - Signature detection scans backwards from the end of the body; it falls back
+ *     to a heuristic score (email + phone + pipe separators) when no delimiter found.
+ *   - The AI analysis prompt (buildEmailAnalysisPrompt) includes "/no_think" prefix
+ *     which is a qwen3-specific directive to suppress chain-of-thought output.
  */
 
 const { logger } = require('./logger');
@@ -23,7 +51,9 @@ try {
     // Supabase prompts not available, will use defaults
 }
 
-// Multi-language header patterns
+// Multi-language header patterns.
+// Each regex covers the header keyword in EN, PT, NL, DE, IT, SV, PL, FR, ES
+// so that copy-pasted emails from non-English Outlook / Gmail are recognized.
 const HEADER_PATTERNS = {
     from: /^(?:From|De|Van|Von|Da|Från|Od):\s*(.+)$/im,
     to: /^(?:To|Para|Aan|An|A|Till|Do):\s*(.+)$/im,
@@ -98,10 +128,18 @@ async function parseEmlFile(buffer) {
 }
 
 /**
- * Parse manually pasted email text (copy-paste from email client)
- * Supports multiple languages for headers
+ * Parse manually pasted email text (copy-paste from email client).
+ *
+ * Walks lines top-down: lines matching HEADER_PATTERNS are consumed as headers,
+ * and the first blank line (or first non-header line) marks the start of the body.
+ * After body extraction, the signature is split out and contact info is mined from it.
+ *
+ * Assumption: the paste preserves the original header/blank-line/body structure.
+ * Emails pasted without headers will have all content treated as body text.
+ *
  * @param {string} text - The pasted email text
- * @returns {Object} Parsed email object
+ * @returns {Object} Parsed email with subject, from, to, cc, bcc, date, text,
+ *                    signature, and extractedContacts fields
  */
 function parseManualEmail(text) {
     const lines = text.split('\n');
@@ -250,9 +288,14 @@ function parseEmailAddress(str) {
 }
 
 /**
- * Parse a list of email addresses (semicolon or comma separated)
+ * Parse a list of email addresses separated by semicolons or commas.
+ *
+ * Tracks angle-bracket depth so commas inside "Name <email>" are not
+ * treated as separators. This prevents splitting "Lee, Alexander <a@b.com>"
+ * into two entries.
+ *
  * @param {string} str - Email addresses string
- * @returns {Array<Object>} Array of { email, name }
+ * @returns {Array<{email: string, name: string}>}
  */
 function parseEmailAddressList(str) {
     if (!str) return [];
@@ -283,8 +326,15 @@ function parseEmailAddressList(str) {
 }
 
 /**
- * Parse flexible date formats from various locales
- * @param {string} str - Date string
+ * Parse date strings from various locales (EN, PT, NL, DE).
+ *
+ * Tries native Date.parse first. If that fails, attempts locale-specific
+ * regex patterns for Portuguese ("29 de janeiro de 2026 10:56"),
+ * Dutch ("29 januari 2026 10:56"), and German ("29. Januar 2026 10:56").
+ *
+ * Returns null rather than an Invalid Date when nothing matches.
+ *
+ * @param {string} str - Date string in any supported locale
  * @returns {Date|null}
  */
 function parseFlexibleDate(str) {
@@ -359,9 +409,15 @@ function parseFlexibleDate(str) {
 }
 
 /**
- * Extract signature from email body
- * @param {string} body - Email body text
- * @returns {Object} { body, signature }
+ * Separate the email body from the trailing signature block.
+ *
+ * Scans backwards from the end of the body looking for a known delimiter
+ * ("--", "Best regards", etc.). If no delimiter is found within the last
+ * 15 lines, falls back to a heuristic that checks whether the last 12 lines
+ * contain a concentration of contact-info patterns (email, phone, pipes).
+ *
+ * @param {string} body - Full email body text
+ * @returns {{body: string, signature: string|null}}
  */
 function extractSignature(body) {
     const lines = body.split('\n');
@@ -407,9 +463,13 @@ function extractSignature(body) {
 }
 
 /**
- * Check if text has signature-like patterns
- * @param {string} text 
- * @returns {boolean}
+ * Heuristic scoring for signature detection.
+ *
+ * Awards points for email addresses (2), phone numbers (2), URLs (1),
+ * and pipe characters (1). A score >= 3 is considered a likely signature.
+ *
+ * @param {string} text - Candidate signature text
+ * @returns {boolean} true if text scores as a probable signature
  */
 function hasSignaturePatterns(text) {
     let score = 0;
@@ -423,10 +483,21 @@ function hasSignaturePatterns(text) {
 }
 
 /**
- * Extract contact information from email signature
+ * Mine structured contact information from a signature block.
+ *
+ * Extracts email, phone, role, organization, skills, location, and website
+ * using a combination of regex patterns and pipe-delimited line parsing.
+ * Returns at most one contact (the sender); returns empty array if neither
+ * name nor email can be determined.
+ *
+ * Assumption: pipe-separated lines follow the convention
+ * "Name | Role | Skills" or "Dept | Org". The parser assigns the second
+ * pipe segment as role and tries to distinguish orgs from skill keywords.
+ *
  * @param {string} signature - The signature text
- * @param {Object} fromContact - The from contact for context
- * @returns {Array<Object>} Extracted contacts
+ * @param {Object} fromContact - The sender ({name, email}) for fallback context
+ * @returns {Array<Object>} Zero or one contact objects with name, email, phone,
+ *                          role, organization, department, location, website, skills
  */
 function extractContactsFromSignature(signature, fromContact) {
     const contacts = [];
@@ -565,11 +636,19 @@ function extractAddresses(addrs) {
 }
 
 /**
- * Match email contacts with existing contacts in database
- * @param {Object} parsedEmail - Parsed email object
- * @param {Function} findContactByEmail - Function to find contact by email
- * @param {Function} findContactByName - Function to find contact by name (fuzzy)
- * @returns {Promise<Object>} Email with matched/created contact IDs
+ * Reconcile email participants against an existing contacts database.
+ *
+ * For each sender, recipient, and signature-extracted contact, attempts to
+ * find a match by email first, then by name (fuzzy). Unmatched contacts are
+ * collected in newContactsToCreate for the caller to persist.
+ *
+ * Signature contacts that share an email with an already-queued new contact
+ * are merged (phone, org, location, skills) rather than duplicated.
+ *
+ * @param {Object} parsedEmail - Output from parseEmlFile / parseManualEmail
+ * @param {Function} findContactByEmail - async (email) => contact|null
+ * @param {Function} findContactByName - async (name) => contact|null (fuzzy match)
+ * @returns {Promise<{senderContact, recipientContacts, newContactsToCreate}>}
  */
 async function matchContacts(parsedEmail, findContactByEmail, findContactByName) {
     const result = {
@@ -698,11 +777,20 @@ function buildEmailContent(email) {
 }
 
 /**
- * Build AI prompt for email analysis - extracts all entity types
- * Uses Supabase prompts v1.6 when available
- * @param {Object} email - Parsed email
- * @param {Object} options - Options including custom prompt, projectId for context
- * @returns {string} Prompt
+ * Build the AI prompt that drives full entity extraction from an email.
+ *
+ * Three resolution paths (checked in order):
+ *   1. customPrompt -- caller-supplied template with {from}, {to}, {body}, etc. placeholders
+ *   2. supabasePrompt -- a Supabase-managed prompt template (v1.6) rendered with context vars
+ *   3. Default hardcoded prompt -- comprehensive JSON schema for facts, decisions, risks,
+ *      action items, questions, people, technologies, and relationships
+ *
+ * The default prompt begins with "/no_think" (qwen3 directive to suppress CoT) and
+ * requests JSON-only output. Callers should be prepared for malformed JSON from the LLM.
+ *
+ * @param {Object} email - Parsed email (from, to, cc, subject, date, text, signature)
+ * @param {Object} options - customPrompt, ontologyMode, supabasePrompt, contextVariables
+ * @returns {string} The complete prompt string to send to the LLM
  */
 function buildEmailAnalysisPrompt(email, options = {}) {
     const { customPrompt, ontologyMode = true, supabasePrompt, contextVariables = {} } = options;
@@ -898,10 +986,16 @@ Start directly with the response content.`;
 }
 
 /**
- * Parse a .msg file (Outlook format)
- * Uses @pnp/msgraph-parser or falls back to basic extraction
+ * Parse a .msg file (Microsoft Outlook binary format).
+ *
+ * Tries three parser libraries in order: @pnp/msgraph-parser, msg-reader,
+ * then msgreader. All are optional dependencies -- if none are installed,
+ * throws with an install hint. This layered approach avoids a hard dependency
+ * on any single .msg library, which tend to have platform-specific issues.
+ *
  * @param {Buffer} buffer - The .msg file content
- * @returns {Promise<Object>} Parsed email object
+ * @returns {Promise<Object>} Parsed email object matching the parseEmlFile shape
+ * @throws {Error} When no .msg parser library is available or parsing fails
  */
 async function parseMsgFile(buffer) {
     try {

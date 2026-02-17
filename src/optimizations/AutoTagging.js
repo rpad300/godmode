@@ -1,6 +1,28 @@
 /**
- * Auto-Tagging Module
- * Automatically classify and tag documents based on content
+ * Purpose:
+ *   Classify and tag documents automatically using a two-tier strategy:
+ *   LLM-based extraction for accurate results, with a keyword-based
+ *   fallback when the LLM is unavailable.
+ *
+ * Responsibilities:
+ *   - Assign a category, subcategory, importance level, tags, and key
+ *     topics to individual documents
+ *   - Batch-tag multiple documents sequentially
+ *   - Find related documents by shared tags (Jaccard-style similarity)
+ *   - Produce aggregate tag and category statistics
+ *
+ * Key dependencies:
+ *   - ../llm: LLM text generation for smart tagging
+ *   - ../llm/config: per-task provider/model resolution
+ *
+ * Side effects:
+ *   - Makes LLM API calls when an LLM provider is configured
+ *
+ * Notes:
+ *   - The LLM prompt sends only the first 3000 characters of document
+ *     content to stay within token budgets.
+ *   - fallbackTagging uses simple keyword matching and is deterministic;
+ *     it produces a "method: 'fallback'" flag in its output.
  */
 
 const llm = require('../llm');
@@ -8,6 +30,16 @@ const llmConfig = require('../llm/config');
 const { logger } = require('../logger');
 const log = logger.child({ module: 'auto-tagging' });
 
+/**
+ * Classifies and tags documents using LLM or keyword-based fallback.
+ *
+ * @param {object} options
+ * @param {string|null} options.llmProvider - LLM provider name
+ * @param {string|null} options.llmModel - Model identifier
+ * @param {object}  options.llmConfig - Full LLM configuration
+ * @param {object}  options.appConfig - App-level config for per-task resolution
+ * @param {string[]} [options.categories] - Allowed category names
+ */
 class AutoTagging {
     constructor(options = {}) {
         this.llmProvider = options.llmProvider || null;
@@ -38,7 +70,11 @@ class AutoTagging {
     }
 
     /**
-     * Auto-tag a document
+     * Classify a single document, returning category, tags, importance, and
+     * optional key topics. Falls back to keyword matching when LLM is
+     * unavailable or the document is too short.
+     * @param {object} document - Must have content/text and optionally title/name
+     * @returns {Promise<{category: string, tags: string[], importance: string, ...}>}
      */
     async tagDocument(document) {
         const content = document.content || document.text || '';
@@ -179,7 +215,10 @@ Be concise and accurate.`;
     }
 
     /**
-     * Suggest related documents based on tags
+     * Rank documents by shared-tag similarity with a target tag set.
+     * @param {string[]} targetTags - Tags to match against
+     * @param {object[]} allDocuments - Each must have a .tags array
+     * @returns {Array<{document: string, commonTags: string[], similarity: number}>} sorted desc by similarity
      */
     findRelatedDocuments(targetTags, allDocuments) {
         const related = [];

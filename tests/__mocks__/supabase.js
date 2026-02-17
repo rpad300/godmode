@@ -1,6 +1,34 @@
 /**
- * Supabase Mock
- * Mock implementation for testing
+ * Purpose:
+ *   Comprehensive mock of the Supabase client and related modules (auth, invites,
+ *   outbox) for use in backend Jest tests. Provides chainable query builders that
+ *   mirror the real @supabase/supabase-js API surface.
+ *
+ * What is tested:
+ *   This file is not tested directly. It is consumed by test files that need to
+ *   isolate business logic from real Supabase network calls.
+ *
+ * Test strategy:
+ *   - All Supabase client methods return jest.fn() mocks that are chainable
+ *     (.select().eq().single() etc.) just like the real client
+ *   - Default resolved values are { data: null, error: null } so tests can
+ *     override only what they care about
+ *
+ * Mocking approach:
+ *   - createMockClient(): returns a full mock Supabase client with .from(),
+ *     .auth, .channel(), and .removeChannel() stubs
+ *   - mockAuth: mocks for the app's auth module (register, login, requireAuth, etc.)
+ *   - mockInvites: mocks for invite CRUD and token operations
+ *   - mockOutbox: mocks for the sync outbox (addToOutbox, claimBatch, etc.)
+ *     including OPERATIONS and EVENT_TYPES constants
+ *   - mockData: in-memory Maps/arrays for tests that need stateful mock storage
+ *   - resetMocks(): clears all mock data and resets all jest.fn() instances;
+ *     call this in beforeEach for test isolation
+ *
+ * Notes:
+ *   - The channel mock supports .on().subscribe() chaining for realtime tests
+ *   - presenceState returns an empty object by default; override in tests that
+ *     exercise presence features
  */
 
 const mockData = {
@@ -103,7 +131,10 @@ const mockOutbox = {
     getStats: jest.fn()
 };
 
-// Helper to reset all mocks
+/**
+ * Reset all in-memory mock data and clear every jest.fn() mock.
+ * Call in beforeEach() for full test isolation.
+ */
 const resetMocks = () => {
     mockData.users.clear();
     mockData.projects.clear();

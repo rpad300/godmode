@@ -1,3 +1,33 @@
+/**
+ * Purpose:
+ *   Manages the synchronisation lifecycle between the application's relational
+ *   data and the graph database. Provides sync status polling, incremental
+ *   sync triggers, and full resync (rebuild) operations.
+ *
+ * Responsibilities:
+ *   - Poll /api/graphrag/sync-status (fast 2s when syncing, slow 30s otherwise)
+ *   - Provide sync() mutation for incremental sync
+ *   - Provide resync() mutation for full graph rebuild
+ *   - Invalidate graph node/edge caches on successful sync
+ *   - Surface toast notifications for success/failure
+ *
+ * Key dependencies:
+ *   - ProjectContext (useProject): currentProjectId
+ *   - lib/graph-api: triggerSync, triggerResync, getSyncStatus
+ *   - sonner: toast notifications
+ *
+ * Side effects:
+ *   - Network requests to /api/graphrag/* endpoints
+ *   - Displays toast messages on sync start and on errors
+ *   - Adaptive polling interval (2s during sync, 30s idle)
+ *
+ * Notes:
+ *   - isSyncing combines the server status with client-side pending states to avoid
+ *     UI flicker between mutation fire and the next status poll.
+ *   - Derived field is_connected is inferred from last_synced_at presence.
+ *
+ * @returns {{ status, isLoadingStatus, isSyncing, sync, resync, error }}
+ */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useProject } from '@/contexts/ProjectContext';
 import { graphApi } from '@/lib/graph-api';

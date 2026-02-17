@@ -1,6 +1,66 @@
 /**
- * Knowledge Routes - Questions, Facts, Decisions, Risks, Actions
- * Extracted from src/server.js for modularization
+ * Purpose:
+ *   Comprehensive CRUD API for the project knowledge base: questions, facts,
+ *   decisions, risks, action items, user stories, and people. Includes
+ *   duplicate detection, AI-powered suggestions, graph synchronization,
+ *   soft-delete with restore, event history, and semantic similarity search.
+ *
+ * Responsibilities:
+ *   - Full CRUD for questions, facts, decisions, risks, actions, user stories
+ *   - Duplicate detection on creation (facts, questions) with similarity scoring
+ *   - Soft-delete and restore for facts, decisions, risks, actions, user stories
+ *   - Event/audit history per entity (facts, decisions, risks, actions)
+ *   - Semantic similarity search for facts, decisions, and actions (via embeddings)
+ *   - AI suggestion endpoints: decision rationale, owner, risk mitigation, action assignees
+ *   - AI-powered task description expansion from user input
+ *   - Graph synchronization for questions (create/update/delete)
+ *   - Grouped views: questions by person/team, risks by category, actions report
+ *   - People listing
+ *
+ * Key dependencies:
+ *   - storage (ctx): all knowledge CRUD, search, graph provider access
+ *   - llm / llmConfig (ctx): embeddings for similarity, text generation for suggestions
+ *   - ../../sync.getGraphSync: question sync to knowledge graph
+ *   - ../../decision-suggest/*: AI decision suggestion flows
+ *   - ../../risk-suggest/*: AI risk suggestion flows
+ *   - ../../action-suggest/*: AI action suggestion flows
+ *   - ../../supabase/prompts: managed prompt templates for task expansion
+ *
+ * Side effects:
+ *   - Write operations mutate Supabase/storage and may trigger graph sync
+ *   - AI suggestion endpoints call the configured LLM (incur cost)
+ *   - recordDailyStats() is called on question and fact creation
+ *   - Delete operations on questions also remove the node from the graph
+ *
+ * Notes:
+ *   - isKnowledgeRoute() provides a fast prefix check to skip non-matching paths
+ *   - Duplicate detection can be bypassed with { skipDedup: true }
+ *   - PUT vs PATCH on actions: PUT replaces all provided fields, PATCH updates only present fields
+ *   - Entity IDs in URL paths are not strictly UUID-validated (except questions which use [a-f0-9-])
+ *   - The suggest-task endpoint requires the "task_description_from_rules" prompt in Admin > Prompts
+ *
+ * Routes (abbreviated -- see inline comments for full detail):
+ *   Questions: GET/POST /api/questions, PUT/DELETE /api/questions/:id,
+ *              GET /api/questions/by-person, GET /api/questions/by-team
+ *   Facts:     GET/POST /api/facts, GET/PUT/DELETE /api/facts/:id,
+ *              GET /api/facts/deleted, POST /api/facts/:id/restore,
+ *              GET /api/facts/:id/events, GET /api/facts/:id/similar
+ *   Decisions: GET/POST /api/decisions, GET/PUT/DELETE /api/decisions/:id,
+ *              GET /api/decisions/deleted, POST /api/decisions/:id/restore,
+ *              GET /api/decisions/:id/events, GET /api/decisions/:id/similar,
+ *              POST /api/decisions/suggest, POST /api/decisions/suggest-owner
+ *   Risks:     GET/POST /api/risks, GET/PUT/DELETE /api/risks/:id,
+ *              GET /api/risks/deleted, POST /api/risks/:id/restore,
+ *              GET /api/risks/:id/events, GET /api/risks/by-category,
+ *              POST /api/risks/suggest
+ *   Actions:   GET/POST /api/actions, PUT/PATCH/DELETE /api/actions/:id,
+ *              GET /api/actions/deleted, POST /api/actions/:id/restore,
+ *              GET /api/actions/:id/events, GET /api/actions/:id/similar,
+ *              GET /api/actions/report, POST /api/actions/suggest,
+ *              POST /api/actions/suggest-task
+ *   Stories:   GET/POST /api/user-stories, GET/PUT/DELETE /api/user-stories/:id,
+ *              GET /api/user-stories/deleted, POST /api/user-stories/:id/restore
+ *   People:    GET /api/people
  */
 
 const { parseUrl, parseBody } = require('../../server/request');
@@ -91,14 +151,14 @@ async function handleKnowledge(ctx) {
         log.debug({ event: 'questions_update_result', questionId, resultPreview: JSON.stringify(result).substring(0, 200) }, 'Update result');
         
         if (result.success || result.ok) {
-            // Sync to FalkorDB if connected
+            // Sync to graph if connected
             const graphProvider = storage.getGraphProvider();
             if (graphProvider && graphProvider.connected) {
                 try {
                     const { getGraphSync } = require('../../sync');
                     const graphSync = getGraphSync({ graphProvider, storage });
                     await graphSync.syncQuestion(result.question);
-                    log.debug({ event: 'knowledge_question_synced', questionId }, 'Question updated in FalkorDB');
+                    log.debug({ event: 'knowledge_question_synced', questionId }, 'Question updated in graph');
                 } catch (syncErr) {
                     log.warn({ event: 'knowledge_question_sync_error', questionId, reason: syncErr.message }, 'Question sync error');
                 }
@@ -142,7 +202,7 @@ async function handleKnowledge(ctx) {
                         `MATCH (q:Question {id: $id}) DETACH DELETE q`,
                         { id: questionId }
                     );
-                    log.debug({ event: 'knowledge_question_deleted', questionId }, 'Question deleted from FalkorDB');
+                    log.debug({ event: 'knowledge_question_deleted', questionId }, 'Question deleted from graph');
                 } catch (syncErr) {
                     log.warn({ event: 'knowledge_question_delete_sync_error', questionId, reason: syncErr.message }, 'Question delete sync error');
                 }

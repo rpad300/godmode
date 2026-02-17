@@ -1,6 +1,35 @@
 /**
- * Document Processor Module
- * Orchestrator for document processing, delegating to Extractor, Analyzer, and Synthesizer.
+ * Purpose:
+ *   Orchestrates the full document processing pipeline: file extraction,
+ *   LLM-based analysis, structured data storage, and holistic synthesis.
+ *   Acts as the coordinator between Extractor, Analyzer, and Synthesizer.
+ *
+ * Responsibilities:
+ *   - Batch-process all pending content files (processAll)
+ *   - Process individual files through extract -> analyze -> store -> summarize
+ *   - Poll for newly uploaded documents and auto-process them in the background
+ *   - Respect per-provider concurrency limits when scheduling background jobs
+ *   - Track processing state (progress, timing estimates, errors) for the UI
+ *   - Provide legacy compatibility aliases for older calling code
+ *
+ * Key dependencies:
+ *   - ./processor/extractor: reads file content (PDF, text, images via MarkItDown)
+ *   - ./processor/analyzer: builds prompts, calls LLM, parses AI responses
+ *   - ./processor/synthesizer: cross-document knowledge synthesis and KB generation
+ *   - storage (injected): persistence layer for documents, facts, decisions, etc.
+ *
+ * Side effects:
+ *   - Reads files from the filesystem (via extractor)
+ *   - Calls external LLM APIs (via analyzer)
+ *   - Writes extracted entities to storage (facts, decisions, questions, risks, actions, people)
+ *   - Starts an interval timer for document polling (startPolling)
+ *
+ * Notes:
+ *   - processFile currently does not implement idempotency via content hashing;
+ *     the TODO is noted in the code. Callers should manage re-processing guards.
+ *   - The polling loop uses a simple Set (filesInProgress) to avoid double-processing,
+ *     but provider job counts are tracked separately in providerJobs for concurrency.
+ *   - Synthesis runs after all individual files are processed (60-100% progress range).
  */
 
 const path = require('path');
@@ -13,6 +42,10 @@ const DocumentSynthesizer = require('./processor/synthesizer');
 const log = rootLogger.child({ module: 'processor' });
 
 class DocumentProcessor {
+    /**
+     * @param {Object} storage - Storage backend (LegacyStorage or StorageCompat)
+     * @param {Object} config  - Application config; must include dataDir and llm settings
+     */
     constructor(storage, config) {
         this.storage = storage;
         this.config = config;
@@ -63,7 +96,16 @@ class DocumentProcessor {
     }
 
     /**
-     * Process all files
+     * Batch-process all content files through two phases:
+     *   Phase 1 (0-60% progress): Extract and analyze each file individually
+     *   Phase 2 (60-100% progress): Run holistic cross-document synthesis
+     *
+     * Only one processAll invocation may run at a time (guard via processingState.status).
+     *
+     * @param {string} textModel   - LLM model identifier for text analysis
+     * @param {string} [visionModel] - LLM model for vision tasks (images/PDFs)
+     * @returns {Object} { success, processed, errors, stats, synthesis } on completion,
+     *                   or { success: false, message|error } on conflict/failure
      */
     async processAll(textModel, visionModel = null) {
         if (this.processingState.status === 'running') {
@@ -174,7 +216,23 @@ class DocumentProcessor {
     }
 
     /**
-     * Process a single file
+     * Process a single file through the full extraction pipeline:
+     *   1. Read file content (via extractor)
+     *   2. Build extraction prompt and call LLM
+     *   3. Parse structured AI response into entities
+     *   4. Persist entities to storage (facts, decisions, questions, risks, actions, people)
+     *   5. Run post-processing: resolve answered questions, complete actions
+     *   6. Generate and store an AI summary for the document
+     *
+     * Assumption: idempotency via content hash is not yet implemented --
+     * the caller is responsible for avoiding redundant reprocessing.
+     *
+     * @param {string} filePath      - Absolute path to the file
+     * @param {string} textModel     - LLM model for text extraction
+     * @param {string} [visionModel] - LLM model for vision (unused here currently)
+     * @param {boolean} [isTranscript] - If true, uses transcript-specific prompt tuning
+     * @returns {Object} { success, documentId, stats, resolvedQuestions, completedActions }
+     *                   or { success: false, error }
      */
     async processFile(filePath, textModel, visionModel = null, isTranscript = false) {
         const filename = path.basename(filePath);
@@ -409,7 +467,10 @@ class DocumentProcessor {
     }
 
     /**
-     * Main polling loop
+     * Main polling loop invoked on each interval tick.
+     * Checks for pending documents and dispatches background processing jobs
+     * while respecting per-provider concurrency limits. Skips entirely if
+     * autoProcess is disabled in processing settings.
      */
     async _poll() {
         try {
@@ -464,6 +525,15 @@ class DocumentProcessor {
         }
     }
 
+    /**
+     * Start a background processing job for a single document.
+     * Tracks the job in filesInProgress and providerJobs, updates document
+     * status to 'processing' -> 'completed'/'failed', and cleans up counters
+     * in the finally block to ensure provider slots are always released.
+     *
+     * @param {Object} doc      - Document record with id, name, and optional path
+     * @param {string} provider - LLM provider identifier (e.g. "openai", "ollama")
+     */
     async _startJob(doc, provider) {
         const id = doc.id || doc.name;
         this.filesInProgress.add(id);
@@ -506,7 +576,11 @@ class DocumentProcessor {
         }
     }
 
-    // Internal helper for timing
+    /**
+     * Recalculate estimated time remaining based on average per-file duration.
+     * Updates processingState.estimatedTimeRemaining (in seconds).
+     * @param {number} processedCount - Number of files processed so far
+     */
     _updateEstimatedTime(processedCount) {
         if (processedCount < 1) return;
         const elapsed = Date.now() - this.processingState.startTime;

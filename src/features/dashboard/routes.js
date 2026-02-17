@@ -1,10 +1,28 @@
 /**
- * Dashboard and Trends API
- * Extracted from server.js
+ * Purpose:
+ *   Dashboard and trends API routes. Aggregates project-wide metrics into a
+ *   single payload for the main dashboard view, and provides historical trend data.
  *
- * Handles:
- * - GET /api/dashboard - Get enhanced dashboard stats
- * - GET /api/trends - Get trend data for metrics
+ * Responsibilities:
+ *   - Compute and return comprehensive dashboard statistics in a single request:
+ *     document counts, facts by category, question aging, risk breakdown by impact,
+ *     action item status, overdue items, weekly activity, sprint info, and trend data
+ *   - Serve historical trend data over configurable time windows (default 7 days)
+ *
+ * Key dependencies:
+ *   - storage: Provides getStats, getRisks, getFacts, getQuestions, getActionItems,
+ *     getPeople, getTrends, getStatsHistory, getWeeklyActivity, getRecentActivity,
+ *     getSprints -- all read-only data accessors
+ *
+ * Side effects:
+ *   - None (read-only endpoints)
+ *
+ * Notes:
+ *   - GET /api/dashboard performs many in-memory aggregations; for large datasets
+ *     this could become a performance bottleneck worth caching
+ *   - Question aging buckets: fresh (<=3d), aging (4-7d), stale (8-14d), critical (>14d)
+ *   - Sprint data is a placeholder until sprints feature is fully implemented
+ *   - The activeSprint field is the first sprint with status "active", or null
  */
 
 const { parseUrl } = require('../../server/request');

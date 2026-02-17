@@ -1,9 +1,45 @@
+/**
+ * Purpose:
+ *   Main panel for managing project actions (tasks/to-dos) within the
+ *   Source of Truth module. Supports multiple view modes, filtering,
+ *   CRUD operations, and AI-powered action suggestions.
+ *
+ * Responsibilities:
+ *   - Renders actions in three view modes: flat list, grouped by sprint,
+ *     grouped by user story
+ *   - Provides status and sprint filters with a summary stats strip
+ *   - CRUD: create, edit (via ActionModal), delete, and view detail
+ *     (via ActionDetailView)
+ *   - AI Suggest: generates placeholder AI-suggested actions and appends
+ *     them to the list (simulated with setTimeout)
+ *   - Sprint management: create sprints via CreateSprintModal
+ *   - Collapsible accordion groups with animated expand/collapse
+ *
+ * Key dependencies:
+ *   - ActionModal: create/edit form modal
+ *   - ActionDetailView: single action detail with AI analysis
+ *   - CreateSprintModal: sprint creation form
+ *   - OwnerBadge: avatar+name badge for action owners
+ *   - framer-motion: layout animations and group expand/collapse
+ *   - sonner (toast): user feedback notifications
+ *   - Action, Sprint, UserStory (godmode types): data shapes
+ *
+ * Side effects:
+ *   - None (state is managed locally; parent is notified via onSave/onDelete)
+ *
+ * Notes:
+ *   - AI suggestions are simulated with hardcoded data and delays.
+ *   - User stories array is empty (hardcoded `[]`); the "by story" view
+ *     is prepared but non-functional until the API is connected.
+ *   - Actions and sprints are controlled via props (initialData/initialSprints)
+ *     but also maintain local state, which can desync if props change
+ *     without remounting.
+ */
 import { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, List, Layers, BookOpen, Filter, Target, ChevronDown, ChevronRight, FileBarChart, Sparkles, Loader2 } from 'lucide-react';
+import { Plus, List, Layers, BookOpen, Filter, Target, ChevronDown, ChevronRight, FileBarChart, Sparkles, Loader2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import type { Action, Sprint } from '@/types/godmode';
-import { mockUserStories } from '@/data/mock-data';
+import type { Action, Sprint, UserStory } from '@/types/godmode';
 import ActionModal from './ActionModal';
 import ActionDetailView from './ActionDetailView';
 import CreateSprintModal from './CreateSprintModal';
@@ -28,7 +64,7 @@ const sprintStatusColor = (s: string) =>
     s === 'completed' ? 'bg-muted text-muted-foreground' :
       'bg-primary/10 text-primary';
 
-const ActionsPanel = ({ initialData = [], initialSprints = [] }: { initialData?: Action[], initialSprints?: Sprint[] }) => {
+const ActionsPanel = ({ initialData = [], initialSprints = [], onSave, onDelete }: { initialData?: Action[]; initialSprints?: Sprint[]; onSave?: (a: Action) => void; onDelete?: (id: string) => void }) => {
   const [actions, setActions] = useState<Action[]>(initialData);
   const [sprints, setSprints] = useState<Sprint[]>(initialSprints);
 
@@ -116,6 +152,13 @@ const ActionsPanel = ({ initialData = [], initialSprints = [] }: { initialData?:
       }
       return [...prev, action];
     });
+    onSave?.(action);
+  };
+
+  const handleDeleteAction = (id: string) => {
+    setActions(prev => prev.filter(a => a.id !== id));
+    onDelete?.(id);
+    toast.success('Action deleted');
   };
 
   const handleCreateSprint = (sprint: Sprint) => {
@@ -139,6 +182,7 @@ const ActionsPanel = ({ initialData = [], initialSprints = [] }: { initialData?:
           setDetailAction(null);
           openEditModal(a);
         }}
+        onDelete={handleDeleteAction}
       />
     );
   }
@@ -253,9 +297,10 @@ const ActionsPanel = ({ initialData = [], initialSprints = [] }: { initialData?:
     );
   };
 
-  // Group by story
+  // Group by story (user stories fetched from API will be added later)
+  const userStories: UserStory[] = [];
   const renderByStory = () => {
-    const storiesWithActions = mockUserStories.map(story => ({
+    const storiesWithActions = userStories.map(story => ({
       story,
       actions: filtered.filter(a => a.storyId === story.id),
     })).filter(g => g.actions.length > 0);

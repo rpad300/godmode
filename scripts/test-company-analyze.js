@@ -1,14 +1,32 @@
 #!/usr/bin/env node
 /**
- * Test company analyze API (e.g. for CGI).
- * Requires: server running on PORT, and a valid auth token.
+ * Purpose:
+ *   End-to-end smoke test for the company analysis API. Lists companies, finds
+ *   one by name or UUID, triggers POST /api/companies/:id/analyze, and prints
+ *   the resulting brand-asset report summary.
  *
- * Get token: log in at http://localhost:3005, then DevTools > Application > Local Storage
- * look for key like sb-<project>-auth-token, copy the "access_token" value.
+ * Responsibilities:
+ *   - Authenticate against the running server using a Supabase JWT
+ *   - Fetch the company list and locate the target by name or UUID
+ *   - POST to /api/companies/:id/analyze and display key result fields
+ *
+ * Key dependencies:
+ *   - Running GodMode server on localhost:<PORT> (default 3005)
+ *   - A valid Supabase access_token (JWT) for authentication
+ *
+ * Side effects:
+ *   - Makes authenticated HTTP requests to the local server
+ *   - The /analyze endpoint may trigger LLM calls and write results to the DB
+ *
+ * Notes:
+ *   - The auth token can be passed as CLI arg #2 or via TEST_AUTH_TOKEN env var
+ *   - To obtain a token: log in at the app, open DevTools > Application >
+ *     Local Storage, find sb-<project>-auth-token, copy access_token
+ *   - Defaults to searching for company name "CGI" if no arg is provided
  *
  * Usage:
  *   node scripts/test-company-analyze.js [companyNameOrId] [accessToken]
- *   Or set env: TEST_AUTH_TOKEN=your_jwt node scripts/test-company-analyze.js CGI
+ *   TEST_AUTH_TOKEN=<jwt> node scripts/test-company-analyze.js CGI
  */
 
 const path = require('path');

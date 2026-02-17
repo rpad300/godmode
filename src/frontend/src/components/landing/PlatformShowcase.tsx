@@ -1,3 +1,36 @@
+/**
+ * Purpose:
+ *   Landing page section that showcases all six platform modules
+ *   (Dashboard, Knowledge Graph, Team Analysis, Source of Truth, AI Chat,
+ *   Timeline) with animated mockup previews and trilingual descriptions.
+ *
+ * Responsibilities:
+ *   - Renders six alternating left/right blocks, each pairing a text
+ *     description with a MockWindow-wrapped interactive mockup component
+ *   - MockWindow: reusable dark-themed browser-chrome frame
+ *   - DashboardMockup: health score, metric cards, daily briefing
+ *   - GraphMockup: SVG knowledge graph with animated node/edge drawing
+ *   - TeamAnalysisMockup: communication density bars, member scorecards
+ *   - SourceOfTruthMockup: sprint tab with action list
+ *   - ChatMockup: RAG chat conversation with source citations
+ *   - TimelineMockup: Gantt-like sprint progress bars
+ *   - Trilingual translations (pt/en/es) for section labels and descriptions
+ *
+ * Key dependencies:
+ *   - framer-motion: scroll-triggered fade/scale animations
+ *   - lucide-react: module icons
+ *   - Lang (i18n): language code type for translation selection
+ *
+ * Side effects:
+ *   - None (purely presentational)
+ *
+ * Notes:
+ *   - All mockup data is hardcoded; these are static illustrations, not
+ *     live dashboards.
+ *   - Uses HSL color values throughout for a unified dark-theme palette.
+ *   - The file is large (~500 lines) because each mockup is a self-contained
+ *     sub-component with its own data and layout.
+ */
 import { motion } from 'framer-motion';
 import {
   Brain, Network, Users, MessageSquare, Target, BarChart3,

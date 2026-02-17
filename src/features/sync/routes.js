@@ -1,19 +1,89 @@
 /**
- * Sync feature routes (Graph Outbox / Sync Status / Soft Delete / Audit / etc.)
- * Extracted from server.js
+ * Purpose:
+ *   Sync infrastructure API. Manages the graph outbox (Supabase-backed sync pipeline),
+ *   soft-delete/restore, audit logging, batch operations, data integrity checks,
+ *   pre-delete backups, delete event streaming, retention policies, data versioning,
+ *   and scheduled job management.
  *
- * Handles:
- * - Outbox: GET /api/sync/status, dead-letters, projects/:id/sync/*, retry, resolve
- * - Soft delete: GET /api/sync/deleted, POST /api/sync/restore/:type/:id
- * - Audit: GET /api/sync/audit, audit/stats, audit/export
- * - Batch delete: POST /api/sync/batch-delete
- * - Integrity: GET /api/sync/integrity, POST /api/sync/integrity/fix
- * - Backups: GET /api/sync/backups, backups/stats, backups/:id
- * - Events: GET /api/sync/events/recent, /api/sync/events (SSE)
- * - Stats: GET /api/sync/stats, stats/dashboard
- * - Retention: GET /api/sync/retention, POST enable, execute, GET preview
- * - Versions: POST /api/versions, GET /api/versions/:id, stats, restore
- * - Jobs: GET/POST /api/jobs, jobs/stats, jobs/log
+ * Responsibilities:
+ *   - Outbox sync: status, dead letters, retry, resolve (requires Supabase)
+ *   - Per-project sync: status, stats, pending count, dead letters
+ *   - Soft delete: list deleted items, restore by type/id with audit logging
+ *   - Audit: query log entries, stats, export (JSON/CSV)
+ *   - Batch delete: bulk delete with soft-delete, cascade, and backup options
+ *   - Integrity: run integrity checks, auto-fix inconsistencies
+ *   - Backups: list, retrieve, stats for pre-delete backups
+ *   - Events: recent delete events (JSON), real-time SSE stream
+ *   - Stats: delete statistics, stats dashboard
+ *   - Retention: view policies, enable/disable, dry-run preview, execute cleanup
+ *   - Data versioning: create version snapshots, list versions, restore
+ *   - Scheduled jobs: list, create, execute, stats, execution log
+ *
+ * Key dependencies:
+ *   - ../../sync (getSoftDelete, getAuditLog, getDeleteEvents, getBatchDelete,
+ *     getCascadeDelete, getIntegrityCheck, getBackupBeforeDelete, getDeleteStats,
+ *     getRetentionPolicy): sync infrastructure modules
+ *   - ../../advanced (getDataVersioning, getScheduledJobs): versioning and job scheduling
+ *   - ../../server/security (isValidUUID): input validation for project/dead-letter IDs
+ *   - supabase.outbox: Supabase outbox client for sync status and dead letter management
+ *
+ * Side effects:
+ *   - Soft delete moves items to a deleted store; restore reverses this
+ *   - Audit log writes persist to the local data directory
+ *   - Batch delete may cascade to graph nodes and related entities
+ *   - Integrity fix auto-corrects inconsistencies in storage and graph
+ *   - Retention execute permanently removes items past their retention period
+ *   - Version snapshots are written to the local data directory
+ *   - Job execution triggers the associated job handler
+ *   - SSE endpoint keeps the connection open until client disconnect
+ *
+ * Notes:
+ *   - Routes are split into two sections: local-storage routes (no Supabase needed)
+ *     and outbox routes (require Supabase). If Supabase is not configured, outbox
+ *     routes return 503 (except /api/sync/status which returns a disconnected state).
+ *   - The toSyncState helper normalizes outbox results into the frontend SyncState shape
+ *   - UUID validation is enforced on all project and dead-letter ID path parameters
+ *   - The /api/versions and /api/jobs routes live here because they share the sync
+ *     data directory context, even though they are conceptually separate features
+ *
+ * Routes (summary -- 35+ endpoints):
+ *   GET  /api/sync/deleted                       - List soft-deleted items
+ *   POST /api/sync/restore/:type/:id             - Restore a soft-deleted item
+ *   GET  /api/sync/audit                         - Query audit log entries
+ *   GET  /api/sync/audit/stats                   - Audit log statistics
+ *   GET  /api/sync/audit/export                  - Export audit log (JSON or CSV download)
+ *   POST /api/sync/batch-delete                  - Bulk delete with options
+ *   GET  /api/sync/integrity                     - Run data integrity check
+ *   POST /api/sync/integrity/fix                 - Auto-fix integrity issues
+ *   GET  /api/sync/backups/stats                 - Pre-delete backup statistics
+ *   GET  /api/sync/backups                       - List backups
+ *   GET  /api/sync/backups/:id                   - Retrieve a specific backup
+ *   GET  /api/sync/events/recent                 - Recent delete events (JSON)
+ *   GET  /api/sync/events                        - SSE stream of delete events
+ *   GET  /api/sync/stats                         - Delete statistics
+ *   GET  /api/sync/stats/dashboard               - Stats dashboard
+ *   GET  /api/sync/retention                     - Retention policies
+ *   POST /api/sync/retention/enable              - Enable/disable retention
+ *   POST /api/sync/retention/execute             - Execute retention cleanup
+ *   GET  /api/sync/retention/preview             - Dry-run retention preview
+ *   POST /api/versions                           - Create a version snapshot
+ *   GET  /api/versions/:id                       - List versions for an item
+ *   GET  /api/versions/stats                     - Versioning statistics
+ *   POST /api/versions/restore                   - Restore a version
+ *   GET  /api/jobs                               - List scheduled jobs
+ *   POST /api/jobs                               - Create a scheduled job
+ *   POST /api/jobs/:id/execute                   - Execute a job immediately
+ *   GET  /api/jobs/stats                         - Job execution statistics
+ *   GET  /api/jobs/log                           - Job execution log
+ *   GET  /api/sync/status                        - Frontend SyncState (outbox-backed)
+ *   GET  /api/sync/dead-letters                  - Dead letter queue
+ *   POST /api/sync/retry/:id                     - Retry a dead letter
+ *   GET  /api/projects/:id/sync/status           - Per-project sync status
+ *   GET  /api/projects/:id/sync/stats            - Per-project sync stats
+ *   GET  /api/projects/:id/sync/pending          - Per-project pending count
+ *   GET  /api/projects/:id/sync/dead-letters     - Per-project dead letters
+ *   POST /api/sync/dead-letters/:id/retry        - Retry a specific dead letter
+ *   POST /api/sync/dead-letters/:id/resolve      - Resolve a dead letter (auth required)
  */
 
 const { parseBody, parseUrl } = require('../../server/request');

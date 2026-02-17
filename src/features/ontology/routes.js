@@ -1,17 +1,74 @@
 /**
- * Ontology API
- * Extracted from server.js
+ * Purpose:
+ *   Ontology management API. Provides CRUD for entity/relation types, schema validation,
+ *   AI-driven ontology suggestions, graph-to-ontology extraction, compliance checks,
+ *   background analysis workers, and automated relationship inference.
  *
- * Handles:
- * - GET /api/ontology - Summary
- * - GET /api/ontology/entities, relations, schema, stats, sync/status
- * - POST /api/ontology/validate, extract, enrich, entity-type, relation-type
- * - Ontology Agent: suggestions, analyze-graph, approve/reject/enrich, auto-approve
- * - Sync: force
- * - Worker: status, trigger, log
- * - Jobs: list, toggle
- * - Extractor: extract-from-graph, validate-compliance, merge, unused-types, cleanup, diff
- * - infer-relationships
+ * Responsibilities:
+ *   - Export ontology summary, entity types, relation types, and schema
+ *   - Validate entities against ontology, extract entities from text
+ *   - Enrich entities with embedding-friendly text representations
+ *   - AI agent: generate suggestions from graph analysis, approve/reject/enrich suggestions
+ *   - Ontology sync between Supabase and graph (status, force sync, migrate)
+ *   - Background worker: full analysis, inference rules, dedup, auto-approve, gap detection
+ *   - Scheduled job management for ontology tasks
+ *   - Graph extractor: extract ontology from graph, validate compliance, merge/diff, cleanup
+ *   - AI relationship inference with automatic graph sync
+ *
+ * Key dependencies:
+ *   - ../../ontology (getOntologyManager, getOntologyAgent, getRelationInference,
+ *     getEmbeddingEnricher, getOntologySync, getOntologyBackgroundWorker,
+ *     getOntologyExtractor, getRelationshipInferrer): ontology subsystem
+ *   - ../../advanced (getScheduledJobs): scheduled job management
+ *   - storage.getGraphProvider(): graph database for extraction and compliance
+ *
+ * Side effects:
+ *   - Ontology schema writes propagate to Supabase and local storage
+ *   - AI agent suggestions are persisted to and loaded from Supabase
+ *   - Background worker executes LLM calls for analysis/inference
+ *   - Relationship inference triggers graph sync when new relationships are found
+ *   - Force sync overwrites graph ontology from authoritative source
+ *
+ * Notes:
+ *   - Routes before the storage/config guard work without a project context (read-only)
+ *   - Routes after the guard require storage and config (AI, sync, worker operations)
+ *   - Auto-connect is attempted on the graph provider at request start
+ *   - The worker log endpoint shadows the outer `log` variable (line 466)
+ *
+ * Routes (summary -- 25+ endpoints):
+ *   GET  /api/ontology                          - Full ontology export
+ *   GET  /api/ontology/entities                 - Entity types with properties and metadata
+ *   GET  /api/ontology/relations                - Relation types with endpoints
+ *   POST /api/ontology/validate                 - Validate an entity against its type schema
+ *   POST /api/ontology/extract                  - Extract entities/relations from text
+ *   POST /api/ontology/enrich                   - Generate embedding-enriched text for entity
+ *   GET  /api/ontology/suggestions              - Pending AI suggestions
+ *   POST /api/ontology/analyze-graph            - Analyze graph for new ontology suggestions
+ *   POST /api/ontology/suggestions/:id/approve  - Approve a suggestion
+ *   POST /api/ontology/suggestions/:id/reject   - Reject a suggestion
+ *   POST /api/ontology/suggestions/:id/enrich   - Enrich a suggestion with AI
+ *   GET  /api/ontology/schema                   - Raw ontology schema
+ *   POST /api/ontology/entity-type              - Add new entity type
+ *   POST /api/ontology/relation-type            - Add new relation type
+ *   GET  /api/ontology/stats                    - Type usage statistics from graph
+ *   GET  /api/ontology/sync/status              - Ontology sync status
+ *   POST /api/ontology/sync/force               - Force ontology sync
+ *   POST /api/ontology/analyze                  - AI-powered ontology analysis
+ *   POST /api/ontology/suggestions/auto-approve - Auto-approve high-confidence suggestions
+ *   GET  /api/ontology/changes                  - Ontology change history
+ *   POST /api/ontology/migrate                  - Migrate ontology to Supabase
+ *   GET  /api/ontology/worker/status            - Background worker status and stats
+ *   POST /api/ontology/worker/trigger           - Trigger worker analysis by type
+ *   GET  /api/ontology/worker/log               - Worker execution log
+ *   GET  /api/ontology/jobs                     - Scheduled ontology jobs
+ *   POST /api/ontology/jobs/:id/toggle          - Toggle job enabled state
+ *   GET  /api/ontology/extract-from-graph       - Extract ontology from graph data
+ *   GET  /api/ontology/validate-compliance      - Validate graph data against ontology
+ *   POST /api/ontology/merge                    - Merge extracted ontology with current
+ *   GET  /api/ontology/unused-types             - Find entity/relation types not in graph
+ *   POST /api/ontology/cleanup                  - Discard orphaned types
+ *   GET  /api/ontology/diff                     - Diff current ontology vs graph-extracted
+ *   POST /api/ontology/infer-relationships      - AI relationship inference + graph sync
  */
 
 const { parseBody, parseUrl } = require('../../server/request');

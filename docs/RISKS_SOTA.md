@@ -8,8 +8,8 @@ Risks are aligned with the same SOTA patterns as Facts and Decisions: persistenc
 |--------|-------------|
 | **Persistence** | `risks` table (005): content, impact, likelihood, mitigation, status, owner, source_document_id, source_file, created_by, deleted_at; **046**: `generation_source` (extracted \| quick_capture \| manual \| import) |
 | **Timeline / audit** | `risk_events` (046): created, updated, deleted, restored with actor_user_id, actor_name |
-| **Soft delete + restore** | deleteRisk (soft), getDeletedRisks, restoreRisk; outbox sync (Risk node removed/restored in FalkorDB) |
-| **Graph / FalkorDB** | Risk node CREATE/UPDATE/DELETE via outbox; project graph `project_${projectId}` |
+| **Soft delete + restore** | deleteRisk (soft), getDeletedRisks, restoreRisk; outbox sync (Risk node removed/restored in graph) |
+| **Graph (Supabase)** | Risk node CREATE/UPDATE/DELETE via outbox; project graph `project_${projectId}` |
 | **UI** | RisksPanel SOTA: header (title + count), filter select, **By Status** / **By Source** view tabs, **Search risks…**, Show Matrix, + Add; grouping by status or by source; SOTA cards (impact bar, badges, content, mitigation, source chip, owner, View); RiskDetailView (timeline, edit, delete) |
 | **Removed risks** | Section "Removed risks" with Restore; restore syncs back to graph |
 | **API** | GET/POST/PUT/DELETE risks, GET /api/risks/deleted, POST /api/risks/:id/restore, GET /api/risks/:id, GET /api/risks/:id/events; GET /api/risks fixed (await storage.getRisks()) |

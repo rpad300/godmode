@@ -341,9 +341,6 @@ docker compose --profile gpu up ollama-gpu -d
 ### Optional Services
 
 ```bash
-# Start FalkorDB (graph database)
-docker compose --profile graph up falkordb -d
-
 # Start local Supabase
 docker compose --profile supabase up -d
 
@@ -396,29 +393,51 @@ npm run llm:preflight:live
 
 ```
 godmode/
-├── src/                    # Source code
-│   ├── server.js           # Main HTTP server
-│   ├── processor.js        # Document processing
-│   ├── storage.js          # Local JSON storage
-│   ├── ollama.js           # Ollama API client
-│   ├── frontend/           # TypeScript frontend (Vite)
-│   │   ├── components/     # UI components
-│   │   ├── services/       # API services
-│   │   ├── stores/         # State management
-│   │   └── styles/         # CSS styles
-│   ├── llm/                # LLM providers and routing
-│   ├── supabase/           # Supabase integration
-│   ├── graphrag/           # Graph RAG implementation
-│   └── public/             # Built frontend assets
-├── scripts/                # Setup and utility scripts
-├── tests/                  # Test suites
-├── supabase/               # Database migrations
-├── docs/                   # Documentation
-├── data/                   # Project data (gitignored)
-├── .env.example            # Environment template
-├── docker-compose.yml      # Docker services
-└── package.json            # Dependencies and scripts
+├── src/
+│   ├── server.js                          # Main HTTP server
+│   ├── processor.js                       # Document processing
+│   ├── storage.js                         # Local JSON storage
+│   ├── ollama.js                          # Ollama API client
+│   ├── frontend/                          # ACTIVE UI (React 19 + Vite + TS)
+│   │   ├── src/
+│   │   │   ├── main.tsx                   # Entry point
+│   │   │   ├── App.tsx                    # Router and providers
+│   │   │   ├── components/               # React components
+│   │   │   ├── pages/                    # Route pages
+│   │   │   ├── hooks/                    # Custom React hooks
+│   │   │   ├── contexts/                 # React context providers
+│   │   │   ├── lib/                      # Utilities and API client
+│   │   │   └── types/                    # TypeScript types
+│   │   ├── vite.config.ts                # Vite configuration
+│   │   └── eslint.config.js              # ESLint configuration
+│   ├── frontend_backup_2026_02_11/        # LEGACY (frozen, do NOT edit)
+│   ├── llm/                               # LLM providers and routing
+│   ├── supabase/                          # Supabase integration
+│   ├── graphrag/                          # Graph RAG implementation
+│   └── public/                            # Built frontend assets
+├── scripts/                               # Setup and utility scripts
+├── tests/                                 # Test suites
+├── supabase/                              # Database migrations
+├── docs/                                  # Documentation
+├── data/                                  # Project data (gitignored)
+├── .env.example                           # Environment template
+├── docker-compose.yml                     # Docker services
+└── package.json                           # Dependencies and scripts
 ```
+
+### Frontend Sources
+
+| Source | Path | Status | Technology |
+|--------|------|--------|------------|
+| **Active UI** | `src/frontend/` | Active, maintained | React 19, Vite 7, TypeScript, Tailwind CSS v4 |
+| **Legacy Backup** | `src/frontend_backup_2026_02_11/` | Frozen, read-only | Vanilla TypeScript, custom routing |
+| **Reference Components** | `src/frontend/src/ui-reference/` | Import area | Selected components from external templates |
+
+**Rules:**
+- All new development goes in `src/frontend/`.
+- The legacy backup must NOT be edited (see `DO_NOT_EDIT.md` inside it).
+- Run `npm run check:legacy` to verify no imports leak from legacy into active UI.
+- External reference components are imported incrementally into `src/frontend/src/ui-reference/`.
 
 ---
 

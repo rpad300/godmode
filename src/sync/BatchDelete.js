@@ -1,12 +1,46 @@
 /**
- * Batch Delete Module
- * Efficiently delete multiple items in a single operation
+ * Purpose:
+ *   Deletes multiple entities of the same type in a single logical operation,
+ *   coordinating soft-delete, cascade, audit, and graph cleanup.
+ *
+ * Responsibilities:
+ *   - Iterate over an array of items, applying soft-delete + cascade per item
+ *   - Collect graph-node IDs and issue a batch Cypher DETACH DELETE
+ *   - Log each individual deletion to the audit module
+ *   - Expose filter-based and "delete all" convenience methods
+ *   - Provide a dry-run preview mode
+ *
+ * Key dependencies:
+ *   - ../logger: structured logging
+ *   - SoftDelete, AuditLog, CascadeDelete: injected via constructor or
+ *     `setDependencies` (late binding used by initSyncModules)
+ *   - graphProvider: Neo4j-compatible query interface for batch graph removal
+ *   - storage: local data store for filter-based lookups
+ *
+ * Side effects:
+ *   - Mutates graph database (DETACH DELETE by ID and by name)
+ *   - Triggers side effects in SoftDelete, CascadeDelete, and AuditLog modules
+ *
+ * Notes:
+ *   - Graph operations use a static label map (contact -> Person, etc.);
+ *     unmapped types fall through to using the raw type string as the label.
+ *   - `deleteByFilter` returns a confirmation prompt when > 10 items match
+ *     and `options.confirmed` is not set, preventing accidental mass deletion.
+ *   - Per-item errors are collected but do not abort the batch.
  */
 
 const { logger } = require('../logger');
 
 const log = logger.child({ module: 'batch-delete' });
 
+/**
+ * Coordinates bulk deletion of multiple entities, chaining soft-delete,
+ * cascade, audit, and a single batched graph DELETE per operation.
+ *
+ * Dependencies (softDelete, auditLog, cascadeDelete, graphProvider, storage)
+ * are optional and injected late via `setDependencies`. If a dependency is
+ * missing, the corresponding step is silently skipped.
+ */
 class BatchDelete {
     constructor(options = {}) {
         this.graphProvider = options.graphProvider;
@@ -122,7 +156,10 @@ class BatchDelete {
     }
 
     /**
-     * Delete items matching a filter
+     * Retrieve all items of `type` from storage, apply the given predicate,
+     * and batch-delete the matching set. If more than 10 items match and
+     * `options.confirmed` is not true, returns a confirmation prompt instead
+     * of proceeding -- a safety guard against accidental mass deletion.
      */
     async deleteByFilter(type, filter, options = {}) {
         let items = [];

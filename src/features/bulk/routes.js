@@ -1,12 +1,36 @@
 /**
- * Bulk and Undo API
- * Extracted from server.js
+ * Purpose:
+ *   Bulk operations (delete, status update) and undo/restore endpoints
+ *   for knowledge-base items (facts, risks, action items).
  *
- * Handles:
- * - POST /api/bulk/delete - Bulk delete items
- * - POST /api/bulk/status - Bulk update status
- * - POST /api/undo/restore - Restore a single deleted item
- * - POST /api/undo/restore-bulk - Restore multiple deleted items
+ * Responsibilities:
+ *   - Bulk delete items by type and ID set
+ *   - Bulk update status for risks and action items
+ *   - Restore a single previously deleted item (risk or action)
+ *   - Restore multiple previously deleted items (facts, risks, actions)
+ *
+ * Key dependencies:
+ *   - storage.knowledge: in-memory knowledge arrays (facts, risks, action_items)
+ *   - storage.saveKnowledge(): persists modified arrays
+ *   - storage.recordDailyStats(): updates daily usage counters
+ *
+ * Side effects:
+ *   - Mutates storage.knowledge arrays in place
+ *   - Calls saveKnowledge() and recordDailyStats() on every write operation
+ *   - Restored items receive a `restored_at` timestamp
+ *
+ * Notes:
+ *   - Operates on the local in-memory knowledge store, not Supabase directly
+ *   - Bulk delete uses singular type names ("facts", "risks", "actions")
+ *   - Single restore uses singular ("risk", "action"); bulk restore uses plural
+ *   - IDs are string-compared; both numeric and string IDs are supported
+ *   - No authentication enforced at route level
+ *
+ * Routes:
+ *   POST /api/bulk/delete        - Bulk delete { type, ids[] }
+ *   POST /api/bulk/status        - Bulk status update { type, ids[], status }
+ *   POST /api/undo/restore       - Restore one item { type, data }
+ *   POST /api/undo/restore-bulk  - Restore many items { type, items[] }
  */
 
 const { parseBody } = require('../../server/request');

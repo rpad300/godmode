@@ -1,6 +1,6 @@
 -- ============================================
--- GodMode Phase 5: Outbox Pattern for FalkorDB Sync
--- Reliable, idempotent synchronization between Postgres and FalkorDB
+-- GodMode Phase 5: Outbox Pattern for Graph Sync
+-- Reliable, idempotent synchronization between Postgres and graph provider
 -- ============================================
 
 -- Enable required extensions
@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS graph_outbox (
     
     -- Target
     project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    graph_name TEXT NOT NULL,       -- Target graph in FalkorDB
+    graph_name TEXT NOT NULL,       -- Target graph name
     
     -- Payload
     operation TEXT NOT NULL CHECK (operation IN ('CREATE', 'UPDATE', 'DELETE', 'MERGE', 'LINK', 'UNLINK')),

@@ -1,6 +1,30 @@
 /**
- * LLM Configuration Presets
- * Pre-defined configurations for different use cases
+ * Purpose:
+ *   Provides a curated set of one-click LLM configuration presets (economy, balanced,
+ *   quality, anthropic, google, xai, privacy, fast) that users can apply from the
+ *   admin panel instead of manually selecting providers and models for each task type.
+ *
+ * Responsibilities:
+ *   - Defines PRESETS: each preset specifies provider + model for text, vision, and
+ *     embeddings, along with metadata (cost tier, requirements, pros/cons) for the UI
+ *   - checkPresetRequirements: verifies that necessary providers/API keys are available
+ *   - getRecommendedPresets: filters presets to those whose requirements are met, sorted
+ *     cheapest-first, for display in the setup wizard
+ *   - createCustomPreset: builds a preset-shaped object from arbitrary user selections
+ *
+ * Key dependencies:
+ *   - None (pure data definitions and simple logic)
+ *
+ * Side effects:
+ *   - None
+ *
+ * Notes:
+ *   - The "anthropic" and "google" presets pair a cloud provider for text/vision with
+ *     Ollama for embeddings because Claude and (older) Gemini embeddings are either
+ *     unavailable or less capable than local alternatives.
+ *   - estimatedCostPerDoc values are rough order-of-magnitude indicators for UI guidance,
+ *     not precise billing figures.
+ *   - COST_TIERS provides color/icon metadata for frontend rendering.
  */
 
 // Preset definitions
@@ -222,7 +246,9 @@ function checkPresetRequirements(presetId, availableProviders) {
 }
 
 /**
- * Get recommended presets based on available providers
+ * Get recommended presets based on available providers.
+ * Returns only presets whose requirements (Ollama running, API keys present) are fully met,
+ * sorted cheapest-first so the setup wizard naturally highlights the most accessible options.
  */
 function getRecommendedPresets(availableProviders) {
     const recommendations = [];
@@ -242,7 +268,9 @@ function getRecommendedPresets(availableProviders) {
 }
 
 /**
- * Create a custom preset
+ * Create a custom preset from user-selected providers and models.
+ * Automatically infers requirements (Ollama needed? which API keys?) from the config
+ * so that checkPresetRequirements works uniformly for built-in and custom presets.
  */
 function createCustomPreset(name, description, config) {
     return {

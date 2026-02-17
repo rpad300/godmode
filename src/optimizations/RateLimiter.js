@@ -1,12 +1,48 @@
 /**
- * Rate Limiter Module
- * Protection against API abuse with sliding window rate limiting
+ * Purpose:
+ *   Protect API endpoints from abuse using a sliding-window rate limiter
+ *   with per-type limits, automatic blocking, and Express middleware
+ *   integration.
+ *
+ * Responsibilities:
+ *   - Track request timestamps per key (IP or identifier) in a sliding
+ *     window and allow/deny based on configurable limits per type
+ *     (default, chat, embeddings, graph, export)
+ *   - Automatically block keys after 10 rate-limit violations
+ *   - Provide Express middleware that sets standard rate-limit headers
+ *     (X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset)
+ *     and returns HTTP 429 when exceeded
+ *   - Periodically clean up stale timestamp entries (every 60s)
+ *
+ * Key dependencies:
+ *   - None (self-contained, in-memory implementation)
+ *
+ * Side effects:
+ *   - Starts a cleanup setInterval on construction
+ *   - The middleware method sends HTTP responses directly (429)
+ *
+ * Notes:
+ *   - All state is in-memory; a server restart clears all counters and
+ *     blocks. For distributed deployments, an external store (Redis) would
+ *     be needed.
+ *   - The sliding window filters old timestamps on every check call, so
+ *     per-request overhead scales with the window size.
+ *   - Call destroy() before shutdown to clear the cleanup interval.
  */
 
 const { logger } = require('../logger');
 
 const log = logger.child({ module: 'rate-limiter' });
 
+/**
+ * Sliding-window rate limiter with per-type limits, auto-blocking, and
+ * Express middleware support.
+ *
+ * Lifecycle: construct (starts cleanup timer) -> check/middleware -> destroy.
+ *
+ * @param {object} options
+ * @param {object} [options.limits] - Map of type -> {requests, window} overrides
+ */
 class RateLimiter {
     constructor(options = {}) {
         // Default limits
@@ -36,7 +72,11 @@ class RateLimiter {
     }
 
     /**
-     * Check if request is allowed
+     * Check whether a request from `key` is allowed under the given type's
+     * limit. Records the timestamp if allowed. Auto-blocks after 10 violations.
+     * @param {string} key - Identifier (IP, user ID, API key, etc.)
+     * @param {string} [type='default'] - Rate limit tier
+     * @returns {{allowed: boolean, remaining?: number, limit?: number, reset?: string, retryAfter?: number, reason?: string}}
      */
     check(key, type = 'default') {
         this.stats.totalRequests++;
@@ -204,7 +244,10 @@ class RateLimiter {
     }
 
     /**
-     * Create Express middleware
+     * Create Express middleware that enforces rate limits and sets standard
+     * rate-limit response headers. Returns HTTP 429 when the limit is exceeded.
+     * @param {string} [type='default'] - Rate limit tier to apply
+     * @returns {function(req, res, next): void}
      */
     middleware(type = 'default') {
         return (req, res, next) => {

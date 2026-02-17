@@ -1,6 +1,41 @@
 /**
- * Krisp Transcript Processor
- * Processes transcripts: speaker matching, project identification, upload to GodMode
+ * Purpose:
+ *   Core processing pipeline for Krisp transcripts. Takes a raw transcript record
+ *   through speaker matching, project identification, display title generation,
+ *   document creation, and status management -- the main path from "received" to
+ *   "processed" in the krisp_transcripts lifecycle.
+ *
+ * Responsibilities:
+ *   - Load a transcript by ID and guard against re-processing
+ *   - Quarantine transcripts with unidentified speakers
+ *   - Match speakers to contacts across all user projects via SpeakerMatcher
+ *   - Identify the target project using majority voting on matched contacts
+ *   - Handle ambiguous/low-confidence matches (set status, return candidates)
+ *   - Generate a display title in "{project_name} - {meeting_title}" format
+ *   - Create a document record in the documents table with krisp metadata
+ *   - Queue the created document for further processing (entity extraction, embeddings)
+ *   - Manually assign a project, skip/discard a transcript, or fetch transcripts
+ *   - Generate and cache AI summaries (from structured Krisp data or via LLM fallback)
+ *
+ * Key dependencies:
+ *   - ../supabase/client (getAdminClient): Supabase admin client for DB operations
+ *   - ./SpeakerMatcher: speaker-to-contact resolution and project identification
+ *   - ../llm (optional, lazy): LLM for AI-generated transcript summaries
+ *   - ../supabase/llm-queue (optional, lazy): queues documents for embedding/extraction
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - Reads/writes krisp_transcripts, documents, project_members, user_profiles in Supabase
+ *   - May queue async document processing jobs
+ *
+ * Notes:
+ *   - Status flow: pending -> matched -> processed (happy path), or
+ *     pending -> quarantine/ambiguous/failed (error paths).
+ *   - Superadmin check is performed for assignProject and getUserTranscripts.
+ *   - generateTranscriptSummary caches results in ai_summary column to avoid
+ *     redundant LLM calls; use forceRegenerate to refresh.
+ *   - file_hash for the document is a non-deduplicating hash (title + timestamp)
+ *     since Krisp transcripts are inherently unique.
  */
 
 const { logger } = require('../logger');

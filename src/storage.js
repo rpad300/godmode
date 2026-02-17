@@ -1,6 +1,43 @@
 /**
- * JSON-Only Storage Module with Multi-Project Support
- * Single source of truth: JSON files per project
+ * Purpose:
+ *   JSON-file-based local storage engine with multi-project support.
+ *   Each project gets its own directory of JSON files (knowledge, questions,
+ *   documents, contacts, history, embeddings, etc.). This is the legacy
+ *   storage layer -- being migrated to Supabase via StorageCompat.
+ *
+ * Responsibilities:
+ *   - Multi-project lifecycle: create, switch, rename, delete, default project
+ *   - Per-project data CRUD for facts, decisions, risks, action items, people,
+ *     relationships, questions, documents, conversations, contacts, and teams
+ *   - Text similarity / deduplication for facts and knowledge items
+ *   - Document management: hash-based duplicate detection, cascade delete with
+ *     orphan cleanup, and graph DB sync
+ *   - Embeddings cache management for RAG (retrieval-augmented generation)
+ *   - Analytics: weekly activity, recent activity feed, stats history and trends
+ *   - Migration support: single-project to multi-project data migration,
+ *     question-assignee to People migration, history backfill from documents
+ *   - Export: Markdown knowledge base export
+ *   - Graph database integration (FalkorDB/Neo4j) for knowledge graph sync
+ *
+ * Key dependencies:
+ *   - fs / path: Synchronous file I/O for all JSON persistence
+ *   - crypto: Project ID generation (randomBytes) and document content hashing (MD5)
+ *   - ./logger: Structured logging via pino child logger
+ *   - ./sync/GraphSync (lazy-loaded): Syncs document deletions to graph DB
+ *
+ * Side effects:
+ *   - Reads/writes JSON files under the configured dataDir on every mutation
+ *   - Creates project directories and subdirectories on project creation
+ *   - Deletes files and directories on project/document deletion (fs.rmSync, fs.unlinkSync)
+ *   - Lazy-requires ./sync/GraphSync on document deletion for graph sync
+ *
+ * Notes:
+ *   - All persistence is synchronous -- suitable for single-user CLI/server but not
+ *     for high-concurrency scenarios (StorageCompat/Supabase handles that)
+ *   - Similarity threshold (0.90) is tuned for conservative deduplication; increase to
+ *     preserve more facts, decrease for more aggressive dedup
+ *   - Embeddings cache has a 5-minute TTL to balance freshness vs. performance
+ *   - The init() method auto-migrates legacy single-project data if detected
  */
 
 const path = require('path');
@@ -10,6 +47,18 @@ const { logger } = require('./logger');
 
 const log = logger.child({ module: 'storage' });
 
+/**
+ * Local JSON-file storage engine.
+ *
+ * Lifecycle: construct -> init() -> ready.
+ * init() loads/creates project metadata, performs any pending migrations,
+ * sets the current project, and loads all project data into memory.
+ *
+ * Invariants:
+ *   - After init(), this.currentProjectId is always set (at least a "Default Project" exists)
+ *   - In-memory data (this.knowledge, this.questions, etc.) mirrors the current project's JSON files
+ *   - Every mutation method (addFact, addDecision, etc.) saves to disk immediately
+ */
 class Storage {
     constructor(dataDir) {
         this.dataDir = dataDir;
@@ -349,7 +398,17 @@ class Storage {
     // ==================== Initialization ====================
 
     /**
-     * Initialize storage - handles migration from single-project to multi-project
+     * Initialize storage: create data directory, load projects, migrate legacy data,
+     * ensure a default project exists, load current project data, and run startup
+     * normalization/migration tasks.
+     *
+     * Must be called once after construction. Performs these migrations if needed:
+     *   1. Single-project to multi-project directory structure
+     *   2. Category normalization across all knowledge items
+     *   3. History backfill from existing documents
+     *   4. Question assignee -> People list sync
+     *
+     * Side effects: Creates directories, reads/writes JSON files, mutates this.*
      */
     init() {
         if (!fs.existsSync(this.dataDir)) {
@@ -780,6 +839,12 @@ class Storage {
         }
     }
 
+    /**
+     * Load all data files for the current project into memory.
+     * Each file uses _loadJSON which returns the default structure if the file
+     * is missing or corrupt. Also backfills missing arrays (relationships, change_log)
+     * for forward-compatibility with older project data.
+     */
     loadAll() {
         this.knowledge = this._loadJSON(this.knowledgePath, {
             version: '2.0',
@@ -835,6 +900,10 @@ class Storage {
         });
     }
 
+    /**
+     * Load a JSON file or return a default value if missing/corrupt.
+     * Never throws -- corrupt files are logged and silently replaced with defaults.
+     */
     _loadJSON(filePath, defaultValue) {
         if (fs.existsSync(filePath)) {
             try {
@@ -846,6 +915,9 @@ class Storage {
         return defaultValue;
     }
 
+    /**
+     * Save data to a JSON file, auto-creating parent directories and stamping updated_at.
+     */
     _saveJSON(filePath, data) {
         data.updated_at = new Date().toISOString();
         // Ensure directory exists
@@ -891,6 +963,11 @@ class Storage {
         return text.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
     }
 
+    /**
+     * Lightweight English suffix stemmer for similarity comparison.
+     * Not a full Porter stemmer -- trades accuracy for speed and simplicity.
+     * Only strips common inflectional suffixes; good enough for deduplication.
+     */
     stemWord(word) {
         if (word.length < 4) return word;
         if (word.endsWith('ies')) return word.slice(0, -3) + 'y';
@@ -901,6 +978,20 @@ class Storage {
         return word;
     }
 
+    /**
+     * Compute text similarity using a hybrid of Jaccard index and containment similarity.
+     *
+     * Algorithm: normalize -> remove stop words -> stem -> compute both Jaccard
+     * (intersection/union) and containment (intersection/smaller set, scaled by 0.9).
+     * Returns the higher of the two, which handles both equal-length and subset cases.
+     *
+     * The 0.9 scaling on containment prevents short texts from being false-positive
+     * matches against long texts that happen to contain all their words.
+     *
+     * @param {string} text1
+     * @param {string} text2
+     * @returns {number} Similarity score 0.0-1.0
+     */
     textSimilarity(text1, text2) {
         const norm1 = this.normalizeText(text1);
         const norm2 = this.normalizeText(text2);
@@ -924,6 +1015,16 @@ class Storage {
         return Math.max(jaccard, containment * 0.9);
     }
 
+    /**
+     * Find the best-matching duplicate among existing items using text similarity.
+     * Returns early (at 0.99+) for near-exact matches. Compares against
+     * this.similarityThreshold (default 0.90) to decide if it's a duplicate.
+     *
+     * @param {string} newContent - Text to check for duplicates
+     * @param {Array} existingItems - Items to compare against
+     * @param {string} contentField - Property name holding the text to compare
+     * @returns {{ isDuplicate: boolean, existingItem: object|null, similarity: number }}
+     */
     findDuplicate(newContent, existingItems, contentField = 'content') {
         if (!newContent || !existingItems || existingItems.length === 0) {
             return { isDuplicate: false, existingItem: null, similarity: 0 };
@@ -1107,13 +1208,22 @@ class Storage {
     }
 
     /**
-     * Delete a document and ALL related data (cascade delete)
-     * This removes: document record, content file, related facts/decisions/risks/actions/people, 
-     * file logs, embeddings, and graph nodes
-     * 
+     * Delete a document and ALL related data (cascade delete).
+     *
+     * Cascade order (13 steps):
+     *   1. Facts linked by source_file  2. Decisions  3. Risks  4. Action items
+     *   5. People (only single-source, never contacts)  6. Questions
+     *   7. File log entries  8. Content file on disk  9. Archived file on disk
+     *   10. Embeddings  11. Document record (soft or hard)  12. Graph DB sync (async, fire-and-forget)
+     *   13. Orphan data cleanup
+     *
+     * Source matching: Uses lowercase substring match on source_file/meeting fields
+     * against the document's base name (without extension). This is intentionally broad
+     * to catch related items even when source metadata was not perfectly normalized.
+     *
      * @param {number} documentId - Document ID to delete
-     * @param {object} options - Options: { softDelete: false, keepArchive: false }
-     * @returns {object} - Results of deletion with counts
+     * @param {object} options - { softDelete: false (mark deleted vs remove), keepArchive: false }
+     * @returns {object} - { success, document, deleted: { facts, decisions, ... }, errors: [] }
      */
     async deleteDocument(documentId, options = {}) {
         const { softDelete = false, keepArchive = false } = options;
@@ -3431,11 +3541,16 @@ class Storage {
     }
 
     /**
-     * Hybrid search combining semantic and keyword scores
+     * Hybrid search combining semantic (embedding) and keyword (BM25-style) scores.
+     *
+     * Scoring: hybridScore = (semantic * weight) + (keyword * weight) + agreementBoost.
+     * The agreement boost (+0.1) fires when both methods independently score above thresholds,
+     * reducing false positives from either method alone.
+     *
      * @param {string} query - Search query
-     * @param {Array} semanticResults - Results from semantic search [{id, similarity}]
-     * @param {object} options - {semanticWeight: 0.7, keywordWeight: 0.3, minScore: 0.2, limit: 10}
-     * @returns {Array} - Combined and re-ranked results
+     * @param {Array} semanticResults - Results from embedding-based search [{id, similarity}]
+     * @param {object} options - { semanticWeight: 0.6, keywordWeight: 0.4, minScore: 0.15, limit: 15 }
+     * @returns {Array} - Combined and re-ranked results with per-method score breakdown
      */
     hybridSearch(query, semanticResults = [], options = {}) {
         const {
@@ -3791,8 +3906,12 @@ class Storage {
     // ==================== Data Recovery ====================
 
     /**
-     * Recover data from change_log when arrays are empty but change_log has entries
-     * This can happen if there was a bug or reset that didn't preserve data
+     * Attempt to rebuild knowledge arrays from the change_log audit trail.
+     * Only reconstructs items from 'add' entries that no longer exist in the live arrays.
+     * Recovered items get generic defaults (category: 'general', severity: 'medium', etc.)
+     * since the change_log only stores summaries, not full item data.
+     *
+     * @returns {{ recovered: boolean, message: string, stats?: object }}
      */
     recoverFromChangeLog() {
         const changeLog = this.knowledge.change_log || [];
@@ -4677,29 +4796,29 @@ class Storage {
     }
 
     /**
-     * Sync FalkorDB graphs with Supabase projects
+     * Sync graphs with Supabase projects
      * Removes orphan graphs that don't have associated projects
      * @param {object} options
      * @param {boolean} options.dryRun - If true, only report what would be deleted
      * @returns {Promise<{ok: boolean, graphs: string[], validGraphs: string[], orphanGraphs: string[], deleted: string[]}>}
      */
-    async syncFalkorDBGraphs(options = {}) {
+    async syncGraphs(options = {}) {
         const { dryRun = false } = options;
 
         if (!this.graphProvider || typeof this.graphProvider.listGraphs !== 'function') {
-            return { ok: false, error: 'FalkorDB provider not available or does not support listGraphs' };
+            return { ok: false, error: 'Graph provider not available or does not support listGraphs' };
         }
 
-        log.debug({ event: 'storage_sync_falkordb_start' }, 'Syncing FalkorDB graphs with Supabase projects');
+        log.debug({ event: 'storage_sync_graphs_start' }, 'Syncing graphs with Supabase projects');
 
         try {
-            // 1. List all graphs in FalkorDB
+            // 1. List all graphs
             const graphsResult = await this.graphProvider.listGraphs();
             if (!graphsResult.ok) {
                 return { ok: false, error: graphsResult.error || 'Failed to list graphs' };
             }
             const allGraphs = graphsResult.graphs || [];
-            log.debug({ event: 'storage_falkordb_graphs', count: allGraphs.length, graphNames: allGraphs }, 'Found graphs in FalkorDB');
+            log.debug({ event: 'storage_graph_list', count: allGraphs.length, graphNames: allGraphs }, 'Found graphs');
 
             // 2. Get valid project IDs from Supabase
             let validProjectIds = [];
@@ -4760,10 +4879,13 @@ class Storage {
                 dryRun
             };
         } catch (error) {
-            log.warn({ event: 'storage_sync_falkordb_error', reason: error?.message }, 'syncFalkorDBGraphs error');
+            log.warn({ event: 'storage_sync_graphs_error', reason: error?.message }, 'syncGraphs error');
             return { ok: false, error: error.message };
         }
     }
+
+    // Backward compat alias
+    async syncFalkorDBGraphs(options = {}) { return this.syncGraphs(options); }
 
     // ==================== Data Cleanup Methods ====================
 

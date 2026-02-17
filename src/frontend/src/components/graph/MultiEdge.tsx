@@ -1,3 +1,29 @@
+/**
+ * Purpose:
+ *   Custom React Flow edge component that renders curved paths between
+ *   nodes, supporting multiple parallel edges via curvature offsets.
+ *
+ * Responsibilities:
+ *   - Computes a quadratic Bezier path using a perpendicular offset from
+ *     the midpoint, controlled by `data.curvature`
+ *   - Falls back to a straight line when curvature is near zero
+ *   - Positions the edge label at the Bezier curve's midpoint (t=0.5)
+ *   - Renders the label via React Flow's EdgeLabelRenderer portal
+ *
+ * Key dependencies:
+ *   - @xyflow/react (BaseEdge, EdgeLabelRenderer, EdgeProps): standard
+ *     edge rendering primitives
+ *
+ * Side effects:
+ *   - None
+ *
+ * Notes:
+ *   - The curvature multiplier (50) controls how far apart parallel edges
+ *     spread; this value was chosen empirically.
+ *   - getBezierPath is imported but unused (custom path logic replaces it).
+ *   - Label position formula uses t=0.5 on the quadratic Bezier:
+ *     P = 0.25*P0 + 0.5*Ctrl + 0.25*P1.
+ */
 import React from 'react';
 import { BaseEdge, EdgeProps, getBezierPath, EdgeLabelRenderer } from '@xyflow/react';
 

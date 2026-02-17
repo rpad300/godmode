@@ -1,7 +1,32 @@
 /**
- * Decision Suggest Owner Flow
- * Suggests owner (made_by) from decision content using project contacts only.
- * Prompt is loaded from Supabase (system_prompts key: decision_suggest_owner) or inline fallback.
+ * Purpose:
+ *   Given a decision's content and the project's contact list, uses an LLM to
+ *   suggest who most likely made or should own the decision -- constrained to
+ *   project contacts only (same pattern as risk/question owner suggestion).
+ *
+ * Responsibilities:
+ *   - Build a formatted contacts list for the LLM prompt (capped at 50)
+ *   - Load the prompt template from Supabase (key: decision_suggest_owner) or
+ *     fall back to an inline template
+ *   - Call the LLM and parse a JSON response of suggested owners with scores
+ *   - Validate suggested names against the contact list (case-insensitive)
+ *   - Return an empty suggested_owners array when no contacts are provided
+ *
+ * Key dependencies:
+ *   - ../llm: centralised LLM text generation
+ *   - ../llm/config: resolves provider/model from app config (reasoning tier)
+ *   - ../supabase/prompts: loads admin-editable prompt templates
+ *
+ * Side effects:
+ *   - Network call to configured LLM provider
+ *   - Network call to Supabase for prompt template
+ *
+ * Notes:
+ *   - Unlike ActionSuggestFlow, this does NOT provide generic fallback owners when
+ *     no contacts exist -- it returns an empty array to signal that the project
+ *     has no contacts to choose from.
+ *   - buildContactsList is duplicated across several *Flow files; consider
+ *     extracting into a shared utility. TODO: confirm deduplication plan.
  */
 
 const { logger } = require('../logger');

@@ -1,7 +1,33 @@
 /**
- * AI-Powered Cypher Query Generator
- * Uses LLM to generate optimal Cypher queries from natural language
- * Integrates with Ontology for schema-aware query generation
+ * Purpose:
+ *   Translates natural-language questions into executable Cypher queries by
+ *   combining ontology-based pattern matching with LLM-powered generation.
+ *
+ * Responsibilities:
+ *   - Match incoming questions against pre-defined ontology query patterns
+ *     (fast path, high confidence -- avoids LLM call entirely)
+ *   - When no pattern matches, prompt an LLM with the graph schema and detected
+ *     entity/relation hints to generate a Cypher query
+ *   - Parse the structured LLM response (CYPHER / EXPLANATION / CONFIDENCE)
+ *   - Provide deterministic fallback queries when LLM generation fails
+ *   - Cache generated queries with a 30-minute TTL to reduce LLM traffic
+ *
+ * Key dependencies:
+ *   - ../llm: LLM text generation (provider-agnostic)
+ *   - ../ontology: OntologyManager for schema introspection and pattern matching
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - Calls external LLM APIs for query generation (only when pattern matching fails)
+ *   - Maintains an in-memory LRU-ish cache (Map, max 100 entries)
+ *
+ * Notes:
+ *   - LLM provider/model are intentionally not hard-coded; they must be injected
+ *     via options sourced from admin configuration.
+ *   - The prompt instructs the LLM to use low temperature (0.1) for deterministic output.
+ *   - Fallback queries use simple CONTAINS-based matching with low confidence scores.
+ *   - Singleton instance available via getCypherGenerator(); config is hot-updated
+ *     if new options are passed after initial creation.
  */
 
 const { logger } = require('../logger');
@@ -213,7 +239,7 @@ RELATIONSHIP TYPES:
             ? `\nDETECTED RELATIONSHIPS: ${hints.relationHints.join(', ')}` 
             : '';
 
-        return `You are a Cypher query expert. Generate a Cypher query for FalkorDB/RedisGraph to answer the user's question.
+        return `You are a Cypher query expert. Generate a Cypher query to answer the user's question.
 
 ${schemaContext}
 ${entityHints}

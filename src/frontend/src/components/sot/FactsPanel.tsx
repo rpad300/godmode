@@ -1,6 +1,35 @@
+/**
+ * Purpose:
+ *   Self-contained panel for managing extracted facts within the Source
+ *   of Truth module. Includes inline modal, detail view, and list with
+ *   category filtering and AI-powered extraction/verification.
+ *
+ * Responsibilities:
+ *   - FactsPanel (main): list view with category filter, stats strip
+ *     (total, avg confidence, per-category counts), CRUD, AI Extract
+ *   - FactDetail: detail view with source, confidence, and AI Verify
+ *   - FactModal: create/edit form with "Refine with AI" button that
+ *     adjusts confidence
+ *   - Category-based color coding (technical, process, policy, people,
+ *     timeline)
+ *
+ * Key dependencies:
+ *   - framer-motion: animations for list, modal, and detail transitions
+ *   - sonner (toast): user notifications
+ *   - Fact (godmode types): fact data shape with confidence score
+ *
+ * Side effects:
+ *   - None (state is local; parent notified via onSave/onDelete)
+ *
+ * Notes:
+ *   - Same `useState()` initialization pattern as DecisionsPanel;
+ *     form may not reset correctly on edit target changes.
+ *   - Confidence is a 0-1 float displayed as a percentage.
+ *   - AI features are simulated with hardcoded responses.
+ */
 import { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Sparkles, Loader2, ArrowLeft, Edit2, Clock, FileText, X, Wand2 } from 'lucide-react';
+import { Plus, Sparkles, Loader2, ArrowLeft, Edit2, Clock, FileText, X, Wand2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Fact } from '@/types/godmode';
 
@@ -89,7 +118,7 @@ const FactModal = ({ open, onClose, onSave, fact, mode }: {
 };
 
 // ─── Detail ───
-const FactDetail = ({ fact, onBack, onEdit }: { fact: Fact; onBack: () => void; onEdit: (f: Fact) => void }) => {
+const FactDetail = ({ fact, onBack, onEdit, onDelete }: { fact: Fact; onBack: () => void; onEdit: (f: Fact) => void; onDelete?: (id: string) => void }) => {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiInsights, setAiInsights] = useState<string[]>([]);
 
@@ -114,6 +143,7 @@ const FactDetail = ({ fact, onBack, onEdit }: { fact: Fact; onBack: () => void; 
           {aiLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />} Verify
         </button>
         <button onClick={() => onEdit(fact)} className="px-3 py-1.5 rounded-lg bg-secondary text-secondary-foreground text-xs hover:bg-muted flex items-center gap-1.5"><Edit2 className="w-3.5 h-3.5" /> Edit</button>
+        {onDelete && <button onClick={() => { onDelete(fact.id); onBack(); }} className="px-3 py-1.5 rounded-lg bg-destructive/10 text-destructive text-xs hover:bg-destructive/20 flex items-center gap-1.5"><Trash2 className="w-3.5 h-3.5" /> Delete</button>}
       </div>
       <div className="flex gap-2">
         <span className={`text-xs px-3 py-1 rounded-full font-medium ${categoryColor(fact.category)}`}>{fact.category}</span>
@@ -144,7 +174,7 @@ const FactDetail = ({ fact, onBack, onEdit }: { fact: Fact; onBack: () => void; 
 };
 
 // ─── Main Panel ───
-const FactsPanel = ({ initialData = [] }: { initialData?: Fact[] }) => {
+const FactsPanel = ({ initialData = [], onSave, onDelete }: { initialData?: Fact[]; onSave?: (f: Fact) => void; onDelete?: (id: string) => void }) => {
   const [facts, setFacts] = useState<Fact[]>(initialData);
 
   useEffect(() => {
@@ -174,6 +204,13 @@ const FactsPanel = ({ initialData = [] }: { initialData?: Fact[] }) => {
       if (idx >= 0) { const u = [...prev]; u[idx] = f; return u; }
       return [...prev, f];
     });
+    onSave?.(f);
+  };
+
+  const handleDelete = (id: string) => {
+    setFacts(prev => prev.filter(x => x.id !== id));
+    onDelete?.(id);
+    toast.success('Fact deleted');
   };
 
   const handleAiExtract = async () => {
@@ -192,7 +229,7 @@ const FactsPanel = ({ initialData = [] }: { initialData?: Fact[] }) => {
   };
 
   if (detailItem) {
-    return <FactDetail fact={detailItem} onBack={() => setDetailItem(null)} onEdit={f => { setDetailItem(null); setEditingItem(f); setModalMode('edit'); setModalOpen(true); }} />;
+    return <FactDetail fact={detailItem} onBack={() => setDetailItem(null)} onEdit={f => { setDetailItem(null); setEditingItem(f); setModalMode('edit'); setModalOpen(true); }} onDelete={handleDelete} />;
   }
 
   return (

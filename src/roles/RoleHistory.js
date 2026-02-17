@@ -1,6 +1,27 @@
 /**
- * Role History
- * Track role changes over time
+ * Purpose:
+ *   Persists a chronological log of role changes and temporary perspective
+ *   switches, enabling timeline views and behavioural insights.
+ *
+ * Responsibilities:
+ *   - Record permanent role changes (recordChange) with previous/new role and reason
+ *   - Record temporary perspective switches (recordPerspectiveSwitch) with duration
+ *   - Query changes and perspectives with optional project/limit filters
+ *   - Build a month-grouped timeline of role evolution
+ *   - Derive insights (role stability warnings, frequent-perspective suggestions)
+ *   - Identify the most commonly assumed role and the most-used perspectives
+ *
+ * Key dependencies:
+ *   - fs / path: JSON file I/O for history persistence
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - Reads/writes role-history.json in the configured dataDir
+ *
+ * Notes:
+ *   - Changes are capped at 100 entries, perspectives at 200 (both FIFO).
+ *   - Insights use a 7-day average between changes as the "unstable" threshold
+ *     and 90 days as the "stable" threshold.
  */
 
 const fs = require('fs');

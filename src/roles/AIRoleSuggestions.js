@@ -1,6 +1,26 @@
 /**
- * AI Role Suggestions
- * Uses LLM to suggest role prompts based on user activity
+ * Purpose:
+ *   Generates personalized role-context prompts by analysing user activity
+ *   patterns and, when sufficient data exists, calling an LLM for tailored suggestions.
+ *
+ * Responsibilities:
+ *   - Gather activity data (questions, facts, decisions, actions, risks) from storage
+ *   - Detect themes via simple keyword frequency analysis
+ *   - Fall back to template-based suggestions when not enough data is available
+ *   - Call LLM to produce a custom first-person role prompt based on activity insights
+ *   - Generate a role prompt from a plain job title via LLM with template fallback
+ *
+ * Key dependencies:
+ *   - ../llm: centralised LLM text generation
+ *   - ../llm/config: provider/model resolution from app config
+ *   - ./RoleTemplates: pre-defined role templates used as fallback suggestions
+ *
+ * Side effects:
+ *   - Network calls to the configured LLM provider (generateAISuggestion, generateFromTitle)
+ *
+ * Notes:
+ *   - The "enough data" threshold is 5+ recent questions; below that only templates are returned.
+ *   - Theme detection is intentionally coarse (keyword lists); it trades precision for speed.
  */
 
 const { logger } = require('../logger');
@@ -10,6 +30,12 @@ const { getRoleTemplates } = require('./RoleTemplates');
 
 const log = logger.child({ module: 'ai-role-suggestions' });
 
+/**
+ * Analyses user activity to suggest personalised role prompts.
+ *
+ * Invariant: storage must be set (via constructor or setStorage) before
+ * calling suggestRolePrompt; without it the method returns an error payload.
+ */
 class AIRoleSuggestions {
     constructor(options = {}) {
         this.storage = options.storage;

@@ -1,3 +1,27 @@
+/**
+ * Purpose:
+ *   Manages the list of user-accessible projects and tracks which project is
+ *   currently active. Persists the selection across page reloads via localStorage.
+ *
+ * Responsibilities:
+ *   - Fetch projects from /api/projects on mount
+ *   - Auto-select a default project when the stored one no longer exists
+ *   - Persist currentProjectId to localStorage under 'godmode_current_project'
+ *   - Expose setCurrentProject (with toast feedback) and refreshProjects
+ *
+ * Key dependencies:
+ *   - @/lib/api-client: authenticated HTTP requests
+ *   - sonner: toast notifications on project switch
+ *
+ * Side effects:
+ *   - Reads/writes localStorage key 'godmode_current_project'
+ *   - Fetches /api/projects on mount
+ *   - Shows a toast when the user switches projects
+ *
+ * Notes:
+ *   - If the API returns no projects the user stays on 'default' pseudo-project
+ *   - The context shape includes both the resolved currentProject object and the raw ID
+ */
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { apiClient } from '@/lib/api-client';
 import { toast } from 'sonner';
@@ -23,6 +47,11 @@ interface ProjectContextType {
 
 const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
 
+/**
+ * Provides the project list, active project selection, and refresh capability.
+ * Fetches projects on mount and auto-selects a default when the stored ID
+ * is stale or missing.
+ */
 export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [projects, setProjects] = useState<Project[]>([]);
     const [currentProjectId, setCurrentProjectId] = useState<string>(() => {
@@ -105,6 +134,9 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     );
 };
 
+/**
+ * Convenience hook to consume ProjectContext. Throws if used outside ProjectProvider.
+ */
 export const useProject = () => {
     const context = useContext(ProjectContext);
     if (context === undefined) {

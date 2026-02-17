@@ -1,9 +1,34 @@
 /**
- * Auto-Backup Module
- * Automatic backup of graph and data
- * 
- * Note: Backups are stored locally on disk (not in Supabase)
- * but knowledge data is fetched from SupabaseStorage
+ * Purpose:
+ *   Automated backup and restore of the knowledge graph, knowledge base,
+ *   and configuration data. Backups are written to the local filesystem
+ *   while source data is fetched from Supabase and the graph provider.
+ *
+ * Responsibilities:
+ *   - Create timestamped full backups (graph nodes/edges, knowledge base, config)
+ *   - Restore backups into Supabase storage and the graph database
+ *   - Manage backup retention via a configurable max-backups limit
+ *   - Optionally run on a repeating interval (startAutoBackup)
+ *
+ * Key dependencies:
+ *   - fs / path: local backup directory I/O
+ *   - ../supabase/storageHelper: knowledge base and config reads for backup,
+ *     writes for restore (soft-loaded; may be unavailable)
+ *   - graphProvider (injected): Cypher queries for graph export/import
+ *
+ * Side effects:
+ *   - Writes backup directories and JSON files under this.backupDir
+ *   - Creates the backup directory on construction if it does not exist
+ *   - Deletes old backup directories when retention limit is exceeded
+ *   - Redacts API keys when backing up configuration
+ *
+ * Notes:
+ *   - Supabase import is wrapped in try/catch because the project folder
+ *     name can collide with the "supabase" package name in some setups.
+ *   - Restore is additive (facts, decisions, risks); it does not wipe
+ *     existing data before importing.
+ *   - Graph restore uses MERGE, so duplicate nodes may be created if
+ *     property sets differ from the originals.
  */
 
 const fs = require('fs');
@@ -19,6 +44,19 @@ try {
     // Will use legacy storage methods
 }
 
+/**
+ * Manages scheduled and on-demand backups of graph data, knowledge base,
+ * and configuration to the local filesystem.
+ *
+ * Lifecycle: construct -> setGraphProvider -> createBackup / startAutoBackup.
+ * Invariant: this.backupDir always exists after construction.
+ *
+ * @param {object} options
+ * @param {object} options.graphProvider - Graph database adapter (must expose .query and .connected)
+ * @param {string} [options.backupDir='./backups'] - Directory for backup storage
+ * @param {number} [options.maxBackups=10] - Maximum retained backups before cleanup
+ * @param {number} [options.autoBackupInterval=86400000] - Auto-backup interval in ms (default 24h)
+ */
 class AutoBackup {
     constructor(options = {}) {
         this.graphProvider = options.graphProvider;
@@ -51,7 +89,10 @@ class AutoBackup {
     }
 
     /**
-     * Create a full backup
+     * Create a full backup of graph, knowledge base, and config.
+     * Writes a manifest.json alongside the data files.
+     * @param {string|null} [name] - Custom backup name; defaults to timestamp-based
+     * @returns {Promise<{success: boolean, name: string, path?: string, files: string[], error?: string}>}
      */
     async createBackup(name = null) {
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -211,7 +252,10 @@ class AutoBackup {
     }
 
     /**
-     * Restore from backup
+     * Restore data from a named backup directory. Restores knowledge base
+     * items additively (does not wipe existing data) and graph nodes via MERGE.
+     * @param {string} backupName - Name of the backup folder
+     * @returns {Promise<{success: boolean, restored: string[], warnings: string[], error?: string}>}
      */
     async restore(backupName) {
         const backupPath = path.join(this.backupDir, backupName);
@@ -423,7 +467,7 @@ class AutoBackup {
     }
 }
 
-// Singleton
+/** Singleton accessor. Updates graphProvider on subsequent calls if provided. */
 let autoBackupInstance = null;
 function getAutoBackup(options = {}) {
     if (!autoBackupInstance) {

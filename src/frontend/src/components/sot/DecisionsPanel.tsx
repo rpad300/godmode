@@ -1,6 +1,34 @@
+/**
+ * Purpose:
+ *   Self-contained panel for managing project decisions within the
+ *   Source of Truth module. Includes an inline modal, detail view, and
+ *   list with filtering and AI features, all in a single file.
+ *
+ * Responsibilities:
+ *   - DecisionsPanel (main): list view with status filter, stats strip,
+ *     CRUD, and AI-suggested decision generation
+ *   - DecisionDetail: detail view with AI impact analysis
+ *   - DecisionModal: create/edit form with "AI Impact Analysis" button
+ *   - Status filtering (all / approved / pending / rejected)
+ *
+ * Key dependencies:
+ *   - OwnerBadge: owner display component
+ *   - framer-motion: animations for list, modal, and detail transitions
+ *   - sonner (toast): user notifications
+ *   - Decision (godmode types): decision data shape
+ *
+ * Side effects:
+ *   - None (state is local; parent notified via onSave/onDelete)
+ *
+ * Notes:
+ *   - DecisionModal uses `useState()` instead of `useEffect()` for
+ *     initializing form state from props. This is likely a bug; the form
+ *     may not reset correctly when switching between edit targets.
+ *   - AI features are simulated with hardcoded responses.
+ */
 import { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Sparkles, Loader2, ArrowLeft, Edit2, Calendar, User, CheckCircle, X, Wand2 } from 'lucide-react';
+import { Plus, Sparkles, Loader2, ArrowLeft, Edit2, Calendar, User, CheckCircle, X, Wand2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Decision } from '@/types/godmode';
 import OwnerBadge from './OwnerBadge';
@@ -89,7 +117,7 @@ const DecisionModal = ({ open, onClose, onSave, decision, mode }: {
 };
 
 // ─── Detail ───
-const DecisionDetail = ({ decision, onBack, onEdit }: { decision: Decision; onBack: () => void; onEdit: (d: Decision) => void }) => {
+const DecisionDetail = ({ decision, onBack, onEdit, onDelete }: { decision: Decision; onBack: () => void; onEdit: (d: Decision) => void; onDelete?: (id: string) => void }) => {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiInsights, setAiInsights] = useState<string[]>([]);
 
@@ -115,6 +143,7 @@ const DecisionDetail = ({ decision, onBack, onEdit }: { decision: Decision; onBa
           {aiLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />} Analyze
         </button>
         <button onClick={() => onEdit(decision)} className="px-3 py-1.5 rounded-lg bg-secondary text-secondary-foreground text-xs hover:bg-muted flex items-center gap-1.5"><Edit2 className="w-3.5 h-3.5" /> Edit</button>
+        {onDelete && <button onClick={() => { onDelete(decision.id); onBack(); }} className="px-3 py-1.5 rounded-lg bg-destructive/10 text-destructive text-xs hover:bg-destructive/20 flex items-center gap-1.5"><Trash2 className="w-3.5 h-3.5" /> Delete</button>}
       </div>
       <div className="flex gap-2">
         <span className={`text-xs px-3 py-1 rounded-full font-medium ${statusColor(decision.status)}`}>{decision.status}</span>
@@ -144,7 +173,7 @@ const DecisionDetail = ({ decision, onBack, onEdit }: { decision: Decision; onBa
 };
 
 // ─── Main Panel ───
-const DecisionsPanel = ({ initialData = [] }: { initialData?: Decision[] }) => {
+const DecisionsPanel = ({ initialData = [], onSave, onDelete }: { initialData?: Decision[]; onSave?: (d: Decision) => void; onDelete?: (id: string) => void }) => {
   const [decisions, setDecisions] = useState<Decision[]>(initialData);
 
   useEffect(() => {
@@ -175,6 +204,13 @@ const DecisionsPanel = ({ initialData = [] }: { initialData?: Decision[] }) => {
       if (idx >= 0) { const u = [...prev]; u[idx] = d; return u; }
       return [...prev, d];
     });
+    onSave?.(d);
+  };
+
+  const handleDelete = (id: string) => {
+    setDecisions(prev => prev.filter(x => x.id !== id));
+    onDelete?.(id);
+    toast.success('Decision deleted');
   };
 
   const handleAiSuggest = async () => {
@@ -193,7 +229,7 @@ const DecisionsPanel = ({ initialData = [] }: { initialData?: Decision[] }) => {
   };
 
   if (detailItem) {
-    return <DecisionDetail decision={detailItem} onBack={() => setDetailItem(null)} onEdit={d => { setDetailItem(null); setEditingItem(d); setModalMode('edit'); setModalOpen(true); }} />;
+    return <DecisionDetail decision={detailItem} onBack={() => setDetailItem(null)} onEdit={d => { setDetailItem(null); setEditingItem(d); setModalMode('edit'); setModalOpen(true); }} onDelete={handleDelete} />;
   }
 
   return (

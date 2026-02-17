@@ -1,6 +1,25 @@
 /**
- * Advanced Module
- * Exports all advanced features
+ * Purpose:
+ *   Barrel module that re-exports every advanced subsystem and provides a
+ *   single convenience initializer for bootstrapping them all at once.
+ *
+ * Responsibilities:
+ *   - Re-export class constructors for direct instantiation
+ *   - Re-export singleton factory functions (getXxx pattern)
+ *   - Provide initAdvancedModules() to wire up all subsystems in one call
+ *
+ * Key dependencies:
+ *   - Every sibling module in src/advanced/: aggregated here so consumers
+ *     only need a single require()
+ *
+ * Side effects:
+ *   - None on import; initAdvancedModules() will create singleton instances
+ *     (some of which start timers or read from the filesystem)
+ *
+ * Notes:
+ *   - Each getXxx factory is a lazy singleton -- first call creates the
+ *     instance, subsequent calls return the same one. Pass options only on
+ *     the first call; later options are silently ignored for most modules.
  */
 
 const { DataVersioning, getDataVersioning } = require('./DataVersioning');
@@ -13,7 +32,13 @@ const { AdvancedCache, getAdvancedCache } = require('./AdvancedCache');
 const { APIDocumentation, getAPIDocumentation } = require('./APIDocumentation');
 
 /**
- * Initialize all advanced modules
+ * Bootstrap every advanced subsystem with shared configuration.
+ *
+ * @param {Object} options
+ * @param {string} [options.dataDir='./data'] - Root directory for persistent data files
+ * @param {Object} [options.storage] - Storage backend (e.g. SupabaseStorage) passed
+ *   to modules that need it (currently DataExportImport)
+ * @returns {Object} Map of named singleton instances keyed by short alias
  */
 function initAdvancedModules(options = {}) {
     const dataDir = options.dataDir || './data';

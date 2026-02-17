@@ -1,16 +1,44 @@
 /**
- * Profile feature routes
- * Extracted from server.js
- * 
- * Handles:
- * - GET/PUT /api/profile
- * - GET /api/profile/sessions
- * - DELETE /api/profile/sessions/:id
- * - POST /api/profile/sessions/revoke-all
- * - POST/DELETE /api/profile/avatar
- * - GET /api/profile/activity
- * - POST /api/profile/change-password
- * - POST /api/profile/delete
+ * Purpose:
+ *   User profile management API routes. Covers profile CRUD, avatar upload/removal,
+ *   session management, password changes, activity history, and account deletion.
+ *   Also handles the /api/user/profile legacy endpoints.
+ *
+ * Responsibilities:
+ *   - GET/PUT /api/user/profile: Legacy profile read/update (Supabase user API style)
+ *   - GET /api/profile: Full profile with merged auth user data and user_profiles table
+ *   - PUT /api/profile: Update profile fields (display_name, username, avatar_url, etc.)
+ *   - GET /api/profile/sessions: List active sessions (currently returns only current session)
+ *   - DELETE /api/profile/sessions/:id: Revoke a specific session (stub -- Supabase manages sessions)
+ *   - POST /api/profile/sessions/revoke-all: Sign out and revoke all sessions
+ *   - POST /api/profile/avatar: Upload avatar image to Supabase Storage ("avatars" bucket)
+ *   - DELETE /api/profile/avatar: Remove avatar from storage and clear profile URL
+ *   - GET /api/profile/activity: User activity feed with configurable limit
+ *   - POST /api/profile/change-password: Change password using current session token
+ *   - POST /api/profile/delete: Account deletion placeholder (returns error, requires support)
+ *
+ * Key dependencies:
+ *   - supabase.auth: verifyRequest, getUserProfile, upsertUserProfile, updatePassword,
+ *     extractToken, getUser, logout
+ *   - supabase.activity: getUserActivity for activity feed
+ *   - supabase.getAdminClient: Supabase admin client for storage operations (avatar bucket)
+ *
+ * Side effects:
+ *   - Database: updates user_profiles table
+ *   - Supabase Storage: uploads/deletes files in the "avatars" bucket; auto-creates bucket
+ *     if it does not exist
+ *   - Auth: signs out user on revoke-all, updates password on change-password
+ *
+ * Notes:
+ *   - Two profile endpoint families exist (/api/user/profile and /api/profile) for
+ *     backward compatibility; /api/user/profile uses extractToken+getUser, while
+ *     /api/profile uses the newer verifyRequest flow
+ *   - Avatar upload uses a simplified multipart parser that extracts the first file part;
+ *     it does not use the shared parseMultipart utility
+ *   - Session listing is limited to the current session only (Supabase does not expose
+ *     all sessions via its public API)
+ *   - Avatar deletion tries all common image extensions since the stored extension is unknown
+ *   - Account deletion is not implemented; it returns a 400 instructing users to contact support
  */
 
 const { parseBody } = require('../../server/request');

@@ -1,6 +1,27 @@
 /**
- * Role Onboarding
- * Wizard to help users define their role when starting
+ * Purpose:
+ *   Provides a multi-step onboarding wizard that guides new users through
+ *   role selection, customisation, and notification preferences.
+ *
+ * Responsibilities:
+ *   - Define the onboarding step sequence (welcome -> category -> template -> customise -> prefs -> done)
+ *   - Validate user input at each step
+ *   - Process completed wizard data into a final role configuration object
+ *   - Offer quick-setup shortcuts for common roles (skip wizard)
+ *   - Suggest roles from past user activity via keyword analysis
+ *   - Determine whether onboarding is needed for a given project
+ *
+ * Key dependencies:
+ *   - ./RoleTemplates: provides categories, template lists, and role prompts
+ *
+ * Side effects:
+ *   - None (stateless; returns data for the caller to persist)
+ *
+ * Notes:
+ *   - Step 'select_template' is marked dynamic because its options depend on
+ *     the category selected in the previous step.
+ *   - suggestRoleFromActivity maps keyword frequency to template IDs; confidence
+ *     is capped at 100 and scaled by 20 per keyword hit.
  */
 
 const { getRoleTemplates } = require('./RoleTemplates');

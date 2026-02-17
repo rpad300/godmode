@@ -1,13 +1,36 @@
 /**
- * Audit feature routes
- * Extracted from server.js
+ * Purpose:
+ *   Audit trail API for project activity summaries, audit log exports,
+ *   and superadmin-level audit log browsing.
  *
- * Handles:
- * - GET /api/projects/:id/audit/summary - Get audit summary
- * - GET /api/projects/:id/audit/exports - List export jobs
- * - POST /api/projects/:id/audit/exports - Create export job
- * - GET /api/audit/exports/:id - Get export job status
- * - GET /api/audit/exports/:id/download - Download export
+ * Responsibilities:
+ *   - Project-scoped audit summary (configurable lookback in days)
+ *   - Async export job creation, status polling, and file download
+ *   - Superadmin paginated audit log listing with search and filters
+ *
+ * Key dependencies:
+ *   - supabase.audit: summary, export CRUD, and audit-log queries
+ *   - supabase.auth: token extraction, user verification, superadmin check
+ *
+ * Side effects:
+ *   - POST /exports creates an async export job row in Supabase
+ *   - GET /download may stream the exported file to the client
+ *
+ * Notes:
+ *   - Returns 503 if Supabase is not configured for any audit route
+ *   - Export creation and download require a valid Bearer token
+ *   - GET /api/admin/audit/logs requires superadmin (403 otherwise)
+ *   - Default lookback for summary is 30 days; export format defaults to JSON
+ *
+ * Routes:
+ *   GET  /api/projects/:id/audit/summary    - Audit summary (?days=N, default 30)
+ *   GET  /api/projects/:id/audit/exports    - List export jobs for project
+ *   POST /api/projects/:id/audit/exports    - Create export job (auth required)
+ *        Body: { date_from, date_to, filters, format }
+ *   GET  /api/audit/exports/:id             - Export job status
+ *   GET  /api/audit/exports/:id/download    - Download export file (auth required)
+ *   GET  /api/admin/audit/logs              - Paginated audit logs (superadmin)
+ *        Query: ?page=&limit=&search=&filter=
  */
 
 const { parseBody, parseUrl } = require('../../server/request');

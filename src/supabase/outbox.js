@@ -1,6 +1,35 @@
 /**
- * Outbox Module
- * Implements the transactional outbox pattern for reliable FalkorDB sync
+ * Purpose:
+ *   Implements the transactional outbox pattern to ensure reliable, at-least-once
+ *   delivery of entity/relation change events from Supabase to the graph database.
+ *   Acts as a durable buffer between the relational store and the graph sync pipeline.
+ *
+ * Responsibilities:
+ *   - Append events to the `graph_outbox` table (single and batch)
+ *   - Atomically claim batches of pending events for processing via `claim_outbox_batch` RPC
+ *   - Mark events as completed or failed via `complete_outbox_event` / `fail_outbox_event` RPCs
+ *   - Track sync status per project/graph in `graph_sync_status`
+ *   - Manage dead-letter events in `graph_dead_letter` (list, resolve, retry)
+ *   - Provide outbox statistics (counts by status) and cleanup of old completed events
+ *
+ * Key dependencies:
+ *   - ./client (getAdminClient): Supabase admin client
+ *   - ../logger: structured logging with logError helper
+ *
+ * Side effects:
+ *   - Writes to `graph_outbox`, `graph_sync_status`, and `graph_dead_letter`
+ *   - `addToOutbox` also increments `pending_count` in `graph_sync_status`
+ *   - `cleanup` permanently deletes completed events older than N days
+ *
+ * Notes:
+ *   - Event IDs are generated as `entityType:entityId:timestamp` for idempotency;
+ *     duplicate inserts (Postgres unique violation 23505) are treated as success.
+ *   - Batch inserts append an index suffix to the event_id to avoid collisions
+ *     within the same millisecond.
+ *   - `updateSyncStatusCount` uses a read-then-write pattern (not atomic);
+ *     this is acceptable because it only tracks approximate pending counts.
+ *   - `retryDeadLetter` resets the original outbox event to pending with zero
+ *     attempts, then marks the dead letter as resolved.
  */
 
 const { getAdminClient } = require('./client');
@@ -32,7 +61,10 @@ const EVENT_TYPES = {
 };
 
 /**
- * Add an event to the outbox
+ * Add a single event to the `graph_outbox` table.
+ * Generates a timestamp-based idempotency key. Duplicate inserts (Postgres
+ * unique violation 23505) are treated as successful no-ops.
+ * Also increments the pending count in `graph_sync_status`.
  */
 async function addToOutbox({
     projectId,
@@ -134,7 +166,10 @@ async function addBatchToOutbox(events) {
 }
 
 /**
- * Claim a batch of pending events for processing
+ * Atomically claim a batch of pending events via `claim_outbox_batch` RPC.
+ * The RPC uses SELECT ... FOR UPDATE SKIP LOCKED to ensure each event is
+ * processed by exactly one consumer.
+ * @param {number} [batchSize=100] - Maximum events to claim
  */
 async function claimBatch(batchSize = 100) {
     const supabase = getAdminClient();
@@ -297,7 +332,14 @@ async function upsertSyncStatus(projectId, graphName, updates) {
 }
 
 /**
- * Update pending count in sync status
+ * Increment or decrement the pending_count in `graph_sync_status`.
+ * Uses a read-then-write pattern (not a single atomic UPDATE SET count = count + delta)
+ * because the upsert must first ensure the row exists. The resulting count is
+ * approximate; this is acceptable for dashboard display purposes.
+ * @param {object} supabase - Supabase client (passed directly, not fetched)
+ * @param {string} projectId
+ * @param {string} graphName
+ * @param {number} delta - Positive to increment, negative to decrement
  */
 async function updateSyncStatusCount(supabase, projectId, graphName, delta) {
     try {
@@ -402,7 +444,9 @@ async function resolveDeadLetter(deadLetterId, userId, notes = null) {
 }
 
 /**
- * Retry a dead letter event
+ * Retry a dead-letter event by resetting its outbox entry to pending
+ * with zero attempts, then marking the dead letter as resolved.
+ * Fetches the dead letter with its joined outbox event to get the outbox_id.
  */
 async function retryDeadLetter(deadLetterId) {
     const supabase = getAdminClient();
@@ -487,7 +531,10 @@ async function getStats(projectId = null) {
 }
 
 /**
- * Cleanup old completed events
+ * Permanently delete completed outbox events older than N days.
+ * This is a hard delete, not a soft delete; completed events are no longer needed
+ * once the graph sync has been confirmed.
+ * @param {number} [daysOld=7] - Delete events processed more than this many days ago
  */
 async function cleanup(daysOld = 7) {
     const supabase = getAdminClient();

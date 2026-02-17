@@ -1,12 +1,57 @@
 /**
- * Memory Pool Module
- * Manages memory for large datasets, prevents OOM
+ * Purpose:
+ *   Provide an application-level memory management layer that pools
+ *   embeddings, documents, and cache entries with configurable size
+ *   limits and automatic eviction to prevent out-of-memory crashes.
+ *
+ * Responsibilities:
+ *   - Allocate, retrieve, and remove keyed entries in named pools
+ *     (embeddings, documents, cache)
+ *   - Enforce per-pool capacity limits with LRU-ish eviction (sorted by
+ *     access count and staleness)
+ *   - Continuously monitor process heap usage against warning (80%) and
+ *     critical (90%) thresholds
+ *   - Trigger emergency cleanup (50% eviction from all pools + optional
+ *     GC) when memory is critical
+ *   - Report per-pool and aggregate memory statistics
+ *
+ * Key dependencies:
+ *   - process.memoryUsage(): heap telemetry
+ *   - global.gc: optional forced garbage collection (requires --expose-gc)
+ *
+ * Side effects:
+ *   - Starts a setInterval monitor on construction (default 30s)
+ *   - Calls global.gc() when available during emergency cleanup
+ *
+ * Notes:
+ *   - Memory size estimation is heuristic (string length * 2, 8 bytes
+ *     per number, JSON.stringify for objects); actual V8 memory overhead
+ *     may differ.
+ *   - The eviction sort combines accessCount and age into a single score;
+ *     this is not a strict LRU but a frequency-recency hybrid.
+ *   - Stopping the monitor (stopMonitoring) is important before shutdown
+ *     to avoid dangling intervals.
  */
 
 const { logger } = require('../logger');
 
 const log = logger.child({ module: 'memory-pool' });
 
+/**
+ * Application-level memory pool with named pools, capacity limits,
+ * frequency-recency eviction, and automatic heap monitoring.
+ *
+ * Lifecycle: construct (starts monitoring) -> allocate/get -> stopMonitoring.
+ *
+ * @param {object} options
+ * @param {number} [options.maxHeapMB=512] - Heap usage ceiling for threshold calculations
+ * @param {number} [options.warningThreshold=0.8] - Fraction of maxHeapMB that triggers a warning
+ * @param {number} [options.criticalThreshold=0.9] - Fraction that triggers emergency cleanup
+ * @param {number} [options.embeddingsLimit=5000] - Max entries in the embeddings pool
+ * @param {number} [options.documentsLimit=1000] - Max entries in the documents pool
+ * @param {number} [options.cacheLimit=10000] - Max entries in the cache pool
+ * @param {number} [options.monitorInterval=30000] - Heap check interval in ms
+ */
 class MemoryPool {
     constructor(options = {}) {
         // Memory limits (in MB)
@@ -40,7 +85,12 @@ class MemoryPool {
     }
 
     /**
-     * Allocate item to a pool
+     * Store a keyed item in the named pool, evicting 20% of entries when
+     * the pool reaches its capacity limit.
+     * @param {string} poolName - 'embeddings' | 'documents' | 'cache'
+     * @param {string} key - Unique identifier within the pool
+     * @param {*} value - Data to store
+     * @returns {boolean} false if the pool name is unknown
      */
     allocate(poolName, key, value) {
         const pool = this.pools[poolName];

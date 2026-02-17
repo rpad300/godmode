@@ -1,19 +1,39 @@
 /**
- * Auth feature routes
- * Extracted from server.js
- * 
- * Handles:
- * - /api/auth/status
- * - /api/auth/register
- * - /api/auth/login
- * - /api/auth/logout
- * - /api/auth/me
- * - /api/auth/refresh
- * - /api/auth/forgot-password
- * - /api/auth/reset-password
- * - /api/auth/otp/*
- * - /api/auth/confirm-email
- * - /api/auth/resend-confirmation
+ * Purpose:
+ *   Authentication and session management API routes. Handles the full
+ *   user lifecycle: registration, email confirmation, login (password + OTP),
+ *   session refresh, password reset, and logout.
+ *
+ * Responsibilities:
+ *   - User registration with branded email confirmation via Resend
+ *   - Password-based and OTP-based (passwordless) login flows
+ *   - Session management via HTTP-only cookies (sb-access-token, sb-refresh-token)
+ *   - Token refresh with automatic cookie rotation
+ *   - Password reset (forgot + reset with token)
+ *   - Email confirmation via clickable link (GET redirect) or code (POST API)
+ *   - OTP request, verify, resend, and config endpoints
+ *
+ * Key dependencies:
+ *   - ../../supabase/otp: OTP generation, verification, rate limiting, and invalidation
+ *   - ../../supabase/email: Branded transactional emails (confirmation, login code, new device)
+ *   - ../../supabase/client: Supabase admin client for user lookup and magic link generation
+ *   - ../../server/middleware: Cookie security flags, client IP extraction
+ *
+ * Side effects:
+ *   - Sets/clears sb-access-token and sb-refresh-token cookies on login/logout/refresh
+ *   - Sends transactional emails (confirmation, OTP codes, new device alerts) via Resend
+ *   - Creates and invalidates OTP records in the database
+ *   - Confirms user email in Supabase Auth (admin.updateUserById)
+ *   - Redirects browser on GET /api/auth/confirm-email (302 to /?auth=...)
+ *
+ * Notes:
+ *   - OTP verify generates a Supabase magic link internally to create a session;
+ *     if token verification fails, it falls back to returning the magic link URL
+ *   - Registration does NOT set session cookies -- user must confirm email first
+ *   - Login blocks unconfirmed emails (403) and opportunistically resends confirmation
+ *   - Rate limiting for OTP is enforced per-email and per-IP in the otp module
+ *   - The /api/auth/otp/resend endpoint currently returns false (not handled);
+ *     callers should use /api/auth/otp/request instead
  */
 
 const { parseBody } = require('../../server/request');
@@ -437,7 +457,22 @@ async function handleAuth(ctx) {
 }
 
 /**
- * Handle OTP verification
+ * POST /api/auth/otp/verify - Verify OTP code and establish a session.
+ *
+ * Flow: validate code format -> verify OTP -> find user by email -> check email confirmed
+ * -> generate magic link via admin API -> verify hashed token to get session -> set cookies.
+ *
+ * If session creation via hashed token fails, falls back to returning the magic link URL.
+ * On success, invalidates all remaining login OTPs for that email and sends a
+ * new-device login notification email (fire-and-forget).
+ *
+ * @param {IncomingMessage} req
+ * @param {ServerResponse} res
+ * @param {object} supabase - Supabase facade with auth, getAdminClient, etc.
+ * @returns {Promise<boolean>} Always true (route is always handled)
+ *
+ * Response codes: 400 (bad input), 401 (wrong code), 403 (email unconfirmed),
+ *   404 (no account), 500 (session creation failure), 503 (not configured)
  */
 async function handleOTPVerify(req, res, supabase) {
     if (!supabase || !supabase.isConfigured()) {
@@ -609,7 +644,12 @@ async function handleOTPVerify(req, res, supabase) {
 }
 
 /**
- * Handle resend confirmation email
+ * POST /api/auth/resend-confirmation - Resend email confirmation OTP.
+ *
+ * Rate-limited via the OTP module (per-email + per-IP). Always returns a
+ * generic success message to avoid leaking whether the email exists.
+ *
+ * Response codes: 400 (invalid email or OTP error), 429 (rate limited), 500, 503
  */
 async function handleResendConfirmation(req, res, supabase) {
     if (!supabase || !supabase.isConfigured()) {
@@ -677,7 +717,13 @@ async function handleResendConfirmation(req, res, supabase) {
 }
 
 /**
- * Handle GET /api/auth/confirm-email (redirect flow)
+ * GET /api/auth/confirm-email - Browser redirect flow for email confirmation.
+ *
+ * Expects ?email=...&code=... query params. Verifies OTP, marks user email as
+ * confirmed in Supabase Auth, invalidates remaining confirmation OTPs, then
+ * redirects to /?auth=confirmed or /?auth=confirm-error with a message.
+ *
+ * Assumption: The confirmation link is only ever opened in a browser (not via API client).
  */
 async function handleConfirmEmailGet(req, res, parsedUrl) {
     const log = getLogger().child({ module: 'auth' });
@@ -740,7 +786,13 @@ async function handleConfirmEmailGet(req, res, parsedUrl) {
 }
 
 /**
- * Handle POST /api/auth/confirm-email (API flow)
+ * POST /api/auth/confirm-email - JSON API flow for email confirmation.
+ *
+ * Same logic as the GET redirect flow but returns JSON instead of 302 redirects.
+ * Used by the SPA when the user manually enters their confirmation code.
+ *
+ * Request body: { email: string, code: string }
+ * Response codes: 400 (missing fields), 401 (wrong code), 500, 503
  */
 async function handleConfirmEmailPost(req, res, supabase) {
     if (!supabase || !supabase.isConfigured()) {

@@ -1,6 +1,27 @@
 /**
- * Role-based Dashboard
- * Generate personalized dashboard content based on user role
+ * Purpose:
+ *   Generates role-specific dashboard payloads -- widgets, metrics, alerts,
+ *   and quick-action shortcuts tailored to the user's normalised role.
+ *
+ * Responsibilities:
+ *   - Map free-text role titles to canonical role keys via normalizeRole()
+ *   - Return per-role widget/metric/focus-area configurations
+ *   - Compute project health score (starts at 100, penalised by high risks,
+ *     overdue actions, pending questions)
+ *   - Build priority item lists sorted by the role's category preferences
+ *   - Surface danger/warning/info alerts based on knowledge state
+ *
+ * Key dependencies:
+ *   - storage: project-scoped storage for knowledge and questions (injected)
+ *
+ * Side effects:
+ *   - None (pure computation over injected storage)
+ *
+ * Notes:
+ *   - Widget configs are static lookup tables; no persistence layer needed.
+ *   - Health score clamps to [0, 100]. The deduction weights (10 per high-risk,
+ *     5 per overdue action, 2 per pending question capped at 20) are intentionally
+ *     simple and may need calibration per organisation.
  */
 
 class RoleDashboard {

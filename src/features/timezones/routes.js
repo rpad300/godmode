@@ -1,10 +1,27 @@
 /**
- * Timezones feature routes
- * Extracted from server.js
+ * Purpose:
+ *   Provides timezone reference data from Supabase (or a hardcoded fallback)
+ *   for use in scheduling, contact profiles, and meeting time conversion.
  *
- * Handles:
- * - GET /api/timezones - Get all timezones (Supabase or defaults)
- * - GET /api/timezones/grouped - Get timezones grouped by region
+ * Responsibilities:
+ *   - Return all timezones sorted by UTC offset, then name
+ *   - Return timezones grouped by region for picker UIs
+ *
+ * Key dependencies:
+ *   - supabase (ctx): admin client to query the `timezones` table
+ *   - storage (ctx): getTimezonesGrouped() for the grouped endpoint
+ *
+ * Side effects:
+ *   - None (read-only)
+ *
+ * Notes:
+ *   - Falls back to a minimal DEFAULT_TIMEZONES array (UTC, Lisbon, London) when
+ *     Supabase is not configured
+ *   - The `timezones` table is a reference/seed table, not user-editable
+ *
+ * Routes:
+ *   GET /api/timezones          - All timezones (flat list, ordered by offset)
+ *   GET /api/timezones/grouped  - Timezones grouped by region
  */
 
 const { getLogger } = require('../../server/requestContext');

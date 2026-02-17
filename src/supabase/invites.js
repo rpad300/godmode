@@ -1,6 +1,34 @@
 /**
- * Secure Invites Module
- * Handles project invitations with secure tokens
+ * Purpose:
+ *   Secure, token-based invitation system for adding users to projects.
+ *   Tokens are generated, SHA-256 hashed, and stored; the plaintext token
+ *   is returned only once for embedding in an invite link.
+ *
+ * Responsibilities:
+ *   - Generate and store invite tokens in the `invites` table
+ *   - Accept invites: validate token, check expiry/email binding, add to `project_members`
+ *   - Revoke pending invites
+ *   - List invites per project with optional status filter
+ *   - Preview invite metadata by token (for the accept-invite UI)
+ *   - Cleanup expired invites (batch status update)
+ *
+ * Key dependencies:
+ *   - crypto: secure random token generation and SHA-256 hashing
+ *   - ./client (getAdminClient): Supabase admin client for DB access
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - `createInvite` inserts into `invites`
+ *   - `acceptInvite` inserts into `project_members` and updates `invites`
+ *   - `cleanupExpiredInvites` bulk-updates expired pending invites
+ *
+ * Notes:
+ *   - Only the hashed token is stored; the plaintext is returned exactly once
+ *     at creation time (similar pattern to API key generation).
+ *   - Email-bound invites enforce case-insensitive email matching.
+ *   - Default expiry is 48 hours; configurable via `expiresInHours`.
+ *   - `acceptInvite` checks for existing membership to prevent duplicates.
+ *   - `getInviteByToken` joins `projects` to show the project name in the UI.
  */
 
 const crypto = require('crypto');

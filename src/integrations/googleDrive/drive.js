@@ -1,6 +1,36 @@
 /**
- * Google Drive integration – core wrapper
- * Uses system credentials for write (upload, bootstrap), project or system for read (download).
+ * Purpose:
+ *   Low-level Google Drive API wrapper providing authenticated upload, download,
+ *   and folder management using service-account credentials.
+ *
+ * Responsibilities:
+ *   - Authenticate via system-level or project-level service-account JSON
+ *   - Provide separate clients for write operations (system) and read operations
+ *     (project, with system fallback)
+ *   - Upload files to a specified Drive folder with retry
+ *   - Download files to in-memory Buffers with size limits (50 MB) and retry
+ *   - Create/ensure folder hierarchy under the configured root folder
+ *   - Bootstrap per-project folder structures (uploads, newtranscripts, archived, exports)
+ *   - Invalidate the cached system client when the admin config changes
+ *
+ * Key dependencies:
+ *   - googleapis: Official Google API client
+ *   - ../../supabase/system (systemConfig): System-level config + change subscription
+ *   - ../../supabase/secrets: Encrypted credential retrieval
+ *   - ../../logger: Structured logging
+ *
+ * Side effects:
+ *   - Network calls to the Google Drive v3 API
+ *   - Subscribes to systemConfig changes (lazy, once) to clear the cached client
+ *   - Maintains a module-level systemClientCache singleton
+ *
+ * Notes:
+ *   - System credentials have drive.file + drive scopes (read/write); project
+ *     credentials start with drive.readonly and fall back to drive scope
+ *   - withRetry() retries 429 and 5xx errors with exponential back-off (3 attempts)
+ *   - ensureFolder() sanitises parentId/name to prevent Drive query injection
+ *   - initializeProjectFolder() never throws; returns null on failure so that
+ *     project creation is not blocked by Drive misconfiguration
  */
 
 const { google } = require('googleapis');

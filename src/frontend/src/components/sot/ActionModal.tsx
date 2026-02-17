@@ -1,9 +1,34 @@
+/**
+ * Purpose:
+ *   Modal form for creating or editing an action item, with AI-assisted
+ *   title suggestion, description suggestion, and content refinement.
+ *
+ * Responsibilities:
+ *   - Form fields: title, description, owner, deadline, status, priority,
+ *     sprint, and user story (filtered by selected sprint)
+ *   - AI toolbar: "Suggest Title", "Suggest Description", "Refine with AI"
+ *   - Resets form state on open based on mode (create vs edit)
+ *   - Submits with auto-generated ID and timestamps
+ *
+ * Key dependencies:
+ *   - framer-motion (AnimatePresence): modal enter/exit animations
+ *   - sonner (toast): AI suggestion feedback
+ *   - Action, Sprint, UserStory (godmode types): data shapes
+ *
+ * Side effects:
+ *   - None (AI features are simulated locally)
+ *
+ * Notes:
+ *   - AI suggestions use hardcoded response arrays and random selection.
+ *   - The user story dropdown is disabled when no sprint is selected.
+ *   - storiesForSprint filters by form.sprintId; changing sprint clears
+ *     the story selection.
+ */
 import { useState, useEffect } from 'react';
 import { X, Sparkles, Wand2, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import type { Action, Sprint, UserStory } from '@/types/godmode';
-import { mockSprints, mockUserStories } from '@/data/mock-data';
 
 interface ActionModalProps {
   open: boolean;
@@ -11,6 +36,8 @@ interface ActionModalProps {
   onSave: (action: Action) => void;
   action?: Action | null;
   mode: 'create' | 'edit';
+  sprints?: Sprint[];
+  userStories?: UserStory[];
 }
 
 const emptyAction: Omit<Action, 'id'> = {
@@ -24,7 +51,7 @@ const emptyAction: Omit<Action, 'id'> = {
   storyId: '',
 };
 
-const ActionModal = ({ open, onClose, onSave, action, mode }: ActionModalProps) => {
+const ActionModal = ({ open, onClose, onSave, action, mode, sprints = [], userStories = [] }: ActionModalProps) => {
   const [form, setForm] = useState<Omit<Action, 'id'>>(emptyAction);
 
   useEffect(() => {
@@ -38,7 +65,7 @@ const ActionModal = ({ open, onClose, onSave, action, mode }: ActionModalProps) 
 
   const [aiLoading, setAiLoading] = useState<string | null>(null);
 
-  const storiesForSprint = mockUserStories.filter(s => s.sprintId === form.sprintId);
+  const storiesForSprint = userStories.filter(s => s.sprintId === form.sprintId);
 
   const handleAiSuggest = async (field: 'title' | 'description') => {
     setAiLoading(field);
@@ -223,7 +250,7 @@ const ActionModal = ({ open, onClose, onSave, action, mode }: ActionModalProps) 
                       className="mt-1 w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                     >
                       <option value="">No sprint</option>
-                      {mockSprints.map(s => (
+                      {sprints.map(s => (
                         <option key={s.id} value={s.id}>{s.name}</option>
                       ))}
                     </select>

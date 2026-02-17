@@ -1,8 +1,39 @@
 /**
- * Graph Analytics Module
- * Provides metrics: central nodes, clusters, key people, insights
+ * Purpose:
+ *   Compute and surface analytical insights from the knowledge graph,
+ *   including centrality, clustering, key people, and density metrics.
+ *
+ * Responsibilities:
+ *   - Produce a comprehensive analytics snapshot (getAnalytics) by
+ *     running multiple parallel Cypher queries
+ *   - Identify most-connected (central) nodes via degree count
+ *   - Detect clusters by organization and by project membership
+ *   - Rank key people by connection count, decisions made, and meeting
+ *     attendance
+ *   - Report entity-type and relationship-type distributions
+ *   - Find bridge nodes that connect distinct organizations
+ *   - Generate human-readable insight summaries
+ *
+ * Key dependencies:
+ *   - graphProvider (injected): Cypher queries against the knowledge graph
+ *
+ * Side effects:
+ *   - Executes multiple read-only Cypher queries; no graph mutations
+ *
+ * Notes:
+ *   - Centrality is approximated by raw degree count, not a full
+ *     betweenness or PageRank algorithm.
+ *   - Bridge-node detection depends on WORKS_AT and WORKS_ON relationship
+ *     types existing in the graph.
  */
 
+/**
+ * Computes analytical metrics over the knowledge graph (centrality,
+ * clusters, key people, distributions, bridge nodes, insights).
+ *
+ * @param {object} options
+ * @param {object} options.graphProvider - Graph database adapter
+ */
 class GraphAnalytics {
     constructor(options = {}) {
         this.graphProvider = options.graphProvider;
@@ -13,7 +44,8 @@ class GraphAnalytics {
     }
 
     /**
-     * Get comprehensive graph analytics
+     * Run all analytics queries in parallel and return a combined snapshot.
+     * @returns {Promise<{overview: object, centralNodes: Array, clusters: object, keyPeople: object, entityDistribution: Array, relationshipTypes: Array, recentActivity: object, generatedAt: string}>}
      */
     async getAnalytics() {
         if (!this.graphProvider || !this.graphProvider.connected) {

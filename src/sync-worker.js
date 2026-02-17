@@ -1,6 +1,38 @@
 /**
- * FalkorDB Sync Worker
- * Background worker that processes the outbox and syncs to FalkorDB
+ * Purpose:
+ *   Background polling worker that drains the Supabase outbox table and replays
+ *   each event as a Cypher mutation against the project's graph database (one
+ *   graph per project, e.g. FalkorDB or Neo4j).
+ *
+ * Responsibilities:
+ *   - Poll the outbox at a configurable interval and claim batches of events
+ *   - Translate outbox events (CREATE/UPDATE/DELETE/MERGE/LINK/UNLINK) into
+ *     parameterized Cypher queries
+ *   - Execute Cypher on the correct project graph (auto-switches via graphConnector)
+ *   - Handle the special Action -> Decision IMPLEMENTS edge lifecycle
+ *   - Mark events as completed or failed in the outbox
+ *   - Run periodic health checks and warn on dead-letter queue growth
+ *   - Enforce a per-batch timeout to prevent a stuck worker from blocking the poll loop
+ *
+ * Key dependencies:
+ *   - ./supabase/outbox: claimBatch, markCompleted, markFailed, getStats
+ *   - ./logger: structured logging (pino child)
+ *   - graphConnector (injected at start): must expose switchGraph() and one of
+ *     query(), runCypher(), or graph().query()
+ *
+ * Side effects:
+ *   - Mutates the graph database (creates/updates/deletes nodes and relationships)
+ *   - Mutates the Supabase outbox table (claim, complete, fail status transitions)
+ *   - Holds two unref'd setInterval timers (poll + health check) while running
+ *
+ * Notes:
+ *   - Timers are unref'd so the worker does not prevent Node process exit during
+ *     tests or graceful shutdown.
+ *   - Batch concurrency is capped at maxConcurrent (default 3) using chunked
+ *     Promise.allSettled, not a full semaphore -- burst ordering is not guaranteed.
+ *   - Legacy graph names prefixed "godmode_" are normalized to "project_" to
+ *     maintain a single naming convention.
+ *   - The processBatch and buildCypherQuery functions are exported for testing.
  */
 
 const outbox = require('./supabase/outbox');
@@ -24,7 +56,15 @@ const CONFIG = {
 };
 
 /**
- * Start the sync worker
+ * Start the sync worker polling loop.
+ *
+ * Idempotent -- calling start() when already running is a no-op.
+ * Fires an immediate processBatch() before entering the interval loop
+ * so that any events queued while the worker was stopped are picked up
+ * without waiting for the first poll tick.
+ *
+ * @param {Object} graphConnection - Graph connector instance (must support
+ *   switchGraph and at least one of query/runCypher/graph)
  */
 function start(graphConnection) {
     if (isRunning) {
@@ -74,7 +114,15 @@ function stop() {
 }
 
 /**
- * Process a batch of outbox events (with timeout to prevent stuck worker)
+ * Claim and process a batch of outbox events.
+ *
+ * Wraps the actual work in a Promise.race against a timeout so that a
+ * single slow graph operation cannot block the poll loop indefinitely.
+ * Events within a batch are processed in chunks of maxConcurrent using
+ * Promise.allSettled (failures in one event do not abort sibling events).
+ *
+ * On timeout the batch is abandoned -- uncompleted events remain claimed
+ * and will be retried on the next poll via the outbox's retry mechanism.
  */
 async function processBatch() {
     if (!isRunning || !graphConnector) return;
@@ -112,7 +160,14 @@ async function processBatch() {
 }
 
 /**
- * Process a single outbox event
+ * Process a single outbox event: build Cypher, execute, mark done/failed.
+ *
+ * Special-case: when an Action is UPDATEd with a decision_id, an IMPLEMENTS
+ * edge is created (or removed if decision_id is cleared). This keeps the
+ * graph's Action->Decision links in sync with the relational model.
+ *
+ * @param {Object} event - Outbox row: {id, event_id, operation, entity_type,
+ *   entity_id, graph_name, cypher_query?, cypher_params?, payload}
  */
 async function processEvent(event) {
     const startTime = Date.now();
@@ -127,7 +182,7 @@ async function processEvent(event) {
             throw new Error('Could not build Cypher query');
         }
 
-        // Execute on FalkorDB
+        // Execute on graph
         await executeCypher(event.graph_name, query, params);
 
         // Action UPDATE: sync IMPLEMENTS edge to Decision when decision_id present
@@ -170,7 +225,14 @@ async function processEvent(event) {
 }
 
 /**
- * Build Cypher query from event
+ * Translate an outbox event into a parameterized Cypher query.
+ *
+ * Dispatches on event.operation (CREATE/UPDATE/DELETE/MERGE/LINK/UNLINK).
+ * Returns {query: null, params: null} for unrecognized operations so the
+ * caller can treat it as an error without a thrown exception.
+ *
+ * @param {Object} event - Outbox event row
+ * @returns {{query: string|null, params: object|null}}
  */
 function buildCypherQuery(event) {
     const { operation, entity_type, entity_id, payload } = event;
@@ -194,8 +256,15 @@ function buildCypherQuery(event) {
 }
 
 /**
- * Build CREATE node query.
- * For Action with sprint_id, also create IN_SPRINT relationship to Sprint node.
+ * Build a CREATE node query.
+ *
+ * Special case: Action nodes with a sprint_id also get an IN_SPRINT
+ * relationship to a Sprint node (MERGE'd to avoid duplicates).
+ *
+ * @param {string} label - Node label (Cypher label, e.g. "Fact", "Action")
+ * @param {string} id - Entity UUID
+ * @param {Object} properties - All properties to set on the new node
+ * @returns {{query: string, params: object}}
  */
 function buildCreateQuery(label, id, properties) {
     const props = { ...properties, id };
@@ -243,7 +312,15 @@ function buildDeleteQuery(label, id) {
 }
 
 /**
- * Build MERGE node query (upsert)
+ * Build a MERGE (upsert) node query.
+ *
+ * Uses ON CREATE SET and ON MATCH SET with identical property lists so that
+ * the node is fully populated regardless of whether it already existed.
+ *
+ * @param {string} label - Node label
+ * @param {string} id - Entity UUID (used as the merge key)
+ * @param {Object} properties - Properties to set/update
+ * @returns {{query: string, params: object}}
  */
 function buildMergeQuery(label, id, properties) {
     const onCreateProps = Object.keys(properties)
@@ -257,7 +334,13 @@ function buildMergeQuery(label, id, properties) {
 }
 
 /**
- * Build LINK (create relation) query
+ * Build a LINK query that creates (MERGEs) a relationship between two nodes.
+ *
+ * Uses MERGE rather than CREATE to make the operation idempotent -- replaying
+ * the same LINK event twice will not produce duplicate edges.
+ *
+ * @param {Object} payload - {fromType, fromId, toType, toId, relationType, properties?}
+ * @returns {{query: string, params: object}}
  */
 function buildLinkQuery(payload) {
     const { fromType, fromId, toType, toId, relationType, properties = {} } = payload;
@@ -293,10 +376,19 @@ function buildUnlinkQuery(payload) {
 }
 
 /**
- * Execute Cypher query on FalkorDB in the correct graph.
- * Switches to graph_name before running so Fact and other project entities
- * are segregated per project (one graph per project).
- * Normalizes legacy godmode_* names to project_* for a single convention.
+ * Execute a Cypher query on the correct project graph.
+ *
+ * Steps:
+ *   1. Normalize legacy "godmode_*" graph names to "project_*"
+ *   2. Switch the connector to the target graph (one graph per project)
+ *   3. Run the query via whichever method the connector exposes
+ *      (query, runCypher, or graph().query -- checked in that order)
+ *
+ * @param {string} graphName - Logical graph name from the outbox event
+ * @param {string} query - Parameterized Cypher query string
+ * @param {Object} params - Cypher parameter map
+ * @returns {Promise<any>} Query result from the graph connector
+ * @throws {Error} If connector is missing or graph switch fails
  */
 async function executeCypher(graphName, query, params) {
     if (!graphConnector) {
@@ -362,7 +454,13 @@ function getStatus() {
 }
 
 /**
- * Update configuration
+ * Hot-update worker configuration.
+ *
+ * Merges newConfig into the active CONFIG object. If the poll interval
+ * changed and the worker is running, restarts the polling timer immediately
+ * so the new interval takes effect without a stop/start cycle.
+ *
+ * @param {Object} newConfig - Partial config to merge (pollIntervalMs, batchSize, etc.)
  */
 function configure(newConfig) {
     Object.assign(CONFIG, newConfig);

@@ -1,11 +1,37 @@
 /**
- * Quick Role Switch
- * Temporarily view the system from a different role perspective
+ * Purpose:
+ *   Allows a user to temporarily assume a different role's perspective
+ *   (e.g., a developer viewing the project as a PM) with automatic expiry.
+ *
+ * Responsibilities:
+ *   - Create, extend, and end time-boxed perspective sessions (in-memory Map)
+ *   - Resolve the "effective role" by checking for an active perspective first
+ *   - Suggest contrasting roles based on a static affinity map
+ *   - Normalise free-text role strings to canonical template identifiers
+ *   - Record perspective switches in RoleHistory for analytics
+ *
+ * Key dependencies:
+ *   - ./RoleHistory: persists perspective switch records
+ *   - ./RoleTemplates: provides role prompts and template data for perspectives
+ *
+ * Side effects:
+ *   - Writes perspective switch entries to RoleHistory on switch start and end
+ *
+ * Notes:
+ *   - Active perspectives are held in memory only (Map); they do not survive restarts.
+ *   - Default session duration is 30 minutes; extendPerspective adds 15 min per call.
+ *   - getAvailablePerspectives returns at most 6 options (3 frequent + contrasting).
  */
 
 const { getRoleHistory } = require('./RoleHistory');
 const { getRoleTemplates } = require('./RoleTemplates');
 
+/**
+ * Manages temporary role-perspective sessions for users.
+ *
+ * Invariant: at most one active perspective per userId at any time.
+ * Expired sessions are lazily cleaned up on read (getCurrentPerspective).
+ */
 class QuickRoleSwitch {
     constructor(options = {}) {
         this.storage = options.storage;

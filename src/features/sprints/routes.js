@@ -1,5 +1,54 @@
 /**
- * Sprints API – create sprint, generate tasks from emails/transcripts, apply
+ * Purpose:
+ *   Sprint management API with AI-powered task generation from emails and
+ *   meeting transcripts, plus report generation (data, analysis, document, presentation).
+ *
+ * Responsibilities:
+ *   - Create and list sprints for a project
+ *   - AI task generation: analyzes emails and transcripts in the sprint analysis
+ *     period, proposes new tasks and links existing actions to the sprint
+ *   - Apply generated tasks: creates action items and links existing ones
+ *   - Sprint report data: task breakdown by status/assignee, points tracking
+ *   - AI sprint analysis (Scrum Master style) and executive business summary
+ *   - AI-generated A4 document and presentation (HTML) from sprint report data,
+ *     with optional company branding and configurable style variants
+ *
+ * Key dependencies:
+ *   - storage (ctx): sprint CRUD, action items, user stories, project/graph access
+ *   - ../../llm + ../../llm/config: text generation for task generation, analysis, reports
+ *   - ../../supabase/prompts: managed prompt templates for sprint task generation and reports
+ *   - ../../krisp.getTranscriptsForProject: meeting transcript retrieval
+ *
+ * Side effects:
+ *   - POST /sprints creates a sprint row
+ *   - POST /sprints/:id/apply creates action items and updates existing ones
+ *   - POST /generate, /report/analyze, /report/business, /report/document,
+ *     /report/presentation all call the LLM (incur cost)
+ *   - Document/presentation generation may read company brand assets from project
+ *
+ * Notes:
+ *   - All sprint routes require a project context (projectId from storage)
+ *   - The DEFAULT_SPRINT_PROMPT is used as fallback if no DB prompt exists
+ *   - Report text includes Portuguese labels (Resumo, Tarefas, etc.) -- bilingual by design
+ *   - Graph context (Supabase Graph) is optionally enriched into report data
+ *   - HTML extraction from LLM response strips markdown code fences
+ *   - escapeHtml/safeUrl helpers prevent XSS in generated HTML
+ *
+ * Routes:
+ *   POST /api/sprints                          - Create sprint
+ *        Body: { name, start_date, end_date, context, analysis_start_date, analysis_end_date }
+ *   GET  /api/sprints                          - List sprints for project
+ *   GET  /api/sprints/:id                      - Get single sprint
+ *   POST /api/sprints/:id/generate             - AI task generation from emails/transcripts
+ *   POST /api/sprints/:id/apply                - Apply generated tasks
+ *        Body: { new_tasks[], existing_action_ids[] }
+ *   GET  /api/sprints/:id/report               - Sprint report data (tasks, breakdown, points)
+ *   POST /api/sprints/:id/report/analyze       - AI Scrum Master analysis
+ *   POST /api/sprints/:id/report/business      - AI executive summary
+ *   POST /api/sprints/:id/report/document      - AI-generated A4 HTML document
+ *        Body: { include_analysis, include_business, style }
+ *   POST /api/sprints/:id/report/presentation  - AI-generated presentation HTML
+ *        Body: { include_analysis, include_business }
  */
 
 const { parseUrl, parseBody } = require('../../server/request');
@@ -22,6 +71,7 @@ Output a JSON object with exactly two keys:
 
 Rules: Only suggest tasks that fit the sprint context. Keep new_tasks concise. Use existing_action_ids to link already-existing work to this sprint. Output only valid JSON, no markdown.`;
 
+/** Fast prefix check to short-circuit non-sprint paths. */
 function isSprintsRoute(pathname) {
     return pathname === '/api/sprints' ||
            pathname.startsWith('/api/sprints/');
@@ -372,8 +422,14 @@ async function handleSprints(ctx) {
         return true;
     }
 
-    // Build report data text for LLM (document/presentation generation)
-    // Enriches with: user stories (parent story), ontology snippet, and optional graph context
+    /**
+     * Build a structured text representation of the sprint report for LLM consumption.
+     * Enriches with user stories, ontology terminology, graph context, and
+     * optional AI analysis/business summary sections.
+     * @param {string} sprintId
+     * @param {object} options - { include_analysis, include_business }
+     * @returns {string|null} Markdown-like report text, or null if sprint not found.
+     */
     async function buildReportData(sprintId, options = {}) {
         const { include_analysis = false, include_business = false } = options;
         const sprint = await storage.getSprint(sprintId);
@@ -496,6 +552,7 @@ async function handleSprints(ctx) {
         return text;
     }
 
+    /** Strip markdown code fences and extract the HTML document from LLM output. */
     function extractHtmlFromResponse(raw) {
         if (!raw || typeof raw !== 'string') return '';
         let s = raw.trim();

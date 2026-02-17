@@ -1,13 +1,48 @@
 /**
- * Chat Sessions API + POST /api/chat
- * Extracted from server.js
+ * Purpose:
+ *   Chat API routes providing session management and a sophisticated RAG-powered
+ *   conversational Q&A endpoint over project knowledge. Combines GraphRAG, vector
+ *   search, HyDE (Hypothetical Document Embeddings), and Reciprocal Rank Fusion
+ *   for state-of-the-art retrieval.
  *
- * Handles:
- * - POST /api/chat/sessions - Create new chat session
- * - PUT /api/chat/sessions/:id - Update chat session
- * - GET /api/chat/sessions - List chat sessions
- * - GET /api/chat/sessions/:id/messages - Get messages for session
- * - POST /api/chat - Chat with GraphRAG, SOTA RAG, HyDE, RRF fusion, session persistence
+ * Responsibilities:
+ *   - Chat session CRUD: create, update (title, contact context), list, get messages
+ *   - Main chat endpoint (POST /api/chat) with multi-stage retrieval pipeline:
+ *     1. Non-English query detection and translation
+ *     2. Query preprocessing and classification
+ *     3. GraphRAG: AI-generated Cypher queries + hybrid graph search
+ *     4. Supabase vector search (or local embeddings fallback)
+ *     5. HyDE expansion when initial results are sparse (<5 hits)
+ *     6. RRF fusion of graph + vector results, then query-dependent reranking
+ *     7. Context assembly with contact enrichment for person entities
+ *     8. LLM generation with optional deep reasoning mode
+ *   - Session persistence: auto-creates sessions, loads history from DB, persists messages
+ *   - User role and contact-context-aware system prompts
+ *   - Failover routing support (routes through llmRouter when configured)
+ *
+ * Key dependencies:
+ *   - ../../graphrag: GraphRAGEngine, CypherGenerator, Reranker, HyDE
+ *   - ../../utils/vectorSimilarity: Local vector cosine similarity search
+ *   - ../../llm/config: LLM and embeddings provider resolution
+ *   - ../../server/embeddingCache: Query embedding cache to avoid redundant API calls
+ *   - storage: Knowledge base access (hybridSearch, searchWithEmbedding, embeddings, etc.)
+ *
+ * Side effects:
+ *   - Database: creates chat sessions and messages in Supabase
+ *   - Global state: creates/reuses global.graphRAGEngine singleton
+ *   - LLM API calls: translation, HyDE generation, Cypher generation, main chat completion
+ *   - Embedding API calls: query embedding for vector search
+ *
+ * Notes:
+ *   - The GraphRAG engine is stored as a global singleton to persist across requests;
+ *     this means its config is only updated on graphProvider changes
+ *   - Non-English queries are translated to English for retrieval, then the LLM
+ *     is instructed to respond in the original language
+ *   - Confidence is derived from context quality and source count, with override
+ *     for uncertain-sounding LLM responses
+ *   - <think> tags from reasoning models are stripped from the final response
+ *   - The "context" field in the request body provides fallback context (source of truth,
+ *     facts, questions, decisions) when retrieval yields few results
  */
 
 const { parseBody } = require('../../server/request');

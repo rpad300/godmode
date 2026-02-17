@@ -1,4 +1,33 @@
-import React from 'react';
+/**
+ * Purpose:
+ *   Floating toolbar overlay for the knowledge graph viewport, providing
+ *   search, entity type filtering, bookmarks, saved views, and sync controls.
+ *
+ * Responsibilities:
+ *   - Search input that filters graph nodes by label
+ *   - Entity type toggle buttons organized by tier (Core Entities vs
+ *     Knowledge Details)
+ *   - Semantic links toggle (show/hide vector-similarity edges)
+ *   - Bookmarks dropdown: lists pinned nodes with navigation and delete
+ *   - Saved Views dropdown: save/restore/delete named filter configurations
+ *   - Sync button to trigger graph data re-fetch from the backend
+ *
+ * Key dependencies:
+ *   - GraphContext (useGraphState): filters, toggles, selectedNodeId
+ *   - useGraphSync: sync trigger, status, isSyncing state
+ *   - useBookmarks: bookmark list and CRUD operations
+ *   - useSavedViews: view persistence and CRUD operations
+ *
+ * Side effects:
+ *   - Network: triggers graph sync via useGraphSync.sync()
+ *   - State: mutates graph filter state in GraphContext
+ *
+ * Notes:
+ *   - Positioned absolutely at top-left of the graph viewport.
+ *   - View restoration only restores filters; layout restoration is a TODO.
+ *   - Save View dialog uses Enter key shortcut for quick confirmation.
+ */
+import React, { useState } from 'react';
 import { useGraphState } from '@/contexts/GraphContext';
 import { useGraphSync } from '@/hooks/graph/useGraphSync';
 import { useBookmarks } from '@/hooks/graph/useBookmarks';
@@ -6,6 +35,10 @@ import { useSavedViews } from '@/hooks/graph/useSavedViews';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
+import {
+    Dialog, DialogContent, DialogHeader, DialogTitle,
+    DialogDescription, DialogFooter,
+} from '@/components/ui/dialog';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -22,6 +55,8 @@ export function GraphToolbar() {
     const { sync, isSyncing, status } = useGraphSync();
     const { bookmarks, removeBookmark } = useBookmarks();
     const { views, saveView, deleteView } = useSavedViews();
+    const [saveViewOpen, setSaveViewOpen] = useState(false);
+    const [viewName, setViewName] = useState('');
 
     const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
         setFilters(prev => ({ ...prev, searchQuery: e.target.value }));
@@ -40,15 +75,20 @@ export function GraphToolbar() {
     };
 
     const handleSaveView = () => {
-        const name = prompt("Enter a name for this view:");
-        if (name) {
+        setSaveViewOpen(true);
+        setViewName('');
+    };
+
+    const handleSaveViewConfirm = () => {
+        if (viewName.trim()) {
             saveView({
-                name,
+                name: viewName.trim(),
                 configuration: {
                     filters,
-                    // layout: currentLayout (would need to capture from context or ref)
                 }
             });
+            setSaveViewOpen(false);
+            setViewName('');
         }
     };
 
@@ -204,6 +244,28 @@ export function GraphToolbar() {
                     </Button>
                 </div>
             </div>
+
+            {/* Save View Dialog */}
+            <Dialog open={saveViewOpen} onOpenChange={setSaveViewOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Save View</DialogTitle>
+                        <DialogDescription>Enter a name for this graph view configuration.</DialogDescription>
+                    </DialogHeader>
+                    <Input
+                        value={viewName}
+                        onChange={e => setViewName(e.target.value)}
+                        placeholder="View name..."
+                        className="mt-2"
+                        autoFocus
+                        onKeyDown={e => { if (e.key === 'Enter') handleSaveViewConfirm(); }}
+                    />
+                    <DialogFooter>
+                        <Button variant="outline" size="sm" onClick={() => setSaveViewOpen(false)}>Cancel</Button>
+                        <Button size="sm" onClick={handleSaveViewConfirm} disabled={!viewName.trim()}>Save</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

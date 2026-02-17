@@ -1,9 +1,38 @@
 /**
- * Confidence Scores Module
- * Adds confidence scores to entities and relationships
- * Tracks source reliability and extraction confidence
+ * Purpose:
+ *   Attach, update, and query numerical confidence scores on graph nodes
+ *   and relationships to reflect extraction reliability.
+ *
+ * Responsibilities:
+ *   - Calculate a composite confidence score from source type, AI confidence,
+ *     occurrence count, context availability, and partial-match penalties
+ *   - Persist confidence metadata (score, source, timestamp) on graph nodes
+ *     and relationships via Cypher SET operations
+ *   - Retrieve low-confidence items for human review
+ *   - Incrementally boost confidence when corroborating evidence arrives
+ *   - Report aggregate confidence statistics (avg, min, max)
+ *
+ * Key dependencies:
+ *   - graphProvider (injected): Cypher read/write against the knowledge graph
+ *
+ * Side effects:
+ *   - Mutates node and relationship properties in the graph database
+ *
+ * Notes:
+ *   - Source weights are hardcoded (manual=1.0 down to unknown=0.5).
+ *     Future extension could allow per-project overrides.
+ *   - boostConfidence caps scores at 1.0 and initialises missing values
+ *     to 0.5 before boosting.
  */
 
+/**
+ * Manages confidence metadata on graph nodes and relationships.
+ *
+ * Invariant: all confidence values are in the range [0, 1].
+ *
+ * @param {object} options
+ * @param {object} options.graphProvider - Graph database adapter
+ */
 class ConfidenceScores {
     constructor(options = {}) {
         this.graphProvider = options.graphProvider;
@@ -25,7 +54,14 @@ class ConfidenceScores {
     }
 
     /**
-     * Calculate confidence score for an extraction
+     * Calculate a composite confidence score from multiple signals.
+     * @param {object} options
+     * @param {string} [options.source] - Source type key (see this.sourceWeights)
+     * @param {number} [options.aiConfidence] - AI model's reported confidence (0-1)
+     * @param {number} [options.multipleOccurrences] - How many times the entity appeared
+     * @param {boolean} [options.hasContext] - Whether surrounding context was available
+     * @param {boolean} [options.partialMatch] - Whether the match was partial
+     * @returns {number} Confidence score in [0, 1], rounded to two decimals
      */
     calculateConfidence(options = {}) {
         let score = this.sourceWeights[options.source] || 0.5;

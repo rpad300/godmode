@@ -1,3 +1,30 @@
+/**
+ * Purpose:
+ *   Sidebar panel listing chat conversation history with a persona selector
+ *   for context-aware AI responses.
+ *
+ * Responsibilities:
+ *   - "New conversation" button at the top
+ *   - Persona dropdown populated from mockContacts, allowing the user to
+ *     query the AI "as" a specific contact (or with no context)
+ *   - Scrollable list of recent conversations with title, last message
+ *     preview, relative timestamp, and message count
+ *   - Active conversation highlighting
+ *
+ * Key dependencies:
+ *   - framer-motion: fade-in animation for conversation items
+ *   - ChatConversation (chat-data): conversation shape
+ *   - mockContacts (mock-data): persona options for the dropdown
+ *
+ * Side effects:
+ *   - None
+ *
+ * Notes:
+ *   - Some UI labels are in Portuguese ("Nova conversa", "Sem contexto",
+ *     "Como quem?") while others are in English ("Recent Conversations").
+ *   - The persona selector uses a native <select> rather than the shadcn
+ *     Select component.
+ */
 import { motion } from 'framer-motion';
 import { Plus, MessageCircle, Clock } from 'lucide-react';
 import type { ChatConversation } from '@/data/chat-data';

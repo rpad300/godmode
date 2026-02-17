@@ -1,20 +1,62 @@
 /**
- * RAG API - Exports, Knowledge JSON, Synthesis, Embeddings, Content
- * Extracted from server.js
+ * Purpose:
+ *   RAG (Retrieval-Augmented Generation) pipeline API. Manages the knowledge base
+ *   lifecycle: export, synthesis, embedding generation, semantic search, content
+ *   browsing, and Ollama model lifecycle.
  *
- * Handles:
- * - GET /api/export/knowledge, /api/export/questions
- * - GET /api/knowledge/json, /api/knowledge/questions, /api/knowledge/status
- * - POST /api/knowledge/regenerate, /api/knowledge/synthesize
- * - GET /api/knowledge/synthesis-status
- * - GET /api/content, /api/content/:sourceName
- * - GET /api/archived/:filename
- * - POST /api/knowledge/resynthesis
- * - DELETE /api/knowledge/synthesis-tracking
- * - POST /api/questions/enrich
- * - POST /api/models/unload
- * - POST /api/knowledge/embed
- * - GET /api/knowledge/search
+ * Responsibilities:
+ *   - Export knowledge base and pending questions as Markdown downloads
+ *   - Serve knowledge and questions JSON (cached or freshly regenerated)
+ *   - Report embedding status and available embedding models
+ *   - Regenerate SOURCE_OF_TRUTH.md, PENDING_QUESTIONS.md, and JSON caches
+ *   - Synthesize knowledge from documents using LLM reasoning
+ *   - Holistic resynthesis with incremental tracking (skip already-processed files)
+ *   - Track and clear synthesis state
+ *   - Browse processed content files and archived originals (images, PDFs)
+ *   - Enrich questions with person assignments
+ *   - Unload Ollama models from memory
+ *   - Generate vector embeddings (with auto-pull for missing Ollama models)
+ *   - Text and semantic (vector similarity) search across knowledge items
+ *
+ * Key dependencies:
+ *   - ctx.processor: knowledge generation, synthesis, content file management
+ *   - ctx.storage: knowledge persistence, embedding storage, item retrieval, search
+ *   - ctx.llm: embedding generation, model listing/pulling, model unloading
+ *   - ../../llm/config: resolve embedding provider/model configuration
+ *   - ../../utils/vectorSimilarity: cosine similarity for semantic search
+ *
+ * Side effects:
+ *   - Embedding generation writes to storage (potentially large vectors)
+ *   - Synthesis and resynthesis invoke LLM and mutate storage facts/people
+ *   - Regeneration overwrites Markdown and JSON files on disk
+ *   - Model unload releases GPU/memory on the Ollama server
+ *   - Archived file serving streams binary files directly to the response
+ *
+ * Notes:
+ *   - Archived file access is path-traversal protected via path.normalize check
+ *   - Content file metadata is parsed from YAML frontmatter (--- delimited)
+ *   - Embedding batch size is 10 items per LLM call (vs 20 in processing routes)
+ *   - Semantic search requires embeddings to be pre-generated; falls back to text search
+ *   - The /api/models/unload endpoint lives here because it relates to the RAG pipeline
+ *
+ * Routes:
+ *   GET    /api/export/knowledge            - Download knowledge-base.md
+ *   GET    /api/export/questions             - Download pending-questions.md
+ *   GET    /api/knowledge/json              - Knowledge JSON (query: ?refresh=true)
+ *   GET    /api/knowledge/questions          - Questions JSON (query: ?refresh=true)
+ *   GET    /api/knowledge/status             - Embedding status + available models
+ *   POST   /api/knowledge/regenerate         - Regenerate all Markdown and JSON files
+ *   POST   /api/knowledge/synthesize         - Run LLM knowledge synthesis
+ *   GET    /api/knowledge/synthesis-status   - File-level synthesis tracking
+ *   GET    /api/content                      - List processed content files
+ *   GET    /api/content/:sourceName          - Single content file with metadata
+ *   GET    /api/archived/:filename           - Serve original archived file (binary)
+ *   POST   /api/knowledge/resynthesis        - Holistic resynthesis (incremental)
+ *   DELETE /api/knowledge/synthesis-tracking  - Clear synthesis tracking
+ *   POST   /api/questions/enrich             - Assign people to questions
+ *   POST   /api/models/unload               - Unload Ollama models from memory
+ *   POST   /api/knowledge/embed             - Generate and save embeddings
+ *   GET    /api/knowledge/search            - Text or semantic search (query: ?q=&semantic=true)
  */
 
 const fs = require('fs');

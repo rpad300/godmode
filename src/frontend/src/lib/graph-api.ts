@@ -1,3 +1,30 @@
+/**
+ * Purpose:
+ *   Data access layer for the knowledge graph. Combines two transport
+ *   strategies: backend API calls (via apiClient) for sync operations,
+ *   and direct Supabase queries for read-heavy data access (nodes, edges,
+ *   semantic neighbours).
+ *
+ * Responsibilities:
+ *   - getSyncStatus / triggerSync / triggerResync: orchestrate graph sync via backend
+ *   - getNodes / getEdges: fetch graph data directly from Supabase tables for low latency
+ *   - getSemanticNeighbors: invoke a Supabase RPC (find_semantic_neighbors) for
+ *     vector-similarity lookups
+ *
+ * Key dependencies:
+ *   - lib/api-client: authenticated calls to /api/graphrag/* endpoints
+ *   - lib/supabase: direct PostgREST queries to graph_nodes, graph_relationships,
+ *     and RPC for embedding-based similarity search
+ *
+ * Side effects:
+ *   - Network requests to both the backend API and Supabase
+ *
+ * Notes:
+ *   - getNodes maps DB rows to the GraphNode shape expected by React Flow,
+ *     initialising position to {0,0} since layout is computed client-side.
+ *   - getEdges maps from_id/to_id to source/target to match React Flow convention.
+ *   - Semantic neighbour search defaults: threshold 0.78, limit 10.
+ */
 import { apiClient } from './api-client';
 import { supabase } from './supabase';
 import { GraphNode, GraphEdge, GraphSyncStatus } from '../types/graph';

@@ -1,6 +1,32 @@
 /**
- * Full-text Search Index Module
- * Optimized search with inverted index
+ * Purpose:
+ *   Full-text search engine backed by an in-memory inverted index with
+ *   TF-IDF scoring, configurable field boosts, and basic stemming.
+ *
+ * Responsibilities:
+ *   - Index documents by extracting, tokenizing, stemming, and recording
+ *     term positions per field
+ *   - Score search queries using TF-IDF with per-field boost multipliers
+ *   - Provide prefix-based term suggestions (autocomplete)
+ *   - Persist the inverted index and document metadata to disk as JSON
+ *   - Rebuild the entire index from a document array
+ *
+ * Key dependencies:
+ *   - fs / path: loading/saving inverted-index.json and documents.json
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - Constructor creates <dataDir>/search-index/ if it does not exist
+ *   - save() writes two JSON files to that directory
+ *
+ * Notes:
+ *   - Stop-word list includes both English and Portuguese terms to support
+ *     bilingual knowledge bases.
+ *   - The stemmer is a naive suffix-removal heuristic (not Snowball/Porter);
+ *     adequate for search recall but may over-stem in some cases.
+ *   - The index is fully in-memory; rebuild() is required after external data
+ *     changes that bypass indexDocument().
+ *   - IDF formula uses log(N / df + 1) to avoid division by zero.
  */
 
 const fs = require('fs');
@@ -9,6 +35,17 @@ const { logger } = require('../logger');
 
 const log = logger.child({ module: 'search-index' });
 
+/**
+ * In-memory inverted index with TF-IDF ranking and field-level boosting.
+ *
+ * Invariants:
+ *   - invertedIndex: Map<term, Array<{ docId, field, positions, frequency, boost }>>
+ *   - documents: Map<docId, metadata> -- every indexed docId has an entry here
+ *   - Field boosts are applied multiplicatively to the TF-IDF score
+ *
+ * Lifecycle: construct (auto-loads from disk) -> indexDocument() ->
+ *   search() / suggest() -> save() to persist.
+ */
 class SearchIndex {
     constructor(options = {}) {
         this.dataDir = options.dataDir || './data';
@@ -80,7 +117,11 @@ class SearchIndex {
     }
 
     /**
-     * Tokenize text
+     * Split text into lowercase tokens, removing punctuation, short words (<= 2 chars),
+     * and stop words. Preserves accented characters for Portuguese support.
+     *
+     * @param {string} text
+     * @returns {string[]} Filtered token array
      */
     tokenize(text) {
         if (!text || typeof text !== 'string') return [];
@@ -93,7 +134,12 @@ class SearchIndex {
     }
 
     /**
-     * Stem word (simple suffix removal)
+     * Reduce a word to an approximate root by stripping known suffixes.
+     * Requires that the remaining stem is at least 4 characters to avoid
+     * over-stemming short words.
+     *
+     * @param {string} word - Lowercase token
+     * @returns {string} Stemmed form (or original if no suffix matched)
      */
     stem(word) {
         // Simple Portuguese/English stemming
@@ -109,7 +155,15 @@ class SearchIndex {
     }
 
     /**
-     * Index a document
+     * Add or update a document in the index. Each field's text is tokenized,
+     * stemmed, and recorded in the inverted index with position data and the
+     * field's configured boost factor.
+     *
+     * @param {string} docId - Unique document identifier
+     * @param {string} docType - Category for filtering (e.g. 'fact', 'contact')
+     * @param {Object} fields - Map of fieldName -> text content to index
+     * @param {Object} [metadata={}] - Arbitrary metadata stored alongside the doc
+     * @returns {{ indexed: boolean, docId: string, fields: number }}
      */
     indexDocument(docId, docType, fields, metadata = {}) {
         // Store document metadata
@@ -183,7 +237,15 @@ class SearchIndex {
     }
 
     /**
-     * Search the index
+     * Execute a full-text search query. Tokens are stemmed and scored via TF-IDF
+     * with field boost multipliers. Results are sorted by descending score.
+     *
+     * @param {string} query - Free-text search query
+     * @param {Object} [options]
+     * @param {string} [options.type] - Filter results to a specific docType
+     * @param {number} [options.limit=20]
+     * @param {number} [options.offset=0]
+     * @returns {{ results: Object[], total: number, query: string, tokens: string[] }}
      */
     search(query, options = {}) {
         const tokens = this.tokenize(query);
@@ -250,7 +312,12 @@ class SearchIndex {
     }
 
     /**
-     * Suggest completions
+     * Return indexed terms that start with the given prefix, sorted by document
+     * frequency (most common first). Useful for autocomplete UIs.
+     *
+     * @param {string} prefix
+     * @param {number} [limit=10]
+     * @returns {Array<{ term: string, frequency: number }>}
      */
     suggest(prefix, limit = 10) {
         const prefixLower = prefix.toLowerCase();
@@ -296,7 +363,11 @@ class SearchIndex {
     }
 
     /**
-     * Rebuild index from scratch
+     * Drop the entire index and re-index from a provided document array.
+     * Automatically persists to disk when complete.
+     *
+     * @param {Array<{ id: string, type: string, fields: Object, metadata?: Object }>} documents
+     * @returns {{ rebuilt: boolean, documents: number }}
      */
     rebuild(documents) {
         this.invertedIndex.clear();

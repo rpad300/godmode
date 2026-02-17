@@ -1,5 +1,34 @@
+/**
+ * Purpose:
+ *   Verifies that the Google Drive API endpoint is properly registered in the
+ *   Express router and protected by authentication middleware.
+ *
+ * Responsibilities:
+ *   - Hit /api/system/google-drive expecting a 401 or 403 (proof it exists and is guarded)
+ *   - Hit a random /api/random-xxxx expecting a 404 (proof that 401/403 is not a default)
+ *   - Exit 0 on success, 1 on failure
+ *
+ * Key dependencies:
+ *   - Running GodMode server on localhost:3005
+ *
+ * Side effects:
+ *   - Makes unauthenticated HTTP GET requests to the local server
+ *
+ * Notes:
+ *   - Waits 2 seconds before running to allow the server to finish starting
+ *     if this script is invoked immediately after a server spawn
+ *   - No auth token is sent intentionally -- the test validates that the
+ *     endpoint rejects unauthenticated requests
+ *
+ * Usage:
+ *   node scripts/verify-drive-endpoint.js
+ */
 const http = require('http');
 
+/**
+ * Issue a GET request and resolve true if the HTTP status is in expectedStatuses.
+ * Resolves (not rejects) false on connection errors so the caller can aggregate.
+ */
 function checkEndpoint(path, expectedStatuses) {
     return new Promise((resolve, reject) => {
         const req = http.get(`http://localhost:3005${path}`, (res) => {

@@ -1,15 +1,50 @@
 /**
- * Advanced features routes (from ./advanced module)
- * Extracted from server.js
+ * Purpose:
+ *   Advanced platform features: full-text search with indexing, project
+ *   data export/import, advanced caching, data compression, and auto-generated
+ *   API documentation (HTML + OpenAPI JSON).
  *
- * Handles:
- * - POST /api/search, search/index - Full-text search (getSearchIndex)
- * - GET /api/search/suggest, search/stats
- * - POST /api/export, import - Export/import (getDataExportImport)
- * - GET /api/export/list
- * - GET /api/cache/stats, POST /api/cache/clear (getAdvancedCache)
- * - POST /api/compress, GET /api/compression/stats
- * - GET /api/docs, /api/docs/openapi.json
+ * Responsibilities:
+ *   - Full-text search over indexed documents with autocomplete suggestions
+ *   - Document indexing into the search index
+ *   - Project data export (JSON) and import (with optional merge and ontology)
+ *   - List previous export files
+ *   - Advanced cache stats and invalidation (by pattern, tag, or full clear)
+ *   - Data compression utility and compression statistics
+ *   - Serve auto-generated API documentation as HTML and OpenAPI 3.0 JSON
+ *
+ * Key dependencies:
+ *   - ../../advanced: factory functions for SearchIndex, DataExportImport,
+ *     AdvancedCache, DataCompression, APIDocumentation
+ *   - storage (ctx): project data directory and storage reference for export/import
+ *
+ * Side effects:
+ *   - POST /search/index modifies and saves the search index to disk
+ *   - POST /export writes an export file to the project data directory
+ *   - POST /import may merge or replace project data in storage
+ *   - POST /cache/clear invalidates cache entries
+ *   - GET /api/docs serves HTML directly (not JSON)
+ *
+ * Notes:
+ *   - isAdvancedRoute() provides a fast prefix check for early bailout
+ *   - All advanced modules are lazy-required to keep startup fast
+ *   - Export/import supports optional ontology data
+ *   - Returns 500 with { ok: false, error } on all failures for consistency
+ *
+ * Routes:
+ *   POST /api/search              - Full-text search { query, type?, limit? }
+ *   POST /api/search/index        - Index a document { docId, docType, fields, metadata }
+ *   GET  /api/search/suggest      - Autocomplete suggestions (?q=prefix)
+ *   GET  /api/search/stats        - Search index statistics
+ *   POST /api/export              - Export project data { includeEmbeddings? }
+ *   POST /api/import              - Import project data { data|file, merge?, importOntology? }
+ *   GET  /api/export/list         - List previous exports
+ *   GET  /api/cache/stats         - Cache statistics
+ *   POST /api/cache/clear         - Invalidate cache { pattern?, tag? } or full clear
+ *   POST /api/compress            - Compress data { data }
+ *   GET  /api/compression/stats   - Compression statistics
+ *   GET  /api/docs (/api-docs)    - API documentation (HTML page)
+ *   GET  /api/docs/openapi.json   - OpenAPI 3.0 specification
  */
 
 const { parseBody, parseUrl } = require('../../server/request');

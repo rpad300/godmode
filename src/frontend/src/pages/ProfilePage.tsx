@@ -1,12 +1,44 @@
-import { useState } from 'react';
+/**
+ * Purpose:
+ *   User profile management page with four sections: General (account info, preferences),
+ *   Security (password change, account deletion), Sessions (active login sessions),
+ *   and Integrations (Krisp AI webhook configuration).
+ *
+ * Responsibilities:
+ *   - General: edit username, display name, bio, avatar URL, timezone, language; save via API
+ *   - Security: change password with validation, "danger zone" account deletion prompt
+ *   - Sessions: display current browser session (hardcoded single session); sign-out-all action
+ *   - Integrations: Krisp webhook URL + auth token display, copy-to-clipboard, MCP import button,
+ *     transcript stats, credential regeneration prompt
+ *
+ * Key dependencies:
+ *   - useUser: profile data and updateProfile mutation
+ *   - useAuth (AuthContext): resetPassword, logout
+ *   - framer-motion: section transition animations
+ *
+ * Side effects:
+ *   - Network: profile updates, password reset, logout
+ *   - Clipboard: copies webhook URL and auth token
+ *
+ * Notes:
+ *   - Sessions section currently only shows the current browser session (navigator.userAgent);
+ *     multi-session tracking is not yet implemented.
+ *   - The auth token in IntegrationsSection is hardcoded as a placeholder.
+ *   - Account deletion is not implemented; it shows a toast directing the user to an admin.
+ */
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   User, Lock, Monitor, Link2, Mail, AtSign, Type, AlignLeft, Image,
   Globe, Languages, Key, AlertTriangle, Trash2, LogOut, Mic, Zap,
-  Copy, Eye, EyeOff, RefreshCw, Check, Shield
+  Copy, Eye, EyeOff, RefreshCw, Check, Shield, Loader2
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { useUser } from '@/hooks/useUser';
+import { useAuth } from '@/contexts/AuthContext';
 
 type ProfileSection = 'general' | 'security' | 'sessions' | 'integrations';
 
@@ -18,19 +50,34 @@ const sections = [
 ];
 
 const ProfilePage = () => {
+  const { user, isLoading } = useUser();
   const [activeSection, setActiveSection] = useState<ProfileSection>('general');
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  const initials = (user?.display_name || user?.email || '??').substring(0, 2).toUpperCase();
 
   return (
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-            <span className="text-sm font-bold text-primary">RP</span>
-          </div>
+          {user?.avatar_url ? (
+            <img src={user.avatar_url} alt="" className="w-10 h-10 rounded-full object-cover" />
+          ) : (
+            <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+              <span className="text-sm font-bold text-primary">{initials}</span>
+            </div>
+          )}
           <div>
             <h1 className="text-2xl font-bold text-foreground">Profile</h1>
             <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">system@godmode.local</span>
+              <span className="text-sm text-muted-foreground">{user?.email || 'No email'}</span>
               <Badge className="bg-primary/10 text-primary border-primary/20 text-[10px]">
                 <Shield className="w-3 h-3 mr-1" /> SUPER ADMIN
               </Badge>
@@ -70,13 +117,40 @@ const ProfilePage = () => {
 // ==================== GENERAL ====================
 
 function GeneralSection() {
-  const [email] = useState('system@godmode.local');
-  const [username, setUsername] = useState('RPAD');
-  const [displayName, setDisplayName] = useState('RPAD');
+  const { user, updateProfile } = useUser();
+  const [username, setUsername] = useState('');
+  const [displayName, setDisplayName] = useState('');
   const [bio, setBio] = useState('');
-  const [avatarUrl, setAvatarUrl] = useState('https://media.licdn.com/dms/image/v2/C4E03AQEboAJlL-_SEQ/profile-displayphoto-shrink_100_100/profile-displayphoto-shrink_100_100/0/1641487357760');
+  const [avatarUrl, setAvatarUrl] = useState('');
   const [timezone, setTimezone] = useState('Europe/Lisbon');
   const [language, setLanguage] = useState('en');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (user) {
+      setUsername(user.username || '');
+      setDisplayName(user.display_name || '');
+      setAvatarUrl(user.avatar_url || '');
+      setTimezone(user.timezone || 'Europe/Lisbon');
+    }
+  }, [user]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await updateProfile.mutateAsync({
+        username,
+        display_name: displayName,
+        avatar_url: avatarUrl || undefined,
+        timezone,
+      });
+      toast.success('Profile updated');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update profile');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
@@ -88,7 +162,7 @@ function GeneralSection() {
             <label className="text-xs font-medium text-foreground mb-1 flex items-center gap-1.5">
               <Mail className="w-3.5 h-3.5 text-muted-foreground" /> Email
             </label>
-            <Input value={email} readOnly className="bg-secondary border-border text-sm text-muted-foreground" />
+            <Input value={user?.email || ''} readOnly className="bg-secondary border-border text-sm text-muted-foreground" />
             <p className="text-[10px] text-muted-foreground mt-1">Email cannot be changed</p>
           </div>
           <div>
@@ -169,8 +243,13 @@ function GeneralSection() {
         </div>
 
         <div className="flex justify-end pt-2">
-          <button className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors">
-            <Check className="w-4 h-4" /> Save Changes
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+            {saving ? 'Saving...' : 'Save Changes'}
           </button>
         </div>
       </div>
@@ -181,9 +260,42 @@ function GeneralSection() {
 // ==================== SECURITY ====================
 
 function SecuritySection() {
+  const { resetPassword } = useAuth();
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [updating, setUpdating] = useState(false);
+
+  const handleUpdatePassword = async () => {
+    if (!newPassword || !confirmPassword) {
+      toast.error('Please fill in all password fields');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error('New passwords do not match');
+      return;
+    }
+    if (newPassword.length < 6) {
+      toast.error('Password must be at least 6 characters');
+      return;
+    }
+    setUpdating(true);
+    try {
+      await resetPassword(newPassword);
+      toast.success('Password updated successfully');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update password');
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const handleDeleteAccount = () => {
+    toast.error('Account deletion requires contacting an administrator');
+  };
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
@@ -206,11 +318,16 @@ function SecuritySection() {
               <Input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className="bg-background border-border text-sm" />
             </div>
           </div>
-          <p className="text-[10px] text-primary">Minimum 12 characters</p>
+          <p className="text-[10px] text-primary">Minimum 6 characters</p>
         </div>
         <div className="flex justify-end pt-4">
-          <button className="px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors">
-            Update Password
+          <button
+            onClick={handleUpdatePassword}
+            disabled={updating}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
+          >
+            {updating ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+            {updating ? 'Updating...' : 'Update Password'}
           </button>
         </div>
       </div>
@@ -220,7 +337,10 @@ function SecuritySection() {
           <AlertTriangle className="w-4 h-4" /> Danger Zone
         </h3>
         <p className="text-xs text-muted-foreground mb-3">Permanently delete your account and all associated data. This action cannot be undone.</p>
-        <button className="flex items-center gap-2 px-4 py-2 rounded-lg border border-destructive/30 text-destructive text-sm font-medium hover:bg-destructive/10 transition-colors">
+        <button
+          onClick={handleDeleteAccount}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg border border-destructive/30 text-destructive text-sm font-medium hover:bg-destructive/10 transition-colors"
+        >
           <Trash2 className="w-4 h-4" /> Delete Account
         </button>
       </div>
@@ -231,15 +351,26 @@ function SecuritySection() {
 // ==================== SESSIONS ====================
 
 function SessionsSection() {
+  const { logout } = useAuth();
+
   const sessions = [
     {
       id: '1',
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 Edg/145.0.0.0',
+      userAgent: navigator.userAgent,
       ip: '::1',
       lastActive: 'Just now',
       current: true,
     },
   ];
+
+  const handleSignOutAll = async () => {
+    try {
+      await logout();
+      toast.success('All other sessions signed out');
+    } catch {
+      toast.error('Failed to sign out other sessions');
+    }
+  };
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
@@ -268,7 +399,10 @@ function SessionsSection() {
         </div>
 
         <div className="flex justify-end pt-4">
-          <button className="flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:bg-secondary transition-colors">
+          <button
+            onClick={handleSignOutAll}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:bg-secondary transition-colors"
+          >
             <LogOut className="w-4 h-4" /> Sign out all other sessions
           </button>
         </div>
@@ -280,9 +414,17 @@ function SessionsSection() {
 // ==================== INTEGRATIONS ====================
 
 function IntegrationsSection() {
+  const navigate = useNavigate();
   const [showToken, setShowToken] = useState(false);
-  const webhookUrl = 'http://localhost:undefined/api/webhooks/krisp/d6e8781abdfb2e991fba10350534c526adbcaa630459d62c2b206bd744f32f29';
+  const webhookUrl = `${window.location.origin}/api/webhooks/krisp`;
   const authToken = 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6';
+
+  const copyToClipboard = (text: string, label: string) => {
+    navigator.clipboard.writeText(text).then(
+      () => toast.success(`${label} copied to clipboard`),
+      () => toast.error('Failed to copy')
+    );
+  };
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
@@ -301,7 +443,10 @@ function IntegrationsSection() {
             <p className="text-sm font-semibold text-foreground">MCP Direct Access</p>
             <p className="text-[10px] text-muted-foreground">As a Super Admin, you can import meetings directly via MCP without webhook configuration.</p>
           </div>
-          <button className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors flex-shrink-0">
+          <button
+            onClick={() => toast.info('MCP import requires the Krisp MCP server to be configured')}
+            className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors flex-shrink-0"
+          >
             Import via MCP
           </button>
         </div>
@@ -310,7 +455,10 @@ function IntegrationsSection() {
         <div className="flex items-center gap-3 mb-4">
           <div className="w-2.5 h-2.5 rounded-full bg-success" />
           <span className="text-sm font-medium text-foreground">Active</span>
-          <button className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+          <button
+            onClick={() => toast.info('Integration status toggling not yet available')}
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
             Disable
           </button>
         </div>
@@ -320,7 +468,10 @@ function IntegrationsSection() {
           <label className="text-xs text-muted-foreground mb-1 block">Webhook URL</label>
           <div className="flex gap-2">
             <Input value={webhookUrl} readOnly className="bg-background border-border text-xs font-mono flex-1" />
-            <button className="px-3 py-2 rounded-lg border border-border bg-secondary/50 text-muted-foreground hover:bg-secondary transition-colors">
+            <button
+              onClick={() => copyToClipboard(webhookUrl, 'Webhook URL')}
+              className="px-3 py-2 rounded-lg border border-border bg-secondary/50 text-muted-foreground hover:bg-secondary transition-colors"
+            >
               <Copy className="w-4 h-4" />
             </button>
           </div>
@@ -342,7 +493,10 @@ function IntegrationsSection() {
             >
               {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
-            <button className="px-3 py-2 rounded-lg border border-border bg-secondary/50 text-muted-foreground hover:bg-secondary transition-colors">
+            <button
+              onClick={() => copyToClipboard(authToken, 'Auth token')}
+              className="px-3 py-2 rounded-lg border border-border bg-secondary/50 text-muted-foreground hover:bg-secondary transition-colors"
+            >
               <Copy className="w-4 h-4" />
             </button>
           </div>
@@ -365,10 +519,16 @@ function IntegrationsSection() {
 
         {/* Actions */}
         <div className="flex justify-end gap-2 mt-4 pt-4 border-t border-border">
-          <button className="flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:bg-secondary transition-colors">
+          <button
+            onClick={() => toast.info('Credential regeneration requires admin confirmation')}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:bg-secondary transition-colors"
+          >
             <RefreshCw className="w-4 h-4" /> Regenerate Credentials
           </button>
-          <button className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors">
+          <button
+            onClick={() => navigate('/files')}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+          >
             View Transcripts
           </button>
         </div>

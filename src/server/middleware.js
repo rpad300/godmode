@@ -1,6 +1,30 @@
 /**
- * Middleware utilities (rate limiting, cookie security)
- * Extracted from server.js for modularity
+ * Purpose:
+ *   Provides lightweight, in-memory middleware helpers for rate limiting,
+ *   cookie-flag generation, and client-IP extraction. Designed for a
+ *   single-process Node.js HTTP server (not clustered).
+ *
+ * Responsibilities:
+ *   - Sliding-window rate limiting keyed by IP + endpoint
+ *   - Automatic eviction of stale rate-limit records to bound memory
+ *   - Cookie security flags that adapt to HTTP vs HTTPS / dev vs prod
+ *   - Reliable client-IP resolution across proxies (X-Forwarded-For, X-Real-IP)
+ *
+ * Key dependencies:
+ *   - None (pure Node.js built-ins only)
+ *
+ * Side effects:
+ *   - rateLimitStore (module-level Map) grows with unique IP:endpoint pairs
+ *   - startRateLimitCleanup() creates a recurring setInterval timer
+ *   - Reads process.env.NODE_ENV to decide Secure cookie flag
+ *
+ * Notes:
+ *   - The store is capped at RATE_LIMIT_STORE_MAX_SIZE (50 000 entries).
+ *     Eviction first purges expired records, then falls back to FIFO deletion.
+ *   - In a multi-process/cluster deployment this rate limiter will NOT share
+ *     state across workers -- consider Redis-backed limiting if needed.
+ *   - getCookieSecurityFlags omits the Secure flag on plain HTTP to allow
+ *     localhost development without HTTPS.
  */
 
 // ============================================
@@ -10,7 +34,11 @@ const rateLimitStore = new Map();
 const RATE_LIMIT_STORE_MAX_SIZE = 50000; // Cap memory; evict oldest when exceeded
 
 /**
- * Evict oldest entries (by resetAt) until store is under cap
+ * Two-phase eviction to keep the rate-limit store within its memory cap:
+ *   1. Remove entries whose window expired more than 60 s ago (sorted oldest-first).
+ *   2. If still over cap, force-delete the earliest-inserted keys (FIFO).
+ * Called before every checkRateLimit invocation, so the hot path exits early
+ * when the store is under the limit.
  */
 function evictRateLimitStoreIfNeeded() {
     if (rateLimitStore.size <= RATE_LIMIT_STORE_MAX_SIZE) return;

@@ -1,6 +1,30 @@
 /**
- * Supabase Module Index
- * Exports all Supabase-related functionality
+ * Purpose:
+ *   Barrel export for the entire Supabase data layer. Provides a single
+ *   require-point that aggregates client, auth, CRUD modules, realtime,
+ *   storage, and infrastructure services into a namespaced public API.
+ *
+ * Responsibilities:
+ *   - Re-exports every Supabase sub-module under a consistent namespace
+ *   - Prevents consumers from depending on internal file paths
+ *   - Groups related functions (auth, otp, email, members, etc.) into
+ *     logical sub-objects for discoverability
+ *
+ * Key dependencies:
+ *   - ./client: Supabase client singletons (anon + service_role)
+ *   - ./storage: SupabaseStorage class (replaces legacy JSON-file storage)
+ *   - All sibling modules under src/supabase/
+ *
+ * Side effects:
+ *   - Eagerly requires every sub-module at load time, which triggers
+ *     their top-level side effects (logger initialization, env-var reads)
+ *
+ * Notes:
+ *   - Consumers should use this barrel rather than reaching into individual
+ *     files so that internal restructuring does not break call sites.
+ *   - The `SupabaseStorage` and `createSupabaseStorage` exports are kept
+ *     at the top level (not namespaced) for backward compatibility with
+ *     code that destructures them directly.
  */
 
 const client = require('./client');

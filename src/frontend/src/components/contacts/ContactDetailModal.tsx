@@ -1,3 +1,41 @@
+/**
+ * Purpose:
+ *   Multi-tab modal for viewing and managing a contact's full profile,
+ *   including personal info, project assignments, inter-contact
+ *   relationships, document mentions, and activity history.
+ *
+ * Responsibilities:
+ *   - Info tab: displays contact metadata (email, phone, LinkedIn, org,
+ *     department, location, timezone, notes, aliases) with gradient avatar
+ *   - Projects tab: lists associated projects with role badges and
+ *     "primary" toggle; supports assigning/unassigning projects via
+ *     apiClient
+ *   - Relations tab: shows directional relationships to other contacts
+ *     with type and strength; supports creating new relationships
+ *   - Mentions tab: lists documents/emails/transcripts that mention the
+ *     contact, with type-specific icons and timestamps
+ *   - Activity tab: chronological activity feed (conversations, emails,
+ *     meetings, documents) with type-specific styling
+ *   - Loads all data (projects, relationships, mentions, activity) on
+ *     modal open via parallel API calls
+ *
+ * Key dependencies:
+ *   - apiClient: REST calls for projects, relationships, mentions, activity
+ *   - Dialog (shadcn/ui): modal container
+ *   - Tabs (shadcn/ui): tab navigation within the modal
+ *   - Contact, ContactRelationship, Project, ContactMention (godmode types)
+ *
+ * Side effects:
+ *   - Network: fetches contact-related data on open; mutates project
+ *     assignments and relationships
+ *
+ * Notes:
+ *   - Avatar gradient is deterministically selected via a djb2 hash of
+ *     the contact name.
+ *   - The "all contacts" list for the relationship creator is fetched
+ *     fresh on every modal open; consider caching.
+ *   - Error handling is minimal (console.error only).
+ */
 import { useState, useEffect } from 'react';
 import { User, FolderOpen, Users2, Clock, Building2, Mail, Phone, Linkedin, MapPin, Globe, Briefcase, StickyNote, CheckCircle2, AlertTriangle, Plus, Trash2, Sparkles, ArrowRight, ArrowLeft, MessageSquare, FileText, FileAudio } from 'lucide-react';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';

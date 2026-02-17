@@ -1,6 +1,42 @@
 /**
- * Document Synthesizer Module
- * Handles holistic synthesis, knowledge consolidation, and documentation generation.
+ * Purpose:
+ *   Performs holistic, cross-document knowledge synthesis by sending batches
+ *   of raw content files through the LLM to extract facts, decisions, risks,
+ *   questions, and people -- deduplicating against the existing knowledge base.
+ *
+ * Responsibilities:
+ *   - Identify new/changed content files via DB (raw_content vs synthesized_files)
+ *     or local filesystem hashes
+ *   - Batch content into groups of 5 and build synthesis prompts with existing
+ *     knowledge context and pending questions
+ *   - Parse LLM output and persist new facts, decisions, risks, questions, people
+ *   - Mark synthesised files to enable incremental re-runs
+ *   - Auto-resolve pending questions when synthesis finds answers
+ *   - Enrich unassigned questions with suggested assignees
+ *   - Generate missing AI-powered document summaries (title + summary)
+ *   - Track processing state (progress %, status message) for UI feedback
+ *
+ * Key dependencies:
+ *   - ../logger: Structured logging
+ *   - crypto (Node built-in): MD5 content hashing for change detection
+ *   - fs / path (Node built-in): Local file I/O and legacy tracking
+ *   - Analyzer (injected): LLM calls and response parsing
+ *   - Storage (injected): Supabase-backed knowledge-base persistence
+ *
+ * Side effects:
+ *   - Reads/writes content files from disk (legacy mode)
+ *   - Queries and mutates Supabase tables: raw_content, synthesized_files,
+ *     facts, questions, decisions, risks, people, documents
+ *   - Reads/writes synthesized_files.json for legacy local tracking
+ *   - Network calls to LLM via Analyzer.llmGenerateText()
+ *
+ * Notes:
+ *   - Batch size is 5 files; content is truncated to 15 000 chars per file to
+ *     stay within LLM context windows
+ *   - Deduplication uses case-insensitive content matching against existing facts
+ *   - clearSynthesisTracking() forces full re-synthesis on next run
+ *   - The "holistic" approach means the LLM sees multiple files at once, enabling
+ *     it to connect information across documents
  */
 const fs = require('fs');
 const path = require('path');
@@ -9,6 +45,12 @@ const crypto = require('crypto');
 
 const log = rootLogger.child({ module: 'processor-synthesizer' });
 
+/**
+ * Cross-document knowledge synthesizer. Batches raw content files through the
+ * LLM to extract and deduplicate facts, decisions, risks, questions, and people
+ * against the existing knowledge base. Tracks which files have been synthesised
+ * to enable efficient incremental re-runs.
+ */
 class DocumentSynthesizer {
     constructor(storage, config, analyzer) {
         this.storage = storage;

@@ -1,15 +1,31 @@
 #!/usr/bin/env node
 /**
- * Billing Rollout Script
- * 
- * Sets unlimited_balance=true for all existing projects to ensure
- * they continue working after the billing system is deployed.
- * 
- * Run this script ONCE after deploying migrations 069 and 070.
- * 
+ * Purpose:
+ *   One-time migration helper that sets unlimited_balance=true on every existing
+ *   project so they are grandfathered in when the billing system goes live.
+ *   New projects created after rollout will start with balance=0 (blocked).
+ *
+ * Responsibilities:
+ *   - Verify that billing columns (unlimited_balance, balance_eur) exist
+ *   - Identify projects that still have unlimited_balance=false
+ *   - Update those projects in-place (or preview changes in --dry-run mode)
+ *   - Print a summary with success/failure counts
+ *
+ * Key dependencies:
+ *   - @supabase/supabase-js: Supabase admin client for project queries/updates
+ *
+ * Side effects:
+ *   - Modifies the unlimited_balance and updated_at columns on project rows
+ *   - In --dry-run mode, no writes are performed
+ *
+ * Notes:
+ *   - Must be run AFTER migrations 069 and 070 have been applied
+ *   - Idempotent: already-unlimited projects are skipped
+ *   - Exits with code 1 if any updates fail, so CI can gate on the result
+ *
  * Usage:
- *   node scripts/billing-rollout.js
- *   node scripts/billing-rollout.js --dry-run
+ *   node scripts/billing-rollout.js            # apply changes
+ *   node scripts/billing-rollout.js --dry-run  # preview only
  */
 
 const fs = require('fs');

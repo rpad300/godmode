@@ -1,3 +1,29 @@
+/**
+ * Purpose:
+ *   Modal dialog for importing documents via paste or file upload, with
+ *   optional sprint/task association.
+ *
+ * Responsibilities:
+ *   - Tab-based UI with paste and upload modes
+ *   - Paste tab: title input and freeform textarea for document content
+ *   - Upload tab: file input accepting .pdf, .docx, .txt, .pptx, .xlsx,
+ *     .csv
+ *   - SprintTaskAssociation selector for linking the document to a
+ *     sprint/task
+ *   - Resets form state on close or submission
+ *
+ * Key dependencies:
+ *   - Dialog (shadcn/ui): modal container
+ *   - SprintTaskAssociation: sprint/task selector sub-component
+ *
+ * Side effects:
+ *   - None (delegates import action to parent via onImport)
+ *
+ * Notes:
+ *   - The onImport payload uses `content || fileName` for the content
+ *     field, which sends the filename as content when pasting is empty
+ *     but a file was previously uploaded. This may be unintentional.
+ */
 import { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { FileText } from 'lucide-react';

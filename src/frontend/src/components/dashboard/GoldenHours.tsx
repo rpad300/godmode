@@ -1,3 +1,38 @@
+/**
+ * Purpose:
+ *   Dashboard widget that visualizes timezone overlap ("golden hours")
+ *   across team members and contacts, helping users find optimal meeting
+ *   windows.
+ *
+ * Responsibilities:
+ *   - Toggles between "Team Availability" and "All Contacts" views
+ *   - Renders a horizontal scrollable contact strip with avatars and
+ *     local time labels
+ *   - Groups contacts by timezone and draws work-hour bars (9:00-18:00
+ *     local mapped to UTC 0-24 axis) for up to 5 timezones
+ *   - Highlights the "golden hours" overlap zone (hardcoded 14:00-17:00
+ *     UTC) as a yellow gradient bar
+ *   - Shows a summary card with overlap duration and scheduling advice
+ *   - Renders four suggested meeting slot buttons
+ *
+ * Key dependencies:
+ *   - date-fns (format): current time display
+ *   - Contact (godmode types): contact shape with timezone field
+ *   - cn (utils): conditional class merging
+ *
+ * Side effects:
+ *   - None
+ *
+ * Notes:
+ *   - Golden hours are hardcoded to 14:00-17:00 UTC for the MVP; a
+ *     real implementation should compute the actual intersection of all
+ *     displayed work-hour windows.
+ *   - Work-hour bars do not handle UTC wrap-around (e.g., UTC+12 where
+ *     9 local = 21 UTC previous day); the bar may render outside the
+ *     0-24 range. This is noted as an MVP simplification.
+ *   - Suggested meeting slots are static strings, not computed.
+ *   - addHours, startOfDay, isSameDay are imported but unused.
+ */
 import React, { useMemo } from 'react';
 import { Clock, Users, Sun, Star, Info } from 'lucide-react';
 import { Contact } from '@/types/godmode';

@@ -1,6 +1,26 @@
 /**
- * Role Export
- * Generate role-specific reports and exports
+ * Purpose:
+ *   Generates exportable reports (Markdown, JSON, HTML, plain text) that combine
+ *   role-filtered knowledge with dashboard metrics and alerts.
+ *
+ * Responsibilities:
+ *   - Orchestrate RoleFilters and RoleDashboard to collect role-relevant data
+ *   - Render full reports in four output formats (markdown, json, html, text)
+ *   - Produce a concise executive summary with health status and recommended actions
+ *   - Enumerate available formats and report types for UI consumption
+ *
+ * Key dependencies:
+ *   - ./RoleFilters: provides role-filtered knowledge (facts, risks, etc.)
+ *   - ./RoleDashboard: provides metrics, alerts, priority items
+ *   - storage (injected): project-scoped storage for knowledge retrieval
+ *
+ * Side effects:
+ *   - None (generates strings/objects in memory; does not write files)
+ *
+ * Notes:
+ *   - The HTML formatter is basic (regex-based markdown-to-HTML); it is not
+ *     intended as a production renderer but as a quick preview.
+ *   - Executive summary recommendations are threshold-driven heuristics.
  */
 
 const { getRoleFilters } = require('./RoleFilters');

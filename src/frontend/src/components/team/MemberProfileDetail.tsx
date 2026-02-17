@@ -1,3 +1,37 @@
+/**
+ * Purpose:
+ *   Deep behavioral profile view for a team member, presenting seven
+ *   collapsible analytical sections drawn from AI-generated profile data.
+ *
+ * Responsibilities:
+ *   - Communication Identity: verbal patterns, preferred channels, real
+ *     quotes, and communication style description
+ *   - Motivations and Priorities: ranked list with confidence percentages
+ *   - Behavior Under Pressure: stress responses, conflict style, and
+ *     observed patterns
+ *   - Influence Tactics: list of tactics with effectiveness rating
+ *   - Vulnerabilities and Friction Points: triggers, blind spots, and
+ *     communication gaps
+ *   - Recommended Interaction Strategy: approach tips, discussion topics,
+ *     and early warning signals
+ *   - Power and Dependency Analysis: influence sources, network position,
+ *     and dependency chains
+ *   - Back navigation button to return to the member list
+ *
+ * Key dependencies:
+ *   - framer-motion: section fade-in animations
+ *   - TeamMember (mock-data): member shape with sentiment, stats
+ *   - DetailedMemberProfile (team-detailed-data): AI-generated profile
+ *
+ * Side effects:
+ *   - None
+ *
+ * Notes:
+ *   - Section is a local collapsible accordion component with icon,
+ *     title, and defaultOpen control.
+ *   - The profile data is assumed to be AI-generated; accuracy disclaimers
+ *     are not shown in the UI.
+ */
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { ArrowLeft, MessageSquare, Brain, Shield, Target, Eye, Lightbulb, AlertTriangle, Zap, ChevronDown, ChevronUp, Quote } from 'lucide-react';

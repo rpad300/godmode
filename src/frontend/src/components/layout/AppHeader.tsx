@@ -1,3 +1,29 @@
+/**
+ * Purpose:
+ *   Global top-bar header for the authenticated application, providing
+ *   branding, project switching, theme toggle, notifications, and user menu.
+ *
+ * Responsibilities:
+ *   - Renders the GodMode logo with a link back to the dashboard
+ *   - Project selector dropdown sourced from ProjectContext
+ *   - Dark/light theme toggle that mutates the <html> class list
+ *   - Notification bell with a hardcoded badge count (Assumption: will be
+ *     replaced with live notification data)
+ *   - User dropdown menu with navigation to Profile, Settings, Shortcuts,
+ *     and Sign Out
+ *
+ * Key dependencies:
+ *   - ProjectContext (useProject): provides project list and current selection
+ *   - TabId (godmode types): used for programmatic navigation via onNavigate
+ *
+ * Side effects:
+ *   - Reads/writes `document.documentElement.classList` to toggle dark mode
+ *
+ * Notes:
+ *   - Theme preference is not persisted to localStorage; it resets on reload.
+ *     TODO: confirm whether persistence is handled elsewhere.
+ *   - The notification count "3" is hardcoded.
+ */
 import { useState, useEffect } from 'react';
 import { Zap, Bell, Moon, Sun, User, Settings, LogOut, Keyboard } from 'lucide-react';
 import type { TabId } from '@/types/godmode';

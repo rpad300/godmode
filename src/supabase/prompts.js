@@ -1,6 +1,36 @@
 /**
- * System Prompts Service
- * Loads AI prompts from Supabase instead of hardcoded values
+ * Purpose:
+ *   Dynamic prompt template storage and context-variable generation for AI
+ *   extraction pipelines. Replaces hardcoded prompt strings with DB-managed
+ *   templates that can be edited at runtime, and builds per-project context
+ *   variables (contacts, orgs, usernames, domains) injected into those templates.
+ *
+ * Responsibilities:
+ *   - Load and cache active prompt templates from the `system_prompts` table
+ *   - Retrieve individual prompts by key with 5-minute TTL in-memory cache
+ *   - Save/update prompt templates with user attribution
+ *   - Build context variables (CONTACTS_INDEX, ORG_INDEX, PROJECT_INDEX,
+ *     USERNAME_MAP, DOMAIN_MAP, company branding) from project data
+ *   - Render prompt templates by substituting {{PLACEHOLDER}} variables
+ *   - Generate deterministic short hashes for content deduplication
+ *
+ * Key dependencies:
+ *   - ./client (getAdminClient): Supabase admin client
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - `loadPrompts` reads from `system_prompts` and populates the module-level cache
+ *   - `savePrompt` writes to `system_prompts` and updates the local cache
+ *   - Context builders read from `contacts`, `teams`, `projects`, `companies`
+ *
+ * Notes:
+ *   - Cache TTL is 5 minutes; `clearCache` forces an immediate reload on next access.
+ *   - Context variable builders enforce a token budget (1 token ~ 4 chars) to
+ *     prevent prompt bloat; budget is allocated proportionally (contacts get 50%).
+ *   - `renderPrompt` strips any unmatched {{PLACEHOLDER}} tags after substitution
+ *     so prompts degrade gracefully when variables are unavailable.
+ *   - `buildContextVariables` fetches company branding from `projects` -> `companies`
+ *     join; errors are silently swallowed to avoid breaking the extraction pipeline.
  */
 
 const { logger } = require('../logger');
@@ -375,10 +405,13 @@ async function buildDomainMap(projectId, maxTokens = 300) {
 }
 
 /**
- * Build all context variables for a project
+ * Build all context variables for a project in parallel.
+ * Allocates a token budget proportionally across variable types
+ * (contacts 50%, orgs 15%, projects 15%, usernames 10%, domains 10%).
+ * Also fetches company branding from the projects -> companies join.
  * @param {string} projectId - Project ID
- * @param {number} availableTokens - Total available tokens for context
- * @returns {Promise<object>} Object with all context variable strings
+ * @param {number} [availableTokens=4000] - Total available tokens for context
+ * @returns {Promise<object>} Object with all context variable strings plus company vars
  */
 async function buildContextVariables(projectId, availableTokens = 4000) {
     if (!projectId) {
@@ -460,7 +493,10 @@ function generateContentHash(content) {
 }
 
 /**
- * Render a prompt template with variables
+ * Render a prompt template by substituting {{PLACEHOLDER}} variables.
+ * Auto-generates CONTENT_HASH from CONTENT if not explicitly provided.
+ * Strips any unmatched {{UPPERCASE_PLACEHOLDERS}} after substitution so
+ * prompts degrade gracefully when context variables are unavailable.
  * @param {string} template - Prompt template with {{PLACEHOLDERS}}
  * @param {object} variables - Variables to substitute
  * @returns {string} Rendered prompt

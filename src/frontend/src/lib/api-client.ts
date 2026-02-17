@@ -1,4 +1,32 @@
-
+/**
+ * Purpose:
+ *   Centralised HTTP client that wraps the Fetch API with Supabase auth
+ *   token injection, project context headers, error handling, and toast
+ *   notifications. All backend API calls flow through this module.
+ *
+ * Responsibilities:
+ *   - Attach Authorization (Bearer) and X-Project-Id headers automatically
+ *   - Parse JSON responses and handle 204 No Content gracefully
+ *   - Surface server (5xx) and network errors as toast notifications
+ *   - Expose typed convenience methods: get, post, put, delete, patch, upload
+ *   - Provide specialised methods for Ontology, LLM Queue, System, and User APIs
+ *
+ * Key dependencies:
+ *   - lib/supabase: session token retrieval (supabase.auth.getSession)
+ *   - sonner: toast for user-facing error alerts
+ *   - types/ontology: OntologySchema, OntologySuggestion, OntologyStats
+ *
+ * Side effects:
+ *   - All methods perform network requests
+ *   - Global toast on 5xx and network errors
+ *   - Module-level mutable state: currentProjectId (set via setCurrentProjectId)
+ *
+ * Notes:
+ *   - BASE_URL is empty string so requests go to the same origin (Vite proxy or prod reverse proxy).
+ *   - The upload method intentionally omits Content-Type so the browser can set
+ *     the multipart boundary automatically.
+ *   - ApiError extends Error with status and details for granular catch handling.
+ */
 import { toast } from "sonner";
 import { supabase } from "./supabase";
 
@@ -11,6 +39,7 @@ interface RequestOptions extends RequestInit {
     responseType?: 'json' | 'blob';
 }
 
+/** Typed HTTP error with status code and optional structured details. */
 class ApiError extends Error {
     status: number;
     details?: unknown;
@@ -32,6 +61,10 @@ export function getCurrentProjectId(): string | null {
     return currentProjectId;
 }
 
+/**
+ * Core request function. Attaches auth token and project ID headers,
+ * handles error parsing, and surfaces global toast for 5xx/network errors.
+ */
 async function request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
     const { params, ...init } = options;
 

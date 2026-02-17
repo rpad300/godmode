@@ -1,10 +1,42 @@
 /**
- * Config Routes
- * Extracted from src/server.js for modularization
- * 
- * Handles:
- * - GET /api/config - Get current configuration
- * - POST /api/config - Update configuration
+ * Purpose:
+ *   Application configuration API routes. Exposes the current runtime configuration
+ *   for the frontend settings page and accepts configuration updates that are
+ *   persisted to disk and propagated to all subsystems.
+ *
+ * Responsibilities:
+ *   - GET /api/config: Return sanitized current configuration (project name, LLM settings,
+ *     prompts, PDF processing flag); API keys are masked via getLLMConfigForFrontend
+ *   - POST /api/config: Accept partial configuration updates and merge them into the
+ *     running config. Handles nested updates for:
+ *     - Project name, custom prompts, PDF-to-images toggle
+ *     - Ollama host/port (with LLM cache invalidation)
+ *     - LLM provider selection, model selections, embeddings provider
+ *     - Per-task provider/model overrides
+ *     - Provider-specific API keys, base URLs, organization IDs, manual model lists
+ *
+ * Key dependencies:
+ *   - ../../middleware/cache: invalidateConfigCache to bust config cache on updates
+ *   - saveConfig: Callback to persist config to disk (typically JSON file)
+ *   - processor: Document processor that needs config refresh on changes
+ *   - llm: LLM module with clearCache() to invalidate provider connections
+ *   - getLLMConfigForFrontend: Sanitizer that masks sensitive fields (API keys) before
+ *     returning config to the client
+ *
+ * Side effects:
+ *   - Filesystem: persists updated config to the config file via saveConfig
+ *   - Global state: mutates the shared config object in-place; clears LLM provider cache;
+ *     invalidates middleware config cache; updates processor config
+ *
+ * Notes:
+ *   - API keys are only updated if a non-empty value is provided (empty string is ignored
+ *     to prevent accidental key deletion)
+ *   - Ollama config changes are mirrored to both config.ollama and config.llm.providers.ollama
+ *     for backward compatibility
+ *   - No authentication is enforced at this route level; the caller is expected to be
+ *     pre-authenticated. TODO: confirm middleware auth coverage for /api/config
+ *   - The POST endpoint returns the full sanitized config in the response for immediate
+ *     UI refresh without a separate GET
  */
 const { parseBody } = require('../../server/request');
 const { getLogger } = require('../../server/requestContext');

@@ -1,14 +1,42 @@
 /**
- * Invites feature routes
- * Extracted from server.js
+ * Purpose:
+ *   Project invitation system supporting email-based invites, shareable
+ *   invite links, and token-based acceptance flow.
  *
- * Handles:
- * - POST /api/projects/:id/invites - Create invite
- * - GET /api/projects/:id/invites/link - Generate shareable invite link
- * - GET /api/projects/:id/invites - List invites
- * - DELETE /api/invites/:id - Revoke invite
- * - GET /api/invites/preview - Preview invite by token
- * - POST /api/invites/accept - Accept invite
+ * Responsibilities:
+ *   - Create targeted (email) or open invites with configurable role and TTL
+ *   - Generate shareable invite links (default: 7-day, member role)
+ *   - List pending/active invites for a project
+ *   - Revoke an existing invite
+ *   - Preview invite metadata by token (for the join page)
+ *   - Accept invite: adds authenticated user as project member
+ *
+ * Key dependencies:
+ *   - supabase.invites: invite CRUD, token generation, acceptance logic
+ *   - supabase.auth: token extraction, user verification
+ *   - emailService (ctx): optional transactional email for invite notifications
+ *   - supabase admin client: resolves inviter name and project name for emails
+ *
+ * Side effects:
+ *   - POST /invites creates an invite row and optionally sends an email
+ *   - POST /invites/accept creates a project_members row
+ *   - DELETE /invites/:id marks the invite as revoked
+ *
+ * Notes:
+ *   - Returns 503 if Supabase is not configured
+ *   - Invite URLs are built from the Host header (http://{host}/join?token=...)
+ *   - Email sending is best-effort; failure does not block the invite creation
+ *   - Default expiry: 48h for email invites, 168h (7 days) for link invites
+ *
+ * Routes:
+ *   POST   /api/projects/:id/invites       - Create invite (auth required)
+ *          Body: { role, email, expiresInHours, message }
+ *   GET    /api/projects/:id/invites/link   - Generate shareable link (auth required)
+ *   GET    /api/projects/:id/invites        - List invites for project
+ *   DELETE /api/invites/:id                 - Revoke invite
+ *   GET    /api/invites/preview             - Preview invite (?token=xxx)
+ *   POST   /api/invites/accept              - Accept invite (auth required)
+ *          Body: { token }
  */
 
 const { parseBody, parseUrl } = require('../../server/request');

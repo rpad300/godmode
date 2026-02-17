@@ -1,7 +1,26 @@
 /**
- * Kimi K2 Provider Adapter
- * Supports Kimi K2 API (OpenAI-compatible)
- * https://kimi-k2.ai/api-docs
+ * Purpose:
+ *   Provider adapter for Moonshot's Kimi K2 models via their OpenAI-compatible API.
+ *   Text-only provider with dynamic model listing and hardcoded fallback.
+ *
+ * Responsibilities:
+ *   - Text generation via chat/completions endpoint
+ *   - Dynamic model discovery from /models, with graceful fallback to known defaults
+ *
+ * Key dependencies:
+ *   - ./base (BaseLLMProvider): shared retry, error classification, HTTP helpers
+ *
+ * Side effects:
+ *   - Network I/O to kimi-k2.ai (or custom baseUrl)
+ *
+ * Notes:
+ *   - Vision and embeddings are NOT supported by Kimi K2.
+ *   - Three model variants: kimi-k2 (128K context), kimi-k2-0905 (256K context,
+ *     used as default), and kimi-k2-thinking (deep reasoning mode).
+ *   - listModels has an identical hardcoded fallback in both the error branch and
+ *     the non-200 branch; this duplication is intentional for resilience.
+ *   - testConnection uses the /models GET endpoint rather than a chat completion,
+ *     which is cheaper but means it only validates the API key, not model access.
  */
 
 const BaseLLMProvider = require('./base');

@@ -1,8 +1,45 @@
 /**
- * In-Memory Cache Middleware
- * Simple LRU cache for API responses
+ * Purpose:
+ *   In-memory LRU cache for Express JSON responses. Intercepts responses
+ *   on cache miss, stores them, and replays them on subsequent identical
+ *   requests within the TTL window.
+ *
+ * Responsibilities:
+ *   - Provide a MemoryCache class implementing LRU eviction and TTL expiry
+ *   - Supply cacheMiddleware that transparently caches GET-200-JSON responses
+ *   - Expose targeted invalidation helpers for project, user, config, and
+ *     dashboard mutations
+ *
+ * Key dependencies:
+ *   - None (self-contained, no external libraries)
+ *
+ * Side effects:
+ *   - Starts a 30-second setInterval for expired-entry cleanup (runs for
+ *     the lifetime of the process; call cache.destroy() to stop)
+ *   - Monkey-patches res.end inside cacheMiddleware to intercept response body
+ *
+ * Notes:
+ *   - Cache keys include the authenticated user ID, so user A never sees
+ *     user B's cached data.
+ *   - Only 200 responses with valid JSON bodies are cached; error responses
+ *     and non-JSON payloads pass through unaffected.
+ *   - Mutation methods (POST/PUT/DELETE/PATCH) skip caching entirely via
+ *     cacheConfig, but callers must still call the invalidation helpers
+ *     after writes to avoid serving stale reads.
  */
 
+/**
+ * Simple in-memory LRU cache backed by a Map.
+ *
+ * LRU eviction is achieved by exploiting Map's insertion-order iteration:
+ * on every `get` hit the entry is deleted and re-inserted, pushing it to
+ * the "end" (most recently used). When the cache reaches maxSize, the
+ * first (least recently used) entry is evicted.
+ *
+ * @param {object}  options
+ * @param {number}  options.maxSize    - Maximum number of entries (default 1000)
+ * @param {number}  options.defaultTTL - Default time-to-live in ms (default 60 000)
+ */
 class MemoryCache {
     constructor(options = {}) {
         this.cache = new Map();
@@ -10,13 +47,15 @@ class MemoryCache {
         this.defaultTTL = options.defaultTTL || 60000; // 1 minute default
         this.hits = 0;
         this.misses = 0;
-        
+
         // Cleanup expired entries periodically
         this.cleanupInterval = setInterval(() => this.cleanup(), 30000);
     }
 
     /**
-     * Generate cache key from request
+     * Build a cache key that is unique per method + URL + authenticated user.
+     * Anonymous requests share the key suffix 'anonymous', which means
+     * unauthenticated users see a shared cached response for the same URL.
      */
     generateKey(req) {
         const url = req.url || '';
@@ -76,7 +115,9 @@ class MemoryCache {
     }
 
     /**
-     * Invalidate by pattern (prefix match)
+     * Invalidate all entries whose key *contains* the pattern substring.
+     * This is a linear scan -- O(n) over all cached keys -- which is fine
+     * for the expected maxSize of ~500 entries.
      */
     invalidatePattern(pattern) {
         for (const key of this.cache.keys()) {
@@ -136,7 +177,8 @@ const cache = new MemoryCache({
     defaultTTL: 60000 // 1 minute
 });
 
-// Cache configuration per route pattern
+// Per-route TTL configuration. Routes are matched by prefix (first match wins).
+// Mutation methods are globally skipped to prevent caching write operations.
 const cacheConfig = {
     // Static config - cache longer
     '/api/config': { ttl: 300000 }, // 5 minutes
@@ -176,7 +218,15 @@ function getRouteConfig(method, path) {
 }
 
 /**
- * Cache middleware function
+ * Express middleware that serves cached responses when available,
+ * and transparently caches new 200/JSON responses.
+ *
+ * On a cache hit the response is written directly (bypassing downstream
+ * handlers) with an `X-Cache: HIT` header. On a miss, res.end is
+ * monkey-patched to capture the response body after downstream handlers
+ * finish; if the status is 200 and the body parses as JSON, it is stored.
+ *
+ * Mutation methods (POST/PUT/DELETE/PATCH) are skipped via cacheConfig.
  */
 function cacheMiddleware(req, res, next) {
     const config = getRouteConfig(req.method, req.url);
@@ -226,7 +276,9 @@ function cacheMiddleware(req, res, next) {
 }
 
 /**
- * Invalidate cache for project mutations
+ * Invalidate all cached responses related to a specific project.
+ * Also purges the project listing so it reflects updated membership/metadata.
+ * Call this after any project mutation (create, update, delete, member change).
  */
 function invalidateProjectCache(projectId) {
     cache.invalidatePattern(`/api/projects/${projectId}`);
@@ -234,7 +286,8 @@ function invalidateProjectCache(projectId) {
 }
 
 /**
- * Invalidate cache for user mutations
+ * Invalidate all cached responses scoped to a given user.
+ * Uses the `:userId` suffix convention from generateKey (e.g. "GET:/api/profile:abc123").
  */
 function invalidateUserCache(userId) {
     cache.invalidatePattern(`:${userId}`);

@@ -1,18 +1,53 @@
 /**
- * GraphRAG API
- * Extracted from server.js
+ * Purpose:
+ *   Graph-augmented Retrieval-Augmented Generation (GraphRAG) API.
+ *   Combines knowledge graph traversal with LLM inference for intelligent querying,
+ *   community detection, and multi-hop reasoning.
  *
- * Handles:
- * - POST /api/graphrag/stream - Stream query via SSE
- * - POST /api/graphrag/hyde - HyDE embeddings
- * - POST /api/graphrag/multihop - Multi-hop reasoning
- * - GET /api/graphrag/communities - Detected communities
- * - GET /api/graphrag/centrality - Node centrality
- * - GET /api/graphrag/bridges - Bridge nodes
- * - POST /api/graphrag/enhance-query - Enhance query for embedding
- * - POST /api/graphrag/prepare-embedding - Prepare entity for embedding
- * - POST /api/graphrag/rerank - Rerank search results
- * - POST /api/graphrag/query - GraphRAG query with deduplication
+ * Responsibilities:
+ *   - Streaming and non-streaming GraphRAG queries with request deduplication
+ *   - HyDE (Hypothetical Document Embeddings) generation
+ *   - Multi-hop reasoning chains across graph relationships
+ *   - Community detection, centrality analysis, and bridge node identification
+ *   - Query enhancement, entity embedding preparation, and cross-encoder reranking
+ *   - Background graph sync (incremental and full resync)
+ *
+ * Key dependencies:
+ *   - ../../graphrag (GraphRAGEngine, getHyDE, getMultiHopReasoning, getCommunityDetection,
+ *     getEmbeddingPrompts, getReranker): core GraphRAG modules
+ *   - ../../llm/config: resolve provider/model for text and embeddings
+ *   - ../../llm/streaming: SSE streaming for GraphRAG queries
+ *   - ../../utils (getRequestDedup): prevent duplicate concurrent queries
+ *
+ * Side effects:
+ *   - Lazily initializes and caches global.graphRAGEngine (singleton)
+ *   - Maintains global.graphRagSyncStatus per project for background sync tracking
+ *   - Background sync fires-and-forgets after returning HTTP 202
+ *   - Full resync deletes and recreates the graph before re-syncing
+ *
+ * Notes:
+ *   - The /api/graphrag/sync and /api/graphrag/resync endpoints appear twice in the file:
+ *     once as background-async (lines 269-391) and once as synchronous (lines 442-614).
+ *     The first match wins at runtime, so the background versions handle requests.
+ *     Assumption: the synchronous duplicates are dead code from an earlier refactor.
+ *   - GraphRAGEngine is hot-swapped if the graph provider changes between requests
+ *   - All query endpoints require LLM text config; embed endpoints also need embedding config
+ *
+ * Routes:
+ *   POST /api/graphrag/stream            - SSE-streamed GraphRAG query
+ *   POST /api/graphrag/hyde              - Generate HyDE embeddings for a query
+ *   POST /api/graphrag/multihop          - Multi-hop reasoning query
+ *   GET  /api/graphrag/communities       - Detect graph communities
+ *   GET  /api/graphrag/centrality        - Calculate node centrality scores
+ *   GET  /api/graphrag/bridges           - Find bridge nodes between communities
+ *   POST /api/graphrag/enhance-query     - Enhance query text for embedding
+ *   POST /api/graphrag/prepare-embedding - Prepare entity for multi-view embedding
+ *   POST /api/graphrag/rerank            - Cross-encoder rerank of search candidates
+ *   GET  /api/graphrag/status            - Per-project sync status
+ *   POST /api/graphrag/sync              - Start incremental background sync (HTTP 202)
+ *   POST /api/graphrag/resync            - Start full background resync (HTTP 202)
+ *   POST /api/graphrag/query             - Deduplicated GraphRAG query (JSON response)
+ *   GET  /api/graphrag/sync-status       - Provider-level sync status
  */
 
 const { parseBody } = require('../../server/request');

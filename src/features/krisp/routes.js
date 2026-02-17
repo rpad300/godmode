@@ -1,30 +1,60 @@
 /**
- * Krisp feature routes
- * Extracted from server.js
- * 
- * Handles:
- * - POST /api/webhooks/krisp/:token (incoming webhook - no auth)
- * - GET/POST /api/krisp/webhook
- * - POST /api/krisp/webhook/regenerate
- * - PUT /api/krisp/webhook/toggle
- * - PUT /api/krisp/webhook/events
- * - GET /api/krisp/transcripts
- * - GET /api/krisp/transcripts/summary
- * - GET /api/krisp/transcripts/:id
- * - PUT /api/krisp/transcripts/:id
- * - DELETE /api/krisp/transcripts/:id
- * - POST /api/krisp/transcripts/:id/analyze
- * - POST /api/krisp/transcripts/:id/process
- * - POST /api/krisp/transcripts/:id/assign
- * - GET /api/krisp/mcp/imported
- * - POST /api/krisp/mcp/import
- * - GET /api/krisp/mcp/history
- * - POST /api/krisp/available/sync
- * - GET /api/krisp/available
- * - POST /api/krisp/available/import
- * - GET /api/krisp/available/stats
- * - GET /api/krisp/available/summary - Get user's available meetings stats
- * - POST /api/krisp/available/summary - Generate AI summary for one meeting (body: { meetingId })
+ * Purpose:
+ *   Krisp meeting transcription integration. Receives Krisp webhook events,
+ *   manages user transcripts, and provides MCP-based meeting import/sync pipelines.
+ *
+ * Responsibilities:
+ *   - Receive and process incoming Krisp webhook payloads (public, token-authenticated)
+ *   - CRUD operations on per-user webhook configuration (create, regenerate, toggle, events)
+ *   - CRUD on transcripts (list, get, update, delete, analyze, process, assign)
+ *   - MCP import pipeline: check already-imported IDs, bulk import, import history
+ *   - Available meetings: sync from MCP, list, selective import, stats, AI summaries
+ *
+ * Key dependencies:
+ *   - ../../krisp: all business logic (processWebhook, getOrCreateWebhook, getUserTranscripts,
+ *     analyzeTranscript, processTranscriptForGodmode, syncMeetingsFromMcp, etc.)
+ *   - supabase.auth: bearer-token user authentication for all /api/krisp/* routes
+ *
+ * Side effects:
+ *   - Writes transcript and webhook rows to Supabase via the krisp module
+ *   - Webhook endpoint (POST /api/webhooks/krisp/:token) is publicly accessible --
+ *     validated by 64-char hex token and optional Authorization header
+ *   - AI summary generation (POST /api/krisp/available/summary) invokes LLM via config
+ *
+ * Notes:
+ *   - Two exported handlers: handleKrispWebhook (public) and handleKrispApi (authenticated)
+ *   - The webhook URL is constructed from APP_URL env or config.port fallback
+ *   - Transcript routes use a single regex match for :id; the "summary" sub-path is
+ *     handled by an explicit earlier check that returns false to fall through
+ *
+ * Routes:
+ *   POST /api/webhooks/krisp/:token            - Inbound Krisp webhook (no auth, token in URL)
+ *
+ *   GET  /api/krisp/webhook                    - Get user's webhook config + URL
+ *   POST /api/krisp/webhook                    - Create/get webhook
+ *   POST /api/krisp/webhook/regenerate         - Regenerate webhook token
+ *   PUT  /api/krisp/webhook/toggle             - Toggle webhook active state
+ *   PUT  /api/krisp/webhook/events             - Update which events are enabled
+ *
+ *   GET  /api/krisp/transcripts                - List transcripts (with filters)
+ *   GET  /api/krisp/transcripts/summary        - Aggregate transcript summary
+ *   GET  /api/krisp/transcripts/:id            - Single transcript detail
+ *   PUT  /api/krisp/transcripts/:id            - Update transcript metadata
+ *   DELETE /api/krisp/transcripts/:id          - Delete transcript
+ *   POST /api/krisp/transcripts/:id/analyze    - Run AI analysis on transcript
+ *   POST /api/krisp/transcripts/:id/process    - Process transcript into GodMode document
+ *   POST /api/krisp/transcripts/:id/assign     - Assign transcript to a project
+ *
+ *   GET  /api/krisp/mcp/imported               - Check which meeting IDs are already imported
+ *   POST /api/krisp/mcp/import                 - Bulk import meetings from MCP data
+ *   GET  /api/krisp/mcp/history                - Import history log
+ *
+ *   POST /api/krisp/available/sync             - Sync meetings from MCP into available pool
+ *   GET  /api/krisp/available                  - List available meetings
+ *   POST /api/krisp/available/import           - Import selected available meetings
+ *   GET  /api/krisp/available/stats            - Available meetings statistics
+ *   POST /api/krisp/available/summary          - Generate AI summary for a meeting
+ *   GET  /api/krisp/available/summary          - Available meetings summary stats
  */
 
 const { parseBody, parseUrl } = require('../../server/request');

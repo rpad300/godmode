@@ -1,16 +1,59 @@
 /**
- * EmbeddingEnricher - Enhances embeddings with ontological context
- * 
+ * Purpose:
+ *   Enriches raw entity data into high-quality text representations suitable
+ *   for vector embedding, leveraging ontology metadata (templates, type
+ *   prefixes, relationship context) to improve semantic search precision.
+ *
  * Responsibilities:
- * - Add entity type prefixes to embedding text
- * - Include relationship context in embeddings
- * - Generate combined embeddings for related entities
- * - Improve semantic search accuracy through structure
+ *   - Generate enriched embedding text for a single entity using ontology templates
+ *   - Produce multiple embedding "views" per entity (base, properties, relationships,
+ *     question-style) for multi-vector search strategies
+ *   - Build relationship context strings from an entity's graph neighbourhood
+ *   - Generate question-phrased embeddings (e.g. "Who is X?") to better match
+ *     user queries
+ *   - Enrich user queries with detected entity/relation type hints
+ *   - Produce combined cluster embeddings for groups of related entities
+ *   - Batch-enrich arrays of entities in one pass
+ *   - Calculate embedding priority scores to order batch operations
+ *
+ * Key dependencies:
+ *   - ./OntologyManager (singleton): entity/relation type definitions, embedding
+ *     templates, searchable-property metadata
+ *
+ * Side effects:
+ *   - None -- this module is purely transformational (text in, text out) with
+ *     no I/O, network, or database access.
+ *
+ * Notes:
+ *   - maxRelationsPerEntity (default 5) caps the relationship context to keep
+ *     embedding text within model token limits.
+ *   - generateQuestionStyleEmbedding() has hard-coded entity-type switch cases;
+ *     new entity types added to the ontology will fall through silently.
+ *   - normalizeText() collapses whitespace and punctuation; ensure templates
+ *     do not rely on significant whitespace.
+ *   - getEmbeddingConfig() currently returns a static config; it can be extended
+ *     to vary model/dimensions per entity type in the future.
  */
 
 const { getOntologyManager } = require('./OntologyManager');
 
+/**
+ * Stateless text enrichment layer for vector embeddings.
+ *
+ * Transforms raw entity/relationship data into rich textual representations
+ * informed by the ontology schema (templates, type prefixes, property metadata)
+ * to improve downstream semantic search quality.
+ *
+ * No I/O or side effects -- all methods are pure transformations.
+ */
 class EmbeddingEnricher {
+    /**
+     * @param {object} options
+     * @param {object} [options.ontology] - OntologyManager instance (defaults to singleton)
+     * @param {boolean} [options.includeRelations=true] - Include relationship context in embeddings
+     * @param {number} [options.maxRelationsPerEntity=5] - Cap relationship context to control text length
+     * @param {number} [options.relationDepth=1] - Graph traversal depth for relationship context
+     */
     constructor(options = {}) {
         this.ontology = options.ontology || getOntologyManager();
         this.includeRelations = options.includeRelations !== false;
@@ -354,12 +397,20 @@ class EmbeddingEnricher {
     }
 
     /**
-     * Calculate embedding priority for an entity
-     * Higher priority entities get embedded first in batch operations
-     * @param {string} entityType 
-     * @param {object} entity 
-     * @param {object} stats - Entity statistics (connection count, etc.)
-     * @returns {number}
+     * Calculate embedding priority for an entity. Higher scores cause the
+     * entity to be embedded earlier in batch operations, ensuring the most
+     * important nodes are searchable first.
+     *
+     * Scoring factors:
+     *   - Base type priority (Person=8, Project=9, Client=7, etc.)
+     *   - Connection count boost (0.5 per connection, max +5)
+     *   - Property completeness boost (up to +3)
+     *   - Recency boost (+2 if < 7 days old, +1 if < 30 days)
+     *
+     * @param {string} entityType
+     * @param {object} entity
+     * @param {object} [stats] - { connectionCount }
+     * @returns {number} - Unbounded positive score (typically 3-20)
      */
     calculateEmbeddingPriority(entityType, entity, stats = {}) {
         let priority = 0;

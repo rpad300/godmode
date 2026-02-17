@@ -1,6 +1,50 @@
 /**
- * Projects Module
- * Full project lifecycle management in Supabase
+ * Purpose:
+ *   Full lifecycle management for projects: creation (with automatic Google
+ *   Drive folder provisioning), retrieval, update, deletion, listing,
+ *   statistics, settings, cloning, and role configuration.
+ *
+ * Responsibilities:
+ *   - CRUD on the `projects` table
+ *   - Auto-provision Google Drive folder hierarchy on project creation
+ *   - Initialize `graph_sync_status` row for each new project
+ *   - Ensure the project creator is added as owner in `project_members`
+ *   - Provide project-level statistics (member count, comment count,
+ *     recent activity, sync status)
+ *   - Manage project-level custom roles stored in the JSONB `settings` column
+ *   - Clone projects (copies settings/description, not content)
+ *
+ * Key dependencies:
+ *   - ./client (getAdminClient): all queries bypass RLS; caller is
+ *     responsible for authorization checks
+ *   - ../integrations/googleDrive/drive: automatic Drive folder creation
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - Creates rows in `projects`, `project_members`, `graph_sync_status`
+ *   - May create Google Drive folders via the Drive API
+ *   - Deleting a project cascades to members, invites, and related rows
+ *
+ * Notes:
+ *   - Drive folder creation failures are logged but do not fail project
+ *     creation (fire-and-forget with warning).
+ *   - updateProject() whitelists allowed fields (name, description, settings)
+ *     to prevent accidental overwrites of owner_id or company_id.
+ *   - updateSettings() performs a shallow merge of the existing settings
+ *     JSONB with the new payload.
+ *   - deleteProject() enforces ownership: only the project owner may delete.
+ *   - Roles in settings are identified by a UUID `id` field and carry an
+ *     `active` boolean flag.
+ *
+ * Supabase tables accessed:
+ *   - projects: { id, name, description, owner_id, company_id, settings,
+ *     created_at, updated_at }
+ *   - project_members: { project_id, user_id, role }
+ *   - graph_sync_status: { project_id, graph_name }
+ *   - user_profiles: joined for owner display info
+ *   - companies: joined for company name/logo
+ *   - activity_log: queried for recent activity count (stats)
+ *   - comments: queried for comment count (stats)
  */
 
 const drive = require('../integrations/googleDrive/drive');
@@ -11,7 +55,23 @@ const crypto = require('crypto');
 const log = logger.child({ module: 'projects' });
 
 /**
- * Create a new project
+ * Create a new project with full side-effect orchestration.
+ *
+ * Steps performed:
+ *   1. Insert into `projects` table
+ *   2. Upsert owner as member in `project_members` (defensive; a DB
+ *      trigger may also do this)
+ *   3. Initialize a `graph_sync_status` row
+ *   4. Attempt to create Google Drive folders via the Drive integration;
+ *      on success, store Drive metadata in project settings
+ *
+ * @param {object} params
+ * @param {string} params.name - Required project name
+ * @param {string} [params.description]
+ * @param {string} params.ownerId - UUID of the creating user
+ * @param {string} params.companyId - Required company UUID
+ * @param {object} [params.settings] - Initial settings JSONB
+ * @returns {Promise<{success: boolean, project?: object, error?: string}>}
  */
 async function createProject({
     name,
@@ -172,7 +232,13 @@ async function updateProject(projectId, updates) {
 }
 
 /**
- * Delete project
+ * Delete a project. Only the owner may delete.
+ * Relies on Postgres CASCADE constraints to clean up project_members,
+ * invites, comments, and other child rows.
+ *
+ * @param {string} projectId
+ * @param {string} userId - Must match projects.owner_id
+ * @returns {Promise<{success: boolean, error?: string}>}
  */
 async function deleteProject(projectId, userId) {
     const supabase = getAdminClient();
@@ -266,7 +332,15 @@ async function listUserProjects(userId, options = {}) {
 }
 
 /**
- * Get project statistics
+ * Aggregate statistics for a project dashboard.
+ *
+ * Returns counts of members, comments, recent activity (last 7 days),
+ * and the current graph_sync_status row.
+ *
+ * @param {string} projectId
+ * @returns {Promise<{success: boolean, stats?: object, error?: string}>}
+ *   stats shape: { members: number, comments: number,
+ *                   recentActivity: number, sync: object|null }
  */
 async function getProjectStats(projectId) {
     const supabase = getAdminClient();
@@ -359,7 +433,14 @@ async function updateSettings(projectId, settings) {
 }
 
 /**
- * Clone a project (copy settings, not content)
+ * Clone a project by copying its description and settings into a new
+ * project under the given owner. Does NOT clone content (facts, documents,
+ * comments, etc.) -- only structural configuration.
+ *
+ * @param {string} sourceProjectId
+ * @param {string} newName - Name for the cloned project
+ * @param {string} ownerId - Owner of the new project
+ * @returns {Promise<{success: boolean, project?: object, error?: string}>}
  */
 async function cloneProject(sourceProjectId, newName, ownerId) {
     const supabase = getAdminClient();
@@ -399,7 +480,17 @@ async function cloneProject(sourceProjectId, newName, ownerId) {
 }
 
 /**
- * Add a role to project settings
+ * Add or reactivate a custom role in the project's settings.roles array.
+ *
+ * If a role with the same `name` already exists, it is updated in place
+ * and set to `active: true`. Otherwise a new entry is appended with a
+ * generated UUID if one is not provided.
+ *
+ * Roles are stored in the JSONB `settings` column, not in a separate table.
+ *
+ * @param {string} projectId
+ * @param {object} role - { name, [id], ...other fields }
+ * @returns {Promise<{success: boolean, roles?: object[], error?: string}>}
  */
 async function addProjectRole(projectId, role) {
     const supabase = getAdminClient();

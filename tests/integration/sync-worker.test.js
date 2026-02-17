@@ -1,6 +1,6 @@
 /**
  * Sync Worker Integration Tests
- * Tests for FalkorDB synchronization
+ * Tests for graph synchronization
  */
 
 // Mock dependencies

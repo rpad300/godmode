@@ -1,13 +1,40 @@
 /**
- * RelationInference - Automatic entity and relationship extraction
- * 
- * Uses LLM to:
- * - Extract entities from unstructured text
- * - Infer relationships between entities
- * - Calculate relationship strength
- * - Map extracted data to ontology types
- * 
- * SOTA v3.0 - Native Supabase graph support (no Cypher dependency)
+ * Purpose:
+ *   Extracts structured entities and relationships from unstructured text
+ *   using a layered heuristic + LLM approach, then maps them to the
+ *   canonical ontology types. Also delegates graph-level inference rule
+ *   execution to InferenceEngine for Supabase providers.
+ *
+ * Responsibilities:
+ *   - Pattern-based (heuristic) entity extraction: emails, @mentions,
+ *     project codes, technology names, dates
+ *   - LLM-powered entity and relationship extraction with ontology awareness
+ *   - Sentence-level co-occurrence analysis to infer typed relationships
+ *   - Merge and de-duplicate results from heuristic and LLM sources,
+ *     boosting confidence when both agree
+ *   - Execute ontology inference rules on the graph (delegates to InferenceEngine
+ *     for Supabase, runs Cypher directly for other providers)
+ *   - Calculate relationship strength based on shared context signals
+ *
+ * Key dependencies:
+ *   - ../logger: structured logging
+ *   - ../llm: unified LLM text-generation module
+ *   - ./OntologyManager (singleton): schema metadata and validation
+ *   - ./InferenceEngine (lazy require): native inference for Supabase provider
+ *
+ * Side effects:
+ *   - LLM network calls during extractWithLLM() -- marked as low priority
+ *   - Graph writes (relationship creation) during runInferenceRules()
+ *
+ * Notes:
+ *   - minConfidence (default 0.5) filters both entities and relationships in
+ *     the merged output; tune higher for precision, lower for recall.
+ *   - The heuristic technology regex is case-insensitive and matches common
+ *     names; extend the list for domain-specific stacks.
+ *   - Co-occurrence inference returns a generic RELATED_TO when no typed
+ *     pattern matches but the ontology allows the wildcard relation.
+ *   - Deduplication keys on "type:identifier" so two entities of different
+ *     types with the same name remain separate.
  */
 
 const { logger } = require('../logger');
@@ -16,7 +43,26 @@ const llm = require('../llm');
 
 const log = logger.child({ module: 'relation-inference' });
 
+/**
+ * Hybrid heuristic + LLM entity and relationship extractor.
+ *
+ * Works on raw text input: first applies regex-based heuristic patterns
+ * for high-precision extraction, then optionally calls an LLM for
+ * higher-recall extraction. Results are merged with confidence boosting
+ * when both sources agree, and filtered by a minimum confidence threshold.
+ *
+ * Also provides graph-level inference rule execution (delegating to
+ * InferenceEngine for Supabase providers).
+ */
 class RelationInference {
+    /**
+     * @param {object} options
+     * @param {object} [options.ontology] - OntologyManager instance (defaults to singleton)
+     * @param {object} [options.llmProvider] - Legacy direct LLM provider reference
+     * @param {object} [options.llmConfig] - LLM configuration for text generation
+     * @param {number} [options.minConfidence=0.5] - Filter threshold for merged results
+     * @param {boolean} [options.enableLLMExtraction=true] - Whether to use LLM extraction
+     */
     constructor(options = {}) {
         this.ontology = options.ontology || getOntologyManager();
         this.llmProvider = options.llmProvider; // Legacy - kept for compatibility
@@ -523,10 +569,20 @@ Respond with this JSON structure:
     }
 
     /**
-     * Calculate relationship strength between entities
-     * @param {object} entity1 
-     * @param {object} entity2 
-     * @param {Array} sharedContext - Things they have in common
+     * Calculate a 0-1 relationship strength score between two entities based
+     * on shared context signals: same organisation, shared projects, shared
+     * meetings. The score is additive with a hard cap at 1.0.
+     *
+     * Scoring breakdown:
+     *   - Base: +0.1 (any relation at all)
+     *   - Shared context items: +0.1 each, max +0.4
+     *   - Same organisation: +0.2
+     *   - Shared projects: +0.1 each, max +0.2
+     *   - Shared meetings: +0.05 each, max +0.1
+     *
+     * @param {object} entity1
+     * @param {object} entity2
+     * @param {Array} sharedContext - Array of {type, ...} objects they share
      * @returns {number} - Strength from 0 to 1
      */
     calculateRelationStrength(entity1, entity2, sharedContext = []) {

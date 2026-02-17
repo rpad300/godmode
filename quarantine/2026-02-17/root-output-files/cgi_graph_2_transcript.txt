@@ -1,0 +1,455 @@
+Luuc CGI | 00:00
+For sure, I'm not sure if you want to introduce yourself briefly.
+Kishor CGI | 00:05
+Yes, I can do that. Thank you so much for your introduction again, Luke, as Luke said, I'm... As in DC working for financial services. My background was more into digital transformation, switching to local tools, and then GenAI stopped, but not exactly to nudge drops and linked data. I did some learning before I came to the sessions.
+Of course, I have a lot to learn there, so I'm looking forward to working with you all on that aspect.
+Luuc CGI | 00:33
+Perfect. So thank you, Kishha, for joining and welcome. I would like to ask you to maybe get to know... Franor and Ruby, and get some meetings with them to briefly introduce each other and who is who and what everyone is doing.
+But to give a general overview, Louis of Monseau and Vero will be joining the ACHA project for the implementation of the knowledge graphs, and therefore we are currently doing knowledge sharing sessions in which Asana will actually be training you. Asana has done multiple projects for ACMEA integrating knowledge graphs for several AA applications.
+This meeting is actually just an update for the things that you've done last week and the things that we'll be doing this week. Therefore, I would actually like Alexander to prepare some cases for you which you can take on and you can work on together and be able to contact Alexander if there are any questions or things that you are stuck with or want to know more about. You can actually ask Alexander anything you guys need.
+That's what I wanted to share with you and Alexander. I'm not sure how long I should be joining this session. For Monika Paula, I just... If I... But I think you can leave. Again, I think this session is mainly there for the next steps to learn and to understand where you guys are currently at.
+So that's the thing. I believe that last week we got a really good session with Alexander, who introduced more about the project and explained the underlying concepts. I'm curious what your opinion is so far and what you guys would like to do in your journey of learning.
+Dominique CGI | 02:37
+Thanks, Luke. I do agree with you actually that should be the case, and thanks for inviting Kishor. What we try to do is to make a bit of a community and make sure that the smart lab does not need to explain everything 25 times.
+So we try to combine some of the activities. Indeed, Alexander, I think we can give the word to you that you...
+Luuc CGI | 03:09
+Yes, you do. I'm very curious for Rubin Afonso Federico. So last week you, of course, learned again about linked data about the project and stuff so far. What were the things that you actually liked and things that you didn't like?
+So we can focus on the things that you guys like and continue in this direction for the future.
+Afonso CGI | 03:37
+Yeah, Google Sheets. I could go... What? I guess what I liked most about what I learned was the creation of theologies and possibly the idea of using LLM to interact with his ontologies. So having them really well defined in terms of semantics, that's probably where I see the greatest, potentially where I would be happier for the perfect.
+Luuc CGI | 04:15
+That's what we're going to do phone so that that's good.
+Rui Dias | 04:18
+Yeah, for me, it's the same. I am exploring... I already worked with them all this before. I'm exploring what Alexander showed us and going a little bit deeper on what he shared with us and trying to make some use cases and so on. I want to share with Alexander after that to see if my line of thought is correct or not, if what we need to adjust and so on.
+Luuc CGI | 04:48
+Hey.
+Rui Dias | 04:50
+But I'm still working on that. The...
+Luuc CGI | 04:56
+Okay, good for you.
+Afonso CGI | 04:58
+Yeah, it's very similar. I really see the ontology-based system there. To you, way more compared to those compared to you know with the traditional just lines and just broad texts like the future and take a... Where we models work with the much that I really like and some of the boards are working on these.
+Luuc CGI | 05:41
+Okay, good. So, to make it clear... Alex Shao, I think we'll take you through one of the things that we have done. We need to try to come up with a case which you guys can be working on. That's, I think, the most important thing.
+So I think you will need to define this case together.
+Rui Dias | 06:02
+Yes.
+Luuc CGI | 06:06
+Yeah. Maybe you can take the guys again through the things that we have done and think about something that they could possibly start to work on or to recreate that we have done.
+So we have some kind of golden record on how we think that things should be done. Yeah, we can take it as a reference. Maybe you even have improvements in that, right? So that's always...
+Rui Dias | 06:33
+Yeah.
+Dominique CGI | 06:34
+Challenge. If we are able to improve it, then we benefit all.
+Alexander CGI | 06:39
+Yeah. Actually, Lu, during the last meeting, we actually indirectly already defined the case. So if I could summarize it and Kishor can have some context as well as Paula. So just to summarize quickly.
+Yeah.
+Luuc CGI | 06:52
+That would be great. So I then would do is I would then leave the.
+Alexander CGI | 06:56
+Okay, the call.
+Luuc CGI | 06:57
+Because I have a lot of meetings to actually prepare. Okay, and that would be perfect. So if Paula and Monique want to stay, they can stay with us.
+Dominique CGI | 07:08
+I think I listen a bit to the case, and then I'll kind of have, like, five.
+Alexander CGI | 07:14
+Yeah. But I actually didn't find it at the end, and I was actually curious about your feedback. Maybe we can speak about it afterward, but then...
+Luuc CGI | 07:21
+I'll stay. Then I will stay. Yeah, okay then I'll stay.
+Alexander CGI | 07:25
+Because basically what I told... Look, you already have context for what the... And... Project related to the pension regulations was about. So just for you. Nice to meet you. Firstly, the meeting last time that I did with both Afonso and Federico is recorded, so all the details are discussed there.
+So I will just refer to several things that I discussed at that moment. But basically what it boils down to is that for ACHMEA, we want to integrate Dutch pension law when clients come to them and they set up their regulation agreements. At the moment, it is not compliant by design.
+So what I mean by that is that the choices are made by the client afterward. A different department of... Then checks whether these soldiers are low compliant. So we want to integrate both Dutch pension law as well as the knowledge graph which registers these choices in one place and the cases that I actually proposed to both. Federico Rubin and Afonso is the following. The entire Dutch pension law knowledge graph is actually already available at a bit better but overheight personnel.
+So I actually proposed them to download it given that they have some already background knowledge with knowledge graphs and to find several of Dutch pension law examples that are relevant to compare to the... Pension regulation choices of which they've already shared the data with them already.
+So I've shared the catalog as well as the product services sheets, which encompass the choices that the clients of... Make or the pension regulations. Is that clear for everyone?
+Luuc CGI | 09:03
+For sure, maybe not yet.
+Rui Dias | 09:03
+Yeah.
+Luuc CGI | 09:10
+Yeah, but... Yeah, for you who are fun and Federico.
+Rui Dias | 09:16
+For me.
+Alexander CGI | 09:16
+Yeah.
+Rui Dias | 09:16
+It's...
+Alexander CGI | 09:16
+Yeah.
+Rui Dias | 09:16
+Queer. Yeah.
+Alexander CGI | 09:18
+So basically, I was wondering both Luke and Mo... Like, I proposed to them to look into this knowledge graph first and then come up with several laws and maybe even a starting structure of a starting
+law knowledge graph. Given that this is the eventual project they're supposed to be working on, and that we can work from there, then this will be the case that we work on.
+So we'll start with a very basic knowledge graph for only just a few law texts and then expand it based on what is relevant for the checking of the pension regulation choice.
+Luuc CGI | 09:51
+Which sounds perfect. I was very curious because there is one big hurdle there, and that's the language, because the laws are, of course, all in touch. However, the linked data is not right. So what I mean with this is that the articles that are mentioned in an article are there are links there, right?
+Rui Dias | 10:10
+It's different. Yeah.
+Luuc CGI | 10:13
+So you can actually go through the links.
+Rui Dias | 10:14
+Yeah.
+Luuc CGI | 10:17
+Thereby, I think we might be able to share... Did you share with them?
+Alexander CGI | 10:23
+Yes. So we actually... It's downloaded as an ATL as a TTL file.
+Luuc CGI | 10:29
+Yeah, but I think that's very good to do Alexan's pro. Because then we'll find out any new hurdles, things that you struggle with, and we can learn from that and then train you based on the issues that you face.
+So I think this is a perfect example. This is good to start with because it's letting you taste the Dutch law, the linked data components of the Dutch law, and try to get a basic understanding of how this would actually fit specifically for the pensions and for the products and services of Ahme, which you now have the data from.
+So you can actually find, I think, in the products and services certain links to the Dutch law. So I think that's good.
+Dominique CGI | 11:21
+Start with that because tomorrow we speak with Ahme. If we maybe could... It's a very short talk with you, Alexander, before we do speak because if there are some things you noticed or had by the team or whatsoever, we can maybe use in the meeting. I don't know yet, but it's worth doing a little check before that.
+Yeah, that's good. Thanks.
+Luuc CGI | 11:50
+Maybe what actually helps Alexander is there with on some goals on paper so on black and white so the team has like some things toer.
+Alexander CGI | 12:02
+To do. Yeah, exactly.
+Luuc CGI | 12:04
+Some kind of points which we would like to achieve out of the case. So if you can forward these points to the team in this chat, that's no...
+Alexander CGI | 12:15
+No, I can't do that.
+Dominique CGI | 12:16
+Yeah, that's perfect.
+Alexander CGI | 12:17
+Like things a little bit more complete. Yeah.
+Luuc CGI | 12:19
+Making it more complete of having the interpretation of...
+Rui Dias | 12:22
+Yeah.
+Luuc CGI | 12:24
+Okay, so Alexander will take the time to write the points down. Then, based on this, you guys can collaborate together or individually to work on these points.
+Rui Dias | 12:37
+Yeah. Perfect.
+Dominique CGI | 12:38
+Perfect.
+Rui Dias | 12:39
+Yeah. Sounds good.
+Dominique CGI | 12:40
+Thanks, everyone.
+Kishor CGI | 12:47
+Thank you, bye.
+Alexander CGI | 12:52
+I guess that we can continue with this points sure whether I'm not sure whether ke sure whether I should call him in call them in again last year yeah. I'll call them in, back. Yeah.
+I will actually, at the moment, take the time to discuss the concrete next points for the case. So that's why we called you back into the call.
+Kishor CGI | 13:48
+No, that that's fine. Yep.
+Alexander CGI | 13:50
+Yeah, maybe be sure... If I don't know, if you've seen the video of the previous meeting, if not, and I can actually share it with you afterward there... We gave a very... I gave a very summarized and detailed overview of what the Ameer project has been about up to now. Just to summarize it very briefly, we went through two proof of concepts in which we proved to have made...
+It's possible for their current working practice where they go to a client directly with an Excel in which they define all of their pension regulation choices. So whether include or exclude accident premier calculation for the eventual premium that you pay for the pension fund...
+Because there are certain things in Dutch law that are mandatory, there are things that are optional, and that is what Ameer offers in terms of the catalog. Once they make these choices, all of these choices are per client registered in the knowledge graph.
+The global point is that by you having a knowledge graph that represents Dutch pension law for which there already is in some form a graph available from the BET but over IPUT now because they work according to link data standards. What we want to do is to... What we showed is that we made an application which, when you make these choices, there is an immediate feedback loop with whether these choices are compliant or not through the use of Slack violation through Slack validation.
+Because the way they do it now is that they go to the client directly. The client registers the choices, and a different department defines the test. A different department checks whether these choices are law compliant.
+So this step application would help this entire process and would not fully replace because there's still someone that has to validate even these things. But still, you can imagine it. It saves a lot of time because you then don't have to in the long term have everything saved into Excel files because you will have a knowledge graph in which version control and everything is kept in one place.
+So building on that, the case that I actually have in mind already communicated this to Afonso, Rubin, and Federico is that for this group of concepts, we kept the knowledge graph part very small. To give you a little bit of context, there is one particular product choice that is available offered by Maya, which has to refer to Francia. Francia is a Dutch term, so I will explain it briefly. Francia chose a portion of your pension that is not dependent on your income.
+Because every Dutch employee, regardless of what his income is, has this small part of his pension that he will be entitled to regardless of his income is because he is a citizen. It's called the "our way" for this because this "our way" part is there. They don't calculate pension over the entire income. They subscribe and subtract the portion to account for the fact that this "our way" portion will already be paid out.
+This is, in short, what the franchise is. There is a law-abiding minimal value for it for which I can actually show you directly. Actually, I will not do that because this may confuse a little bit. There is direct law. There is a direct law text, but we actually implemented this into the knowledge graph directly by both saving what this law-abiding minimal value is and linking it to the choice registered in the knowledge graph.
+So roles choose for has two choices: they either have their own Francias, or they have the law-abiding minimum. If they choose a law-abiding minimum, it's directly linked to the "allow" portion of knowledge inside of the knowledge graph.
+Okay. The eventual goal for this is that we want to expand the knowledge graph portion for budget pension law to encompass everything that is relevant for all of these choices. To give you a little bit of context, I will actually open the, what you call it, the catalog, and you can actually see all of the choices that are available.
+I will do this for a moment. Here.
+Afonso CGI | 17:52
+Go here.
+Alexander CGI | 17:55
+Yeah, I have to look for it. So general generic.
+Yes, I have it here. It's here.
+I'll show you.
+Afonso CGI | 18:37
+The screen. Yeah.
+Alexander CGI | 18:43
+So these are basically the two things that are relevant for the case. So you have the PDC, which stands for product and services catalog, which in Dutch stands for product and services catalog. This shows you all the possible products that AME overs to their clients for their pension regulations, as well as the services per product you have.
+So this quote on the left defines one product, and the product choice is defined here. So it's one, two, and three. So the particular choice here is that "VOSTELLING Inshong's data." VTTA on AB second.
+So in case you have, for some reason, become ineligible to work, you still have some insurance that allows you to accrue pension regardless of it. Then you can make your particular choice on how this amount of pension that you get is calculated.
+So either follows the boarding of the UVA, which means the UVA is the welfare kind of the overarching organization that handles welfare. Welfare in the Netherlands or pas funnebor dealing means based on their own judgments by... I think experts on...
+So the client, for example, for all of their employees, would then choose this one. Then basically, if anyone in holes becomes ineligible to work due to having broken their leg or anything like this in Ahme, basically have their own way to then determine...
+Okay, then what type of pension are you then entitled to? Which is then what this choice represents if you have the PDS, it actually has a sub-selection of all of these choices. So I can show this as well. This is for a moment.
+So the PDS is here. So in this case, I will take the veterinarian. So that's the D AR as an example. You see, all of them have made one particular choice. So a P 46 type of pension contract flexible in the Dutch pension.
+I have two new systems. You have the solid pre-mulling and flexible pre-mulling. There's some more flexibility in terms of how much premium you pay and how much pension you accrue and all of these other choices, for example, the basis and lifting. LLD died.
+So the age to which you accrue pension. So these are all things that are choosable. Would have to retain within the boundaries of Dutch pension law. Yeah. So basically, this is the way they operate now. They go to the client. The client makes the choice.
+Someone else afterwards... Looks are these choices law compliant or not? We want to integrate all of this into a knowledge graph, and I can actually show you the knowledge graph explicitly as well, which we have made in the two concepts. It exists of actually three portions.
+I will not go into detail like you can. The video that actually has been shared in the chat. It explains things in more detail here, but the most important thing you have to remember here is that this portion here stands for the entire catalog. It defines the entire selection space of choices for both products and services that people can make, but the portion of the actual product sheets...
+For example, Krolls or Deerards or another client of AMEA makes choices. These are linked through observations to the actual choices that are defined in the catalog. So this is actually a separation of the two.
+Then the portion here above it exists of existing linked data content. Maybe some of them you recognized. For example, the B slice could be observation objects. These are the portions that are then used to define both boundaries as well as low tax portions in Dutch pension law. At the moment, we actually structured in a way that was convenient for the approval of concept, but in the eventual production-ready deployment of the application, we would like to have it in the correct form.
+Given that the LIO graph is already available, we would like to base as much as possible on that and then eventually link it to an adjusted version of this lower part of the ontology in which we have defined both the product services catalog as well as the product as well as the product selection. Is there anything clear for everyone? Do you need any...? Are there any questions?
+Afonso CGI | 23:05
+I have a question. Last time you showed us this group of consumes. And basically, of all services you have chosen one which was the visual TS and I'm not sure if like the there's laws that are related to sing services sales.
+Yeah, some stuff I think you kind of have like hard to like this value the me for the franchise sales.
+Alexander CGI | 23:46
+Yes, yeah.
+Afonso CGI | 23:48
+So it requires two things. This is what I was saying after our meeting. It requires some expert analysis on the loss, which we are not experts on. Especially the fact that it's in Dutch makes it even...
+Alexander CGI | 24:06
+Yeah.
+Afonso CGI | 24:08
+So do we have an actual selection of laws that might be related to specific names, or is that something that we have to approach as well?
+Alexander CGI | 24:18
+Yeah, this is the thing. The litograph is already provided in TTL format, which helps with having a reference on which you can base your knowledge graph on your Dutch portion of the knowledge graph ontology.
+But in terms of the actual law context, you can always look into the website itself. Unfortunately, at the moment, it's still in Dutch. But you would have to, I guess, use a translator there to answer your other implicit question. Actually, in terms of, Dutch Lu Tex not being exactly clear on how which services are allowed or not, this is a very general this is a very general issue with law overall, which is why it's yeah, it's structured in the where they are.
+Rui Dias | 24:58
+Yeah. Open to interpretation. Yeah.
+Alexander CGI | 25:04
+I wouldn't say they keep it purpose-fully vague, but they try to make it as complete as possible.
+But if you make it as complete, then it's the more complete and generic attack is, the less specific it is, and then the more difficult it is to actually infer actual decision rules on it. So I think based on that, you have to actually work with all of the things that are clear.
+For example, this "value" you can expand on the other portions in the product catalog. For example, you have this portion here for the allowed for the... But choosing ratings late D, which is here at the moment structured as a choice.
+But it is very likely that in Dutch pension law there are very clear boundaries on which this is supposed to be between. So you have to start with the choices that, based on Dutch pension law, can be clearly put between boundaries and the rest.
+I mean, we are not pension law experts here. So this is something that they will have to figure out by themselves. But still, just by doing these first initial things and automating that, it already saves them time because I don't have to spend time on validating that.
+For example, this value is between those boundaries. They can immediately focus on all of the vague choices. So I hope this indirectly answers your question because in our cases, we... In an ideal world, they would be very clear about which choice for service and products you can make.
+But if it's open to interpretation, there's where our scope ends. Yeah, so does this answer your questions?
+Afonso CGI | 26:43
+It's actually me as but we haven't seen any lap up herem.
+Kishor CGI | 26:55
+Okay, Lee, I do have one question.
+Afonso CGI | 26:58
+Sorry.
+Kishor CGI | 26:59
+Yeah, I just want to understand the big picture. I think that I'll go through your previous video as well, but are we basically giving these knowledge graphs to RAG and then making the conversation channel more effective, or is there any other use case for this analysis?
+Alexander CGI | 27:15
+Crops, could you repeat that again? So what type of conversion more effective?
+Kishor CGI | 27:19
+No, well, I'm just looking for the right use case for using these knowledge graphs. Maya, what is the use case that we are working on right now?
+Alexander CGI | 27:29
+Actually, three things, yes. Yeah.
+Kishor CGI | 27:32
+No, I'm just trying to understand the big picture.
+Alexander CGI | 27:34
+Yeah. So at the moment they're working, as I mentioned before, with these separated departments in which choices are made safe into Excel files. Afterwards, another person which is a Dutch law expert looks at it and verifies that things are correct. This law expert will still be necessary eventually, but we really want to centralize the saving of all of this knowledge both for the product choice and the catalogs as well as integration to with Dutch pension loin. In one knowledge graph in which you have both your data as well as the context of your data, which is the ontology which defines what every class and relationship means, as well as validation rules in one place.
+Because validation rules... Shackle rules are explicit nodes within your knowledge graph. Yeah. The point here is that this is very LLM friendly. Because eventually if you want to use augmented generation on your knowledge graph, which I'm sure has a lot of use cases, and I'm sure I don't have to explain...
+It is good to have your data stored on an ontology graph because you have both your contexts, which is ontology, but you can be selective about which pieces of text you want to include or exclude when you perform your search.
+The knowledge graph gives you this flexibility. It's in contrast to a big bank of 100 documents where you can only segment the first three or four pages, and you don't have any additional context on what the exact context structures of these documents are.
+It's good to have it in an ageograph from this perspective. You can even take it a step further where you say, "I don't fill in the explicit instances of the knowledge graph. I only define ontology."
+I keep all of my pre-existing documents. But then at least I have the context of how all of these documents are related to each other. So this is the big overview that I can give you.
+Afonso CGI | 29:28
+Yeah.
+Alexander CGI | 29:30
+There are additional things they want to integrate it in Azure so that you have centralized data governance. This is something that we actually showed in the second proof concept. But this is not relevant for the case at the moment.
+Kishor CGI | 29:44
+Okay? Okay.
+Afonso CGI | 29:45
+That makes sense.
+Kishor CGI | 29:47
+Okay, and are you in the office tomorrow, in Marseilles?
+Alexander CGI | 29:53
+Are you asking me or are you asking...?
+Kishor CGI | 29:55
+Yeah, I'm. I'm asking you early. I'm talking to you around.
+Alexander CGI | 29:58
+Yeah, I'm actually I'm there.
+Kishor CGI | 30:01
+Yeah, okay, I'm actually coming there for four visits so that I can meet you directly.
+Alexander CGI | 30:06
+That that's wow, that's great.
+Kishor CGI | 30:09
+Yeah. Okay, then we'll talk further. Probably I need some access and related stuff that I need to discuss with you, and then what exactly we're going to do with this... Because I read a bit, but I still need more knowledge on this aspect that I'm actually working on right now. Probably, yeah, we'll discuss further on that. Yup.
+Alexander CGI | 30:34
+Discuss at that moment. Yeah. Maybe to wrap up this call, already indirectly defined the use case yesterday or not the use case, but the continuation case. I think it's good to indeed have a very concrete next step point.
+So I'm just thinking out loud at the moment. So we already have this proof of concept. I'm sure the idea is clear to you guys.
+Rui Dias | 30:58
+Yeah.
+Alexander CGI | 30:59
+The thing that has to be scaled up and is done eventually is the knowledge. The Dutch is the pension law portion.
+So you have, as we've shown in this proof of concept here, this portion to define all of the objects in the pension law in which we have actually entered the relevant law texts that are used for... The only different... Value, which is what our proof of concept was scoped around.
+I think it's good for you guys to expand on it because I... Because of the work that you have to eventually do. So I don't know if anyone else has maybe something else in mind or maybe needs more in-between steps or anything like this. I would... I would... Be glad you'd like to know.
+Afonso CGI | 31:53
+Parts. Did you use the ontology that they built or did you actually...?
+Alexander CGI | 32:01
+We actually... We basically used our own ontology, which was conveniently done to get the proof operational because there were other things to focus on. So from this perspective, you're okay, you're fully free to adjust the ontology in the way you see fit.
+Rui Dias | 32:16
+Okay, so we can adjust the ontology to fit these needs. Yeah.
+Alexander CGI | 32:21
+Yeah, the law portion, indeed.
+Rui Dias | 32:22
+Okay. Good.
+Afonso CGI | 32:26
+Why didn't you directly use their apology?
+Rui Dias | 32:26
+Good.
+Alexander CGI | 32:30
+Because we were still in the exploration phase. And the Lido graph is very large. It just worked. We just did a much faster job by just taking the low text directly and just showing that with the links that exist that this validation that they can perform the validation.
+Afonso CGI | 32:54
+Then in the end, what is your expectation to have the law parks just being extended by their knowledge raft or do you want to...? Because it doesn't make much sense to me.
+Alexander CGI | 33:07
+The thing is that the low graph itself as the TTL found it was available on this open source, they could measure 300 million triples. So just looking through it rawly, you will... It's way too big. So the more correct way for that at least it seems to me to work is to look at the start of the PDC, look at every individual choice that is there, and only retrieve the low portions that are relevant for those choices.
+So you have your choice for your pension age choice for frontiers. You have interactions between them as well. If you have a certain premium percentage, this France value decreases. I didn't mention this before, but this is the case.
+From this, you want to actually build up a knowledge graph that is relevant for the one that's built as... But only the low portions that are relevant for the catalog because this will be enough for you to validate all of their possible choices they can make.
+Afonso CGI | 34:10
+Yeah.
+Alexander CGI | 34:11
+Then you will have significantly less than 300 million triples. Of course.
+Afonso CGI | 34:18
+I don't know really how it works in the knowledge log and especially about these knowledge graphs. If things change, let's say because laws keep changing, right?
+Alexander CGI | 34:29
+Yeah.
+Afonso CGI | 34:30
+If they change, are they updating the previously or it's just a project that was done?
+Alexander CGI | 34:38
+This is something that has to be decided on Ahme parts Ahme's part eventually. But I think at least what seems like the convenient thing at the moment is that given that this TTL file is available on... Put override for... And assuming they don't make too many changes to this formatting, you want to build an ETL process in which you take every month or dependent on some other trigger when the law is updated. Take this entire file and convert it to your version of the knowledge graph.
+So you want to have a pipeline for this. This is something for the long term. So at the moment, if you can just take the version that's working now and just get a static law knowledge graph that works for those laws, then you can concern yourself with updating afterwards.
+Afonso CGI | 35:25
+Yeah, sure. So what I was thinking is if you let's say that you try to use their ontology directly and you go in the job of having the task of finding which laws are actually more related to certain products, right? Didn't you just use those triples and lay them to...?
+Alexander CGI | 35:51
+For the exploration portion? Eventually, for the modeling, you want to use the TTL file itself because this will prevent you from doing double work from converting actual law texts to a knowledge graph format, but for the actual exploration of finding the laws that are relevant. At least in my case, when we worked on the POC, it just worked. It was just easier for me to go on the website directly. Just find Francia and then look through all of the references that handle the edge cases because there are some edge cases for people that are 60 plus that just were already accruing pension under an old system and converting their contributions to the new system while they accrued most of it under the old system wouldn't be fair. There's all of these type of edge cases, so you just find this article that refers to the front checks and you look through all of the underlying references. I can actually show this to you as well.
+So, veto boosting. Okay, so this means the law on income. This as well. This was firstly written in 1964. It has been updated in the meantime, and this is the most relevant thing, so it's still valid at the moment.
+If you go to article 18, it actually tells you... By the way, let me know those rather than... Yeah, actually, this is the new... The franchising we alternate trade... But draft 18,000 on the twin safety.
+So this is the kind of... All visible minimal value for the front user. But then if you actually read further... This but break into on the hand phone... So this is something that, actually, the weights calculated is not relevant to choose.
+But because it's not an explicit choice. But for some other things, it may be irrelevant to actually look at the way it is calculated. Because then they may... They may... For another choice, they may propose a way to calculate it.
+It is not valid. For example, in this case, Bay of Crocsmeari who... So this is the thing, when you read this article, you see this is the value, and then you're like, "Okay, I'm done."
+But then you read further, and then it's like... Bakrats orme mareel a lower value applicable in case you have a lower premium percentage. And this is just only for this from... So I can actually show this to you here. Only for pg120. We already had to look through, I think, seven or eight law texts, not entire law texts, but article references where we started here.
+So if you start here, you have this lag percentage per... And then if you actually go further, and you looked into... Let me check. So this is the first portion. So this is the AUVEI Nussley side. Yeah, I'll actually look through this article Texas mentioned, but it doesn't change the decision here.
+So... Yeah, I actually know this. I'd... Ven the slide longer lasting. Yeah, so it was... I think ten...
+Yeah, exactly here. Yeah, I don't actually... Exactly remember how I found this reference, but from here when it mentions this lower percentage value, you will have to do some research yourself to find what it refers to. What are these lower percentages?
+But I can already tell you it is this percentage here, and the rules that are applicable here are the following. So the law-abiding maximum value for the premium percentage is actually 30. It's not mentioned in this article, but it's mentioned in another article. In this article, they give you the other premium percentage values in the underlying fund value that's applicable there.
+So in this case, you have values above 28%. Are these nineteen,000? This value that you see here. But then these boundaries referred to this value being the maximum. And then if it's less than 27%, it's this maximum.
+Just to give you additional context, this premium percentage means the portion of your... What do you call it? It's the portion of your... The portion of your taxable income over which you accrue pension. Yes. I'm sorry, I cannot tell you how I found this article exactly, because I don't... Because it's been a while, but it is... You build up the log graph from that.
+Rui Dias | 41:18
+Yeah, okay.
+Alexander CGI | 41:19
+Yes.
+Then this log tax is sufficient solely for the portion of this choice here. Then you really have to go through the catalog and then look at all of the other choices and check which ones are likely to have how hard decision boundaries defined.
+Rui Dias | 41:38
+A playable or not.
+Alexander CGI | 41:41
+Yeah. And the ones that are vague or the ones that... This is something that Ahmed once clarified if the larger the portion we can automate, of course, ideal, yeah, but we cannot automate everything.
+Rui Dias | 41:55
+Yeah, but Alexander, this will be reviewed by some legal department after... Or not.
+Alexander CGI | 41:58
+Yes, yep, yes, yeah.
+Rui Dias | 42:03
+Yeah, okay.
+Alexander CGI | 42:09
+Because this will be done in collaboration with Ahmed. Once you've built up a certain portion of the graph, of course, we will sit down with one of the people.
+Rui Dias | 42:19
+Yeah. Be because this is open to. This is open to interpretation. So you can see one thing and mean another thing. Completely different.
+Alexander CGI | 42:29
+Yeah? Yeah.
+Afonso CGI | 42:33
+The experts don't stuff this usually. There are a bunch of laws that matter, and there are a bunch of news cases, and the lawyers are working on this stuff. They know it by heart already. Just if there's a problem that... This is my experience with people that work in the departments.
+Alexander CGI | 43:10
+I can make it available, but as I mentioned before, it is up to change. Especially the portion of the loggraph, because this is the part that, at least, what has been communicated to me by Luke, requires most expansion.
+Yeah.
+Afonso CGI | 43:26
+The reason why I'm asking for this is to actually have an idea of how you guys are working so that we do approach you as well.
+Alexander CGI | 43:38
+No, of course.
+Afonso CGI | 43:41
+Of course. If it's supposed to be changed, I just have an idea of how you guys are. This, at least for me, is the first time that I've been doing a graph like this.
+Alexander CGI | 44:00
+Something that we could potentially look into is that for at least this project, we're supposed to work with Tripli. But I do know that GRAVDB actually has several additional features,
+as I've mentioned before. When you look at this ontology, it is actually defined by defining both node objects as well as class objects as well as predicate objects. In GRAVDB, they've actually implemented a way to... When you create new instance data, for example, if you will start creating your Dutch the log graph to be 100% sure that it abides to your ontology so that you don't, for example, create an information object that is linked to a class other than could be attachable...
+This is what I mean by ontological consistency. In case we cannot work with graph DB, we would have to... We can only work with triples. I am aware that I don't have this feature there. We would have to make this consistency checker ourselves, which actually isn't that over difficult, but at least for smaller knowledge graphs, the bigger the knowledge graph is, the better it is to have these types of things done by the people at the triple store and not yourself.
+But in case we could work with graph DB, then this type of feature would already work. So this is already one thing that I can tell you regarding building an ontology and instance data. So you could either make ontology instance data yourself and just double-check it to be sure that your instance data is consistent with your ontology, or you could have an application that checks it already for you.
+So then you can focus more on creating the actual instance data. So this is one example they can show you, and for the other, it's just... This viewer is very helpful because when you define your ontology in terms of shapes, classes, and the connections like this... Really a visualizer of that. You can distinguish the OWL portion from the schema portion.
+Yeah, and a schema portion represents all the relationships that are enforced. So in case you have a catalog, it must have a status. While on the side, if you create an entity, it can have a status attributed to an agent, but it doesn't have to... Make
+this type of distinction you can make as well. So if you make data, you can enforce relationships or you can make relationships optional. So these are two ways of working that we actually apply at the moment.
+We create the ontology directly. I can actually show you this as well. So if I actually show you the instance data, your GenAI is actually split up into multiple files, but here you have the portion explicit ontology declaration. We define the Description Data Type property. It has specific domain and range, so it must map from a service object to a language string object.
+Yeah, and the same here. So this way with these files you define your ontology. Use the viewer to view it. Then you make your instance data, which is for example here. This is, for example, one instance of a pension fund domain in which again, you want to use actually unique identifiers.
+So these are your IDs, which are like short 56-comparable codes just to ensure uniqueness.
+Afonso CGI | 47:30
+Basically follow the standard of having your...
+Alexander CGI | 47:51
+Yeah, exactly. I can show you this explicitly. The shapes are whether it's ontology shapes? Yeah. Here shapes are defined here. These are primarily subdivided into node and property shapes. To clarify to you, a node shape defines rules for a node or a class. A property defines rules for a predicate.
+So a connection between nodes. Yeah, the ontology is the rest, and then the instance data is just... Yeah, like this and this again. As I mentioned before, your data, the context of your data plus the rules of your data in one place.
+Afonso CGI | 48:28
+It's complex, but it follows.
+Alexander CGI | 48:33
+Yeah. So I was wondering for the continuation case, is it fine for you guys to take the product and the product catalog as a starting point and then find... Besides, differentia is one of two examples where there are direct validity rules you could implement.
+But when looking at pension, the Dutch pension law... Or, given that I've explained this to you this way, would it maybe be more convenient if I would share the log graph that we implemented for the previous book?
+Rui Dias | 49:10
+Yeah, if you can share... What is the example for? Yeah.
+Alexander CGI | 49:15
+Yup. No, I will do that. You requisites. I would just make a small list in the chat and.
+Maybe k sure, maybe. You know, is it, yeah, we actually had to sign. I think an NDA for sharing the data is has been done on your guy side. Or you're not aware of this yet?
+Afonso CGI | 49:59
+We haven't...
+Rui Dias | 49:59
+No.
+Alexander CGI | 50:05
+Yeah, exactly. I will then double-check this with Luke before sharing.
+Rui Dias | 50:09
+Okay.
+Alexander CGI | 50:09
+Yeah, but I've already shared unique cell files, actually, so it doesn't contain any data that's not in there already, so...
+Rui Dias | 50:10
+Yeah. [Laughter] Yeah. Yeah.
+Alexander CGI | 50:15
+But, yeah, I will.
+I will just verify this with them. So we're at least aware of this.
+Rui Dias | 50:19
+Okay. Okay.
+Alexander CGI | 50:47
+Maybe I can already look into... The thing is that given that you're starting out, you don't really need to work on a triple story yet. It only really becomes relevant when your graph becomes really large. Although one thing that depends on the TED that you work with is that you have Pie Shakel, and in that they already have Pie Shakel validator, which are already a well-working Shakel validator, but it works slightly differently depending on the triple store you work with.
+So eventually, if you start testing things locally and you want to perform the validation of the triple. So we may have to adjust things, but this is something that we will run to that. But I think it's good to start locally, so then you don't have to... You can work with a free Tripa account.
+But I think there are some limitations there too. So, yeah, I think it's better to start working locally. So what I mean by that is that you will share a repository on which you have the actual Trigg and TTL files, and you can edit them there. Yeah.
+Okay, in that case, I'll... I've already shared you the raw data. I can share you the knowledge graph versions in the... And with the suggestion to start working locally. Do you guys agree? Or are there any vaguenesses about the idea to take the catalog as a reference and then find one or two examples of that?
+Because it has to be doable within a week, of course. You have to familiarize yourself with a knowledge graph and everything.
+Rui Dias | 52:32
+Yeah, no, for now, I think it's a good approach.
+Alexander CGI | 52:36
+So if you want to do something else, please let me know, right?
+Rui Dias | 52:42
+Let's start working on that. Then if we see some... Something that blocks us or that we need to improve, we talk.
+Alexander CGI | 52:51
+Yeah, totally, yeah.
+So I go of steps here.
+Yeah, I can tell you already, it's ideal to start off with the products because they're a bit more concrete about franchisa value pension lifted value. The services are a lot more open to interpretation, so it's a lot more difficult to define actual legal compliance things there, if it's possible at all.
+Yeah, you can subdivide this into several parts. Maybe in the next meeting, we could discuss the law. Tex. That you found or you can already make a knowledge graph and show it.
+Yeah, so this is up. It all depends on how comfortable you guys already are with working with knowledge graphs, of course. So if you want to do the first or the latter, yeah, I don't know where your preference lies.
+Rui Dias | 54:18
+Let's. Let's. I think, we. The best approach is to try to build the. The knowledge graph.
+And go from there.
+Alexander CGI | 54:28
+Yeah. So we'll both discuss a few examples of Dutch pension law text as well as the structural knowledge graph itself. Yeah, I'll keep it to 123 because if you find one reference and you look at all the references, it's a tree that grows very quickly.
+So eventually you want things to overlap as much as possible.
+Kishor CGI | 55:20
+What tools are we using to build all these crops?
+Alexander CGI | 55:26
+You could work directly with the text files, and you can actually make them there alternatively, but I think it's actually not available when you have only the free version. You could start a Maya effects free trial and connect to Graph DB, and there they actually have an ontology editor where you can actually... You have this dragon drop where you select a property, and then it's in the back end. It actually creates the text file.
+But it is my personal preference. Sometimes I just want to make it myself because then I can decide on which kind of identifiers and other connections to include because it automatically includes labels and descriptions even though, for some nodes, they don't need it.
+Kishor CGI | 56:11
+Okay, I was using Pro for a tool before. Yeah, just cross-checking. Are there any allowed tools for doing this?
+Alexander CGI | 56:30
+Yeah. Then of course, we have agreements with triple DB and grav DB, but just in terms of, the stores in which you can the data will not become public information. Yeah, true.
+Rui Dias | 56:42
+Yeah.
+Alexander CGI | 56:44
+Okay. So these products...
+Kishor CGI | 56:52
+Kelly and team, I need to drop a to for other meetings. So I'll follow up with a chart.
+Rui Dias | 56:58
+Okay.
+Kishor CGI | 56:58
+And like I don't have the files that you mentioned. We probably like you can forward that to me as well.
+Alexander CGI | 57:03
+Yeah, I will forward them to you as well.
+Kishor CGI | 57:07
+Perfect then. See you tomorrow, and then that's all I'll talk to you later. Thank you.
+Rui Dias | 57:11
+Thank you, Guishar.
+Afonso CGI | 57:13
+Bye.
+Kishor CGI | 57:14
+Nice meet to you.
+Rui Dias | 57:20
+Well, you know that for sure.
+Alexander CGI | 57:32
+Yes, so I've written it out. So I'm missing anything you want anything to be a dead there, then please let me know. But I think this would be good for a sufficient next step. And based on how long you guys think it will take, you could either speak again to each other next week or maybe the week afterward.
+Rui Dias | 57:54
+Okay.
+Afonso CGI | 57:55
+I need some stuff.
+Rui Dias | 57:55
+I think... Yeah.
+Afonso CGI | 58:02
+We mean that responsibility.
+Alexander CGI | 58:09
+Yeah, I think this is the intention, so I think this would be good.
+Afonso CGI | 58:18
+Sounds good.
+Rui Dias | 58:20
+Okay.
+Afonso CGI | 58:20
+Yeah.
+Alexander CGI | 58:24
+And again, if anything is unclear in the way you can always, message me on teams or send an email. I'll respond as well, as soon as possible. Or will I have the weekly meeting? So, I'm always available? Y.
+Rui Dias | 58:40
+Alex. Okay, thank you. Thank you for your time.
+Alexander CGI | 58:43
+Okay. Yeah, you're welcome by guys.

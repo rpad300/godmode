@@ -1,8 +1,37 @@
 /**
- * Graph Indexing Module
- * Creates and manages indexes for faster graph queries
+ * Purpose:
+ *   Create and manage graph database indexes to accelerate Cypher query
+ *   performance on commonly filtered/sorted properties.
+ *
+ * Responsibilities:
+ *   - Provision a predefined set of indexes on key label/property pairs
+ *     (Person.name, Meeting.date, etc.)
+ *   - Create, drop, and list individual indexes via Cypher DDL
+ *   - Create full-text indexes for free-text search
+ *   - Statically analyze Cypher queries and suggest missing indexes
+ *   - Track which indexes have been created in-process (createdIndexes Set)
+ *
+ * Key dependencies:
+ *   - graphProvider (injected): Cypher DDL execution
+ *
+ * Side effects:
+ *   - Creates and drops indexes in the graph database (schema mutations)
+ *
+ * Notes:
+ *   - Index syntax varies between graph database engines; creation failures
+ *     are caught and reported rather than thrown.
+ *   - "already exists" errors are treated as success to make
+ *     createDefaultIndexes idempotent.
+ *   - analyzeQueryForIndexes is a heuristic regex parser, not a full
+ *     Cypher AST analyzer.
  */
 
+/**
+ * Creates and manages graph database indexes for query acceleration.
+ *
+ * @param {object} options
+ * @param {object} options.graphProvider - Graph database adapter
+ */
 class GraphIndexing {
     constructor(options = {}) {
         this.graphProvider = options.graphProvider;
@@ -62,7 +91,7 @@ class GraphIndexing {
         }
 
         try {
-            // FalkorDB/RedisGraph uses different syntax
+            // Some graph providers use different syntax
             // Try the CREATE INDEX syntax
             const query = `CREATE INDEX FOR (n:${label}) ON (n.${property})`;
             
@@ -139,7 +168,10 @@ class GraphIndexing {
     }
 
     /**
-     * Analyze query and suggest indexes
+     * Statically analyze a Cypher query string and suggest indexes for
+     * properties used in WHERE, ORDER BY, and MATCH patterns.
+     * @param {string} query - Cypher query to analyze
+     * @returns {Array<{property: string, reason: string, query: string}>}
      */
     analyzeQueryForIndexes(query) {
         const suggestions = [];

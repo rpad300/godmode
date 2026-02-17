@@ -1,6 +1,33 @@
 #!/usr/bin/env node
 /**
- * Apply Supabase Migrations via Management API
+ * Purpose:
+ *   Migration runner that uses the exec_raw_sql RPC function to apply SQL
+ *   migrations over HTTPS. Includes a proper dollar-quote-aware SQL statement
+ *   splitter for PL/pgSQL function bodies.
+ *
+ * Responsibilities:
+ *   - Test whether exec_raw_sql RPC exists on the target Supabase project
+ *   - If missing, print the CREATE FUNCTION DDL and exit with setup instructions
+ *   - Split each migration file into individual statements (dollar-quote aware)
+ *   - Execute each statement via HTTPS POST to the RPC endpoint
+ *
+ * Key dependencies:
+ *   - Node.js https module: direct HTTPS requests to Supabase REST API
+ *
+ * Side effects:
+ *   - Executes DDL/DML statements against the remote Supabase Postgres database
+ *   - Reads src/.env for credentials
+ *
+ * Notes:
+ *   - PROJECT_REF is hardcoded to 'hoidqhdgdgvogehkjsdw'; update for other projects
+ *   - The splitSqlStatements function correctly handles $$ and $tag$ dollar quoting,
+ *     making it safer for PL/pgSQL than the simpler splitter in apply-migrations.js
+ *   - "already exists" errors are silently counted as failures but do not abort
+ *   - Requires the exec_raw_sql SECURITY DEFINER function to be created first
+ *     (see SETUP_SQL constant or the printed instructions)
+ *
+ * Usage:
+ *   node supabase/apply-via-api.js
  */
 
 const fs = require('fs');
@@ -37,7 +64,11 @@ function getMigrationFiles(startNum = 5) {
         .sort();
 }
 
-// Execute SQL using Supabase pg_dump API (via service key)
+/**
+ * POST a SQL query to the exec_raw_sql RPC endpoint over HTTPS.
+ * Returns { success: true } on 2xx, or { success: false, needsSetup: true }
+ * on 404 (function not found), or { success: false, error } otherwise.
+ */
 async function executeSql(sql) {
     return new Promise((resolve, reject) => {
         const postData = JSON.stringify({ query: sql });
@@ -92,7 +123,11 @@ END;
 $$;
 `;
 
-// Split SQL into safe executable chunks
+/**
+ * Split a SQL string into individual statements, correctly handling
+ * dollar-quoted blocks ($$ ... $$ or $tag$ ... $tag$) so PL/pgSQL
+ * function bodies are not broken at internal semicolons.
+ */
 function splitSqlStatements(sql) {
     // Remove comments
     let cleaned = sql.replace(/--[^\n]*/g, '');

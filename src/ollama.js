@@ -1,6 +1,37 @@
 /**
- * Ollama API Client
- * Handles communication with Ollama server for AI processing
+ * Purpose:
+ *   HTTP client wrapper for the local Ollama LLM server. Provides text generation,
+ *   vision (image) inference, chat completions, embeddings, and model management
+ *   (list, pull, unload) against the Ollama REST API.
+ *
+ * Responsibilities:
+ *   - Discover and categorize available models (text vs vision vs embedding)
+ *   - Select the best model for a given task type using a "largest-first" heuristic
+ *   - Execute generate / chat / embed requests with configurable timeouts
+ *   - Stream token-by-token output via an async generator
+ *   - Pull (download) models with progress reporting
+ *   - Unload models from GPU/RAM to free resources
+ *   - Provide cosine-similarity search over embedding vectors (lightweight RAG helper)
+ *
+ * Key dependencies:
+ *   - http (Node built-in): all Ollama communication is plain HTTP, no TLS
+ *   - ./logger: structured logging (pino child)
+ *
+ * Side effects:
+ *   - Network I/O to the Ollama daemon (default 127.0.0.1:11434)
+ *   - generateVision reads image files from disk synchronously (fs.readFileSync)
+ *   - pullModel triggers a potentially long-running download on the Ollama server
+ *   - unloadModel frees GPU/RAM on the Ollama server
+ *
+ * Notes:
+ *   - Vision model detection relies on a hardcoded name-substring list; new vision
+ *     models must be added to isVisionModel() to be recognized.
+ *   - "Best model" selection sorts by raw file size, which is a rough proxy for
+ *     quality but not always accurate (quantization, architecture differences).
+ *   - qwen3 models may return output in the `thinking` field instead of `response`;
+ *     the generate() method handles this quirk.
+ *   - Timeouts vary significantly by endpoint: 10 min for vision, 5 min for text
+ *     generate, 2 min for chat, 1 min for embeddings, 30 s default.
  */
 
 const http = require('http');
@@ -25,11 +56,19 @@ class OllamaClient {
     }
 
     /**
-     * Make HTTP request to Ollama API
-     * @param {string} path - API endpoint path
+     * Low-level HTTP request to the Ollama REST API.
+     *
+     * Parses the response body as JSON when possible; falls back to raw
+     * string on parse failure so callers always get *something* back.
+     * Never rejects on HTTP-level errors (4xx/5xx) -- only on transport
+     * failures (ECONNREFUSED, timeout, etc.).
+     *
+     * @param {string} path - API endpoint path (e.g. '/api/generate')
      * @param {string} method - HTTP method
-     * @param {object} body - Request body
-     * @param {number} timeout - Timeout in ms (default 30s, vision uses 600s)
+     * @param {object} body - Request body, will be JSON-stringified
+     * @param {number} timeout - Socket timeout in ms (default 30 s)
+     * @returns {Promise<{status: number, data: object|string|null}>}
+     * @throws {Error} On connection failure or socket timeout
      */
     async request(path, method = 'GET', body = null, timeout = 30000) {
         return new Promise((resolve, reject) => {
@@ -115,7 +154,13 @@ class OllamaClient {
     }
 
     /**
-     * Check if model is multimodal (vision capable)
+     * Determine whether a model supports image/vision input.
+     *
+     * Uses a hardcoded substring list -- must be updated when Ollama
+     * adds new multimodal models.
+     *
+     * @param {string} modelName - Full model name from Ollama (e.g. 'llava:7b')
+     * @returns {boolean}
      */
     isVisionModel(modelName) {
         const visionModels = [
@@ -127,9 +172,15 @@ class OllamaClient {
     }
 
     /**
-     * Find the best available model for a task
+     * Select the best locally-available model for a task type.
+     *
+     * Strategy: prefer models matching the requested capability (vision vs text),
+     * then pick the largest by file size as a rough quality proxy.
+     * Falls back across categories -- e.g. a vision task will use a text model
+     * if no vision model is installed, and vice versa.
+     *
      * @param {string} taskType - 'vision' for images/scanned PDFs, 'text' for text documents
-     * @returns {Promise<{model: string, type: string}|null>}
+     * @returns {Promise<{model: string, type: string}|null>} null when no models installed
      */
     async findBestModel(taskType = 'text') {
         const models = await this.getModels();
@@ -180,10 +231,16 @@ class OllamaClient {
     }
 
     /**
-     * Pull/download a model from Ollama registry
-     * @param {string} modelName - Name of model to pull (e.g., 'llava', 'llama3.2')
-     * @param {function} onProgress - Callback for progress updates
-     * @returns {Promise<{success: boolean, error?: string}>}
+     * Pull (download) a model from the Ollama registry.
+     *
+     * Streams newline-delimited JSON progress events from the server.
+     * Never rejects -- always resolves with {success, error?} so callers
+     * can handle failure without try/catch.
+     *
+     * @param {string} modelName - Model identifier (e.g. 'llava', 'llama3.2')
+     * @param {function|null} onProgress - Called with {status, completed, total, percent}
+     * @returns {Promise<{success: boolean, error?: string, status?: string}>}
+     * @side-effect Triggers a potentially multi-GB download on the Ollama host
      */
     async pullModel(modelName, onProgress = null) {
         return new Promise((resolve) => {
@@ -266,7 +323,17 @@ class OllamaClient {
     }
 
     /**
-     * Generate completion (non-streaming)
+     * Generate a text completion (non-streaming).
+     *
+     * Handles the qwen3 quirk where output lands in the `thinking` field
+     * instead of `response`. Supports optional base64-encoded images for
+     * vision models.
+     *
+     * @param {string} model - Model name to use
+     * @param {string} prompt - The prompt text
+     * @param {object} options - temperature, maxTokens, images (base64[])
+     * @returns {Promise<{success: boolean, response?: string, context?: any,
+     *           totalDuration?: number, evalCount?: number, error?: string}>}
      */
     async generate(model, prompt, options = {}) {
         try {
@@ -321,7 +388,17 @@ class OllamaClient {
     }
 
     /**
-     * Generate with vision (for image analysis)
+     * Vision-specific generation convenience method.
+     *
+     * Reads image files from disk (synchronously), base64-encodes them,
+     * and delegates to generate().
+     *
+     * @param {string} model - A vision-capable model name
+     * @param {string} prompt - The prompt text
+     * @param {string[]} imagePaths - Absolute paths to image files on disk
+     * @param {object} options - Forwarded to generate()
+     * @returns {Promise<object>} Same shape as generate() return
+     * @side-effect Synchronous filesystem reads (fs.readFileSync)
      */
     async generateVision(model, prompt, imagePaths, options = {}) {
         const fs = require('fs');
@@ -336,7 +413,16 @@ class OllamaClient {
     }
 
     /**
-     * Generate completion with streaming (returns async generator)
+     * Streaming text generation via an async generator.
+     *
+     * Yields one object per token: {token, done, context}. The caller
+     * should iterate with `for await`. Handles newline-delimited JSON
+     * chunking with a line buffer to avoid mid-JSON splits.
+     *
+     * @param {string} model - Model name
+     * @param {string} prompt - The prompt text
+     * @param {object} options - temperature, maxTokens
+     * @yields {{token: string, done: boolean, context?: any}}
      */
     async *generateStream(model, prompt, options = {}) {
         const url = new URL('/api/generate', this.baseUrl);
@@ -465,11 +551,16 @@ class OllamaClient {
     }
 
     /**
-     * Generate embeddings for multiple texts (batch)
+     * Generate embeddings for multiple texts sequentially.
+     *
+     * Processes texts one at a time (no parallelism) to avoid overloading
+     * the Ollama server. Failed embeddings are recorded as null placeholders
+     * so the output array stays index-aligned with the input.
+     *
      * @param {string} model - Embedding model name
      * @param {string[]} texts - Array of texts to embed
-     * @param {function} onProgress - Progress callback
-     * @returns {Promise<{success: boolean, embeddings?: number[][], error?: string}>}
+     * @param {function|null} onProgress - Called with {current, total, percent}
+     * @returns {Promise<{success: boolean, embeddings: (number[]|null)[], errors?: object[]}>}
      */
     async embedBatch(model, texts, onProgress = null) {
         const embeddings = [];
@@ -540,7 +631,11 @@ class OllamaClient {
     }
 
     /**
-     * Unload a model from GPU/RAM to free memory
+     * Unload a model from GPU/RAM to free memory.
+     *
+     * Works by sending a generate request with keep_alive: 0, which is the
+     * documented Ollama mechanism for immediate eviction.
+     *
      * @param {string} modelName - Name of the model to unload
      * @returns {Promise<{success: boolean, error?: string}>}
      */

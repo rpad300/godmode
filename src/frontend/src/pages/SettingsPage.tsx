@@ -1,31 +1,88 @@
+/**
+ * Purpose:
+ *   Application-level settings page with five tabs: Profile (user info + theme),
+ *   Project (LLM provider config), API Keys, Webhooks, and Data management.
+ *
+ * Responsibilities:
+ *   - Profile tab: edit display name, timezone; switch theme (light/dark/system)
+ *   - Project tab: configure project name and LLM provider; display configured models
+ *   - API Keys tab: create, list, copy, and revoke API keys for programmatic access
+ *   - Webhooks tab: create, list, test, and delete webhooks with event subscription
+ *   - Data tab: clear local browser cache; reset (destructively) all project knowledge data
+ *
+ * Key dependencies:
+ *   - useUser: current user profile and updateProfile mutation
+ *   - useProjectConfig / useUpdateProjectConfig (useGodMode): project-level settings
+ *   - useApiKeys / useCreateApiKey / useDeleteApiKey (useGodMode): API key management
+ *   - useWebhooks / useCreateWebhook / useDeleteWebhook / useTestWebhook (useGodMode): webhooks
+ *   - useResetData (useGodMode): destructive project data reset
+ *
+ * Side effects:
+ *   - localStorage: theme persistence under 'godmode-theme', cache clearing
+ *   - Network: user profile updates, project config CRUD, API key/webhook management
+ *   - DOM: toggles 'dark' class on document.documentElement for theme switching
+ *
+ * Notes:
+ *   - Project ID is read from localStorage ('godmode_current_project'), defaulting to 'default'.
+ *   - API key raw value is shown once on creation and never again -- user must copy immediately.
+ *   - The Data "Reset Project Data" is a two-step confirmation to prevent accidental deletion.
+ */
 import { useState, useCallback, useEffect } from 'react';
-import { Settings, Sun, Moon, Monitor, Database, Trash2 } from 'lucide-react';
-import { Button } from '../components/ui/Button';
-import { cn } from '../lib/utils';
-import { useResetData } from '../hooks/useGodMode';
 import {
-  Dialog,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '../components/ui/Dialog';
+  Settings, Sun, Moon, Monitor, Database, Trash2, User, Cpu, Save,
+  Loader2, Key, Webhook, Plus, Copy, X,
+} from 'lucide-react';
+import { toast } from 'sonner';
+import { cn } from '../lib/utils';
+import {
+  useResetData, useProjectConfig, useUpdateProjectConfig,
+  useApiKeys, useCreateApiKey, useDeleteApiKey,
+  useWebhooks, useCreateWebhook, useDeleteWebhook, useTestWebhook,
+} from '../hooks/useGodMode';
+import { useUser } from '../hooks/useUser';
 
-type SettingsTab = 'general' | 'data';
+type SettingsTab = 'profile' | 'project' | 'apikeys' | 'webhooks' | 'data';
 
 function getStoredTheme(): string {
-  try {
-    return localStorage.getItem('godmode-theme') || 'system';
-  } catch {
-    return 'system';
-  }
+  try { return localStorage.getItem('godmode-theme') || 'system'; } catch { return 'system'; }
+}
+
+function getProjectId(): string {
+  try { return localStorage.getItem('godmode_current_project') || 'default'; } catch { return 'default'; }
 }
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<SettingsTab>('general');
+  const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
   const [theme, setTheme] = useState(getStoredTheme);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
+
+  const { user, updateProfile } = useUser();
+  const config = useProjectConfig();
+  const updateConfig = useUpdateProjectConfig();
   const resetData = useResetData();
+
+  const projectId = getProjectId();
+
+  // Local form state
+  const [displayName, setDisplayName] = useState('');
+  const [timezone, setTimezone] = useState('');
+  const [projectName, setProjectName] = useState('');
+  const [llmProvider, setLlmProvider] = useState('');
+
+  // Sync from server
+  useEffect(() => {
+    if (user) {
+      setDisplayName(user.display_name || '');
+      setTimezone(user.timezone || '');
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (config.data) {
+      setProjectName(config.data.projectName || '');
+      setLlmProvider(config.data.llm?.provider || '');
+    }
+  }, [config.data]);
 
   // Apply theme
   useEffect(() => {
@@ -36,153 +93,505 @@ export default function SettingsPage() {
     localStorage.setItem('godmode-theme', theme);
   }, [theme]);
 
+  const handleSaveProfile = () => {
+    updateProfile.mutate(
+      { display_name: displayName, timezone, theme },
+      { onSuccess: () => toast.success('Profile updated') },
+    );
+  };
+
+  const handleSaveProject = () => {
+    updateConfig.mutate(
+      { projectName, llm: { ...config.data?.llm, provider: llmProvider } },
+      { onSuccess: () => toast.success('Project settings saved') },
+    );
+  };
+
   const handleClearCache = useCallback(() => {
-    try {
-      const keys = Object.keys(localStorage).filter(
-        (k) => k.startsWith('godmode-') && k !== 'godmode-theme' && k !== 'godmode-project-id'
-      );
-      keys.forEach((k) => localStorage.removeItem(k));
-      alert(`Cleared ${keys.length} cached items`);
-    } catch {}
+    const keys = Object.keys(localStorage).filter(
+      k => k.startsWith('godmode-') && k !== 'godmode-theme' && k !== 'godmode-project-id'
+    );
+    keys.forEach(k => localStorage.removeItem(k));
+    toast.success(`Cleared ${keys.length} cached items`);
   }, []);
 
   const handleResetConfirm = useCallback(() => {
     resetData.mutate({ clearArchived: true }, {
+      onSuccess: () => { toast.success('Project data reset'); setClearDialogOpen(false); },
       onSettled: () => setClearDialogOpen(false),
     });
   }, [resetData]);
 
+  const tabs: { key: SettingsTab; label: string; icon: typeof Settings }[] = [
+    { key: 'profile', label: 'Profile', icon: User },
+    { key: 'project', label: 'Project', icon: Cpu },
+    { key: 'apikeys', label: 'API Keys', icon: Key },
+    { key: 'webhooks', label: 'Webhooks', icon: Webhook },
+    { key: 'data', label: 'Data', icon: Database },
+  ];
+
   return (
-    <div>
+    <div className="p-6">
       <div className="flex items-center gap-3 mb-6">
-        <Settings className="h-6 w-6" />
-        <h1 className="text-2xl font-bold">Settings</h1>
+        <Settings className="h-6 w-6 text-muted-foreground" />
+        <h1 className="text-2xl font-bold text-foreground">Settings</h1>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 mb-6 border-b">
-        <button
-          onClick={() => setActiveTab('general')}
-          className={cn(
-            'flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors',
-            activeTab === 'general'
-              ? 'border-[hsl(var(--primary))] text-[hsl(var(--foreground))]'
-              : 'border-transparent text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]'
-          )}
-        >
-          <Sun className="h-4 w-4" />
-          General
-        </button>
-        <button
-          onClick={() => setActiveTab('data')}
-          className={cn(
-            'flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors',
-            activeTab === 'data'
-              ? 'border-[hsl(var(--primary))] text-[hsl(var(--foreground))]'
-              : 'border-transparent text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]'
-          )}
-        >
-          <Database className="h-4 w-4" />
-          Data & Privacy
-        </button>
+      <div className="flex gap-1 bg-secondary rounded-xl p-1 mb-6 max-w-2xl overflow-x-auto">
+        {tabs.map(tab => {
+          const Icon = tab.icon;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
+                activeTab === tab.key
+                  ? 'bg-card text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <Icon className="w-3.5 h-3.5" /> {tab.label}
+            </button>
+          );
+        })}
       </div>
 
-      {/* General Tab */}
-      {activeTab === 'general' && (
+      {/* Profile Tab */}
+      {activeTab === 'profile' && (
         <div className="space-y-6 max-w-lg">
-          {/* Theme */}
-          <div className="rounded-lg border bg-[hsl(var(--card))] p-4">
-            <h3 className="text-sm font-semibold uppercase text-[hsl(var(--muted-foreground))] mb-3">
-              Appearance
-            </h3>
-            <label className="block text-sm font-medium mb-2">Theme</label>
+          <div className="bg-card border border-border rounded-xl p-5 space-y-4">
+            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">User Profile</h3>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Email</label>
+              <p className="text-sm text-foreground mt-1">{user?.email || '—'}</p>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Display Name</label>
+              <input
+                value={displayName}
+                onChange={e => setDisplayName(e.target.value)}
+                className="mt-1 w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="Your name..."
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Timezone</label>
+              <input
+                value={timezone}
+                onChange={e => setTimezone(e.target.value)}
+                className="mt-1 w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="e.g. Europe/Lisbon"
+              />
+            </div>
+            <button
+              onClick={handleSaveProfile}
+              disabled={updateProfile.isPending}
+              className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 flex items-center gap-1.5 disabled:opacity-50"
+            >
+              {updateProfile.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+              Save Profile
+            </button>
+          </div>
+
+          <div className="bg-card border border-border rounded-xl p-5 space-y-3">
+            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Appearance</h3>
             <div className="flex gap-2">
-              {[
+              {([
                 { value: 'light', label: 'Light', icon: Sun },
                 { value: 'dark', label: 'Dark', icon: Moon },
                 { value: 'system', label: 'System', icon: Monitor },
-              ].map((option) => {
+              ] as const).map(option => {
                 const Icon = option.icon;
                 return (
                   <button
                     key={option.value}
                     onClick={() => setTheme(option.value)}
                     className={cn(
-                      'flex items-center gap-2 px-4 py-2 rounded-md border text-sm transition-colors',
+                      'flex items-center gap-2 px-4 py-2 rounded-lg border text-sm transition-colors',
                       theme === option.value
-                        ? 'bg-[hsl(var(--accent))] border-[hsl(var(--ring))] font-medium'
-                        : 'hover:bg-[hsl(var(--accent))]'
+                        ? 'bg-primary/10 border-primary/30 text-foreground font-medium'
+                        : 'border-border hover:bg-secondary text-muted-foreground'
                     )}
                   >
-                    <Icon className="h-4 w-4" />
-                    {option.label}
+                    <Icon className="h-4 w-4" /> {option.label}
                   </button>
                 );
               })}
             </div>
-            <p className="text-xs text-[hsl(var(--muted-foreground))] mt-2">
-              Choose your preferred color scheme. System follows your OS setting.
-            </p>
           </div>
         </div>
       )}
+
+      {/* Project Tab */}
+      {activeTab === 'project' && (
+        <div className="space-y-6 max-w-lg">
+          <div className="bg-card border border-border rounded-xl p-5 space-y-4">
+            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Project Configuration</h3>
+            {config.isLoading ? (
+              <div className="flex items-center gap-2 py-4 text-muted-foreground text-sm">
+                <Loader2 className="w-4 h-4 animate-spin" /> Loading config...
+              </div>
+            ) : (
+              <>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Project Name</label>
+                  <input
+                    value={projectName}
+                    onChange={e => setProjectName(e.target.value)}
+                    className="mt-1 w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    placeholder="My Project"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">LLM Provider</label>
+                  <select
+                    value={llmProvider}
+                    onChange={e => setLlmProvider(e.target.value)}
+                    className="mt-1 w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  >
+                    <option value="">Select provider</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="anthropic">Anthropic</option>
+                    <option value="google">Google</option>
+                    <option value="ollama">Ollama (local)</option>
+                    <option value="groq">Groq</option>
+                    <option value="deepseek">DeepSeek</option>
+                  </select>
+                </div>
+                {config.data?.llm?.models && (
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Configured Models</label>
+                    <div className="mt-1 space-y-1">
+                      {Object.entries(config.data.llm.models).map(([task, model]) => (
+                        <div key={task} className="flex items-center justify-between text-xs bg-secondary/50 rounded-lg px-3 py-1.5">
+                          <span className="text-muted-foreground capitalize">{task.replace(/_/g, ' ')}</span>
+                          <span className="text-foreground font-medium">{model as string}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <button
+                  onClick={handleSaveProject}
+                  disabled={updateConfig.isPending}
+                  className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {updateConfig.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                  Save Project Settings
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* API Keys Tab */}
+      {activeTab === 'apikeys' && <ApiKeysTab projectId={projectId} />}
+
+      {/* Webhooks Tab */}
+      {activeTab === 'webhooks' && <WebhooksTab projectId={projectId} />}
 
       {/* Data Tab */}
       {activeTab === 'data' && (
         <div className="space-y-6 max-w-lg">
-          {/* Clear Cache */}
-          <div className="rounded-lg border bg-[hsl(var(--card))] p-4">
-            <h3 className="text-sm font-semibold uppercase text-[hsl(var(--muted-foreground))] mb-3">
-              Local Data
-            </h3>
-            <p className="text-sm text-[hsl(var(--muted-foreground))] mb-3">
-              Clear cached data stored in your browser. This does not affect server data.
-            </p>
-            <Button variant="secondary" onClick={handleClearCache}>
-              <Database className="h-4 w-4" />
-              Clear Local Cache
-            </Button>
+          <div className="bg-card border border-border rounded-xl p-5 space-y-3">
+            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Local Data</h3>
+            <p className="text-sm text-muted-foreground">Clear cached data stored in your browser. This does not affect server data.</p>
+            <button onClick={handleClearCache} className="px-4 py-2 rounded-lg bg-secondary text-secondary-foreground text-sm font-medium hover:bg-muted flex items-center gap-1.5">
+              <Database className="w-3.5 h-3.5" /> Clear Local Cache
+            </button>
           </div>
 
-          {/* Reset Project Data */}
-          <div className="rounded-lg border border-[hsl(var(--destructive))]/30 bg-[hsl(var(--card))] p-4">
-            <h3 className="text-sm font-semibold uppercase text-[hsl(var(--destructive))] mb-3">
-              Danger Zone
-            </h3>
-            <p className="text-sm text-[hsl(var(--muted-foreground))] mb-3">
-              Reset all project knowledge data. This will permanently delete facts, decisions,
-              questions, risks, and actions. Team, contacts, and cost data will be preserved.
+          <div className="bg-card border border-destructive/30 rounded-xl p-5 space-y-3">
+            <h3 className="text-xs font-medium text-destructive uppercase tracking-wider">Danger Zone</h3>
+            <p className="text-sm text-muted-foreground">
+              Reset all project knowledge data. This permanently deletes facts, decisions, questions, risks, and actions.
             </p>
-            <Button variant="destructive" onClick={() => setClearDialogOpen(true)}>
-              <Trash2 className="h-4 w-4" />
-              Reset Project Data
-            </Button>
+            {!clearDialogOpen ? (
+              <button onClick={() => setClearDialogOpen(true)} className="px-4 py-2 rounded-lg bg-destructive text-destructive-foreground text-sm font-medium hover:bg-destructive/90 flex items-center gap-1.5">
+                <Trash2 className="w-3.5 h-3.5" /> Reset Project Data
+              </button>
+            ) : (
+              <div className="bg-destructive/5 border border-destructive/20 rounded-lg p-4 space-y-3">
+                <p className="text-sm font-medium text-destructive">Are you sure? This action cannot be undone.</p>
+                <div className="flex gap-2">
+                  <button onClick={() => setClearDialogOpen(false)} className="px-4 py-2 rounded-lg bg-secondary text-secondary-foreground text-sm font-medium hover:bg-muted">
+                    Cancel
+                  </button>
+                  <button onClick={handleResetConfirm} disabled={resetData.isPending} className="px-4 py-2 rounded-lg bg-destructive text-destructive-foreground text-sm font-medium hover:bg-destructive/90 flex items-center gap-1.5 disabled:opacity-50">
+                    {resetData.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                    Confirm Reset
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── API Keys Tab ──
+
+function ApiKeysTab({ projectId }: { projectId: string }) {
+  const apiKeys = useApiKeys(projectId);
+  const createKey = useCreateApiKey();
+  const deleteKey = useDeleteApiKey();
+  const [showCreate, setShowCreate] = useState(false);
+  const [keyName, setKeyName] = useState('');
+  const [expiresInDays, setExpiresInDays] = useState('90');
+  const [newRawKey, setNewRawKey] = useState<string | null>(null);
+
+  const keys = apiKeys.data?.keys ?? [];
+
+  const handleCreate = () => {
+    if (!keyName.trim()) return;
+    createKey.mutate(
+      { projectId, name: keyName.trim(), expires_in_days: Number(expiresInDays) || undefined },
+      {
+        onSuccess: (data: any) => {
+          setNewRawKey(data.raw_key || null);
+          setKeyName('');
+          setShowCreate(false);
+          toast.success('API key created');
+        },
+        onError: () => toast.error('Failed to create API key'),
+      },
+    );
+  };
+
+  const handleDelete = (id: string) => {
+    deleteKey.mutate(id, {
+      onSuccess: () => toast.success('API key revoked'),
+      onError: () => toast.error('Failed to revoke key'),
+    });
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success('Copied to clipboard');
+  };
+
+  return (
+    <div className="space-y-4 max-w-lg">
+      <div className="flex items-center justify-between">
+        <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">API Keys</h3>
+        <button
+          onClick={() => setShowCreate(!showCreate)}
+          className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 flex items-center gap-1.5"
+        >
+          <Plus className="w-3.5 h-3.5" /> Create Key
+        </button>
+      </div>
+
+      {newRawKey && (
+        <div className="bg-warning/10 border border-warning/30 rounded-xl p-4 space-y-2">
+          <p className="text-xs font-medium text-warning">Copy your new API key now — it won't be shown again.</p>
+          <div className="flex gap-2">
+            <code className="flex-1 bg-secondary rounded-lg px-3 py-2 text-xs font-mono text-foreground break-all">{newRawKey}</code>
+            <button onClick={() => copyToClipboard(newRawKey)} className="px-3 py-2 rounded-lg bg-secondary hover:bg-muted">
+              <Copy className="w-3.5 h-3.5 text-muted-foreground" />
+            </button>
+          </div>
+          <button onClick={() => setNewRawKey(null)} className="text-xs text-muted-foreground hover:text-foreground">Dismiss</button>
+        </div>
+      )}
+
+      {showCreate && (
+        <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Key Name</label>
+            <input
+              value={keyName}
+              onChange={e => setKeyName(e.target.value)}
+              className="mt-1 w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              placeholder="e.g. Production API"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Expires In (days)</label>
+            <select
+              value={expiresInDays}
+              onChange={e => setExpiresInDays(e.target.value)}
+              className="mt-1 w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <option value="30">30 days</option>
+              <option value="90">90 days</option>
+              <option value="365">1 year</option>
+              <option value="">Never</option>
+            </select>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => setShowCreate(false)} className="px-3 py-1.5 rounded-lg bg-secondary text-secondary-foreground text-xs hover:bg-muted">Cancel</button>
+            <button onClick={handleCreate} disabled={createKey.isPending || !keyName.trim()} className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50">
+              {createKey.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Create'}
+            </button>
           </div>
         </div>
       )}
 
-      {/* Reset Confirmation Dialog */}
-      <Dialog open={clearDialogOpen} onClose={() => setClearDialogOpen(false)}>
-        <DialogHeader>
-          <DialogTitle>Reset Project Data</DialogTitle>
-          <DialogDescription>
-            Are you sure? This will permanently delete all knowledge data for the current project.
-            This action cannot be undone.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setClearDialogOpen(false)}>
-            Cancel
-          </Button>
-          <Button
-            variant="destructive"
-            onClick={handleResetConfirm}
-            disabled={resetData.isPending}
-          >
-            {resetData.isPending ? 'Resetting...' : 'Reset Data'}
-          </Button>
-        </DialogFooter>
-      </Dialog>
+      {apiKeys.isLoading ? (
+        <div className="flex items-center justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
+      ) : keys.length === 0 ? (
+        <div className="bg-card border border-border rounded-xl p-6 text-center text-muted-foreground text-sm">
+          <Key className="w-8 h-8 mx-auto mb-2 opacity-40" />
+          No API keys yet. Create one to access the API programmatically.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {keys.map(key => (
+            <div key={key.id} className="bg-card border border-border rounded-xl p-4 flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-foreground">{key.name}</p>
+                <div className="flex items-center gap-3 mt-0.5">
+                  {key.key_prefix && <span className="text-[10px] font-mono text-muted-foreground">{key.key_prefix}...</span>}
+                  <span className="text-[10px] text-muted-foreground">Created {new Date(key.created_at).toLocaleDateString()}</span>
+                  {key.expires_at && <span className="text-[10px] text-muted-foreground">Expires {new Date(key.expires_at).toLocaleDateString()}</span>}
+                </div>
+              </div>
+              <button onClick={() => handleDelete(key.id)} className="p-2 text-muted-foreground hover:text-destructive transition-colors">
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Webhooks Tab ──
+
+function WebhooksTab({ projectId }: { projectId: string }) {
+  const webhooks = useWebhooks(projectId);
+  const createWebhook = useCreateWebhook();
+  const deleteWebhook = useDeleteWebhook();
+  const testWebhook = useTestWebhook();
+  const [showCreate, setShowCreate] = useState(false);
+  const [url, setUrl] = useState('');
+  const [events, setEvents] = useState<string[]>([]);
+
+  const webhookList = webhooks.data?.webhooks ?? [];
+
+  const availableEvents = [
+    'document.processed', 'document.created', 'document.deleted',
+    'entity.created', 'entity.updated', 'entity.deleted',
+    'contact.created', 'contact.updated',
+    'email.received', 'email.processed',
+  ];
+
+  const toggleEvent = (event: string) => {
+    setEvents(prev => prev.includes(event) ? prev.filter(e => e !== event) : [...prev, event]);
+  };
+
+  const handleCreate = () => {
+    if (!url.trim() || events.length === 0) return;
+    createWebhook.mutate(
+      { projectId, url: url.trim(), events },
+      {
+        onSuccess: () => {
+          toast.success('Webhook created');
+          setUrl('');
+          setEvents([]);
+          setShowCreate(false);
+        },
+        onError: () => toast.error('Failed to create webhook'),
+      },
+    );
+  };
+
+  const handleTest = (id: string) => {
+    testWebhook.mutate(id, {
+      onSuccess: () => toast.success('Test webhook sent'),
+      onError: () => toast.error('Test delivery failed'),
+    });
+  };
+
+  return (
+    <div className="space-y-4 max-w-lg">
+      <div className="flex items-center justify-between">
+        <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Webhooks</h3>
+        <button
+          onClick={() => setShowCreate(!showCreate)}
+          className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 flex items-center gap-1.5"
+        >
+          <Plus className="w-3.5 h-3.5" /> Add Webhook
+        </button>
+      </div>
+
+      {showCreate && (
+        <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Endpoint URL</label>
+            <input
+              value={url}
+              onChange={e => setUrl(e.target.value)}
+              className="mt-1 w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              placeholder="https://your-server.com/webhook"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5 block">Events</label>
+            <div className="flex flex-wrap gap-1.5">
+              {availableEvents.map(event => (
+                <button
+                  key={event}
+                  onClick={() => toggleEvent(event)}
+                  className={cn(
+                    'px-2 py-1 rounded-md text-[10px] font-medium transition-colors border',
+                    events.includes(event)
+                      ? 'bg-primary/10 border-primary/30 text-primary'
+                      : 'bg-secondary border-border text-muted-foreground hover:text-foreground'
+                  )}
+                >
+                  {event}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => setShowCreate(false)} className="px-3 py-1.5 rounded-lg bg-secondary text-secondary-foreground text-xs hover:bg-muted">Cancel</button>
+            <button onClick={handleCreate} disabled={createWebhook.isPending || !url.trim() || events.length === 0} className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50">
+              {createWebhook.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Create'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {webhooks.isLoading ? (
+        <div className="flex items-center justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
+      ) : webhookList.length === 0 ? (
+        <div className="bg-card border border-border rounded-xl p-6 text-center text-muted-foreground text-sm">
+          <Webhook className="w-8 h-8 mx-auto mb-2 opacity-40" />
+          No webhooks configured. Add one to receive real-time event notifications.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {webhookList.map(wh => (
+            <div key={wh.id} className="bg-card border border-border rounded-xl p-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm font-mono text-foreground truncate flex-1 mr-2">{wh.url}</p>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => handleTest(wh.id)} disabled={testWebhook.isPending} className="px-2 py-1 rounded-md bg-secondary text-[10px] text-muted-foreground hover:text-foreground">
+                    Test
+                  </button>
+                  <button onClick={() => deleteWebhook.mutate(wh.id, { onSuccess: () => toast.success('Webhook deleted') })} className="p-1.5 text-muted-foreground hover:text-destructive transition-colors">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {wh.events.map(evt => (
+                  <span key={evt} className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">{evt}</span>
+                ))}
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-1.5">Created {new Date(wh.created_at).toLocaleDateString()}</p>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

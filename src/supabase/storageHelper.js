@@ -1,15 +1,45 @@
 /**
- * SupabaseStorage Helper
- * 
- * Provides a singleton instance of SupabaseStorage for use across the application.
- * This replaces the old Storage class from storage.js.
- * 
+ * Purpose:
+ *   Manages a singleton SupabaseStorage instance and provides Express
+ *   middleware for attaching it to incoming requests. Acts as the bridge
+ *   between the application layer and the SupabaseStorage class.
+ *
+ * Responsibilities:
+ *   - Initialize the SupabaseStorage singleton once at startup
+ *   - Auto-initialize with defaults if getStorage() is called before
+ *     explicit init (developer convenience; logged at debug level)
+ *   - Provide Express middleware to attach storage + project context to
+ *     every request (`attachStorage`, `requireProject`)
+ *   - Expose a migration-status checker for projects that may still have
+ *     local JSON data but no Supabase data
+ *   - Allow instance reset for test isolation (`resetStorage`)
+ *
+ * Key dependencies:
+ *   - ./storage (SupabaseStorage, createSupabaseStorage): the underlying
+ *     storage class
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - Holds module-level mutable state (`storageInstance`)
+ *   - `attachStorage` / `requireProject` mutate `req.storage` and call
+ *     `setProject` / `setUser` on the shared singleton, which clears its
+ *     internal cache. This means concurrent requests sharing the singleton
+ *     may interfere if project context differs -- Assumption: the
+ *     application serializes or scopes requests appropriately.
+ *   - `checkMigrationStatus` reads the local filesystem (fs.existsSync)
+ *
+ * Notes:
+ *   - The project ID for middleware is resolved from `req.params.projectId`
+ *     or the `X-Project-Id` header, in that order.
+ *   - The singleton pattern means all callers share cache and context state.
+ *     For multi-tenant scenarios consider one instance per request instead.
+ *
  * Usage:
  *   const { getStorage, initStorage } = require('./supabase/storageHelper');
- *   
+ *
  *   // Initialize once at app startup
  *   await initStorage();
- *   
+ *
  *   // Get instance anywhere
  *   const storage = getStorage();
  *   const facts = await storage.getFacts();

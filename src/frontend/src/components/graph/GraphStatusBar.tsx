@@ -1,3 +1,28 @@
+/**
+ * Purpose:
+ *   Floating status card overlay in the graph viewport that displays
+ *   real-time synchronization state, graph metrics, and error information.
+ *
+ * Responsibilities:
+ *   - Shows connection state (Connected / Syncing / Error / Disconnected)
+ *     with animated icon and color coding
+ *   - Displays an indeterminate progress bar during sync operations
+ *   - Renders a metrics grid: node count, edge count, pending count
+ *   - Shows last sync timestamp and error tooltip on failure
+ *
+ * Key dependencies:
+ *   - useGraphSync: provides sync status, isSyncing flag, error, and
+ *     sync trigger function
+ *   - Progress (shadcn/ui): indeterminate progress bar
+ *   - Tooltip (shadcn/ui): error detail tooltip
+ *
+ * Side effects:
+ *   - None directly; reads sync state from the hook
+ *
+ * Notes:
+ *   - Positioned absolutely at bottom-left of the graph viewport container.
+ *   - The sync trigger button is not rendered here; it lives in GraphToolbar.
+ */
 import React, { useMemo } from 'react';
 import { useGraphSync } from '@/hooks/graph/useGraphSync';
 import { Activity, AlertCircle, Calendar, CheckCircle, Clock, Database, RefreshCw, Server, Wifi, WifiOff } from 'lucide-react';

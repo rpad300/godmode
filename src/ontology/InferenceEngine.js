@@ -1,11 +1,39 @@
 /**
- * InferenceEngine - Executes ontology inference rules on the graph
- * 
- * Automatically creates inferred relationships based on defined rules.
- * Runs after data sync and periodically to maintain graph consistency.
- * 
- * SOTA v2.0 - State of the Art Ontology Integration
- * SOTA v3.0 - Native Supabase support (no Cypher dependency)
+ * Purpose:
+ *   Executes ontology inference rules against the knowledge graph to
+ *   materialise implicit relationships (e.g. WORKS_WITH, KNOWS, PRODUCED).
+ *   Supports both Cypher-defined rules and hard-coded native rules for
+ *   the Supabase graph provider.
+ *
+ * Responsibilities:
+ *   - Run all ontology-defined Cypher inference rules in sequence
+ *   - For Supabase providers, run built-in native inference rules:
+ *       * WORKS_WITH between people in the same organisation
+ *       * KNOWS between co-attendees of the same meeting
+ *       * PRODUCED linking meetings to their extracted actions
+ *   - Run a single named rule on demand
+ *   - Analyse the graph for new inference rule opportunities
+ *   - Create and optionally persist custom inference rules
+ *   - Support periodic (interval-based) automatic execution
+ *
+ * Key dependencies:
+ *   - ../logger: structured logging
+ *   - ./OntologyManager (singleton): provides inference rule definitions
+ *   - Graph provider (injected): executes queries and creates relationships
+ *
+ * Side effects:
+ *   - Creates new relationship edges in the graph database
+ *   - Graph reads (findNodes, findRelationships, Cypher queries) during analysis
+ *   - setInterval timer for periodic runs (must be stopped on shutdown)
+ *
+ * Notes:
+ *   - Native inference uses createRelationship which silently ignores duplicates,
+ *     so rules are safe to re-run idempotently.
+ *   - The WORKS_WITH rule generates O(n^2) pairs per organisation; for large
+ *     orgs the 500-person limit per findNodes call bounds the explosion.
+ *   - createRule() validates Cypher syntax with EXPLAIN for non-Supabase
+ *     providers; for Supabase it skips validation because Cypher is unused.
+ *   - onSyncComplete() is designed to be wired as a post-sync hook in GraphSync.
  */
 
 const { logger } = require('../logger');
@@ -13,7 +41,28 @@ const { getOntologyManager } = require('./OntologyManager');
 
 const log = logger.child({ module: 'inference-engine' });
 
+/**
+ * Executes ontology inference rules to materialise implicit relationships
+ * in the knowledge graph.
+ *
+ * Two execution paths exist:
+ *   1. Cypher-based: reads rule definitions from the ontology and executes
+ *      them as raw Cypher queries.
+ *   2. Native (Supabase): runs hard-coded JavaScript inference logic using
+ *      findNodes/createRelationship provider methods.
+ *
+ * Lifecycle: construct -> setGraphProvider() -> runAllRules() (or register
+ * as a post-sync hook via onSyncComplete). Optionally startPeriodicRun()
+ * for interval-based execution.
+ */
 class InferenceEngine {
+    /**
+     * @param {object} options
+     * @param {object} [options.ontology] - OntologyManager instance (defaults to singleton)
+     * @param {object} [options.graphProvider] - Graph backend
+     * @param {boolean} [options.autoRunAfterSync=true] - Run rules automatically after sync
+     * @param {number} [options.periodicInterval] - Interval in ms for periodic runs (null = disabled)
+     */
     constructor(options = {}) {
         this.ontology = options.ontology || getOntologyManager();
         this.graphProvider = options.graphProvider || null;
@@ -51,7 +100,7 @@ class InferenceEngine {
 
     /**
      * Run all inference rules defined in the ontology
-     * SOTA v3.0 - Supports both Cypher (FalkorDB) and native (Supabase) providers
+     * SOTA v3.0 - Supports both Cypher and native (Supabase) providers
      * @returns {Promise<{ok: boolean, results?: object, error?: string}>}
      */
     async runAllRules() {
@@ -64,7 +113,7 @@ class InferenceEngine {
             return this._runNativeInference();
         }
 
-        // For Cypher-based providers (FalkorDB, Neo4j)
+        // For Cypher-based providers
         const rules = this.ontology.getInferenceCyphers();
         if (!rules || rules.length === 0) {
             log.debug({ event: 'inference_engine_no_rules' }, 'No inference rules defined');
@@ -175,7 +224,11 @@ class InferenceEngine {
     }
 
     /**
-     * Infer WORKS_WITH relationships between people in same organization
+     * Infer WORKS_WITH relationships between Person nodes that share the
+     * same organisation property. Generates O(n^2) pairs per org; the
+     * 500-person findNodes limit bounds total work.
+     *
+     * @returns {Promise<{success: boolean, created: number, checked: number, error?: string}>}
      */
     async _inferWorksWithRelationships() {
         const result = { success: true, created: 0, checked: 0 };
@@ -225,7 +278,11 @@ class InferenceEngine {
     }
 
     /**
-     * Infer KNOWS relationships from meeting attendance
+     * Infer KNOWS relationships between Person nodes that co-attended the
+     * same Meeting (linked via PARTICIPATED_IN edges). Creates bidirectional
+     * pairs for all participants of each meeting.
+     *
+     * @returns {Promise<{success: boolean, created: number, checked: number, error?: string}>}
      */
     async _inferKnowsFromMeetings() {
         const result = { success: true, created: 0, checked: 0 };
@@ -273,7 +330,12 @@ class InferenceEngine {
     }
 
     /**
-     * Infer PRODUCED relationships between meetings and actions/decisions/facts
+     * Infer PRODUCED relationships from Meeting nodes to Action nodes by
+     * matching Action.source_file or Action.meeting against a deterministic
+     * meeting ID (meeting_{source}). Only links when the meeting node
+     * actually exists in the graph.
+     *
+     * @returns {Promise<{success: boolean, created: number, checked: number, error?: string}>}
      */
     async _inferActionMeetingLinks() {
         const result = { success: true, created: 0, checked: 0 };

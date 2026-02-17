@@ -1,6 +1,27 @@
 /**
- * Grok (xAI) Provider Adapter
- * Supports xAI's Grok API (OpenAI-compatible)
+ * Purpose:
+ *   Provider adapter for xAI's Grok models via their OpenAI-compatible API.
+ *   Full-featured: text, vision, embeddings, and dynamic model listing.
+ *
+ * Responsibilities:
+ *   - Text and vision generation via chat/completions endpoint
+ *   - Embedding generation via embeddings endpoint
+ *   - Dynamic model discovery and categorization from /models
+ *
+ * Key dependencies:
+ *   - ./base (BaseLLMProvider): shared retry, error classification, HTTP helpers
+ *
+ * Side effects:
+ *   - Network I/O to api.x.ai (or custom baseUrl)
+ *   - Filesystem reads when images are passed as file paths in generateVision
+ *
+ * Notes:
+ *   - xAI's API is fully OpenAI-compatible, so request/response shapes match OpenAI.
+ *   - All Grok 2+ models are assumed to support vision (categorized by "grok-2" in id).
+ *   - Vision uses OpenAI's image_url format with base64 data URIs.
+ *   - Default embedding model is "grok-embedding"; availability depends on API tier.
+ *   - Unlike OpenAI, no need for max_completion_tokens vs max_tokens distinction;
+ *     all models accept max_tokens.
  */
 
 const BaseLLMProvider = require('./base');

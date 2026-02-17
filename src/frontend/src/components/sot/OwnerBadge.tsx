@@ -1,7 +1,32 @@
-import { mockContacts } from '@/data/mock-data';
-
+/**
+ * Purpose:
+ *   Small reusable badge component that displays an entity owner or
+ *   assignee as a colored avatar circle with initials plus their name.
+ *
+ * Responsibilities:
+ *   - Generates a two-letter initial from the name (first letter of
+ *     each word)
+ *   - Selects a deterministic color from a fixed palette based on a
+ *     hash of the name string
+ *   - Renders in two sizes: "sm" (24px avatar, 11px text) and "md"
+ *     (32px avatar, 14px text)
+ *   - Optionally displays a role subtitle
+ *
+ * Key dependencies:
+ *   - None (self-contained presentational component)
+ *
+ * Side effects:
+ *   - None
+ *
+ * Notes:
+ *   - Used across all SOT panels (Actions, Decisions, Questions, Risks)
+ *     for consistent owner display.
+ *   - The color hash is a simple djb2 variant; collisions are acceptable
+ *     since the palette has only 5 colors.
+ */
 interface OwnerBadgeProps {
   name: string;
+  role?: string;
   size?: 'sm' | 'md';
 }
 
@@ -22,9 +47,7 @@ const getColor = (name: string) => {
 const getInitials = (name: string) =>
   name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
 
-const OwnerBadge = ({ name, size = 'sm' }: OwnerBadgeProps) => {
-  const contact = mockContacts.find(c => c.name === name);
-  const role = contact?.role;
+const OwnerBadge = ({ name, role, size = 'sm' }: OwnerBadgeProps) => {
   const initials = getInitials(name);
   const color = getColor(name);
 

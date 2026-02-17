@@ -1,8 +1,33 @@
 /**
- * Delete Statistics Module
- * Tracks and provides metrics on delete operations
- * 
- * Refactored to use Supabase instead of local JSON files
+ * Purpose:
+ *   Collects, persists, and reports quantitative metrics on delete, restore,
+ *   and purge operations for dashboards and health monitoring.
+ *
+ * Responsibilities:
+ *   - Record individual delete/restore/purge events, updating both Supabase
+ *     tables and an in-memory session counter
+ *   - Aggregate statistics from Supabase (by type, hour, day, month) with a
+ *     TTL-based cache to avoid excessive queries
+ *   - Compute derived health indicators (graph sync rate, soft-delete rate)
+ *   - Provide a dashboard-ready summary including health status thresholds
+ *
+ * Key dependencies:
+ *   - ../supabase/storageHelper: Supabase client for persisted stats (optional;
+ *     gracefully degrades to in-memory-only tracking)
+ *   - ../logger: structured warning logging
+ *
+ * Side effects:
+ *   - Writes to `delete_stats` and `delete_audit_log` Supabase tables via RPC
+ *     and inserts
+ *   - `recordPurge` issues N individual RPC calls (one per purged item);
+ *     Assumption: purge counts are small enough that this is acceptable
+ *
+ * Notes:
+ *   - Supabase import may fail at require-time due to a project folder name
+ *     conflict; the module falls back to in-memory tracking only.
+ *   - Cache TTL is 60 seconds; `_cache.lastRefresh = 0` invalidates it.
+ *   - Session stats (`_sessionStats`) are never persisted; they exist only for
+ *     the current process lifetime.
  */
 
 const { logger } = require('../logger');
@@ -17,6 +42,16 @@ try {
     log.warn({ event: 'delete_stats_supabase_unavailable' }, 'Supabase not available, using in-memory tracking only');
 }
 
+/**
+ * Dual-layer statistics tracker: persists to Supabase when available, and
+ * always maintains in-memory session counters as a fallback.
+ *
+ * Read path: `getStats` and `getDashboard` merge cached Supabase data with
+ * session counters. The cache is refreshed at most once per `_cacheTTL` ms.
+ *
+ * Write path: each `record*` method writes to Supabase (if reachable) and
+ * unconditionally increments the session counter.
+ */
 class DeleteStats {
     constructor(options = {}) {
         // In-memory stats for current session
@@ -279,7 +314,9 @@ class DeleteStats {
     }
 
     /**
-     * Get dashboard data
+     * Assemble a UI-ready dashboard payload including summary counts,
+     * per-type breakdown, hourly/daily/monthly distributions, and a
+     * traffic-light health assessment for graph sync rate and delete latency.
      */
     async getDashboard() {
         const stats = await this.getStats();

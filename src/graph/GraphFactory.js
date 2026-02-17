@@ -1,6 +1,34 @@
 /**
- * Graph Provider Factory
- * Creates and manages graph database provider instances
+ * Purpose:
+ *   Factory module for creating, caching, and lifecycle-managing graph database
+ *   provider instances. Centralises provider registration and configuration-driven
+ *   instantiation so callers never need to know which concrete backend is in use.
+ *
+ * Responsibilities:
+ *   - Maintain a provider registry (currently Supabase only; extensible)
+ *   - Create provider instances from a provider ID and config object
+ *   - Cache provider instances keyed by (providerId + serialised config) to avoid
+ *     redundant connections
+ *   - Test provider connectivity without persisting the connection
+ *   - Bootstrap a fully-connected provider from the application config object
+ *   - Enumerate available providers and their declared capabilities
+ *   - Gracefully disconnect and clear all cached providers
+ *
+ * Key dependencies:
+ *   - ../logger: structured logging
+ *   - ./GraphProvider: abstract base class that all providers extend
+ *   - ./providers/supabase: concrete Supabase-based graph provider (lazy-loaded)
+ *
+ * Side effects:
+ *   - createFromConfig() opens a persistent connection to the graph database
+ *   - clearCache() disconnects all cached providers (async, fire-and-forget)
+ *   - Module-level Map (providerCache) persists for the process lifetime
+ *
+ * Notes:
+ *   - Provider loaders in PROVIDERS are functions (lazy require) to avoid circular
+ *     dependency issues and reduce startup cost when the graph module is unused.
+ *   - getProvider() cache key includes the full JSON-serialised config, so even
+ *     minor config differences produce separate instances.
  */
 
 const { logger } = require('../logger');
@@ -41,7 +69,7 @@ function getProviders() {
 
 /**
  * Create a graph provider instance
- * @param {string} providerId - Provider identifier ('json', 'falkordb')
+ * @param {string} providerId - Provider identifier (e.g. 'supabase')
  * @param {object} config - Provider-specific configuration
  * @returns {GraphProvider}
  */

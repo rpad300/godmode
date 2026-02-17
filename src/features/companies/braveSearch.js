@@ -1,6 +1,23 @@
 /**
- * Brave Search API client for company research
- * https://api.search.brave.com/app/documentation/web-search/query
+ * Purpose:
+ *   Thin wrapper around the Brave Web Search API for enriching company analysis
+ *   with real-time web data (titles, descriptions, URLs).
+ *
+ * Responsibilities:
+ *   - Execute web searches via Brave Search REST API with configurable count, country, and language
+ *   - Assemble search result snippets into a plain-text context string for LLM consumption
+ *
+ * Key dependencies:
+ *   - Native fetch (Node 18+): HTTP calls to Brave Search API
+ *
+ * Side effects:
+ *   - Network: outbound HTTPS requests to api.search.brave.com (15s timeout)
+ *
+ * Notes:
+ *   - Result count is clamped to [1, 20] per Brave API limits
+ *   - snippetsFromResult concatenates title+description+URL blocks with --- separators
+ *     and stops accumulating once maxChars is exceeded to stay within LLM context limits
+ *   - API reference: https://api.search.brave.com/app/documentation/web-search/query
  */
 
 const BRAVE_WEB_SEARCH_URL = 'https://api.search.brave.com/res/v1/web/search';

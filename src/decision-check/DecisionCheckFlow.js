@@ -1,8 +1,32 @@
 /**
- * Decision Check Flow
- * Runs analysis on project decisions using the app's configured AI (LLM): detects
- * conflicts/contradictions via LLM, records conflict_detected in decision_events.
- * Prompt is loaded from Supabase (system_prompts key: decision_check_conflicts) and editable in Admin.
+ * Purpose:
+ *   Analyses all project decisions to detect conflicts or contradictions
+ *   between them, using an LLM to identify semantically incompatible outcomes.
+ *
+ * Responsibilities:
+ *   - Retrieve all decisions from project-scoped storage
+ *   - Format decisions into a numbered list for the LLM prompt
+ *   - Load the prompt template from Supabase (key: decision_check_conflicts)
+ *     or fall back to an inline template
+ *   - Parse the LLM's JSON array response into structured conflict objects
+ *   - Optionally record conflict_detected events on both decisions via storage._addDecisionEvent
+ *
+ * Key dependencies:
+ *   - ../llm: centralised LLM text generation
+ *   - ../llm/config: resolves provider/model from app config (reasoning tier)
+ *   - ../supabase/prompts: loads admin-editable prompt templates
+ *   - storage (passed in): project-scoped storage with getDecisions / _addDecisionEvent
+ *
+ * Side effects:
+ *   - Network call to configured LLM provider
+ *   - Network call to Supabase for prompt template
+ *   - Writes conflict_detected events to decision_events when recordEvents is true
+ *
+ * Notes:
+ *   - Requires at least 2 decisions to perform analysis; returns empty otherwise.
+ *   - Temperature is 0.1 for high-consistency conflict detection.
+ *   - Conflict confidence is hardcoded at 0.8; a future improvement could let the
+ *     LLM return its own confidence score.
  */
 
 const { logger } = require('../logger');

@@ -1,3 +1,31 @@
+/**
+ * Purpose:
+ *   One-off database migration script that adds `requester_role` and
+ *   `requester_role_prompt` columns to the `knowledge_questions` table
+ *   in Supabase PostgreSQL.
+ *
+ * Responsibilities:
+ *   - Connect to Supabase using the service role key (full admin access)
+ *   - Execute ALTER TABLE via the `exec_sql` RPC function
+ *   - Verify the columns exist by issuing a test SELECT query
+ *
+ * Key dependencies:
+ *   - @supabase/supabase-js: Supabase client for RPC and query access
+ *   - dotenv: loads SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY from .env
+ *   - ./logger: structured logging
+ *
+ * Side effects:
+ *   - Modifies the `knowledge_questions` table schema in Supabase (DDL)
+ *   - Requires the `exec_sql` RPC function to exist in the database
+ *
+ * Notes:
+ *   - Uses IF NOT EXISTS so the migration is safe to run multiple times.
+ *   - Errors from ALTER are logged at debug level because they are expected
+ *     when the columns already exist.
+ *   - If exec_sql is not available, the script will fail; in that case run
+ *     migration 036 manually via the Supabase dashboard (see log message).
+ *   - This script is meant to be run directly: `node src/run-migration.js`
+ */
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config({ path: './.env' });
 
@@ -9,6 +37,12 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+/**
+ * Execute the migration: add two columns to knowledge_questions, then verify.
+ * Logs results at appropriate levels; does not throw on partial failure so
+ * the verification query always runs.
+ * @throws {Error} Only if the Supabase client itself is misconfigured
+ */
 async function runMigration() {
   log.info({ event: 'run_migration_start' }, 'Adding requester_role columns...');
 

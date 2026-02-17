@@ -1,7 +1,34 @@
 #!/usr/bin/env node
 /**
- * Direct SQL Migration Runner for Supabase
- * Uses the Supabase Management API to execute SQL
+ * Purpose:
+ *   Migration runner that connects directly to the Supabase Postgres database
+ *   via the pg pooler (libpq protocol) and executes each migration file as a
+ *   single query. Falls back to REST API RPC if the pg module is unavailable.
+ *
+ * Responsibilities:
+ *   - Detect whether the `pg` npm package is installed; install it if missing
+ *   - Connect via postgresql://postgres.<ref>:<password>@pooler:6543/postgres
+ *   - Execute each migration file (005+) as a whole SQL string via client.query()
+ *   - Fall back to the exec_sql RPC endpoint if pg is not available
+ *
+ * Key dependencies:
+ *   - pg (npm, auto-installed): PostgreSQL client for direct database connection
+ *
+ * Side effects:
+ *   - Executes DDL/DML against the remote Supabase Postgres database
+ *   - May run `npm install pg --save` if the package is missing
+ *   - Reads src/.env for credentials
+ *
+ * Notes:
+ *   - This is the most reliable migration runner because it uses a real Postgres
+ *     connection rather than the REST API, avoiding SQL-splitting issues
+ *   - "already exists" errors are logged but do not stop the migration sequence
+ *   - FAKORDB_PASSWORD env var is used as the database password (Assumption:
+ *     this is the Supabase project DB password)
+ *   - The pooler connection string assumes eu-west-2 region; update for other regions
+ *
+ * Usage:
+ *   node supabase/run-migrations.js
  */
 
 const fs = require('fs');
@@ -76,7 +103,10 @@ async function executeSqlViaRest(sql, description) {
     });
 }
 
-// Try using pg-protocol directly via pooler
+/**
+ * Execute a SQL string via a direct Postgres connection through the
+ * Supabase connection pooler (port 6543). Requires the pg package.
+ */
 async function executeSqlViaPooler(sql) {
     // Supabase pooler connection string format:
     // postgresql://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres

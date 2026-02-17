@@ -1,6 +1,22 @@
 /**
- * Shared LLM constants (provider-agnostic).
- * Use these instead of hardcoding model names or capability patterns.
+ * Purpose:
+ *   Shared, provider-agnostic constants for the LLM subsystem. Centralizes magic
+ *   strings and pattern lists so they can be maintained in one place.
+ *
+ * Responsibilities:
+ *   - Defines OLLAMA_VISION_PATTERNS: substring patterns used by isVisionModel()
+ *     (in index.js) to detect whether an Ollama model name implies vision support,
+ *     since Ollama's API does not expose a capability flag for this.
+ *
+ * Key dependencies:
+ *   - None
+ *
+ * Side effects:
+ *   - None
+ *
+ * Notes:
+ *   - When Ollama adds a new vision-capable model family, add its distinguishing
+ *     substring here. The match is case-insensitive (callers lowercase before comparing).
  */
 
 /** Ollama model name substrings that indicate vision capability (used by isVisionModel) */

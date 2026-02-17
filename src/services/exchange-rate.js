@@ -1,8 +1,30 @@
 /**
- * Exchange Rate Service
- * 
- * Fetches USD/EUR exchange rate from free API with caching.
- * Falls back to manual rate if API fails.
+ * Purpose:
+ *   Provides the current USD-to-EUR exchange rate through a layered
+ *   resolution strategy: manual override, in-memory cache, free REST APIs,
+ *   database fallback, and a hard-coded default.
+ *
+ * Responsibilities:
+ *   - Fetch live rates from Frankfurter and Open ER-API (no API key needed)
+ *   - Cache the rate in-memory for 24 hours
+ *   - Persist / retrieve rates via the Supabase `system_config` table
+ *   - Allow admin toggle between auto (API) and manual rate modes
+ *   - Expose config inspection and force-refresh endpoints
+ *
+ * Key dependencies:
+ *   - https / http (Node built-in): Direct HTTP calls (no axios)
+ *   - ../logger: Structured logging
+ *   - ../supabase: Supabase client for DB persistence (lazily loaded)
+ *
+ * Side effects:
+ *   - Network calls to external exchange-rate APIs
+ *   - Writes to `system_config` table (storeRateInDatabase is fire-and-forget)
+ *
+ * Notes:
+ *   - DEFAULT_RATE (0.92) is only used when all other sources fail
+ *   - storeRateInDatabase is intentionally not awaited in the hot path to keep
+ *     latency low; a failure there is logged but non-fatal
+ *   - The 10-second request timeout guards against slow upstream APIs
  */
 
 const https = require('https');

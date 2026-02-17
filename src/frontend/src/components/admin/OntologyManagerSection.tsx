@@ -1,4 +1,39 @@
-
+/**
+ * Purpose:
+ *   Admin panel for managing the knowledge graph ontology schema. Provides
+ *   three sub-views: AI-generated suggestions, schema browsing/editing,
+ *   and background graph analysis.
+ *
+ * Responsibilities:
+ *   - OntologyManagerSection (main): tabbed container for the three views
+ *   - SuggestionsView: fetches pending ontology suggestions via TanStack
+ *     Query; supports approve, reject, and AI-enrich mutations
+ *   - SchemaView: displays entity types and relationship types in list or
+ *     interactive graph view (OntologyVisualizer); opens RelationBuilder
+ *     dialog for creating new relationships
+ *   - GraphAnalysisView: polls background worker status; triggers full
+ *     ontology analysis; displays latest AI summary and gap statistics
+ *
+ * Key dependencies:
+ *   - @tanstack/react-query: data fetching, caching, and mutations
+ *   - apiClient: typed API helper for all ontology endpoints
+ *   - OntologyVisualizer: React Flow-based schema graph view
+ *   - RelationBuilder: form for creating new relationship types
+ *   - sonner (toast): user feedback
+ *
+ * Side effects:
+ *   - Network: fetches suggestions, schema, worker status; mutates
+ *     suggestions (approve/reject/enrich); triggers background analysis;
+ *     creates new relationship types
+ *   - Worker polling: refetchInterval is 2s when analysis is running,
+ *     5s when idle
+ *
+ * Notes:
+ *   - OntologyVisualizer and RelationBuilder are imported mid-file (after
+ *     SuggestionsView) rather than at the top; this is intentional to
+ *     keep them co-located with SchemaView but could be refactored.
+ *   - The "Add Entity" button in SchemaView is rendered but not wired up.
+ */
 import React, { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "../../lib/api-client";

@@ -1,7 +1,21 @@
 /**
- * GodMode Extraction Validators
- * 
- * Schema validation for extraction outputs
+ * Purpose:
+ *   Barrel export for extraction output validators, currently focused on
+ *   transcript schema validation (v1.5+).
+ *
+ * Responsibilities:
+ *   - Re-export validateTranscriptOutput, isValidTranscriptOutput, ENUMS,
+ *     and ValidationResult from transcriptSchema
+ *
+ * Key dependencies:
+ *   - ./transcriptSchema: Full transcript output validator with notes-pack support
+ *
+ * Side effects:
+ *   - None
+ *
+ * Notes:
+ *   - Additional validators (document, conversation) can be added alongside
+ *     transcriptSchema and re-exported here
  */
 
 const transcriptSchema = require('./transcriptSchema');

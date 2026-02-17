@@ -1,23 +1,50 @@
 /**
- * Storage Compatibility Layer
- * 
- * This module provides backward compatibility with the old synchronous Storage API
- * while using SupabaseStorage internally. This allows gradual migration of the
- * codebase without breaking existing functionality.
- * 
+ * Purpose:
+ *   Compatibility bridge between the legacy synchronous Storage API (JSON files)
+ *   and the new async Supabase-backed storage. Allows the rest of the codebase to
+ *   migrate incrementally without a big-bang rewrite.
+ *
+ * Responsibilities:
+ *   - Present the same method signatures as Storage (getFacts, addFact, getDocuments, etc.)
+ *     but delegate to SupabaseStorage when available
+ *   - Maintain an in-memory cache (_cache) for sync-style reads; refresh from Supabase
+ *     on init, project switch, and explicit refreshCache() calls
+ *   - Mirror cached data into legacy structure properties (this.knowledge, this.questions,
+ *     this.documents) so code that reads those directly still works
+ *   - Fall back to local JSON files (via projects.json) when Supabase is unavailable
+ *   - Provide CRUD for all entity types: facts, decisions, risks, actions, questions,
+ *     people, documents, contacts (with aliases, relationships, teams), conversations,
+ *     sprints, user stories, briefings, chat sessions, emails, and ontology
+ *   - Handle legacy project ID resolution (non-UUID IDs from the JSON storage era)
+ *   - Support contact import/export (JSON and CSV), duplicate detection, and merge
+ *
+ * Key dependencies:
+ *   - ./supabase/storageHelper (optional, try-loaded): Supabase storage backend
+ *   - ./logger: Structured logging
+ *   - fs / path: Local fallback for projects.json and file-based paths
+ *
+ * Side effects:
+ *   - On init, reads Supabase DB (all entity tables) to populate the in-memory cache
+ *   - Falls back to reading local projects.json if Supabase is unavailable
+ *   - All write methods (add*, update*, delete*) mutate Supabase AND the in-memory cache
+ *   - Supabase module load failure is non-fatal (caught and logged as warning)
+ *
+ * Notes:
+ *   - Many methods return sync values from cache but perform async Supabase writes;
+ *     callers that need write confirmation should await the async methods
+ *   - The _isSupabaseMode flag can flip to false mid-session if Supabase init fails,
+ *     causing a graceful degradation to cache-only mode
+ *   - Contact alias matching is case-insensitive and trimmed
+ *   - Document status mapping: legacy 'processed' == Supabase 'completed'
+ *
  * Usage:
- *   // Replace:
- *   const Storage = require('./storage');
- *   const storage = new Storage(dataDir);
- *   
- *   // With:
+ *   // Async (preferred):
  *   const { createCompatStorage } = require('./storageCompat');
  *   const storage = await createCompatStorage(dataDir);
- * 
- * The compatibility layer:
- * - Wraps async SupabaseStorage methods in sync-like interface where possible
- * - Maintains in-memory cache for frequently accessed data
- * - Falls back to local JSON storage if Supabase is not available
+ *
+ *   // Sync fallback (may have stale data):
+ *   const { createSyncCompatStorage } = require('./storageCompat');
+ *   const storage = createSyncCompatStorage(dataDir);
  */
 
 const path = require('path');
@@ -34,6 +61,22 @@ try {
     log.warn({ event: 'supabase_module_unavailable', err: e.message, code: e.code }, 'Supabase module not available, using local storage fallback');
 }
 
+/**
+ * Compatibility wrapper that presents the legacy Storage interface while delegating
+ * to SupabaseStorage for persistence.
+ *
+ * Lifecycle: construct -> init() -> ready.
+ * After init(), data is available synchronously via cache properties.
+ *
+ * Dual-write pattern: writes go to Supabase first, then update the local cache.
+ * Reads always return from cache for speed. Cache is refreshed on init() and
+ * switchProject(), or manually via refreshCache().
+ *
+ * Invariants:
+ *   - this._cache always reflects the current project's data
+ *   - this.knowledge / this.questions / this.documents mirror _cache for backward compat
+ *   - If _supabase is null, all operations are cache-only (no persistence)
+ */
 class StorageCompat {
     constructor(dataDir, supabaseStorage = null) {
         this.dataDir = dataDir;
@@ -85,7 +128,13 @@ class StorageCompat {
     }
 
     /**
-     * Initialize and sync with Supabase
+     * Initialize the storage layer: connect to Supabase, load current project,
+     * and populate the in-memory cache.
+     *
+     * Falls back to local projects.json for project context if Supabase is unavailable
+     * or has no projects. Sets _isSupabaseMode = false on failure for graceful degradation.
+     *
+     * @returns {StorageCompat} this (for chaining)
      */
     async init() {
         if (this._isSupabaseMode && this._supabase) {
@@ -155,7 +204,17 @@ class StorageCompat {
     }
 
     /**
-     * Refresh cache from Supabase
+     * Refresh the entire in-memory cache from Supabase for the current project.
+     *
+     * Fetches all entity types in parallel (facts, decisions, risks, actions,
+     * questions, people, documents, contacts, teams, relationships) and updates
+     * both _cache and legacy structure properties.
+     *
+     * Handles legacy (non-UUID) project IDs by resolving them through
+     * setProjectWithLegacySupport before fetching data.
+     *
+     * Called automatically on init() and switchProject(). Can also be called
+     * manually when external changes to the DB need to be reflected.
      */
     async _refreshCache() {
         if (!this._supabase || !this.currentProjectId) return;
@@ -764,6 +823,13 @@ class StorageCompat {
         return this._cache.questions.find(q => q.id === id);
     }
 
+    /**
+     * Update a question by ID. Handles both UUID (Supabase) and numeric (legacy) IDs
+     * via string coercion. Returns a result object with { success, ok, question?, error? }.
+     *
+     * In Supabase mode: persists to DB first, then syncs cache. Returns the DB error
+     * directly instead of swallowing it, so callers can show meaningful messages.
+     */
     async updateQuestion(id, updates) {
         // Find question in cache first (handles both UUID and numeric IDs)
         let idx = this._cache.questions.findIndex(q =>
@@ -848,6 +914,11 @@ class StorageCompat {
 
     // ==================== Documents ====================
 
+    /**
+     * Get documents, optionally filtered by status.
+     * Handles the legacy/Supabase status mismatch: code uses 'processed',
+     * Supabase uses 'completed'. Filtering for 'processed' matches both.
+     */
     getDocuments(status = null) {
         let docs = this._cache.documents;
         if (status) {
@@ -869,6 +940,16 @@ class StorageCompat {
         );
     }
 
+    /**
+     * Add a document to storage with field name normalization.
+     *
+     * The legacy Storage API used inconsistent field names (name vs filename,
+     * path vs filepath vs content_path, hash vs content_hash, etc.).
+     * This method normalizes all variants into the canonical Supabase column names
+     * before persisting, so callers don't need to worry about naming conventions.
+     *
+     * Falls back to cache-only storage if the Supabase write fails.
+     */
     async addDocument(doc) {
         if (this._supabase) {
             // Normalize field names for Supabase storage
@@ -958,7 +1039,11 @@ class StorageCompat {
     }
 
     /**
-     * Delete a document with cascade (removes all related facts, decisions, questions, etc.)
+     * Delete a document with cascade (removes all related facts, decisions, questions, etc.).
+     *
+     * In Supabase mode: delegates cascade to the DB (which handles referential integrity),
+     * removes from cache, and triggers a full cache refresh to reflect all cascade effects.
+     * In fallback mode: only removes the document from the local cache (no cascade).
      */
     async deleteDocument(documentId, options = {}) {
         log.debug({ event: 'delete_document_start', documentId }, 'deleteDocument called');
@@ -1078,8 +1163,16 @@ class StorageCompat {
     }
 
     /**
-     * Link a participant name to an existing contact
-     * Adds the participant name as an alias for future auto-matching
+     * Link a participant name to an existing contact by adding it as an alias.
+     * Once linked, future calls to findContactByNameOrAlias() will auto-match
+     * this participant name to the contact without manual intervention.
+     *
+     * Skips silently if the name already matches the contact's primary name
+     * or is already in the aliases list. Persists to Supabase and updates cache.
+     *
+     * @param {string} participantName - The name to register as an alias
+     * @param {string} contactId - The contact to link to
+     * @returns {{ linked: boolean, reason?: string, contactId?, contactName?, alias? }}
      */
     async linkParticipantToContact(participantName, contactId) {
         log.debug({ event: 'link_participant_start', participantName, contactId }, 'linkParticipantToContact');
@@ -1228,7 +1321,10 @@ class StorageCompat {
     }
 
     /**
-     * Get unmatched participants - excludes names that match contact names or aliases
+     * Get people from knowledge extraction that haven't been matched to contacts.
+     * Builds a set of all known names (contact primary names + all aliases) and
+     * filters the people cache against it. Case-insensitive, trimmed comparison.
+     * Used by the UI to prompt users to link extracted people to real contacts.
      */
     getUnmatchedParticipants() {
         const people = this._cache.people || [];
@@ -2600,7 +2696,7 @@ class StorageCompat {
         }
     }
 
-    // Alias for backward compatibility
+    // Backward compat alias: syncFalkorDBGraphs -> syncGraphs (kept for existing callers)
     async syncFalkorDBGraphs(options = {}) {
         return this.syncGraphs(options);
     }
@@ -4313,8 +4409,14 @@ class StorageCompat {
 }
 
 /**
- * Create a compatible storage instance
- * Falls back to local JSON storage if Supabase is not available
+ * Factory: create and initialize a StorageCompat instance (async).
+ *
+ * Tries to connect to Supabase if SUPABASE_URL and SUPABASE_ANON_KEY env vars
+ * are set and the supabase helper module loaded successfully. Falls back to
+ * cache-only mode (no remote persistence) otherwise.
+ *
+ * @param {string} dataDir - Root data directory for local file fallback
+ * @returns {Promise<StorageCompat>} Initialized storage instance
  */
 async function createCompatStorage(dataDir) {
     let supabaseStorage = null;
@@ -4341,8 +4443,17 @@ async function createCompatStorage(dataDir) {
 }
 
 /**
- * Create sync-style storage (for backward compatibility during migration)
- * Note: This uses sync cache and may have stale data
+ * Factory: create a StorageCompat instance synchronously (no init).
+ *
+ * Returns immediately with an uninitialized instance. The caller must call
+ * init() themselves or accept that the cache starts empty.
+ *
+ * Assumption: Used only in contexts where async initialization is not possible
+ * (e.g. middleware that runs before the event loop is available).
+ * Data may be stale until refreshCache() or init() is called.
+ *
+ * @param {string} dataDir - Root data directory for local file fallback
+ * @returns {StorageCompat} Uninitialized storage instance
  */
 function createSyncCompatStorage(dataDir) {
     let supabaseStorage = null;

@@ -1,6 +1,37 @@
 /**
- * Realtime Module
- * Handles Supabase Realtime subscriptions for live updates
+ * Purpose:
+ *   Manages Supabase Realtime channel subscriptions for live, push-based
+ *   updates to connected clients. Provides a unified event bus for project
+ *   activity, comments, member changes, sync status, notifications,
+ *   presence tracking, and arbitrary broadcast messages.
+ *
+ * Responsibilities:
+ *   - Subscribe to postgres_changes on `activity_log`, `comments`,
+ *     `project_members`, and `graph_outbox` per project
+ *   - Subscribe to INSERT events on `notifications` per user
+ *   - Manage presence channels (join/leave/sync) for online-user tracking
+ *   - Maintain a module-level Map of active channel subscriptions (deduplicated)
+ *   - Provide a simple pub/sub event handler registry (on/emitEvent)
+ *   - Broadcast arbitrary messages to named channels
+ *   - Expose helpers for cleanup (unsubscribe, unsubscribeAll)
+ *
+ * Key dependencies:
+ *   - ./client (getClient): Supabase anon/user client (not admin) for Realtime
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - Opens persistent WebSocket connections to Supabase Realtime
+ *   - Module-level `subscriptions` Map holds active channel references (stateful)
+ *   - Module-level `handlers` Map holds registered event callbacks (stateful)
+ *
+ * Notes:
+ *   - Uses the anon/user client (not admin) because Realtime subscriptions
+ *     typically run in the context of an authenticated user session.
+ *   - Subscriptions are deduplicated by channel name; calling subscribe twice
+ *     for the same channel returns the existing subscription.
+ *   - Presence is keyed by `user_id`; metadata is extensible via trackPresence.
+ *   - `broadcast` creates a new channel if one is not already subscribed,
+ *     which may leave orphan channels if not cleaned up.
  */
 
 const { logger } = require('../logger');
@@ -15,7 +46,12 @@ const subscriptions = new Map();
 const handlers = new Map();
 
 /**
- * Subscribe to project changes
+ * Subscribe to all project-scoped table changes on a single Supabase Realtime channel.
+ * Listens to postgres_changes on: activity_log, comments, project_members, graph_outbox.
+ * Returns the existing channel if already subscribed (deduplicated by channel name).
+ * @param {string} projectId - Project UUID (used in filter: `project_id=eq.{projectId}`)
+ * @param {object} [callbacks] - Optional per-table callbacks: { onActivity, onComment, onMember, onSync, onStatus }
+ * @returns {object|null} Supabase channel object, or null if client unavailable
  */
 function subscribeToProject(projectId, callbacks = {}) {
     const supabase = getClient();
@@ -142,7 +178,10 @@ function subscribeToNotifications(userId, callback) {
 }
 
 /**
- * Subscribe to presence (online users)
+ * Subscribe to presence events for tracking online users in a project.
+ * Uses Supabase Realtime presence with user_id as the presence key.
+ * @param {string} projectId
+ * @param {object} [callbacks] - { onSync, onJoin, onLeave }
  */
 function subscribeToPresence(projectId, callbacks = {}) {
     const supabase = getClient();
@@ -245,7 +284,10 @@ function unsubscribeAll() {
 }
 
 /**
- * Register event handler
+ * Register a handler for a named event on the internal event bus.
+ * @param {string} event - Event name (e.g., 'activity', 'notification', 'presence_sync')
+ * @param {Function} handler - Callback receiving the event data
+ * @returns {Function} Unsubscribe function to remove this handler
  */
 function on(event, handler) {
     if (!handlers.has(event)) {
@@ -278,7 +320,10 @@ function emitEvent(event, data) {
 }
 
 /**
- * Broadcast a message to channel
+ * Broadcast an arbitrary message to a named Realtime channel.
+ * Creates a new channel if one with the given name is not already subscribed.
+ * Note: the new channel is NOT tracked in the subscriptions Map, which may
+ * cause a leak if called repeatedly with different channel names.
  */
 async function broadcast(channelName, event, payload) {
     const supabase = getClient();

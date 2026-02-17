@@ -1,6 +1,39 @@
 /**
- * Webhooks Module
- * Manages webhooks for event notifications
+ * Purpose:
+ *   Outbound webhook management and delivery system. Allows projects to register
+ *   HTTP endpoints that receive signed JSON payloads when specified events occur
+ *   (content changes, document processing, member updates, etc.).
+ *
+ * Responsibilities:
+ *   - CRUD operations on `webhooks` table (create, list, update, delete)
+ *   - Generate and regenerate per-webhook HMAC signing secrets
+ *   - Sign payloads with HMAC-SHA256 and verify incoming signatures
+ *   - Trigger all matching webhooks for a given project + event type
+ *   - Deliver payloads via HTTP/HTTPS with configurable retry (exponential backoff)
+ *   - Record every delivery attempt in `webhook_deliveries` with timing and status
+ *   - Track per-webhook stats (consecutive failures, total deliveries/failures)
+ *   - Send test events for debugging integrations
+ *
+ * Key dependencies:
+ *   - crypto: HMAC-SHA256 signing, randomUUID for delivery IDs, secret generation
+ *   - http/https: native Node outbound HTTP requests (no external HTTP library)
+ *   - ./client (getAdminClient): Supabase admin client
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - `deliverWebhook` makes outbound HTTP POST requests to user-configured URLs
+ *   - `deliverWebhook` writes to both `webhook_deliveries` and `webhooks` (stats)
+ *   - Failed deliveries schedule retries via setTimeout (in-process, not durable)
+ *   - `createWebhook` stores the signing secret in plaintext in the DB
+ *
+ * Notes:
+ *   - Retry is currently in-process via setTimeout; if the server restarts,
+ *     pending retries are lost. Production should use a durable job queue.
+ *   - Response bodies stored in `webhook_deliveries` are truncated to 10 KB.
+ *   - `verifySignature` uses crypto.timingSafeEqual to prevent timing attacks.
+ *   - The signing secret is returned only once at creation time and on
+ *     explicit regeneration; `listWebhooks` omits it.
+ *   - Retry delay uses linear backoff: delay * attemptNumber.
  */
 
 const crypto = require('crypto');
@@ -244,7 +277,12 @@ async function regenerateSecret(webhookId) {
 }
 
 /**
- * Trigger webhooks for an event
+ * Trigger all active webhooks subscribed to the given event type for a project.
+ * Uses Supabase `contains` filter to match webhooks whose `events` array
+ * includes the given event type. Delivers each webhook sequentially.
+ * @param {string} projectId
+ * @param {string} eventType - One of WEBHOOK_EVENTS values
+ * @param {object} payload - Event data to send
  */
 async function triggerWebhooks(projectId, eventType, payload) {
     const supabase = getAdminClient();
@@ -271,7 +309,15 @@ async function triggerWebhooks(projectId, eventType, payload) {
 }
 
 /**
- * Deliver a webhook
+ * Deliver a single webhook payload via HTTP POST.
+ * Creates a delivery record in `webhook_deliveries` before the request,
+ * updates it with the response (or error), and updates webhook-level stats.
+ * On failure, schedules a retry via setTimeout with linear backoff
+ * (delay * attemptNumber). Note: retries are in-process and not durable.
+ * @param {object} webhook - Full webhook row from DB (including secret)
+ * @param {string} eventType - Event being delivered
+ * @param {object} payload - Event data
+ * @param {number} [attemptNumber=1] - Current attempt (1-indexed)
  */
 async function deliverWebhook(webhook, eventType, payload, attemptNumber = 1) {
     const supabase = getAdminClient();
@@ -399,7 +445,11 @@ async function deliverWebhook(webhook, eventType, payload, attemptNumber = 1) {
 }
 
 /**
- * Make HTTP request (helper)
+ * Low-level HTTP/HTTPS request helper using Node's built-in modules.
+ * Auto-selects protocol based on URL scheme. Supports timeout.
+ * @param {string} urlString - Fully qualified URL
+ * @param {object} options - { method, headers, body, timeout }
+ * @returns {Promise<{statusCode: number, headers: object, body: string}>}
  */
 function makeHttpRequest(urlString, options) {
     return new Promise((resolve, reject) => {

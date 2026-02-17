@@ -1,3 +1,37 @@
+/**
+ * Purpose:
+ *   Primary sidebar navigation and file-management panel for the
+ *   authenticated application. Combines route navigation, drag-and-drop
+ *   file upload, pending-file management, and bulk data operations.
+ *
+ * Responsibilities:
+ *   - Renders navigation links for all main application routes
+ *   - Provides drag-and-drop zones for four file types (documents,
+ *     transcripts, emails, conversations) with click-to-upload fallback
+ *   - Lists pending (unprocessed) files with delete capability
+ *   - Exposes action buttons: Process Files, Export Knowledge (download
+ *     and clipboard), Copy Overdue items, Clean Orphans, Reset Data
+ *   - Shows confirmation dialogs for destructive actions (reset, cleanup)
+ *   - Mobile-responsive: slides in/out with overlay backdrop
+ *
+ * Key dependencies:
+ *   - useGodMode hooks: usePendingFiles, useProcessFiles, useExportProject,
+ *     useResetData, useCleanupOrphans, useUploadFiles, useDeletePendingFile,
+ *     useQuestions, useActions, useFacts, useDecisions
+ *   - react-router-dom (NavLink): route-aware navigation links
+ *   - sonner (toast): user feedback on clipboard operations
+ *
+ * Side effects:
+ *   - Network: uploads files, triggers processing, resets/cleans data via
+ *     TanStack Query mutations
+ *   - Clipboard: writes JSON exports and overdue summaries
+ *   - DOM: creates and clicks a temporary <a> element for file download
+ *
+ * Notes:
+ *   - The overdue threshold for questions is hardcoded to 7 days.
+ *   - exportProject hook is imported but suppressed with `void`; server-side
+ *     export may be re-enabled later.
+ */
 import { useState, useCallback, useRef, useMemo } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
@@ -24,6 +58,10 @@ import {
   File,
   X,
   Wrench,
+  Briefcase,
+  User,
+  Building2,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
@@ -35,6 +73,7 @@ import {
   DialogFooter,
 } from '../ui/Dialog';
 import { cn } from '../../lib/utils';
+import { toast } from 'sonner';
 import {
   usePendingFiles,
   useProcessFiles,
@@ -67,7 +106,11 @@ const navItems = [
   { to: '/graph', label: 'Graph', icon: Share2 },
   { to: '/costs', label: 'Costs', icon: DollarSign },
   { to: '/history', label: 'History', icon: Clock },
+  { to: '/companies', label: 'Companies', icon: Building2 },
+  { to: '/projects', label: 'Projects', icon: Briefcase },
+  { to: '/profile', label: 'Profile', icon: User },
   { to: '/settings', label: 'Settings', icon: Settings },
+  { to: '/user-settings', label: 'User Settings', icon: SlidersHorizontal },
   { to: '/admin', label: 'Admin', icon: Shield },
 ];
 
@@ -163,7 +206,7 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
     };
 
     await navigator.clipboard.writeText(JSON.stringify(overdue, null, 2));
-    alert(`Copied ${overdueActions.length} actions and ${overdueQuestions.length} questions`);
+    toast.success(`Copied ${overdueActions.length} actions and ${overdueQuestions.length} questions`);
   }, [actions, questions]);
 
   // ── Reset Data ────────────────────────────────────────────────────────────

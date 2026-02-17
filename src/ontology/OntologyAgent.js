@@ -1,9 +1,39 @@
 /**
- * Ontology Agent
- * AI-powered agent that evolves the ontology based on new data
- * Suggests new entity types, relations, and properties via UI
- * 
- * SOTA v3.0 - Native Supabase graph support (no Cypher dependency)
+ * Purpose:
+ *   AI-powered agent that analyses incoming data and the live graph to
+ *   propose, enrich, and (optionally auto-approve) ontology schema changes
+ *   such as new entity types, relation types, and properties.
+ *
+ * Responsibilities:
+ *   - Analyse entity/relationship extractions and flag types not yet in the schema
+ *   - Compare graph labels/relation types against the ontology to find gaps
+ *   - Use an LLM to perform deep schema-gap analysis and suggest improvements
+ *   - Enrich individual suggestions with AI-generated descriptions and properties
+ *   - Manage a queue of pending suggestions (approve / reject / auto-approve)
+ *   - Persist suggestions to Supabase and a local JSON file as fallback
+ *   - Collect type-usage statistics from the graph for reporting
+ *
+ * Key dependencies:
+ *   - ../llm: unified LLM text-generation interface (provider-agnostic)
+ *   - ../llm/config: per-task LLM configuration resolver
+ *   - ./OntologyManager (singleton): canonical schema for comparison and mutation
+ *   - fs / path: local file persistence for suggestions
+ *   - SupabaseStorage (injected): optional remote persistence for suggestions
+ *
+ * Side effects:
+ *   - LLM network calls during analyzeWithLLM() and enrichSuggestionWithAI()
+ *   - File-system reads/writes to data/ontology-suggestions.json
+ *   - Supabase writes when persisting or updating suggestions
+ *   - Graph queries (native or Cypher) for label/relation counts
+ *   - Mutates OntologyManager schema on approval via updateSchema()
+ *
+ * Notes:
+ *   - AUTO_APPROVE_THRESHOLD (0.85) gates unattended schema changes; tune
+ *     carefully in production to avoid polluting the ontology.
+ *   - The singleton getter re-reads suggestions from disk whenever dataDir
+ *     changes, so switching projects mid-process is supported.
+ *   - analyzeWithLLM() caps label/relation lists to 20 entries in the prompt
+ *     to stay within token budgets.
  */
 
 const fs = require('fs');
@@ -15,7 +45,29 @@ const { getOntologyManager } = require('./OntologyManager');
 
 const log = logger.child({ module: 'ontology-agent' });
 
+/**
+ * AI-driven ontology evolution agent.
+ *
+ * Maintains a queue of pending schema suggestions (new entities, relations,
+ * properties) sourced from data extraction analysis, graph-vs-schema gap
+ * detection, and LLM-powered deep analysis. Suggestions can be approved
+ * (applied to the ontology), rejected, or auto-approved when above the
+ * confidence threshold.
+ *
+ * Lifecycle: construct -> setGraphProvider/setStorage (optional) ->
+ * analyzeExtraction / analyzeGraphForSuggestions / analyzeWithLLM ->
+ * approveSuggestion / rejectSuggestion.
+ */
 class OntologyAgent {
+    /**
+     * @param {object} options
+     * @param {object} [options.ontologyManager] - Defaults to singleton
+     * @param {object} [options.graphProvider] - Graph backend for stats queries
+     * @param {object} [options.storage] - Supabase storage for suggestion persistence
+     * @param {object} [options.llmConfig] - LLM provider/model configuration
+     * @param {object} [options.appConfig] - Application-level config for LLM resolution
+     * @param {string} [options.dataDir='./data'] - Directory for local suggestion JSON fallback
+     */
     constructor(options = {}) {
         this.ontologyManager = options.ontologyManager || getOntologyManager();
         this.graphProvider = options.graphProvider;
@@ -162,7 +214,14 @@ class OntologyAgent {
     }
 
     /**
-     * Analyze extracted data and suggest ontology updates
+     * Analyse the output of an entity/relationship extraction pass and
+     * generate suggestions for any types or properties not yet defined
+     * in the ontology. Suggestions are de-duplicated against the pending
+     * queue before being added.
+     *
+     * @param {object} extraction - { entities: [{type, name, properties}], relationships: [{relation, from, to}] }
+     * @param {string} [source='unknown'] - Identifier for the data source (e.g. file name)
+     * @returns {Promise<Array>} - Newly created suggestions (subset of what was added to pending)
      */
     async analyzeExtraction(extraction, source = 'unknown') {
         const suggestions = [];
@@ -411,7 +470,13 @@ Respond in JSON:
     }
 
     /**
-     * Approve a suggestion and update ontology
+     * Approve a pending suggestion: apply it to the ontology schema, move it
+     * to history, and update Supabase. Optional modifications (name, description,
+     * properties) are merged into the suggestion before application.
+     *
+     * @param {string} suggestionId - ID of the pending suggestion
+     * @param {object} [modifications] - Override fields before applying
+     * @returns {Promise<{success: boolean, message?: string, error?: string}>}
      */
     async approveSuggestion(suggestionId, modifications = {}) {
         log.debug({ event: 'ontology_agent_approving', suggestionId, pendingCount: this.suggestions.pending.length }, 'Approving suggestion');

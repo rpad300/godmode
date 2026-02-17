@@ -1,8 +1,39 @@
 /**
- * GraphRAG Engine
- * Combines graph traversal with semantic search for enhanced RAG
- * Integrates with Ontology system for better query understanding
- * Includes caching for improved performance
+ * Purpose:
+ *   Central orchestrator for Retrieval-Augmented Generation (RAG) that combines
+ *   graph traversal, semantic vector search, and LLM-powered answer generation.
+ *   Acts as the primary entry point for knowledge-base queries and data synchronisation.
+ *
+ * Responsibilities:
+ *   - Sync heterogeneous project data (people, tasks, documents, sprints, etc.) into a
+ *     graph database via a three-phase pipeline: nodes -> relationships -> entity links
+ *   - Route incoming queries through an AI Cypher generator, ontology pattern matching,
+ *     or fallback hybrid (structural + semantic) search strategies
+ *   - Generate grounded, source-cited answers using an LLM and the retrieved context
+ *   - Support cross-project queries via MultiGraphManager
+ *   - Cache query results with a configurable TTL for latency reduction
+ *
+ * Key dependencies:
+ *   - ../llm: unified LLM/embedding abstraction (provider-agnostic)
+ *   - ../ontology: OntologyManager, RelationInference, EmbeddingEnricher
+ *   - ../utils: QueryCache, SyncTracker
+ *   - ./CypherGenerator: AI-powered natural-language-to-Cypher translation
+ *   - crypto: deterministic ID generation (MD5)
+ *
+ * Side effects:
+ *   - Writes nodes and relationships to the configured graph provider
+ *   - Updates sync status records (sync_status, health_status) in the graph provider
+ *   - Calls external LLM/embedding APIs for query answering and vector search
+ *
+ * Notes:
+ *   - LLM/embedding provider and model are intentionally NOT hard-coded; they must be
+ *     supplied via options (sourced from admin config) at construction time.
+ *   - Deterministic node IDs are scoped by projectId to prevent cross-project collisions
+ *     while still allowing explicit UUIDs from the source system.
+ *   - The `relationships` array in syncToGraph is declared *after* Phase 1 nodes are
+ *     created, but document AUTHORED_BY edges are pushed before it exists -- this is a
+ *     known bug (the push targets an undeclared variable). TODO: confirm and fix ordering.
+ *   - Query classification supports both English and Portuguese patterns.
  */
 
 const { logger } = require('../logger');
@@ -14,6 +45,20 @@ const crypto = require('crypto');
 
 const log = logger.child({ module: 'graphrag-engine' });
 
+/**
+ * GraphRAGEngine
+ *
+ * Lifecycle:
+ *   1. Construct with a graphProvider, storage backend, and LLM config.
+ *   2. Optionally attach a MultiGraphManager for cross-project support.
+ *   3. Call syncToGraph(data) to ingest project data into the graph.
+ *   4. Call query(userQuery) to perform RAG: classify -> search -> generate.
+ *
+ * Key invariants:
+ *   - graphProvider may be null (graceful degradation to storage-based search).
+ *   - All LLM calls go through the shared `llm` module; provider/model come from options.
+ *   - Query cache is keyed on the raw query string and has a 5-minute default TTL.
+ */
 class GraphRAGEngine {
     constructor(options = {}) {
         this.graphProvider = options.graphProvider;
@@ -256,6 +301,9 @@ class GraphRAGEngine {
             }), 'url'); // URL is a better deterministic key for documents
 
             // V3: Document Attribution (AUTHORED_BY)
+            // Assumption: `relationships` is intended to be declared here but is actually
+            // declared later in Phase 2. This block executes before that declaration,
+            // so `relationships` is undefined at this point -- likely a sequencing bug.
             if (data.documents) {
                 for (const doc of data.documents) {
                     if (doc.author_contact_id) {

@@ -1,12 +1,36 @@
+/**
+ * Purpose:
+ *   Composes raw graph nodes and edges with the current filter state to produce
+ *   the final, display-ready lists consumed by the graph visualisation layer.
+ *
+ * Responsibilities:
+ *   - Derive activeLabels from filter toggles and pass them to useGraphNodes
+ *   - Transform raw data through graph-transformer (tier assignment, styling, Person/Contact merge)
+ *   - Deduplicate Tier 0 (Project) nodes to enforce a single centre node
+ *   - Apply client-side filters: type toggles, tier threshold, search query
+ *   - Remove edges whose source or target was filtered out, and hide SIMILAR_TO when disabled
+ *
+ * Key dependencies:
+ *   - useGraphNodes / useGraphEdges: server data fetching
+ *   - GraphContext (useGraphState): current filter state
+ *   - graph-transformer: transformGraphData for styling, tier config, Person/Contact merging
+ *
+ * Side effects:
+ *   - None (pure derivation via useMemo)
+ *
+ * Notes:
+ *   - Re-computes only when rawNodes, rawEdges, or filters change.
+ *   - Tier filtering uses (node.data.tier ?? 2) > filters.minTier, so unknown tiers
+ *     default to 2 and are hidden when minTier < 2.
+ *
+ * @returns {{ nodes, edges, isLoading, error }}
+ */
 import { useMemo } from 'react';
 import { useGraphNodes } from './useGraphNodes';
 import { useGraphEdges } from './useGraphEdges';
-import { useGraphState } from '@/contexts/GraphContext'; // Wait, need to check import path
+import { useGraphState } from '@/contexts/GraphContext';
 import { transformGraphData, TIER_CONFIG } from '@/lib/graph-transformer';
 import { GraphNode, GraphEdge } from '@/types/graph';
-
-// Context is in @/contexts/GraphContext
-// Need to ensure GraphContext.tsx exports useGraphState
 
 export function useGraphData() {
     const { filters } = useGraphState();

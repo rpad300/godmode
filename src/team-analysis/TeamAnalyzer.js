@@ -1,7 +1,48 @@
 /**
- * TeamAnalyzer Service
- * Analyzes transcripts to create behavioral profiles of team members
- * Uses intelligent chunking and incremental analysis for efficiency
+ * Purpose:
+ *   Builds and maintains LLM-generated behavioral profiles for individual
+ *   team members, and produces team-dynamics analyses (cohesion, alliances,
+ *   tensions, influence maps) from accumulated transcript data.
+ *
+ * Responsibilities:
+ *   - Look up persons across both `people` and `contacts` tables
+ *   - Locate transcripts mentioning a person (by name and aliases)
+ *   - Delegate intervention extraction to InterventionExtractor for
+ *     efficient, person-scoped transcript chunking
+ *   - Run full or incremental LLM analysis depending on what is new
+ *   - Merge incremental results into existing profiles (communication style,
+ *     motivations, influence tactics, vulnerabilities, warning signs)
+ *   - Calculate summary metrics (influence score, speaking time, word counts)
+ *   - Persist profiles, evidence, and analysis history to Supabase
+ *   - Analyse team dynamics (cohesion, alliances, tensions) from all profiles
+ *   - Sync behavioral relationships (influences, aligned_with, tension_with)
+ *     to the `behavioral_relationships` table
+ *   - Enforce role-based access control for team-analysis features
+ *
+ * Key dependencies:
+ *   - ../llm (generateText): Provider-agnostic LLM calls
+ *   - ../llm/config: Centralised model/provider resolution
+ *   - ../supabase/client: Supabase DB access
+ *   - ../supabase/prompts (getPrompt): DB-stored prompt templates
+ *   - ./InterventionExtractor: Person-specific transcript extraction
+ *   - ../integrations/googleDrive/drive: Fallback content loading from Drive
+ *   - ../logger: Structured logging
+ *
+ * Side effects:
+ *   - LLM API calls (text generation) for both individual and team analyses
+ *   - Reads/writes Supabase tables: team_profiles, profile_evidence,
+ *     team_analysis, team_analysis_history, behavioral_relationships,
+ *     people, contacts, documents, projects, project_members
+ *   - May read transcript files from local disk or Google Drive
+ *
+ * Notes:
+ *   - Incremental analysis only processes transcripts not yet in the profile's
+ *     transcripts_analyzed array, significantly reducing LLM cost
+ *   - generateNameVariants() produces first-name, last-name, and initial+last
+ *     variants for fuzzy speaker matching
+ *   - inferRiskTolerance() uses keyword heuristics on motivations/avoids arrays
+ *   - Speaking time is estimated at 150 words per minute
+ *   - Team dynamics requires at least 2 profiles
  */
 
 const { logger } = require('../logger');
@@ -13,6 +54,12 @@ const { getPrompt } = require('../supabase/prompts');
 const llmConfig = require('../llm/config');
 const InterventionExtractor = require('./InterventionExtractor');
 
+/**
+ * Builds and maintains LLM-generated behavioral profiles for individual contacts
+ * and produces team-dynamics analyses (cohesion, alliances, tensions, influence
+ * maps) from accumulated transcript data. Supports both full and incremental
+ * analysis modes to minimise LLM cost when new transcripts are added.
+ */
 class TeamAnalyzer {
     constructor(options = {}) {
         this.supabase = options.supabase || getSupabaseClient();

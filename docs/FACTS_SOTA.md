@@ -9,8 +9,8 @@ Facts are aligned with the same SOTA patterns as Questions: persistence in Supab
 | **Persistence** | `facts` table (005), `verified` / `verified_by` / `verified_at` (037), `deleted_at` (soft delete), `created_by`, `source_document_id`, `source_file`, `category`, `confidence` |
 | **Timeline / audit** | `fact_events` (038): `created`, `verified`, `updated`, `conflict_detected`, `deleted`, `restored` with `actor_user_id`, `actor_name` |
 | **Verification** | User verifies fact → `verified_by`, `verified_at` and `verified` event; UI Verify button and badge |
-| **Soft delete + restore** | `deleteFact` (soft), `getDeletedFacts`, `restoreFact`; outbox sync (Fact node removed/restored in FalkorDB) |
-| **Graph / FalkorDB** | Fact node CREATE/UPDATE/DELETE via outbox; project graph `project_${projectId}` |
+| **Soft delete + restore** | `deleteFact` (soft), `getDeletedFacts`, `restoreFact`; outbox sync (Fact node removed/restored in graph) |
+| **Graph (Supabase)** | Fact node CREATE/UPDATE/DELETE via outbox; project graph `project_${projectId}` |
 | **Dashboard** | `totalFacts`, `factsByCategory`, `factsVerifiedCount`; Facts chart by category; stat card "X verified" |
 | **UI** | FactsPanel (list by category/source), FactDetailView (timeline, verify, edit, delete), SOTA-style cards |
 | **Conflict detection** | FactCheckFlow (LLM): detect contradictions; record `conflict_detected` events; resolve (keep one, delete other); re-run fact-check and verify kept fact |

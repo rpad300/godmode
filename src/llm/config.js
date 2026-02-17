@@ -1,13 +1,39 @@
 /**
- * LLM Configuration Manager
- * Centralized access to LLM settings from admin panel / system config
- * NEVER hardcode provider or model names - always use this module
+ * Purpose:
+ *   Single source of truth for resolving which LLM provider, model, and credentials
+ *   to use for any given task type (text, vision, embeddings, reasoning). Consumers
+ *   call getTextConfig / getVisionConfig / etc. and receive a ready-to-use triple of
+ *   { provider, providerConfig, model }.
+ *
+ * Responsibilities:
+ *   - Parses the nested appConfig.llm / appConfig.ollama structures into a flat,
+ *     task-oriented configuration with safe defaults
+ *   - Supports per-task provider/model overrides (llm.perTask.text, llm.perTask.vision, ...)
+ *   - Provides request-level overrides so API callers can temporarily switch model/provider
+ *   - Validates that a provider + model + API key are present before an LLM call
+ *   - Returns human-readable config summaries for diagnostics
+ *
+ * Key dependencies:
+ *   - ../logger: structured logging for missing-config warnings
+ *
+ * Side effects:
+ *   - None (pure config resolution; no network, no filesystem)
+ *
+ * Notes:
+ *   - NEVER hardcode provider or model names outside this module.
+ *   - Legacy Ollama-specific fields (appConfig.ollama.host, etc.) are merged into
+ *     providerConfig when the resolved provider is 'ollama' and the LLM panel config
+ *     does not already contain host/port. This preserves backward compatibility.
+ *   - getTextConfigForReasoning prefers the dedicated reasoning model when set,
+ *     falling back to the general text model, so reasoning-heavy features (action-suggest,
+ *     decision-suggest, fact-check) automatically benefit from stronger models if configured.
  */
 
 const { logger: rootLogger } = require('../logger');
 const log = rootLogger.child({ module: 'llm_config' });
 
-// Cache for config to avoid repeated lookups
+// Unused cache scaffolding retained for potential future use. Currently every call to
+// getLLMConfig is cheap (synchronous object traversal), so caching is not activated.
 let configCache = null;
 let configCacheTime = 0;
 const CACHE_TTL = 60000; // 1 minute cache
@@ -27,6 +53,9 @@ function getLLMConfig(appConfig) {
     const llm = appConfig.llm || {};
     const ollama = appConfig.ollama || {};
     
+    // Resolution precedence for each field: per-task override > top-level llm field > legacy ollama field > null.
+    // This layered fallback ensures that both the new LLM panel and the legacy Ollama-only
+    // config paths resolve correctly.
     return {
         // Primary provider (from admin settings)
         provider: llm.perTask?.text?.provider || llm.provider || llm.defaultProvider || null,

@@ -1,6 +1,28 @@
 #!/usr/bin/env node
 /**
- * Quick provider test script
+ * Purpose:
+ *   Smoke-test script for the MiniMax LLM provider. Sends a single generateText
+ *   request to verify API key validity and endpoint connectivity.
+ *
+ * Responsibilities:
+ *   - Load MINIMAX_API_KEY from src/.env
+ *   - Instantiate MiniMaxProvider and call generateText with a trivial prompt
+ *   - Print the raw result or error for manual inspection
+ *
+ * Key dependencies:
+ *   - src/llm/providers/minimax: MiniMax LLM provider implementation
+ *
+ * Side effects:
+ *   - Makes a live HTTP request to the MiniMax API (https://minimax-m2.com/v1)
+ *   - Consumes API credits if the key is valid
+ *
+ * Notes:
+ *   - Currently hardcoded to test MiniMax only; other providers are tested
+ *     via scripts/llm-preflight.js
+ *   - Skips gracefully if MINIMAX_API_KEY is not set
+ *
+ * Usage:
+ *   node scripts/test-providers.js
  */
 
 const fs = require('fs');

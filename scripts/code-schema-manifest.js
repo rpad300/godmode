@@ -1,8 +1,31 @@
 #!/usr/bin/env node
 /**
- * Extract table and RPC names used in the codebase (no DB connection).
- * Output: scripts/code-schema-manifest.json
- * Use with db-schema-report.json (from introspect-db.js) to ensure migrations cover the app.
+ * Purpose:
+ *   Static-analysis tool that scans all .js/.ts files under src/ for Supabase
+ *   .from('table') and .rpc('function') calls, producing a manifest of every
+ *   table and RPC the application code depends on.
+ *
+ * Responsibilities:
+ *   - Recursively walk src/ (skipping node_modules/.git)
+ *   - Regex-extract table names from .from('...') calls
+ *   - Regex-extract RPC names from .rpc('...') calls
+ *   - Write scripts/code-schema-manifest.json with sorted, deduplicated results
+ *
+ * Key dependencies:
+ *   - None (Node.js built-ins only)
+ *
+ * Side effects:
+ *   - Writes scripts/code-schema-manifest.json to disk
+ *
+ * Notes:
+ *   - No database connection required; purely file-based analysis
+ *   - Compare the output with scripts/db-schema-report.json (from introspect-db.js)
+ *     to find tables referenced in code but missing from the database, or vice versa
+ *   - The regex approach may produce false positives if .from() / .rpc() are used
+ *     by non-Supabase libraries with the same method names
+ *
+ * Usage:
+ *   node scripts/code-schema-manifest.js
  */
 
 const fs = require('fs');
@@ -14,6 +37,7 @@ const outPath = path.join(__dirname, 'code-schema-manifest.json');
 const tables = new Set();
 const rpcs = new Set();
 
+/** Extract .from('table') and .rpc('name') references from a single file. */
 function scanFile(filePath) {
   const content = fs.readFileSync(filePath, 'utf8');
   const fromRe = /\.from\s*\(\s*['"]([a-z_][a-z0-9_]*)['"]/g;

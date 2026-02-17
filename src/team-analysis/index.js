@@ -1,7 +1,25 @@
 /**
- * Team Analysis Module
- * Behavioral profiling and team dynamics analysis
- * Uses intelligent chunking and incremental analysis for efficiency
+ * Purpose:
+ *   Barrel export and singleton management for the team-analysis subsystem,
+ *   which builds behavioral profiles of individuals and analyses team dynamics
+ *   from meeting transcripts.
+ *
+ * Responsibilities:
+ *   - Re-export TeamAnalyzer, GraphSync, and InterventionExtractor classes
+ *   - Provide lazy singleton accessors with optional config injection
+ *   - Expose resetInstances() for test isolation
+ *
+ * Key dependencies:
+ *   - ./TeamAnalyzer: LLM-driven behavioral profiling and team dynamics
+ *   - ./GraphSync: Persists analysis results to the graph database
+ *   - ./InterventionExtractor: Extracts per-person transcript segments
+ *
+ * Side effects:
+ *   - None at import time; singletons are created on first accessor call
+ *
+ * Notes:
+ *   - getTeamAnalyzer() hot-reloads config on subsequent calls so that
+ *     admin settings changes take effect without restarting the server
  */
 
 const TeamAnalyzer = require('./TeamAnalyzer');

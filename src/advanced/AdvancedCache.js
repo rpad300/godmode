@@ -1,8 +1,34 @@
 /**
- * Advanced Caching Module
- * LRU cache with TTL, invalidation, and Supabase persistence
- * 
- * Refactored to use Supabase instead of local JSON files
+ * Purpose:
+ *   LRU cache with per-key TTL, glob-pattern invalidation, and optional
+ *   Supabase persistence so cache entries survive process restarts.
+ *
+ * Responsibilities:
+ *   - In-memory LRU eviction when the cache exceeds maxSize
+ *   - Automatic expiration of entries past their TTL
+ *   - Pattern-based bulk invalidation (string globs or RegExp)
+ *   - Reactive invalidation rules (callbacks triggered on matching set())
+ *   - Periodic background persistence to Supabase (every 60 s)
+ *   - Rehydration from Supabase on construction
+ *
+ * Key dependencies:
+ *   - ../logger: structured logging (pino child logger)
+ *   - ../supabase/storageHelper: optional -- when unavailable the cache
+ *     degrades to in-memory-only mode silently
+ *
+ * Side effects:
+ *   - Constructor starts a 60-second setInterval for auto-persist
+ *   - _loadFromSupabase() issues a SELECT on the cache_entries table
+ *   - _persistToSupabase() upserts entries with >5 min remaining TTL
+ *
+ * Notes:
+ *   - accessOrder is maintained as a plain array; O(n) removal on every
+ *     get/set. Acceptable for the default maxSize of 1000, but would need
+ *     a doubly-linked-list if the limit grew significantly.
+ *   - Supabase import is wrapped in try/catch because a project folder
+ *     named "supabase" can shadow the npm package at resolve time.
+ *   - Call destroy() before process exit to flush dirty entries and clear
+ *     the persist interval.
  */
 
 const { logger } = require('../logger');
@@ -17,6 +43,16 @@ try {
     // Will use in-memory cache only
 }
 
+/**
+ * In-memory LRU cache with TTL expiration and optional Supabase backing store.
+ *
+ * Invariants:
+ *   - cache.size <= maxSize at all times (enforced on set)
+ *   - accessOrder contains each cached key exactly once, ordered from
+ *     least-recently-used (index 0) to most-recently-used (last)
+ *
+ * Lifecycle: construct -> get/set/getOrSet -> destroy()
+ */
 class AdvancedCache {
     constructor(options = {}) {
         this.maxSize = options.maxSize || 1000;
@@ -124,7 +160,11 @@ class AdvancedCache {
     }
 
     /**
-     * Get a value from cache
+     * Retrieve a cached value by key. Returns undefined on miss or expiration.
+     * Counts towards hit/miss stats and promotes the key in LRU order on hit.
+     *
+     * @param {string} key
+     * @returns {*} The cached value, or undefined
      */
     get(key) {
         const entry = this.cache.get(key);
@@ -150,7 +190,12 @@ class AdvancedCache {
     }
 
     /**
-     * Set a value in cache
+     * Insert or overwrite a cache entry. Evicts the LRU item when at capacity.
+     *
+     * @param {string} key
+     * @param {*} value
+     * @param {number|null} [ttl=null] - Time-to-live in ms; null uses defaultTTL
+     * @returns {boolean} Always true
      */
     set(key, value, ttl = null) {
         const expiresAt = ttl !== null 
@@ -214,7 +259,10 @@ class AdvancedCache {
     }
 
     /**
-     * Invalidate cache entries matching a pattern
+     * Remove all entries whose keys match the given pattern.
+     *
+     * @param {string|RegExp} pattern - Glob string (using * wildcards) or RegExp
+     * @returns {number} Count of invalidated entries
      */
     invalidate(pattern) {
         let count = 0;
@@ -294,7 +342,13 @@ class AdvancedCache {
     }
 
     /**
-     * Get or compute a value
+     * Return the cached value for `key`, or compute it via `computeFn`, cache it,
+     * and return it. Useful for transparent read-through caching.
+     *
+     * @param {string} key
+     * @param {Function} computeFn - Async function returning the value to cache
+     * @param {number|null} [ttl=null]
+     * @returns {Promise<*>}
      */
     async getOrSet(key, computeFn, ttl = null) {
         const existing = this.get(key);
@@ -357,7 +411,8 @@ class AdvancedCache {
     }
 
     /**
-     * Destroy cache and stop auto-persist
+     * Flush pending entries to Supabase and stop the auto-persist timer.
+     * Must be called before process exit to avoid losing dirty data.
      */
     async destroy() {
         if (this._persistInterval) {

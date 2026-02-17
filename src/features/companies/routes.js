@@ -1,6 +1,41 @@
 /**
- * Companies feature routes
- * CRUD, analyze, and template (A4/PPT) endpoints for company profiles
+ * Purpose:
+ *   Company profile management API routes. Provides CRUD operations, AI-powered
+ *   company analysis (web scraping + Brave Search + LLM), and branded document
+ *   template generation (A4 reports and PPT-style presentations).
+ *
+ * Responsibilities:
+ *   - Company CRUD: list (user's companies), create, get, update, delete
+ *   - Authorization: owner-only for mutations; reader access for project members
+ *   - AI company analysis: scrapes website, searches via Brave API, sends context
+ *     to LLM for a structured 10-section Portuguese analysis report (SWOT, digital
+ *     presence, competitive analysis, etc.)
+ *   - Stores analysis results in company_analysis table and brand_assets on company
+ *   - Template CRUD: get/update HTML templates for A4 and PPT formats
+ *   - AI template generation: LLM generates branded HTML templates using company colors/logo
+ *   - Rate limiting: 5-minute cooldown per company for analysis endpoint
+ *
+ * Key dependencies:
+ *   - ../../supabase/companies: Data access layer for companies and company_analysis
+ *   - ../../supabase/activity: Activity logging for company events
+ *   - ./braveSearch: Brave Search API client for web research
+ *   - ../../llm/config: LLM provider/model resolution
+ *   - ../../supabase/secrets: Retrieves BRAVE_API_KEY from system secrets if not in env
+ *
+ * Side effects:
+ *   - Database: creates/updates/deletes companies, company_analysis, brand_assets
+ *   - Network: fetches company website HTML, calls Brave Search API, calls LLM API
+ *   - Activity log: records company.created, company.updated, company.deleted events
+ *
+ * Notes:
+ *   - Analysis prompt and report sections are in Portuguese (Portugal)
+ *   - The in-memory analyzeLastCall Map enforces rate limiting but resets on server restart
+ *   - Website scraping strips scripts/styles and truncates to 15K chars
+ *   - Brave Search results are concatenated with site:-scoped queries for deeper coverage
+ *   - Template placeholders: {{COMPANY_NAME}}, {{LOGO_URL}}, {{PRIMARY_COLOR}},
+ *     {{SECONDARY_COLOR}}, {{REPORT_DATA}}
+ *   - Default A4 and PPT templates are embedded as HTML string literals in this file
+ *   - Template generation uses the reasoning model variant when available
  */
 
 const { parseBody } = require('../../server/request');

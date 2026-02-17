@@ -1,3 +1,32 @@
+/**
+ * Purpose:
+ *   Reusable form component for creating or editing a contact, with
+ *   dynamically loaded role templates, timezone options, and company names.
+ *
+ * Responsibilities:
+ *   - Fetches role templates, timezones, and companies from the API on
+ *     mount to populate Select dropdowns
+ *   - Pre-fills all fields when editing an existing contact
+ *   - Alias management: add/remove alternative names with Enter-key
+ *     shortcut
+ *   - Field sub-component for consistent icon+label+input rendering
+ *   - Validates that name and role are non-empty before submission
+ *
+ * Key dependencies:
+ *   - apiClient: fetches /api/role-templates, /api/timezones,
+ *     /api/contacts/metadata/companies
+ *   - Contact (godmode types): contact data shape
+ *
+ * Side effects:
+ *   - Network: three GET requests on mount for metadata
+ *
+ * Notes:
+ *   - The useEffect that fetches metadata and sets form state from the
+ *     contact prop has `[contact]` as its dependency, meaning metadata
+ *     will be re-fetched when the contact changes. Consider separating
+ *     the metadata fetch (run once) from the form initialization.
+ *   - Organization field defaults to "Unknown" when empty on submit.
+ */
 import { useState, useEffect } from 'react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';

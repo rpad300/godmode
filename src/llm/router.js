@@ -1,6 +1,34 @@
 /**
- * LLM Router with Provider Failover
- * Routes requests across providers with priority-based failover
+ * Purpose:
+ *   Routes LLM requests to the appropriate provider and, in failover mode,
+ *   automatically retries against alternative providers when the primary one
+ *   fails with a retryable error (timeout, rate limit, 5xx, overloaded).
+ *
+ * Responsibilities:
+ *   - Two routing modes: "single" (use configured provider only) and "failover"
+ *     (walk a priority-ordered provider list until one succeeds or all fail)
+ *   - Normalizes heterogeneous provider errors into a standard { code, retryable }
+ *     taxonomy so that retry/skip decisions are consistent
+ *   - Checks provider eligibility (API key present, capability match, cooldown status)
+ *   - Resolves which model to use per provider via modelMap or default models
+ *   - Records success/failure in the healthRegistry for circuit-breaker-like cooldowns
+ *
+ * Key dependencies:
+ *   - ./index (llm): delegates actual execution to generateText / generateVision / embed
+ *   - ./healthRegistry: reads and writes per-provider health state (cooldowns, failure counts)
+ *   - ./config: resolves text config in single-provider mode
+ *
+ * Side effects:
+ *   - Network calls (via llm.*) to one or more provider APIs per routeAndExecute call
+ *   - Mutates healthRegistry state on success / failure
+ *
+ * Notes:
+ *   - DEFAULT_ROUTING_POLICY defines sensible timeouts and retry counts per task type.
+ *     These defaults are used when the user has not configured llm.routing in the admin panel.
+ *   - In "single" mode, the router still wraps the call to capture timing and error metadata
+ *     in the returned routing object, making diagnostics uniform regardless of mode.
+ *   - Non-retryable errors (auth, invalid_request, quota_exceeded) cause an immediate skip
+ *     to the next provider rather than consuming a retry slot.
  */
 
 const llm = require('./index');
@@ -267,7 +295,8 @@ async function routeAndExecute(taskType, operation, payload, config) {
     const providers = config.llm?.providers || {};
     const defaultModels = config.llm?.models || {};
     
-    // Single provider mode - use central config
+    // Single provider mode: no failover. The central config determines exactly one
+    // provider+model pair. Routing metadata is still returned for uniform diagnostics.
     if (routing.mode !== 'failover') {
         const textCfg = configModule.getTextConfig(config);
         const providerId = textCfg?.provider ?? config.llm?.provider ?? null;
@@ -369,9 +398,11 @@ async function routeAndExecute(taskType, operation, payload, config) {
         healthRegistry.recordFailure(providerId, result.error, cooldownMs);
         lastResult = result;
         
-        // Check if we should continue to next provider
+        // Both retryable and non-retryable errors advance to the next provider in the
+        // priority list. The distinction matters for health tracking (non-retryable errors
+        // like auth failures do not trigger exponential cooldown in healthRegistry).
         const errorCode = result.error?.code;
-        
+
         if (nonRetryableErrors.includes(errorCode)) {
             log.debug({ event: 'router_non_retryable', providerId, errorCode }, 'Non-retryable error, trying next provider');
             continue;

@@ -1,11 +1,39 @@
 /**
- * Multi-Hop Reasoning Engine
- * 
- * SOTA technique for complex queries that require:
- * - Query decomposition into sub-queries
- * - Iterative retrieval with refinement
- * - Graph-aware multi-hop traversal
- * - Reasoning chains with intermediate steps
+ * Purpose:
+ *   Handles complex, multi-part questions that cannot be answered by a single
+ *   retrieval pass. Decomposes queries into dependency-ordered sub-queries,
+ *   retrieves evidence iteratively, and synthesises a final answer with a
+ *   visible reasoning chain.
+ *
+ * Responsibilities:
+ *   - Decompose a complex question into simpler, dependency-linked sub-queries
+ *     via LLM prompting (returns a DAG of sub-queries)
+ *   - Execute sub-queries in topological order, feeding earlier results as context
+ *   - Provide iterative retrieval with automatic query refinement and a
+ *     confidence-based stopping criterion
+ *   - Support graph-aware multi-hop traversal by translating natural language
+ *     into parameterised Cypher path queries
+ *   - Merge result sets across iterations with deduplication
+ *   - Synthesise a final answer from all gathered sub-query summaries
+ *
+ * Key dependencies:
+ *   - ../llm: LLM text generation for decomposition, summarisation, and synthesis
+ *   - ../logger: structured logging
+ *   - A GraphProvider instance (optional) for graph-based traversals
+ *
+ * Side effects:
+ *   - Multiple LLM API calls per complex query (decompose, summarise per sub-query,
+ *     synthesise final answer, and optionally refine iterative queries)
+ *   - Executes Cypher queries against the graph provider for traversal operations
+ *
+ * Notes:
+ *   - Simple queries (isComplex: false) short-circuit to a single retrieval pass.
+ *   - The topological sort silently breaks cycles, so circular dependencies in
+ *     sub-query DAGs are tolerated but may produce incomplete context.
+ *   - iterativeRetrieval stops when confidence >= 0.8 or maxIterations (default 3)
+ *     is reached. Confidence is heuristic-based (result count + relevance scores).
+ *   - graphTraversal uses LLM to parse traversal intent, so it requires LLM config.
+ *   - Singleton instance available via getMultiHopReasoning().
  */
 
 const { logger } = require('../logger');

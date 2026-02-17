@@ -1,4 +1,34 @@
-
+/**
+ * Purpose:
+ *   Collection of entity-type-specific body renderers for graph node cards.
+ *   Each renderer produces the inner content for a particular entity type
+ *   (Project, Document, Person, Team, Sprint, Email, Event, Fact, Decision,
+ *   Risk, Action, Question, UserStory) with appropriate layout and styling.
+ *
+ * Responsibilities:
+ *   - NodeContentRenderer: switch-based dispatcher that selects the correct
+ *     body component based on entity type string
+ *   - StatusDot: color-coded status indicator (green/yellow/blue/red)
+ *   - ConfidenceBar: horizontal progress bar with numeric confidence value
+ *   - 14 body components (ProjectBody through DefaultBody) each rendering
+ *     type-specific fields like status, priority, confidence, progress,
+ *     owner, dates, and category badges
+ *
+ * Key dependencies:
+ *   - NodeTheme (node-styles): color theme object for styling
+ *   - cn (utils): conditional class merging
+ *
+ * Side effects:
+ *   - None
+ *
+ * Notes:
+ *   - Uses emoji icons to match the original design specification.
+ *   - All body components accept loosely-typed `data: any` because node
+ *     data shapes vary by entity type and may include backend-specific
+ *     fields (e.g., facts_count vs facts).
+ *   - The ActionBody progress bar width is set via inline Tailwind classes
+ *     (w-full, w-3/5, w-0) rather than dynamic percentages.
+ */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NodeTheme } from './node-styles';
 import { cn } from '@/lib/utils';

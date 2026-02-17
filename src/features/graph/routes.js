@@ -1,18 +1,67 @@
 /**
- * Graph Database API
- * Extracted from server.js
+ * Purpose:
+ *   Comprehensive graph database management API. Handles connection lifecycle,
+ *   data sync, queries, multi-project graph operations, and cross-project analytics.
  *
- * Handles:
- * - GET /api/graph/providers, config, status, bookmarks, queries, insights, list
- * - POST /api/graph/connect, test, sync, indexes, embeddings
- * - DELETE /api/graph/:graphName, /api/graph/delete/:graphName
- * - POST /api/graph/cleanup-orphans, switch, sync-multi
- * - GET /api/graph/projects, multi-stats
- * - GET /api/cross-project/people, /api/cross-project/connections
- * - GET /api/person/:name/projects
- * - GET /api/graph/falkordb-browser, sync/status, list-all
- * - POST /api/graph/sync/full, sync/cleanup, cleanup-duplicates, sync-projects, query
- * - GET /api/graph/nodes, relationships
+ * Responsibilities:
+ *   - Provider discovery and connection testing (Supabase-backed graph)
+ *   - Per-project graph creation, switching, deletion, and orphan cleanup
+ *   - Sync documents/entities to graph nodes and relationships
+ *   - Raw Cypher query execution with node/edge extraction
+ *   - Cross-project people and connection discovery via MultiGraphManager
+ *   - Graph insights (density, connectivity, entity distribution)
+ *
+ * Key dependencies:
+ *   - ../../graph/GraphFactory: provider registry and connection testing
+ *   - ../../sync (getGraphSync): full sync, cleanup, incremental sync
+ *   - storage.getGraphProvider(): active graph provider instance
+ *   - storage.getMultiGraphManager(): cross-project graph operations
+ *
+ * Side effects:
+ *   - Persists graph config to local file (saveConfig) and Supabase project_config
+ *   - Creates/deletes graph databases on the backing store
+ *   - Generates embeddings and writes them to the graph
+ *
+ * Notes:
+ *   - Graph config passwords are stripped before returning to the client
+ *   - Bookmarks and saved queries are currently stub implementations (in-memory only)
+ *   - The /api/graph/falkordb-browser endpoint is deprecated but kept for backward compat
+ *   - DELETE /api/graph/:graphName refuses to delete the current project's graph
+ *
+ * Routes (summary -- 30+ endpoints):
+ *   GET  /api/graph/providers          - List available graph providers
+ *   GET  /api/graph/config             - Current graph config (passwords redacted)
+ *   GET  /api/graph/status             - Node/edge counts and connection state
+ *   GET  /api/graph/bookmarks          - Stub: empty bookmarks list
+ *   POST /api/graph/bookmarks          - Stub: create bookmark (in-memory)
+ *   GET  /api/graph/queries            - Stub: saved queries list
+ *   POST /api/graph/queries            - Stub: save query
+ *   GET  /api/graph/insights           - Computed graph analytics (density, degree, recommendations)
+ *   GET  /api/graph/list               - All graphs with project mapping and orphan detection
+ *   DELETE /api/graph/:graphName       - Delete a specific graph (not current)
+ *   POST /api/graph/cleanup-orphans    - Delete graphs whose project no longer exists
+ *   POST /api/graph/connect            - Connect/create project graph and persist config
+ *   POST /api/graph/test               - Test connection to graph provider
+ *   POST /api/graph/sync               - Sync storage data to current graph
+ *   POST /api/graph/indexes            - Create ontology indexes
+ *   POST /api/graph/embeddings         - Generate enriched embeddings
+ *   GET  /api/graph/projects           - Multi-graph project list
+ *   GET  /api/cross-project/people     - Cross-project shared people
+ *   GET  /api/cross-project/connections - Cross-project entity connections
+ *   GET  /api/person/:name/projects    - Projects a person appears in
+ *   POST /api/graph/switch             - Switch active graph
+ *   POST /api/graph/sync-multi         - Sync with multi-graph and ontology support
+ *   GET  /api/graph/multi-stats        - Aggregated multi-graph statistics
+ *   GET  /api/graph/sync/status        - Graph sync status
+ *   POST /api/graph/sync/full          - Full graph sync
+ *   POST /api/graph/sync/cleanup       - Clean up orphaned graph nodes
+ *   POST /api/graph/cleanup-duplicates - Deduplicate meetings, remove orphan relations
+ *   GET  /api/graph/list-all           - Raw graph list from provider
+ *   POST /api/graph/sync-projects      - Sync graphs for all projects
+ *   DELETE /api/graph/delete/:graphName - Alternate delete endpoint
+ *   POST /api/graph/query              - Execute Cypher query, return nodes/edges
+ *   GET  /api/graph/nodes              - Find nodes by label
+ *   GET  /api/graph/relationships      - Find relationships by type
  */
 
 const { parseBody, parseUrl } = require('../../server/request');
@@ -59,10 +108,12 @@ async function handleGraph(ctx) {
             graphConfig = config.graph || { enabled: false };
         }
         const safeConfig = { ...graphConfig };
-        if (safeConfig.falkordb) {
-            safeConfig.falkordb = { ...safeConfig.falkordb };
-            delete safeConfig.falkordb.password;
-            safeConfig.falkordb.passwordSet = !!(process.env.FALKORDB_PASSWORD || process.env.FAKORDB_PASSWORD);
+        // Strip any legacy provider passwords from config response
+        for (const providerKey of ['falkordb', 'neo4j']) {
+            if (safeConfig[providerKey]) {
+                safeConfig[providerKey] = { ...safeConfig[providerKey] };
+                delete safeConfig[providerKey].password;
+            }
         }
         jsonResponse(res, {
             ok: true,
@@ -406,9 +457,8 @@ async function handleGraph(ctx) {
                 try {
                     const { data: graphConfigRow } = await client.from('system_config')
                         .select('value').eq('key', 'graph').single();
-                    if (graphConfigRow?.value?.falkordb?.username) {
-                        username = graphConfigRow.value.falkordb.username;
-                    }
+                    const graphValue = graphConfigRow?.value || {};
+                    username = graphValue.falkordb?.username || graphValue.username;
                 } catch (e) { /* ignore */ }
             }
             if (!password) {
@@ -422,7 +472,7 @@ async function handleGraph(ctx) {
                 } catch (e) { /* ignore */ }
             }
         }
-        if (!password) password = process.env.FALKORDB_PASSWORD || process.env.FAKORDB_PASSWORD;
+        if (!password) password = process.env.GRAPH_PASSWORD;
         const providerConfig = {
             host: body.host, port: body.port, username, password,
             tls: body.tls !== false,
@@ -590,24 +640,9 @@ async function handleGraph(ctx) {
         return true;
     }
 
-    // GET /api/graph/falkordb-browser
+    // GET /api/graph/falkordb-browser (deprecated - kept for backward compat)
     if (pathname === '/api/graph/falkordb-browser' && req.method === 'GET') {
-        try {
-            const graphConfig = config.graph || {};
-            const falkorConfig = graphConfig.falkordb || {};
-            const host = falkorConfig.host || 'localhost';
-            const browserPort = falkorConfig.browserPort || 3000;
-            const isCloud = host.includes('.cloud') || host.includes('falkordb.com');
-            jsonResponse(res, {
-                ok: true,
-                browserUrl: isCloud ? 'https://browser.falkordb.cloud' : `http://${host === 'localhost' ? 'localhost' : host}:${browserPort}`,
-                isCloud,
-                host,
-                note: isCloud ? 'Cloud FalkorDB - use FalkorDB Cloud Console' : 'Local FalkorDB Browser'
-            });
-        } catch (error) {
-            jsonResponse(res, { ok: false, error: error.message }, 500);
-        }
+        jsonResponse(res, { ok: false, error: 'FalkorDB browser endpoint removed. Graph is now managed via Supabase.' });
         return true;
     }
 
@@ -685,7 +720,7 @@ async function handleGraph(ctx) {
         try {
             const graphProvider = storage.getGraphProvider();
             if (!graphProvider || typeof graphProvider.listGraphs !== 'function') {
-                jsonResponse(res, { ok: false, error: 'FalkorDB provider not available' });
+                jsonResponse(res, { ok: false, error: 'Graph provider not available' });
                 return true;
             }
             const result = await graphProvider.listGraphs();
@@ -701,7 +736,7 @@ async function handleGraph(ctx) {
         try {
             const body = await parseBody(req);
             const dryRun = body.dryRun === true;
-            const result = await storage.syncFalkorDBGraphs({ dryRun });
+            const result = await storage.syncGraphs ? await storage.syncGraphs({ dryRun }) : await storage.syncFalkorDBGraphs({ dryRun });
             jsonResponse(res, result);
         } catch (error) {
             jsonResponse(res, { ok: false, error: error.message }, 500);
@@ -715,7 +750,7 @@ async function handleGraph(ctx) {
             const graphName = decodeURIComponent(pathname.split('/').pop());
             const graphProvider = storage.getGraphProvider();
             if (!graphProvider || typeof graphProvider.deleteGraph !== 'function') {
-                jsonResponse(res, { ok: false, error: 'FalkorDB provider not available' });
+                jsonResponse(res, { ok: false, error: 'Graph provider not available' });
                 return true;
             }
             const result = await graphProvider.deleteGraph(graphName);

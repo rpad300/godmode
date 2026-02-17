@@ -1,10 +1,28 @@
 /**
- * SyncTracker - Tracks sync state for incremental synchronization
- * 
- * Features:
- * - Track which entities have been synced
- * - Compute content hashes to detect changes
- * - Support incremental sync (only changed items)
+ * Purpose:
+ *   Persists per-entity content hashes to a JSON file so that incremental sync
+ *   operations only process entities whose content has actually changed.
+ *
+ * Responsibilities:
+ *   - Compute deterministic MD5 hashes of entity payloads (sorted keys)
+ *   - Compare stored vs. current hashes to decide if an entity needs re-sync
+ *   - Persist sync state (hashes + timestamps) to .sync-state.json on disk
+ *   - Provide bulk filterNeedSync() for efficient batch processing
+ *
+ * Key dependencies:
+ *   - crypto (Node built-in): MD5 content hashing
+ *   - fs / path (Node built-in): Filesystem persistence of sync state
+ *   - ../logger: Structured logging
+ *
+ * Side effects:
+ *   - Reads/writes <dataDir>/.sync-state.json on construction and on save()
+ *   - Creates the data directory recursively if missing
+ *
+ * Notes:
+ *   - JSON.stringify with sorted keys ensures hash stability regardless of
+ *     property insertion order
+ *   - clear() forces a full re-sync by wiping all stored hashes
+ *   - Singleton accessor getSyncTracker() ignores options after initial creation
  */
 
 const crypto = require('crypto');

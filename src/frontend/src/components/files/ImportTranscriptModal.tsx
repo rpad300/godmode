@@ -1,3 +1,28 @@
+/**
+ * Purpose:
+ *   Modal dialog for importing meeting transcripts via paste or file
+ *   upload, with source platform selection and sprint/task association.
+ *
+ * Responsibilities:
+ *   - Tab-based UI with paste and upload modes
+ *   - Paste tab: freeform textarea with source selector (auto, Krisp,
+ *     Otter.ai, Zoom, Google Meet, MS Teams)
+ *   - Upload tab: file input accepting .txt, .md, .srt, .vtt
+ *   - SprintTaskAssociation selector for linking the transcript to a
+ *     sprint/task
+ *   - Resets form state on close or submission
+ *
+ * Key dependencies:
+ *   - Dialog (shadcn/ui): modal container
+ *   - Select (shadcn/ui): source platform selector
+ *   - SprintTaskAssociation: sprint/task selector sub-component
+ *
+ * Side effects:
+ *   - None (delegates import action to parent via onImport)
+ *
+ * Notes:
+ *   - The Upload icon is imported but unused.
+ */
 import { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Mic, Upload } from 'lucide-react';

@@ -1,18 +1,28 @@
 /**
- * Ontology Module - GodMode Knowledge Graph Ontology System
- * 
- * SOTA v2.1 - State of the Art Ontology System
- * 
- * This module provides:
- * - OntologyManager: Schema management and validation (now with Supabase persistence)
- * - RelationInference: Automatic entity and relationship extraction
- * - EmbeddingEnricher: Enhanced embeddings with ontological context
- * - OntologyAgent: AI-powered ontology evolution (now with LLM analysis & auto-approval)
- * - SchemaExporter: Export ontology to FalkorDB with indexes and metadata
- * - InferenceEngine: Execute inference rules automatically
- * - OntologySync: Real-time sync between Supabase and FalkorDB
- * - OntologyBackgroundWorker: Background jobs for continuous optimization
- * - OntologyExtractor: Extract ontology from graph, validate compliance, merge ontologies (NEW v2.1)
+ * Purpose:
+ *   Barrel export for the GodMode knowledge graph ontology subsystem.
+ *   Re-exports every public class and its singleton getter so consumers can
+ *   import the entire ontology surface from a single path.
+ *
+ * Responsibilities:
+ *   - Centralise all ontology-related imports into one module entry-point
+ *   - Expose both class constructors (for testing / custom instances) and
+ *     singleton getters (for production use)
+ *
+ * Key dependencies:
+ *   - Every sibling module in src/ontology/ (OntologyManager, RelationInference,
+ *     EmbeddingEnricher, OntologyAgent, SchemaExporter, InferenceEngine,
+ *     OntologySync, OntologyBackgroundWorker, OntologyExtractor,
+ *     RelationshipInferrer)
+ *
+ * Side effects:
+ *   - Requiring this file eagerly requires all sub-modules, which may trigger
+ *     synchronous file-system reads (e.g. schema.json loading in OntologyManager)
+ *
+ * Notes:
+ *   - Singleton instances are lazily created on first call to the getter functions,
+ *     not at require-time.
+ *   - SOTA v2.1 / v3.0 - Supabase-native graph support added across sub-modules.
  */
 
 const { OntologyManager, getOntologyManager } = require('./OntologyManager');

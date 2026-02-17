@@ -1,9 +1,32 @@
 /**
- * Reports API
- * Extracted from server.js
+ * Purpose:
+ *   Weekly status report generator. Aggregates project facts, questions, decisions,
+ *   risks, and action items into a structured Markdown report suitable for stakeholder
+ *   distribution.
  *
- * Handles:
- * - GET /api/reports/weekly - Generate weekly status report
+ * Responsibilities:
+ *   - Gather all entity counts (facts, questions, decisions, risks, actions, people)
+ *   - Highlight items requiring attention: critical questions, high-impact risks, overdue actions
+ *   - Format an executive summary with metrics table
+ *   - Include recent decisions and question breakdown by priority
+ *   - Personalize report header with the user's project role
+ *
+ * Key dependencies:
+ *   - ctx.storage: provides getFacts, getQuestions, getDecisions, getRisks, getActionItems,
+ *     getPeople, getStats, getCurrentProject
+ *
+ * Side effects:
+ *   - None (pure read-only report generation)
+ *
+ * Notes:
+ *   - The report is returned as a Markdown string inside a JSON envelope, not as a
+ *     downloadable file; the frontend renders it
+ *   - Only the most recent 5 decisions are included to keep the report concise
+ *   - Overdue actions are identified by comparing deadline dates to the current date
+ *
+ * Routes:
+ *   GET /api/reports/weekly  - Generate weekly status report
+ *     Resp: { report: <markdown string>, generated_at, project }
  */
 
 const { jsonResponse } = require('../../server/response');

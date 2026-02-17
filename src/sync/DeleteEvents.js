@@ -1,6 +1,35 @@
 /**
- * Delete Events Module
- * Emits real-time events when items are deleted
+ * Purpose:
+ *   Real-time event bus for delete and restore operations, enabling both
+ *   in-process listeners and remote WebSocket / SSE subscribers to react
+ *   immediately when data is removed or restored.
+ *
+ * Responsibilities:
+ *   - Emit typed events (`delete`, `delete:<entityType>`, `restore`, etc.)
+ *     via the Node.js EventEmitter API
+ *   - Maintain a bounded in-memory history of recent events
+ *   - Push events to registered WebSocket connections with optional
+ *     entity-type and event-type filters
+ *   - Expose an SSE (Server-Sent Events) HTTP handler factory with
+ *     heartbeat keep-alive
+ *
+ * Key dependencies:
+ *   - events (Node.js built-in): base EventEmitter class
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - Sends data over WebSocket connections (network I/O)
+ *   - SSE handler writes to the HTTP response stream and sets an interval
+ *     timer; both are cleaned up on client disconnect
+ *   - Removes failed WebSocket subscribers automatically on send error
+ *
+ * Notes:
+ *   - The `subscribers` Map holds raw WebSocket references; if the process
+ *     does not call `unsubscribe` on disconnect, entries will accumulate
+ *     (though failed sends trigger automatic cleanup).
+ *   - Event history is capped at `maxHistory` (default 100) and ordered
+ *     newest-first.
+ *   - SSE heartbeat interval is 30 seconds.
  */
 
 const EventEmitter = require('events');
@@ -8,6 +37,14 @@ const { logger } = require('../logger');
 
 const log = logger.child({ module: 'delete-events' });
 
+/**
+ * EventEmitter subclass that broadcasts delete/restore events to both
+ * in-process listeners (via `on('delete', ...)`) and remote clients
+ * (via WebSocket push or SSE stream).
+ *
+ * Maintains a bounded history ring of recent events for late-joining
+ * subscribers.
+ */
 class DeleteEvents extends EventEmitter {
     constructor(options = {}) {
         super();
@@ -145,7 +182,11 @@ class DeleteEvents extends EventEmitter {
     }
 
     /**
-     * Create SSE stream for delete events
+     * Returns an Express-compatible request handler that opens an SSE stream.
+     * The handler sends a `connected` message immediately, then streams every
+     * delete and restore event as `data:` frames. A 30-second heartbeat keeps
+     * the connection alive through proxies. All listeners are cleaned up when
+     * the client disconnects.
      */
     createSSEHandler() {
         return (req, res) => {

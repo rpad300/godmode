@@ -1,3 +1,29 @@
+/**
+ * Purpose:
+ *   Modal dialog for importing chat conversations from various platforms
+ *   (WhatsApp, Slack, Teams, Discord) via paste or file upload.
+ *
+ * Responsibilities:
+ *   - Tab-based UI with paste and upload modes
+ *   - Paste tab: freeform textarea with format auto-detection selector
+ *     (auto, WhatsApp, Slack, Teams, Discord)
+ *   - Upload tab: file input accepting .txt, .json files
+ *   - Resets form state on close or submission
+ *
+ * Key dependencies:
+ *   - Dialog (shadcn/ui): modal container
+ *   - Select (shadcn/ui): format selector dropdown
+ *
+ * Side effects:
+ *   - None (delegates import action to parent via onImport)
+ *
+ * Notes:
+ *   - Unlike the other import modals, this one does NOT include a
+ *     SprintTaskAssociation selector.
+ *   - The onImport payload uses `content || fileName` which may send
+ *     just a filename string without the actual file content for paste
+ *     mode fallback.
+ */
 import { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { MessageSquare } from 'lucide-react';

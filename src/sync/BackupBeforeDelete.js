@@ -1,6 +1,32 @@
 /**
- * Backup Before Delete Module
- * Creates automatic backups before destructive operations
+ * Purpose:
+ *   Creates point-in-time snapshots of entities immediately before they are
+ *   deleted, enabling later restoration if needed.
+ *
+ * Responsibilities:
+ *   - Persist a deep-cloned copy of each entity to an individual JSON file
+ *     under `<dataDir>/delete-backups/`
+ *   - Maintain an in-memory + on-disk index (backup-index.json) for fast lookup
+ *   - Enforce a maximum backup count (default 100); oldest backups are pruned
+ *     automatically
+ *   - Provide restore, list, delete, and statistics APIs
+ *
+ * Key dependencies:
+ *   - fs / path: file I/O for individual backup files and the index
+ *   - ../logger: structured warning/debug logging
+ *
+ * Side effects:
+ *   - Creates the `delete-backups/` directory if it does not exist
+ *   - Writes one JSON file per backup and updates backup-index.json on every
+ *     create/delete operation (synchronous I/O)
+ *   - `trimBackups` physically removes old backup files from disk
+ *
+ * Notes:
+ *   - `restoreFromBackup` only returns the backed-up data; it does NOT
+ *     re-insert the entity into storage or the graph. The caller is
+ *     responsible for actual restoration.
+ *   - Deep clone via JSON round-trip; non-serializable values (functions,
+ *     Dates as objects) will be lost.
  */
 
 const fs = require('fs');
@@ -9,6 +35,17 @@ const { logger } = require('../logger');
 
 const log = logger.child({ module: 'backup-before-delete' });
 
+/**
+ * Pre-delete backup manager that stores full entity snapshots as individual
+ * JSON files under a `delete-backups/` directory, indexed by an on-disk
+ * manifest (backup-index.json).
+ *
+ * Lifecycle: on construction, loads the existing index; on every create/delete,
+ * persists the updated index synchronously.
+ *
+ * Invariant: `backupIndex` length never exceeds `maxBackups`; oldest entries
+ * are trimmed (and their files deleted) automatically.
+ */
 class BackupBeforeDelete {
     constructor(options = {}) {
         this.dataDir = options.dataDir || './data';
@@ -141,7 +178,8 @@ class BackupBeforeDelete {
     }
 
     /**
-     * Restore from backup
+     * Return the backed-up entity data for re-insertion by the caller.
+     * Does NOT perform the actual storage/graph restoration.
      */
     restoreFromBackup(backupId) {
         const backup = this.getBackup(backupId);

@@ -1,4 +1,30 @@
-
+/**
+ * Purpose:
+ *   Reusable visual frame wrapper for all tier-based graph node cards,
+ *   providing consistent styling, handles, and a left accent bar.
+ *
+ * Responsibilities:
+ *   - Renders a themed container with gradient background, border, and
+ *     optional glow effect when selected
+ *   - Places invisible React Flow handles (top target, bottom source) for
+ *     edge connection detection
+ *   - Draws a left-side color accent bar using the theme's accent color
+ *   - Accepts children for tier-specific content rendering
+ *
+ * Key dependencies:
+ *   - @xyflow/react (Handle, Position): connection handles
+ *   - NodeTheme (node-styles): theme object with bg, border, accent, glow
+ *   - cn (utils): conditional class merging
+ *
+ * Side effects:
+ *   - None
+ *
+ * Notes:
+ *   - Handles are styled as invisible full-area overlays with
+ *     pointer-events-none; edges connect via the node's center.
+ *   - The `width` prop sets minWidth, not fixed width, allowing content
+ *     to expand naturally.
+ */
 import { PropsWithChildren } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { cn } from '@/lib/utils';

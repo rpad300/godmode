@@ -1,6 +1,29 @@
 /**
- * Batch Embeddings Module
- * Process embeddings in batches for better performance
+ * Purpose:
+ *   Efficiently compute embeddings for large numbers of texts by batching
+ *   requests and caching results in memory.
+ *
+ * Responsibilities:
+ *   - Split input texts into configurable batch sizes and process them
+ *     with retry logic against the LLM embedding endpoint
+ *   - Maintain an in-memory embedding cache (LRU-style eviction at 10%
+ *     when the cache reaches capacity)
+ *   - Provide both sequential (embedTexts) and parallel (embedTextsParallel)
+ *     processing modes with concurrency control
+ *   - Track hit/miss statistics for cache efficiency monitoring
+ *
+ * Key dependencies:
+ *   - ../llm: embedding API calls
+ *   - ../llm/config: per-task embeddings provider/model resolution
+ *
+ * Side effects:
+ *   - Makes network calls to the configured embeddings provider
+ *
+ * Notes:
+ *   - The cache key is a simple hash of the first/last characters and
+ *     length of the text; collisions are unlikely but theoretically
+ *     possible for texts that share prefix, suffix, and length.
+ *   - Retry delay increases linearly (retryDelay * attemptNumber).
  */
 
 const { logger } = require('../logger');
@@ -8,6 +31,16 @@ const llm = require('../llm');
 
 const log = logger.child({ module: 'batch-embeddings' });
 
+/**
+ * Batches embedding API calls with an in-memory LRU-style cache.
+ *
+ * @param {object} options
+ * @param {number} [options.batchSize=20] - Texts per API call
+ * @param {number} [options.maxConcurrent=3] - Max parallel batches
+ * @param {number} [options.retryAttempts=3] - Retries per failed batch
+ * @param {number} [options.retryDelay=1000] - Base delay between retries in ms
+ * @param {number} [options.cacheMaxSize=10000] - Max cached embeddings
+ */
 class BatchEmbeddings {
     constructor(options = {}) {
         this.batchSize = options.batchSize || 20;
@@ -31,7 +64,11 @@ class BatchEmbeddings {
     }
 
     /**
-     * Get embeddings for multiple texts efficiently
+     * Compute embeddings for an array of texts, returning cached results
+     * where available and batching the rest.
+     * @param {string[]} texts - Input texts
+     * @param {object} [options] - Override provider/model
+     * @returns {Promise<{success: boolean, embeddings: Array, processed?: number, fromCache?: number|boolean, stats: object}>}
      */
     async embedTexts(texts, options = {}) {
         if (!texts || texts.length === 0) {
@@ -99,7 +136,10 @@ class BatchEmbeddings {
     }
 
     /**
-     * Process a single batch
+     * Send a single batch of texts to the embedding provider with retries.
+     * @param {string[]} texts - Batch of input texts
+     * @param {object} [options] - Override provider/model
+     * @returns {Promise<{success: boolean, embeddings: Array}>}
      */
     async processBatch(texts, options = {}) {
         const embedCfg = this.appConfig ? require('../llm/config').getEmbeddingsConfig(this.appConfig) : null;

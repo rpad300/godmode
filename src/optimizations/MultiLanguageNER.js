@@ -1,6 +1,32 @@
 /**
- * Multi-Language NER Module
- * Named Entity Recognition for Portuguese and English
+ * Purpose:
+ *   Extract named entities from text in both Portuguese and English using
+ *   a combination of rule-based regex patterns and LLM-powered extraction.
+ *
+ * Responsibilities:
+ *   - Auto-detect language (Portuguese vs English) via stop-word scoring
+ *     and presence of Portuguese-specific diacritics
+ *   - Extract structured entities (emails, URLs, dates, money, phone
+ *     numbers, roles) using locale-specific regex patterns
+ *   - Extract semantic entities (people, organizations, projects,
+ *     technologies, events) via LLM prompts
+ *   - Merge and deduplicate results from both extraction strategies
+ *   - Infer person-to-organization relationships by text proximity
+ *
+ * Key dependencies:
+ *   - ../llm: LLM text generation for semantic NER
+ *
+ * Side effects:
+ *   - Makes LLM API calls when extractWithLLM is invoked
+ *
+ * Notes:
+ *   - Rule-based extraction is fully synchronous and does not require
+ *     an LLM provider. LLM extraction gracefully falls back to an empty
+ *     result set on failure.
+ *   - Language detection is simplistic (stop-word counting); for mixed-
+ *     language documents the caller should pass options.language explicitly.
+ *   - Proximity-based relation inference (extractWithRelations) uses a
+ *     100-character window, which is a rough heuristic.
  */
 
 const { logger } = require('../logger');
@@ -8,6 +34,15 @@ const llm = require('../llm');
 
 const log = logger.child({ module: 'multi-language-ner' });
 
+/**
+ * Bilingual (Portuguese + English) Named Entity Recognition using regex
+ * patterns and LLM extraction.
+ *
+ * @param {object} options
+ * @param {string|null} options.llmProvider - LLM provider for semantic extraction
+ * @param {string|null} options.llmModel - Model identifier
+ * @param {object}  options.llmConfig - Full LLM configuration
+ */
 class MultiLanguageNER {
     constructor(options = {}) {
         // No hardcoded defaults - must come from admin config
@@ -89,7 +124,12 @@ class MultiLanguageNER {
     }
 
     /**
-     * Extract entities from text
+     * Run both rule-based and LLM extraction in parallel, merge, dedup,
+     * and return sorted entities.
+     * @param {string} text - Input text (minimum 10 chars)
+     * @param {object} [options]
+     * @param {string} [options.language] - 'pt' | 'en'; auto-detected if omitted
+     * @returns {Promise<{entities: Array<{type: string, value: string, confidence: number}>, language: string, counts: object}>}
      */
     async extract(text, options = {}) {
         if (!text || text.length < 10) {
@@ -306,7 +346,11 @@ Be precise and extract only clearly mentioned entities.`;
     }
 
     /**
-     * Extract and link entities
+     * Extract entities and infer person-to-organization relationships by
+     * text proximity (within 100 characters). Relationships are returned
+     * with confidence 0.6 as they are heuristic.
+     * @param {string} text - Input text
+     * @returns {Promise<{entities: Array, language: string, counts: object, relations: Array}>}
      */
     async extractWithRelations(text) {
         const result = await this.extract(text);

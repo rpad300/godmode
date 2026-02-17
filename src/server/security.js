@@ -1,6 +1,29 @@
 /**
- * Security helpers
- * Extracted from server.js for modularity
+ * Purpose:
+ *   Input-validation and filesystem-safety helpers used across API route
+ *   handlers to guard against malformed identifiers and path-traversal attacks.
+ *
+ * Responsibilities:
+ *   - isValidUUID: Strict RFC-4122 UUID v1-5 format check (case-insensitive)
+ *   - sanitizeFilename: Strip traversal sequences and non-portable characters,
+ *     returning a filesystem-safe name capped at 255 chars
+ *   - isPathWithinDirectory: Resolve symlinks and verify the real path stays
+ *     inside an allowed directory boundary
+ *
+ * Key dependencies:
+ *   - fs (Node.js built-in): realpathSync for symlink resolution in isPathWithinDirectory
+ *
+ * Side effects:
+ *   - isPathWithinDirectory performs synchronous filesystem I/O (realpathSync);
+ *     it will return false if either path does not exist on disk.
+ *
+ * Notes:
+ *   - sanitizeFilename collapses ".." but also strips all "/" and "\" into "_",
+ *     making it safe for flat-directory storage but unsuitable if sub-paths
+ *     are intentionally needed.
+ *   - isPathWithinDirectory relies on realpathSync, so both the target path AND
+ *     the allowed directory must exist at call time; otherwise it returns false.
+ *     Callers should create directories before checking containment.
  */
 
 const fs = require('fs');

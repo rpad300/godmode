@@ -1,6 +1,33 @@
 /**
- * Health Monitor Module
- * Dashboard for system health monitoring
+ * Purpose:
+ *   Provide a unified health-check dashboard that probes system resources,
+ *   the graph database, storage, LLM availability, and HTTP endpoints.
+ *
+ * Responsibilities:
+ *   - Run five independent health checks in parallel (system, graph,
+ *     storage, LLM, endpoints) and roll up into an overall status
+ *   - Track memory (heap) and CPU usage against configurable thresholds
+ *   - Measure graph database response time as a latency indicator
+ *   - Maintain a rolling history of health snapshots (default 100 entries)
+ *   - Compute a 24-hour uptime percentage from stored history
+ *   - Optionally run periodic checks on a configurable interval
+ *
+ * Key dependencies:
+ *   - os: CPU and total/free memory readings
+ *   - graphProvider (injected): graph liveness probe
+ *   - storage (injected): storage liveness probe
+ *   - ../llm: LLM module availability check
+ *
+ * Side effects:
+ *   - Reads process.memoryUsage() and os metrics (no mutations)
+ *   - Executes a lightweight Cypher count query against the graph
+ *   - Starts a setInterval timer when startMonitoring is called
+ *
+ * Notes:
+ *   - checkEndpoints is a placeholder; it does not actually probe HTTP
+ *     endpoints yet.
+ *   - The LLM check only verifies that the module can be required, not
+ *     that API keys are valid or the provider is reachable.
  */
 
 const os = require('os');
@@ -8,6 +35,16 @@ const { logger } = require('../logger');
 
 const log = logger.child({ module: 'health-monitor' });
 
+/**
+ * Unified health-check dashboard for system resources, graph, storage,
+ * LLM, and endpoints. Maintains a rolling history for uptime reporting.
+ *
+ * @param {object} options
+ * @param {object} options.graphProvider - Graph database adapter
+ * @param {object} options.storage - Local storage adapter
+ * @param {number} [options.checkInterval=60000] - Periodic check interval in ms
+ * @param {number} [options.maxHistory=100] - Max health snapshots to retain
+ */
 class HealthMonitor {
     constructor(options = {}) {
         this.graphProvider = options.graphProvider;
@@ -42,7 +79,9 @@ class HealthMonitor {
     }
 
     /**
-     * Get comprehensive health check
+     * Run all health checks in parallel and compute an aggregate status.
+     * Status is 'healthy', 'warning', or 'error' (worst wins).
+     * @returns {Promise<{status: string, issues: string[], timestamp: string, checks: object, uptime: number}>}
      */
     async getHealth() {
         const checks = await Promise.all([

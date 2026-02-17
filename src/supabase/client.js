@@ -1,6 +1,34 @@
 /**
- * Supabase Client Module
- * Provides both client (anon) and admin (service_role) clients
+ * Purpose:
+ *   Creates and caches two Supabase JS client singletons: a public client
+ *   (anon key, subject to RLS) and an admin client (service_role key,
+ *   bypasses RLS). All other modules obtain their database handle from here.
+ *
+ * Responsibilities:
+ *   - Lazy-initialize clients on first access so env vars from .env are
+ *     available even if this module is required early
+ *   - Wrap every Supabase fetch in a timeout + circuit-breaker to prevent
+ *     hung requests from blocking the event loop and to fail fast when
+ *     Supabase is unreachable
+ *   - Expose helpers to check configuration and test connectivity
+ *
+ * Key dependencies:
+ *   - @supabase/supabase-js: Official Supabase client
+ *   - ../logger: Structured pino logger
+ *
+ * Side effects:
+ *   - Mutates process.env.NODE_PATH at load time to fix module resolution
+ *     when the project directory itself is named "node_modules"
+ *   - Reads SUPABASE_PROJECT_URL, SUPABASE_PROJECT_ANON_KEY,
+ *     SUPABASE_PROJECT_SERVICE_ROLE_KEY (and legacy aliases) from env
+ *   - SUPABASE_CIRCUIT_THRESHOLD / SUPABASE_CIRCUIT_COOLDOWN_MS control
+ *     circuit-breaker behavior
+ *
+ * Notes:
+ *   - The admin client must never be exposed to browser/frontend code.
+ *   - Circuit breaker state is in-process; it does not share across workers.
+ *   - testConnection() queries the `user_profiles` table; PGRST116 (table
+ *     not found) is tolerated so the check passes before migrations run.
  */
 
 const path = require('path');

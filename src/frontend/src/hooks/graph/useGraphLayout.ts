@@ -1,3 +1,32 @@
+/**
+ * Purpose:
+ *   Computes concentric-circle positions for graph nodes based on their tier.
+ *   Tier 0 (Project) sits at the centre, Tier 1 on an inner ring, Tier 2 on
+ *   an outer ring. Radii scale dynamically to prevent node overlap.
+ *
+ * Responsibilities:
+ *   - Partition nodes by tier (0, 1, 2)
+ *   - Calculate minimum radius for each ring based on node count and item width
+ *   - Distribute nodes evenly around each circle
+ *   - Assign { x, y } positions on each node in-place
+ *
+ * Key dependencies:
+ *   - @/types/graph: GraphNode, GraphEdge
+ *
+ * Side effects:
+ *   - Mutates node.position in-place within the useMemo (safe because the array
+ *     is only consumed downstream after layout)
+ *
+ * Notes:
+ *   - Edges are passed through unchanged; layout only affects node positions.
+ *   - Tier 2 ring is guaranteed to be at least 250px outside Tier 1 ring.
+ *   - Nodes with no explicit tier default to tier 2 via (n.data.tier ?? 2).
+ *
+ * @param nodes - flat list of GraphNode (tier info in node.data.tier)
+ * @param edges - flat list of GraphEdge (returned as-is)
+ * @param options - center coordinates and base radii for tier 1 and tier 2
+ * @returns {{ nodes: GraphNode[], edges: GraphEdge[] }}
+ */
 import { useMemo } from 'react';
 import { GraphNode, GraphEdge } from '@/types/graph';
 

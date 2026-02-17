@@ -1,6 +1,28 @@
 /**
- * Activity Log Module
- * Append-only audit trail for project actions
+ * Purpose:
+ *   Append-only activity log for tracking user actions within projects.
+ *   Provides the primary audit trail for compliance and user-facing activity feeds.
+ *
+ * Responsibilities:
+ *   - Insert activity entries into the `activity_log` table
+ *   - Query activity by project, user, action type, or time range
+ *   - Join actor profile data (username, avatar) for display
+ *   - Extract client metadata (IP, user-agent) from HTTP requests
+ *
+ * Key dependencies:
+ *   - ./client (getAdminClient, getClient): Supabase DB access
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - Writes to `activity_log` table on every logActivity call
+ *
+ * Notes:
+ *   - The log is append-only by design; no update/delete operations are exposed.
+ *   - getProjectActivity joins `user_profiles` via the `activity_log_actor_id_fkey`
+ *     foreign key to enrich results with actor display info.
+ *   - getUserActivity joins `projects` to include the project name per entry.
+ *   - All functions return a `{ success, error?, ... }` envelope so callers
+ *     can handle failures without try/catch.
  */
 
 const { logger } = require('../logger');
@@ -156,7 +178,7 @@ async function getProjectActivity(projectId, options = {}) {
             return { success: false, error: error.message };
         }
         
-        // Format the response
+        // Flatten the nested user_profiles join into a cleaner actor object
         const activities = (data || []).map(a => ({
             id: a.id,
             action: a.action,

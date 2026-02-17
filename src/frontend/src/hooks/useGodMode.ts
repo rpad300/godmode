@@ -1,5 +1,30 @@
 /**
- * React Query hooks for GodMode data fetching and mutations.
+ * Purpose:
+ *   Central collection of React Query hooks that cover every API domain
+ *   in the GodMode application: dashboard, projects, files, processing,
+ *   entities (questions, facts, risks, actions, decisions), contacts,
+ *   chat, team analysis, costs, emails, admin, API keys, webhooks,
+ *   audit/history, documents, briefing, and project configuration.
+ *
+ * Responsibilities:
+ *   - Define canonical query keys (queryKeys) for cache identity
+ *   - Provide useQuery hooks for read operations with appropriate staleTime / refetchInterval
+ *   - Provide useMutation hooks that invalidate related caches on success
+ *   - Export TypeScript interfaces for each API response shape
+ *
+ * Key dependencies:
+ *   - @tanstack/react-query: query/mutation lifecycle
+ *   - lib/api-client: authenticated HTTP methods (get, post, put, delete, upload)
+ *
+ * Side effects:
+ *   - All hooks trigger network requests; mutations invalidate query caches
+ *   - usePendingFiles polls every 10s; useProcessStatus polls every 3s
+ *
+ * Notes:
+ *   - Entity CRUD hooks (questions, facts, etc.) follow the same pattern:
+ *     list, create, update, delete with dashboard/stats invalidation on write.
+ *   - Some response interfaces use [key: string]: unknown for extensibility;
+ *     tighten these as the API contracts stabilise.
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../lib/api-client';
@@ -16,6 +41,7 @@ export const queryKeys = {
   decisions: ['decisions'] as const,
   contacts: ['contacts'] as const,
   files: ['files'] as const,
+  documents: ['documents'] as const,
   pendingFiles: ['pendingFiles'] as const,
   projects: ['projects'] as const,
   chatHistory: ['chatHistory'] as const,
@@ -285,12 +311,167 @@ export function useDeletePendingFile() {
   });
 }
 
+// ── Briefing ────────────────────────────────────────────────────────────────
+
+export interface Briefing {
+  content: string;
+  generated_at?: string;
+  sections?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export function useBriefing(refresh?: boolean) {
+  return useQuery({
+    queryKey: ['briefing', refresh],
+    queryFn: () => apiClient.get<Briefing>(`/api/briefing${refresh ? '?refresh=true' : ''}`),
+    enabled: true,
+  });
+}
+
+export function useSotChat() {
+  return useMutation({
+    mutationFn: (data: { message: string; history?: Array<{ role: string; content: string }> }) =>
+      apiClient.post<{ response: string; sources?: ChatSource[] }>('/api/sot/chat', data),
+  });
+}
+
+// ── Project Config ──────────────────────────────────────────────────────────
+
+export interface ProjectConfig {
+  projectName?: string;
+  llm?: {
+    provider?: string;
+    models?: Record<string, string>;
+    embeddingsProvider?: string;
+    providers?: Record<string, { apiKey?: string; baseUrl?: string; host?: string; port?: number; manualModels?: string[] }>;
+  };
+  prompts?: Record<string, string>;
+  pdfToImages?: boolean;
+  [key: string]: unknown;
+}
+
+export function useProjectConfig() {
+  return useQuery({
+    queryKey: ['config'],
+    queryFn: () => apiClient.get<ProjectConfig>('/api/config'),
+  });
+}
+
+export function useUpdateProjectConfig() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Partial<ProjectConfig>) =>
+      apiClient.post<ProjectConfig>('/api/config', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['config'] });
+    },
+  });
+}
+
+// ── Documents ───────────────────────────────────────────────────────────────
+
+export interface DocumentItem {
+  id: string;
+  filename: string;
+  original_filename?: string;
+  type?: string;
+  status: string;
+  created_at?: string;
+  updated_at?: string;
+  size?: number;
+  content_preview?: string;
+  entity_counts?: { facts?: number; questions?: number; decisions?: number; risks?: number; actions?: number };
+  [key: string]: unknown;
+}
+
+export interface DocumentsResponse {
+  documents: DocumentItem[];
+  total: number;
+  statusCounts?: { processed?: number; pending?: number; processing?: number; failed?: number; deleted?: number };
+}
+
+export function useDocuments(params?: { status?: string; limit?: number; offset?: number; search?: string; type?: string; sort?: string; order?: string }) {
+  const qs = new URLSearchParams();
+  if (params?.status) qs.set('status', params.status);
+  if (params?.limit) qs.set('limit', String(params.limit));
+  if (params?.offset) qs.set('offset', String(params.offset));
+  if (params?.search) qs.set('search', params.search);
+  if (params?.type) qs.set('type', params.type);
+  if (params?.sort) qs.set('sort', params.sort);
+  if (params?.order) qs.set('order', params.order);
+  const queryString = qs.toString();
+  return useQuery({
+    queryKey: [...queryKeys.documents, queryString],
+    queryFn: () => apiClient.get<DocumentsResponse>(`/api/documents${queryString ? `?${queryString}` : ''}`),
+  });
+}
+
+export function useDeleteDocument() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete(`/api/documents/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.documents });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
+  });
+}
+
+export function useReprocessDocument() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.post(`/api/documents/${id}/reprocess`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.documents });
+    },
+  });
+}
+
 // ── Questions ───────────────────────────────────────────────────────────────
 
 export function useQuestions() {
   return useQuery({
     queryKey: queryKeys.questions,
     queryFn: () => apiClient.get<Question[]>('/api/questions'),
+  });
+}
+
+export function useCreateQuestion() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Record<string, unknown>) =>
+      apiClient.post<Question>('/api/questions', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.questions });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
+  });
+}
+
+export function useUpdateQuestion() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...data }: { id: string; [key: string]: unknown }) =>
+      apiClient.put<Question>(`/api/questions/${id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.questions });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
+  });
+}
+
+export function useDeleteQuestion() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete(`/api/questions/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.questions });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
   });
 }
 
@@ -303,12 +484,88 @@ export function useFacts() {
   });
 }
 
+export function useCreateFact() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Record<string, unknown>) =>
+      apiClient.post<Fact>('/api/facts', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.facts });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
+  });
+}
+
+export function useUpdateFact() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...data }: { id: string; [key: string]: unknown }) =>
+      apiClient.put<Fact>(`/api/facts/${id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.facts });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
+  });
+}
+
+export function useDeleteFact() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete(`/api/facts/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.facts });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
+  });
+}
+
 // ── Risks ───────────────────────────────────────────────────────────────────
 
 export function useRisks() {
   return useQuery({
     queryKey: queryKeys.risks,
     queryFn: () => apiClient.get<Array<Record<string, unknown>>>('/api/risks'),
+  });
+}
+
+export function useCreateRisk() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Record<string, unknown>) =>
+      apiClient.post('/api/risks', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.risks });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
+  });
+}
+
+export function useUpdateRisk() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...data }: { id: string; [key: string]: unknown }) =>
+      apiClient.put(`/api/risks/${id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.risks });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
+  });
+}
+
+export function useDeleteRisk() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete(`/api/risks/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.risks });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
   });
 }
 
@@ -321,6 +578,44 @@ export function useActions() {
   });
 }
 
+export function useCreateAction() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Record<string, unknown>) =>
+      apiClient.post('/api/actions', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.actions });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
+  });
+}
+
+export function useUpdateAction() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...data }: { id: string; [key: string]: unknown }) =>
+      apiClient.put(`/api/actions/${id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.actions });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
+  });
+}
+
+export function useDeleteAction() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete(`/api/actions/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.actions });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
+  });
+}
+
 // ── Decisions ───────────────────────────────────────────────────────────────
 
 export function useDecisions() {
@@ -330,12 +625,95 @@ export function useDecisions() {
   });
 }
 
+export function useCreateDecision() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Record<string, unknown>) =>
+      apiClient.post('/api/decisions', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.decisions });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
+  });
+}
+
+export function useUpdateDecision() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...data }: { id: string; [key: string]: unknown }) =>
+      apiClient.put(`/api/decisions/${id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.decisions });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
+  });
+}
+
+export function useDeleteDecision() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete(`/api/decisions/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.decisions });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
+  });
+}
+
 // ── Contacts ────────────────────────────────────────────────────────────────
 
-export function useContacts() {
+export function useContacts(params?: { search?: string; role?: string; organization?: string }) {
+  const qs = new URLSearchParams();
+  if (params?.search) qs.set('search', params.search);
+  if (params?.role) qs.set('role', params.role);
+  if (params?.organization) qs.set('organization', params.organization);
+  const queryString = qs.toString();
   return useQuery({
-    queryKey: queryKeys.contacts,
-    queryFn: () => apiClient.get<Array<Record<string, unknown>>>('/api/contacts'),
+    queryKey: [...queryKeys.contacts, queryString],
+    queryFn: () => apiClient.get<{ contacts: Array<Record<string, unknown>>; total?: number }>(
+      `/api/contacts${queryString ? `?${queryString}` : ''}`
+    ),
+  });
+}
+
+export function useCreateContact() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Record<string, unknown>) =>
+      apiClient.post('/api/contacts', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.contacts });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
+  });
+}
+
+export function useUpdateContact() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...data }: { id: string; [key: string]: unknown }) =>
+      apiClient.put(`/api/contacts/${id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.contacts });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
+  });
+}
+
+export function useDeleteContact() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete(`/api/contacts/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.contacts });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    },
   });
 }
 
@@ -367,6 +745,27 @@ export function useTeamAnalysis() {
   });
 }
 
+export function useTeamProfiles() {
+  return useQuery({
+    queryKey: ['teamProfiles'],
+    queryFn: () => apiClient.get<{ profiles: Array<Record<string, unknown>> }>('/api/team-analysis/profiles'),
+  });
+}
+
+export function useTeamDynamics() {
+  return useQuery({
+    queryKey: ['teamDynamics'],
+    queryFn: () => apiClient.get<Record<string, unknown>>('/api/team-analysis/team'),
+  });
+}
+
+export function useTeamRelationships() {
+  return useQuery({
+    queryKey: ['teamRelationships'],
+    queryFn: () => apiClient.get<{ relationships: Array<Record<string, unknown>> }>('/api/team-analysis/relationships'),
+  });
+}
+
 // ── Costs ───────────────────────────────────────────────────────────────────
 
 export function useCosts(period: string = 'month') {
@@ -376,7 +775,99 @@ export function useCosts(period: string = 'month') {
   });
 }
 
-// ── History ─────────────────────────────────────────────────────────────────
+// ── API Keys ─────────────────────────────────────────────────────────────────
+
+export interface ApiKey {
+  id: string;
+  name: string;
+  key_prefix?: string;
+  created_at: string;
+  expires_at?: string;
+  last_used_at?: string;
+  rate_limit?: number;
+  scopes?: string[];
+  is_active?: boolean;
+}
+
+export function useApiKeys(projectId: string) {
+  return useQuery({
+    queryKey: ['apiKeys', projectId],
+    queryFn: () => apiClient.get<{ keys: ApiKey[] }>(`/api/projects/${projectId}/api-keys`),
+    enabled: !!projectId,
+  });
+}
+
+export function useCreateApiKey() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ projectId, ...data }: { projectId: string; name: string; expires_in_days?: number; rate_limit?: number; scopes?: string[] }) =>
+      apiClient.post<{ key: ApiKey; raw_key?: string }>(`/api/projects/${projectId}/api-keys`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['apiKeys'] });
+    },
+  });
+}
+
+export function useDeleteApiKey() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete(`/api/api-keys/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['apiKeys'] });
+    },
+  });
+}
+
+// ── Webhooks ─────────────────────────────────────────────────────────────────
+
+export interface Webhook {
+  id: string;
+  url: string;
+  events: string[];
+  is_active?: boolean;
+  secret?: string;
+  created_at: string;
+  updated_at?: string;
+  headers?: Record<string, string>;
+  retry_count?: number;
+}
+
+export function useWebhooks(projectId: string) {
+  return useQuery({
+    queryKey: ['webhooks', projectId],
+    queryFn: () => apiClient.get<{ webhooks: Webhook[] }>(`/api/projects/${projectId}/webhooks`),
+    enabled: !!projectId,
+  });
+}
+
+export function useCreateWebhook() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ projectId, ...data }: { projectId: string; url: string; events: string[]; headers?: Record<string, string>; retry_count?: number }) =>
+      apiClient.post<{ webhook: Webhook }>(`/api/projects/${projectId}/webhooks`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['webhooks'] });
+    },
+  });
+}
+
+export function useDeleteWebhook() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete(`/api/webhooks/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['webhooks'] });
+    },
+  });
+}
+
+export function useTestWebhook() {
+  return useMutation({
+    mutationFn: (id: string) => apiClient.post<{ success: boolean }>(`/api/webhooks/${id}/test`),
+  });
+}
+
+// ── Audit / History ─────────────────────────────────────────────────────────
 
 export function useHistory() {
   return useQuery({
@@ -385,12 +876,59 @@ export function useHistory() {
   });
 }
 
+export function useAuditSummary(projectId: string, days: number = 30) {
+  return useQuery({
+    queryKey: ['audit', projectId, days],
+    queryFn: () => apiClient.get<Record<string, unknown>>(`/api/projects/${projectId}/audit/summary?days=${days}`),
+    enabled: !!projectId,
+  });
+}
+
 // ── Emails ──────────────────────────────────────────────────────────────────
 
-export function useEmails() {
+export function useEmails(params?: { requires_response?: boolean; direction?: string; limit?: number }) {
+  const qs = new URLSearchParams();
+  if (params?.requires_response !== undefined) qs.set('requires_response', String(params.requires_response));
+  if (params?.direction) qs.set('direction', params.direction);
+  if (params?.limit) qs.set('limit', String(params.limit));
+  const queryString = qs.toString();
   return useQuery({
-    queryKey: queryKeys.emails,
-    queryFn: () => apiClient.get<Array<Record<string, unknown>>>('/api/emails'),
+    queryKey: [...queryKeys.emails, queryString],
+    queryFn: () => apiClient.get<Array<Record<string, unknown>>>(`/api/emails${queryString ? `?${queryString}` : ''}`),
+  });
+}
+
+export function useEmail(id: string) {
+  return useQuery({
+    queryKey: ['email', id],
+    queryFn: () => apiClient.get<Record<string, unknown>>(`/api/emails/${id}`),
+    enabled: !!id,
+  });
+}
+
+export function useDeleteEmail() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete(`/api/emails/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.emails });
+    },
+  });
+}
+
+export function useMarkEmailResponded() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.post(`/api/emails/${id}/mark-responded`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.emails });
+    },
+  });
+}
+
+export function useGenerateEmailResponse() {
+  return useMutation({
+    mutationFn: (id: string) => apiClient.post<{ response: string }>(`/api/emails/${id}/response`),
   });
 }
 

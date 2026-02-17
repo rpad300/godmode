@@ -1,8 +1,25 @@
 /**
- * RequestDedup - Deduplicates identical concurrent requests
- * 
- * If multiple clients make the same request at the same time,
- * only one request is processed and the result is shared.
+ * Purpose:
+ *   Prevents redundant work by collapsing identical in-flight requests into a
+ *   single execution whose Promise result is shared among all waiters.
+ *
+ * Responsibilities:
+ *   - Hash request identity (method + path + body) to an MD5 key
+ *   - Return the existing Promise when a duplicate key is already in-flight
+ *   - Automatically purge the key after a configurable TTL (default 2 s)
+ *   - Track deduplication statistics
+ *
+ * Key dependencies:
+ *   - crypto (Node built-in): MD5 hashing for request keys
+ *   - ../logger: Structured logging
+ *
+ * Side effects:
+ *   - Uses setTimeout per request to clean up the pending Map after TTL
+ *
+ * Notes:
+ *   - The TTL keeps the result cached briefly so near-simultaneous requests also
+ *     benefit, but it means the promise stays in memory for that window
+ *   - Singleton accessor getRequestDedup() ignores options after initial creation
  */
 
 const crypto = require('crypto');

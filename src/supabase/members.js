@@ -1,6 +1,44 @@
 /**
- * Project Members Module
- * Handles project membership and permissions
+ * Purpose:
+ *   Manages the many-to-many relationship between users and projects,
+ *   including role assignment, ownership transfer, and the merging of
+ *   "contact-only" team profiles (external people without a user account).
+ *
+ * Responsibilities:
+ *   - CRUD on the `project_members` join table
+ *   - Determine a user's effective role in a project (owner > superadmin >
+ *     member role > none)
+ *   - Transfer project ownership atomically (update projects.owner_id +
+ *     swap member roles)
+ *   - List all projects a user belongs to (inverse lookup)
+ *   - Merge `team_profiles` (contact-only members) into the members list
+ *     so the UI shows a unified roster
+ *
+ * Key dependencies:
+ *   - ./client (getAdminClient): all queries use the service-role client
+ *     to bypass RLS; authorization must be enforced by the caller
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - Writes to `project_members`, `team_profiles`, and `projects` tables
+ *
+ * Notes:
+ *   - getProjectMembers() performs a fallback query without `linked_contact_id`
+ *     if the column does not yet exist (migration not yet applied).
+ *   - Contact-only members receive a synthetic user_id of "contact:<uuid>"
+ *     and `is_contact_only: true` so the frontend can distinguish them.
+ *   - removeMember() handles both real users and contact-only members by
+ *     checking the "contact:" prefix.
+ *   - Valid member roles: 'admin', 'write', 'read'. The 'owner' role is
+ *     set implicitly via project ownership, not through addMember.
+ *
+ * Supabase tables accessed:
+ *   - project_members: { project_id, user_id, role, user_role,
+ *     user_role_prompt, linked_contact_id, joined_at, invited_by }
+ *   - team_profiles: { project_id, contact_id, profile_data, created_at }
+ *   - projects: { id, owner_id, ... } (for ownership checks)
+ *   - user_profiles: joined via FK for display_name, avatar, superadmin check
+ *   - contacts: joined via linked_contact_id for contact details
  */
 
 const { logger } = require('../logger');
@@ -9,9 +47,26 @@ const { getAdminClient } = require('./client');
 const log = logger.child({ module: 'members' });
 
 /**
- * Get all members of a project
- * @param {string} projectId 
+ * Get all members of a project, including contact-only team profiles.
+ *
+ * Performs two queries:
+ *   1. `project_members` joined with `user_profiles` and `contacts` -- real
+ *      users with optional linked contact.
+ *   2. `team_profiles` joined with `contacts` -- external contacts added to
+ *      the team without a user account.
+ *
+ * Results from (2) that are already linked to a real member via
+ * `linked_contact_id` are deduplicated. Contact-only entries get a
+ * synthetic `user_id` of "contact:<uuid>" and `is_contact_only: true`.
+ *
+ * Falls back to a simpler query if the `linked_contact_id` column does not
+ * exist yet (migration not applied).
+ *
+ * @param {string} projectId
  * @returns {Promise<{success: boolean, members?: object[], error?: string}>}
+ *   Each member shape: { user_id, role, user_role, user_role_prompt,
+ *   linked_contact_id, linked_contact, joined_at, invited_by, username,
+ *   display_name, avatar_url, is_superadmin, is_contact_only? }
  */
 async function getProjectMembers(projectId) {
     const admin = getAdminClient();
@@ -178,10 +233,18 @@ async function getProjectMembers(projectId) {
 }
 
 /**
- * Get a user's role in a project
- * @param {string} projectId 
- * @param {string} userId 
- * @returns {Promise<{success: boolean, role?: string, error?: string}>}
+ * Determine a user's effective role in a project.
+ *
+ * Resolution order:
+ *   1. If user is the project owner (projects.owner_id), returns 'owner'.
+ *   2. If user has a row in project_members, returns that role.
+ *   3. If user is a superadmin (user_profiles.role), returns 'superadmin'
+ *      with `isSuperAdmin: true`.
+ *   4. Otherwise returns 'none'.
+ *
+ * @param {string} projectId
+ * @param {string} userId
+ * @returns {Promise<{success: boolean, role?: string, isSuperAdmin?: boolean, error?: string}>}
  */
 async function getMemberRole(projectId, userId) {
     const admin = getAdminClient();
@@ -320,9 +383,18 @@ async function updateMemberRole(projectId, userId, newRole) {
 }
 
 /**
- * Remove a member from a project
- * @param {string} projectId 
- * @param {string} userId 
+ * Remove a member from a project.
+ *
+ * Handles three cases:
+ *   - Owner: rejects with error (must use transferOwnership instead)
+ *   - Contact-only (userId starts with "contact:"): deletes from
+ *     `team_profiles` by contact_id
+ *   - Regular user: deletes from `project_members` and also attempts
+ *     to delete from `team_profiles` in case the userId maps to a
+ *     contact_id as well
+ *
+ * @param {string} projectId
+ * @param {string} userId - Either a user UUID or "contact:<uuid>"
  * @returns {Promise<{success: boolean, error?: string}>}
  */
 async function removeMember(projectId, userId) {
@@ -395,10 +467,21 @@ async function removeMember(projectId, userId) {
 }
 
 /**
- * Transfer project ownership
- * @param {string} projectId 
- * @param {string} currentOwnerId 
- * @param {string} newOwnerId 
+ * Transfer project ownership from currentOwnerId to newOwnerId.
+ *
+ * Performs three writes (not transactional -- Assumption: acceptable risk
+ * given low frequency of ownership transfers):
+ *   1. Set projects.owner_id to newOwnerId
+ *   2. Set newOwner's project_members role to 'owner'
+ *   3. Demote currentOwner's project_members role to 'admin'
+ *
+ * Preconditions enforced:
+ *   - currentOwnerId must match projects.owner_id
+ *   - newOwnerId must already be a project member
+ *
+ * @param {string} projectId
+ * @param {string} currentOwnerId
+ * @param {string} newOwnerId
  * @returns {Promise<{success: boolean, error?: string}>}
  */
 async function transferOwnership(projectId, currentOwnerId, newOwnerId) {

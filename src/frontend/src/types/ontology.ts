@@ -1,3 +1,28 @@
+/**
+ * Purpose:
+ *   Type definitions for the ontology management subsystem. Covers entity types,
+ *   relationship types, the overall schema, AI-generated suggestions for schema
+ *   evolution, and analysis results from the graph intelligence worker.
+ *
+ * Responsibilities:
+ *   - EntityProperty / EntityType / RelationshipType: schema building blocks
+ *   - OntologySchema: versioned snapshot of all entity and relation types
+ *   - OntologySuggestion: AI-proposed additions (new entity, relation, or property)
+ *     with confidence scores, enrichment data, and approval workflow states
+ *   - OntologyStats: aggregate counts for the suggestion pipeline
+ *   - GraphAnalysisResult: output of a full graph analysis run
+ *
+ * Key dependencies:
+ *   - None (pure type declarations)
+ *
+ * Side effects:
+ *   - None
+ *
+ * Notes:
+ *   - RelationshipType.from/to accept '*' as a wildcard for any entity type.
+ *   - OntologySuggestion.enrichment is populated by an LLM enrichment step
+ *     (description, properties, use cases, related types).
+ */
 export interface EntityProperty {
     type: 'string' | 'number' | 'boolean' | 'date' | 'enum';
     required?: boolean;

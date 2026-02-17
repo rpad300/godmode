@@ -1,7 +1,37 @@
 /**
- * Krisp Speaker Matcher
- * Matches speaker names from transcripts to contacts
- * REUTILIZES existing logic from src/supabase/storage.js
+ * Purpose:
+ *   Resolves speaker names from Krisp meeting transcripts to project contacts,
+ *   supporting multiple matching strategies (Krisp mappings, global mappings,
+ *   storage.findOrCreateContact, direct DB lookup). Also identifies which project
+ *   a meeting belongs to via majority voting on matched contacts.
+ *
+ * Responsibilities:
+ *   - Detect unidentified/generic speakers ("Speaker 1", "Unknown", etc.)
+ *   - Match speakers via Krisp-specific project mappings (krisp_speaker_mappings)
+ *   - Match speakers via global Krisp mappings (is_global flag)
+ *   - Fall back to storage.findOrCreateContact when available
+ *   - Fall back to direct contact DB lookup (exact, alias, partial name)
+ *   - Match all speakers in a transcript and report overall match stats
+ *   - Identify the most likely project via majority voting on matched contacts,
+ *     with a configurable confidence threshold (default 70%)
+ *   - CRUD for speaker mappings (create, soft-delete, list per user)
+ *
+ * Key dependencies:
+ *   - ../supabase/client (getAdminClient): Supabase admin client for DB operations
+ *   - ../logger: structured logging
+ *   - storage (optional, injected): existing findOrCreateContact logic from storage.js
+ *
+ * Side effects:
+ *   - Reads krisp_speaker_mappings, contacts, project_members tables
+ *   - Writes to krisp_speaker_mappings on createMapping/deleteMapping
+ *
+ * Notes:
+ *   - PROJECT_CONFIDENCE_THRESHOLD (70%) determines when automatic project
+ *     assignment occurs vs. flagging as "ambiguous" or "low_confidence".
+ *   - The matching cascade is: Krisp project mapping -> global mapping ->
+ *     storage.findOrCreateContact -> direct DB (exact -> alias -> partial).
+ *   - Confidence scores vary by match type: mapping 0.95/0.90, exact 0.85,
+ *     alias 0.85, partial 0.6, unidentified 0.
  */
 
 const { logger } = require('../logger');
@@ -31,8 +61,13 @@ function hasUnidentifiedSpeakers(speakers) {
 }
 
 /**
- * SpeakerMatcher Class
- * Wraps existing storage functions for Krisp-specific matching
+ * Resolves transcript speaker names to project contacts using a multi-tier
+ * matching strategy, and identifies which project a meeting belongs to via
+ * contact-project associations and majority voting.
+ *
+ * Invariant: this.supabase is always initialised from getAdminClient(); if
+ * null, all DB methods will throw. The optional storage dependency enables
+ * reuse of the existing findOrCreateContact logic from the storage layer.
  */
 class SpeakerMatcher {
     constructor(storage = null) {

@@ -1,6 +1,33 @@
 /**
- * GraphSync Service
- * Syncs team analysis data to the graph database for queries and visualization
+ * Purpose:
+ *   Synchronises team-analysis artifacts (behavioral profiles, relationships,
+ *   team dynamics) into the graph database (graph_nodes / graph_relationships
+ *   tables in Supabase) and provides query helpers and visualisation data.
+ *
+ * Responsibilities:
+ *   - Sync individual profiles as BehavioralProfile nodes linked to Person nodes
+ *   - Sync behavioral relationships (influences, aligned_with, tension_with, etc.)
+ *     with strength and evidence metadata
+ *   - Sync team-level TeamDynamics nodes with cohesion/tension metrics
+ *   - Provide a fullSync() that writes all three categories in order
+ *   - Build vis.js-compatible graph data (nodes + edges) with colour coding
+ *   - Execute pre-defined analytical queries: influence_map, power_centers,
+ *     alliances, tensions, person_network, team_cohesion
+ *
+ * Key dependencies:
+ *   - ../supabase/client: Supabase DB access
+ *   - ../logger: Structured logging
+ *
+ * Side effects:
+ *   - Upserts into graph_nodes and graph_relationships tables
+ *   - Reads from team_profiles, behavioral_relationships, team_analysis, contacts
+ *
+ * Notes:
+ *   - Foreign-key errors on relationship upserts are silently ignored because
+ *     referenced nodes may not yet exist during partial syncs
+ *   - Node size in visualisation data scales with influence_score
+ *   - Edge dashes indicate tension relationships; arrows indicate influence direction
+ *   - Relationship type mapping converts snake_case DB types to UPPER_CASE graph labels
  */
 
 const { logger } = require('../logger');
@@ -8,6 +35,12 @@ const { getSupabaseClient } = require('../supabase/client');
 
 const log = logger.child({ module: 'graph-sync' });
 
+/**
+ * Bridges team-analysis data and the graph database by upserting
+ * BehavioralProfile nodes, behavioral relationships, and TeamDynamics nodes
+ * into the graph_nodes / graph_relationships Supabase tables. Also provides
+ * pre-built analytical queries and vis.js-compatible visualisation data.
+ */
 class GraphSync {
     constructor(options = {}) {
         this.supabase = options.supabase || getSupabaseClient();

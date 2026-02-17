@@ -1,8 +1,29 @@
 /**
- * Feedback Loop Module
- * Learn from user corrections to improve future extractions
- * 
- * Refactored to use Supabase instead of local JSON files
+ * Purpose:
+ *   Record user corrections (renames, merges, relation-type fixes) and
+ *   apply the learned rules to future extractions so that the same
+ *   mistakes are not repeated.
+ *
+ * Responsibilities:
+ *   - Persist corrections as feedback entries in Supabase
+ *   - Maintain an in-memory cache of entity aliases, relation patterns,
+ *     and custom extraction rules (refreshed every 5 minutes)
+ *   - Translate new extractions through learned aliases (applyCorrections)
+ *   - Suggest corrections for incoming extractions based on known aliases
+ *   - Import/export learned rules for cross-project reuse
+ *
+ * Key dependencies:
+ *   - ../supabase/storageHelper: feedback persistence (soft-loaded)
+ *
+ * Side effects:
+ *   - Reads from and writes to the Supabase "feedback" table
+ *   - In-memory cache is invalidated (lastRefresh=0) after each write
+ *
+ * Notes:
+ *   - When Supabase is unavailable, the module still works using only its
+ *     in-memory cache; corrections will not survive a restart.
+ *   - getCanonicalNameSync is a synchronous variant for hot paths; it
+ *     relies on the cache having been refreshed by a prior async call.
  */
 
 const { logger } = require('../logger');
@@ -17,6 +38,12 @@ try {
     // Will use in-memory cache only
 }
 
+/**
+ * Records user corrections and applies learned rules to future extractions.
+ *
+ * Lifecycle: construct -> recordCorrection / addEntityAlias -> applyCorrections.
+ * The in-memory cache auto-refreshes from Supabase every 5 minutes.
+ */
 class FeedbackLoop {
     constructor(options = {}) {
         // In-memory cache for fast lookups
@@ -79,7 +106,13 @@ class FeedbackLoop {
     }
 
     /**
-     * Record a user correction
+     * Persist a user correction to Supabase and immediately learn from it.
+     * @param {object} correction
+     * @param {string} correction.type - 'entity_rename' | 'entity_merge' | 'relation_type' | 'extraction_rule'
+     * @param {object} correction.original - Original extraction data
+     * @param {object} correction.corrected - User-provided corrected data
+     * @param {object} [correction.context] - Optional context (entityType, entityId, note)
+     * @returns {Promise<string|null>} Feedback record ID or null on failure
      */
     async recordCorrection(correction) {
         try {
@@ -214,7 +247,10 @@ class FeedbackLoop {
     }
 
     /**
-     * Apply learned corrections to new extractions
+     * Transform new extraction results by substituting learned canonical names
+     * for entities, people, and relationship endpoints.
+     * @param {object} extractions - Extraction result with optional .entities, .people, .relationships arrays
+     * @returns {Promise<object>} Corrected extraction (shallow copy)
      */
     async applyCorrections(extractions) {
         await this._refreshCache();

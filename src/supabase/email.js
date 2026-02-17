@@ -1,6 +1,36 @@
 /**
- * Email Service using Resend
- * Handles sending transactional emails
+ * Purpose:
+ *   Sends transactional emails through the Resend API. Provides pre-built
+ *   branded HTML templates for invitations, OTP login codes, email
+ *   confirmation, and new-device security alerts.
+ *
+ * Responsibilities:
+ *   - Low-level sendEmail() that posts to the Resend REST endpoint
+ *   - Configuration check (isConfigured) so callers can gracefully skip
+ *     email when RESEND_API_KEY is absent
+ *   - Branded HTML + plaintext template functions for each email type:
+ *     invitation, login code, email confirmation, new-device login
+ *
+ * Key dependencies:
+ *   - Resend API (https://api.resend.com/emails): HTTP POST with Bearer token
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - Sends real emails when RESEND_API_KEY is set; no-ops with a warning
+ *     otherwise
+ *   - Reads RESEND_API_KEY from process.env at module load time (not lazy)
+ *
+ * Notes:
+ *   - The `from` address defaults to "GodMode <noreply@godmode.app>".
+ *     Change DEFAULT_FROM when deploying under a different domain.
+ *   - Invitation emails contain an expiration notice of 48 hours, but the
+ *     actual TTL is enforced by the invites module, not here.
+ *   - Email templates use inline CSS for broad email-client compatibility,
+ *     including Outlook (`<!--[if mso]>`) fallbacks.
+ *   - isConfigured() rejects the placeholder key "re_1234567890" to avoid
+ *     accidental sends during development.
+ *   - This module does NOT interact with Supabase tables; it is a pure
+ *     outbound email service.
  */
 
 const { logger } = require('../logger');
@@ -21,7 +51,19 @@ function isConfigured() {
 }
 
 /**
- * Send an email via Resend
+ * Send an email via the Resend REST API.
+ *
+ * Returns early with an error result if Resend is not configured.
+ * The `to` param is normalized to an array for the API payload.
+ *
+ * @param {object} params
+ * @param {string|string[]} params.to - Recipient email(s)
+ * @param {string} params.subject
+ * @param {string} params.html - HTML body
+ * @param {string} [params.text] - Plaintext fallback
+ * @param {string} [params.from] - Defaults to DEFAULT_FROM
+ * @param {string} [params.replyTo]
+ * @returns {Promise<{success: boolean, id?: string, error?: string}>}
  */
 async function sendEmail({ to, subject, html, text, from = DEFAULT_FROM, replyTo }) {
     if (!isConfigured()) {
@@ -62,7 +104,18 @@ async function sendEmail({ to, subject, html, text, from = DEFAULT_FROM, replyTo
 }
 
 /**
- * Send project invitation email
+ * Send a branded project invitation email with inviter name, project name,
+ * role badge, optional personal message, and CTA button linking to the
+ * invite acceptance URL.
+ *
+ * @param {object} params
+ * @param {string} params.to - Recipient email
+ * @param {string} params.inviterName
+ * @param {string} params.projectName
+ * @param {string} params.role - 'admin' or other (displayed as "Team Member")
+ * @param {string} [params.message] - Optional personal note from inviter
+ * @param {string} params.inviteLink - Full URL to accept the invitation
+ * @returns {Promise<{success: boolean, id?: string, error?: string}>}
  */
 async function sendInvitationEmail({ to, inviterName, projectName, role, message, inviteLink }) {
     const subject = `${inviterName} invited you to join ${projectName} on GodMode`;

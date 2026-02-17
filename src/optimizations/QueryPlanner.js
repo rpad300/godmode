@@ -1,8 +1,42 @@
 /**
- * Query Planner Module
- * Optimizes Cypher queries automatically for better performance
+ * Purpose:
+ *   Statically analyze and rewrite Cypher queries to improve performance
+ *   and safety, and collect runtime execution statistics for profiling.
+ *
+ * Responsibilities:
+ *   - Apply regex-based optimization rules (inline WHERE into MATCH
+ *     patterns, merge consecutive MATCHes, cap excessive LIMITs)
+ *   - Automatically append LIMIT 100 to unbounded RETURN clauses
+ *   - Analyze queries for common anti-patterns (cartesian products,
+ *     RETURN *, missing LIMIT, excessive literal strings)
+ *   - Record query execution duration and result counts for profiling
+ *   - Surface slow and frequently used queries
+ *   - Suggest indexes based on observed property access patterns
+ *
+ * Key dependencies:
+ *   - graphProvider (injected): not directly used for optimization, but
+ *     stored for potential future EXPLAIN integration
+ *
+ * Side effects:
+ *   - None (pure analysis and in-memory statistics)
+ *
+ * Notes:
+ *   - The optimizer uses regex replacement, not a proper Cypher parser.
+ *     Complex queries with subqueries or UNION may not be rewritten
+ *     correctly.
+ *   - The auto-appended LIMIT 100 is a safety net for unbounded queries;
+ *     callers needing larger result sets should specify their own LIMIT.
+ *   - queryStats is an unbounded Map; for long-running servers consider
+ *     periodic pruning.
  */
 
+/**
+ * Statically analyzes and rewrites Cypher queries for performance, and
+ * collects runtime execution statistics for profiling and index suggestions.
+ *
+ * @param {object} options
+ * @param {object} options.graphProvider - Graph database adapter (stored for future EXPLAIN use)
+ */
 class QueryPlanner {
     constructor(options = {}) {
         this.graphProvider = options.graphProvider;
@@ -38,7 +72,9 @@ class QueryPlanner {
     }
 
     /**
-     * Optimize a Cypher query
+     * Apply regex-based rewrites to a Cypher query and ensure a safety LIMIT.
+     * @param {string} query - Original Cypher query
+     * @returns {{original: string, optimized: string, optimizations: Array, wasOptimized: boolean}}
      */
     optimize(query) {
         let optimized = query;
@@ -88,7 +124,10 @@ class QueryPlanner {
     }
 
     /**
-     * Analyze query for potential issues
+     * Check a Cypher query for common anti-patterns and return issues,
+     * suggestions, and a quality score (0-100).
+     * @param {string} query - Cypher query to analyze
+     * @returns {{query: string, issues: Array, suggestions: string[], score: number}}
      */
     analyze(query) {
         const issues = [];
@@ -158,7 +197,10 @@ class QueryPlanner {
     }
 
     /**
-     * Record query execution stats
+     * Record a query's execution time and result count for profiling.
+     * @param {string} query - Executed Cypher query
+     * @param {number} duration - Execution duration in ms
+     * @param {number} resultCount - Number of returned results
      */
     recordExecution(query, duration, resultCount) {
         const normalized = query.toLowerCase().trim();

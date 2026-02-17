@@ -1,13 +1,45 @@
 /**
- * Action Suggest Flow
- * Suggests assignees from action/task content using project contacts.
- * Prompt is loaded from Supabase (system_prompts key: action_suggest_assignee).
+ * Purpose:
+ *   Given an action/task description and a list of project contacts, uses an
+ *   LLM to suggest the most appropriate assignees -- constrained to contacts
+ *   that actually exist in the project.
+ *
+ * Responsibilities:
+ *   - Build a formatted contacts list (name | role | org) for the LLM prompt
+ *   - Load the prompt template from Supabase (key: action_suggest_assignee) or
+ *     fall back to an inline template
+ *   - Call the LLM and parse a JSON response of suggested assignees with scores
+ *   - Validate suggested names against the project contact list (case-insensitive)
+ *   - Provide fallback suggestions when the LLM returns no matches
+ *
+ * Key dependencies:
+ *   - ../llm: centralised LLM text generation
+ *   - ../llm/config: resolves provider/model from app config (reasoning tier)
+ *   - ../supabase/prompts: loads admin-editable prompt templates
+ *
+ * Side effects:
+ *   - Network call to the configured LLM provider
+ *   - Network call to Supabase to fetch the prompt template
+ *
+ * Notes:
+ *   - Contacts are capped at 50 entries in the prompt to stay within token limits.
+ *   - If no contacts match the LLM output, the first 5 contacts are returned as
+ *     generic fallback assignees. If no contacts exist at all, generic role titles
+ *     (Project Manager, Tech Lead, Product Owner) are returned.
+ *   - Temperature is set low (0.3) for deterministic assignee suggestions.
  */
 
 const llm = require('../llm');
 const llmConfig = require('../llm/config');
 const promptsService = require('../supabase/prompts');
 
+/**
+ * Format up to 50 project contacts into a bullet list for the LLM prompt.
+ * Each line: "- Name | Role: ... | Org" (role and org are omitted if empty).
+ *
+ * @param {Array<{name: string, role?: string, organization?: string}>} contacts
+ * @returns {string} Multi-line string, or empty string if no valid contacts
+ */
 function buildContactsList(contacts) {
     if (!Array.isArray(contacts) || contacts.length === 0) return '';
     const lines = contacts.slice(0, 50).map(c => {

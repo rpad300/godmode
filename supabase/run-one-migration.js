@@ -1,9 +1,33 @@
 #!/usr/bin/env node
 /**
- * Run a single migration file by number (e.g. 097)
- * Usage: node supabase/run-one-migration.js 097
- * Requires: SUPABASE_PROJECT_ID (or default), DB password in env.
- * Loads .env from project root or src/.env
+ * Purpose:
+ *   Applies a single SQL migration file identified by its numeric prefix
+ *   (e.g. 097) via a direct Postgres connection. Useful for re-running or
+ *   cherry-picking individual migrations without applying the full sequence.
+ *
+ * Responsibilities:
+ *   - Locate the migration file matching the given prefix in supabase/migrations/
+ *   - Connect to the Supabase pooler via pg.Client
+ *   - Execute the entire file as one query
+ *   - Gracefully handle "already exists" / "duplicate key" errors
+ *
+ * Key dependencies:
+ *   - pg (npm): PostgreSQL client for direct database connection
+ *
+ * Side effects:
+ *   - Executes DDL/DML against the remote Supabase Postgres database
+ *   - Reads .env or src/.env for credentials
+ *
+ * Notes:
+ *   - Defaults to migration 097 if no argument is provided
+ *   - Falls back through multiple env vars for the DB password:
+ *     SUPABASE_DB_PASSWORD > FAKORDB_PASSWORD > PGPASSWORD
+ *   - Uses DATABASE_URL if set, otherwise constructs the pooler connection string
+ *   - If no password is available, prints the SQL to stderr for manual execution
+ *
+ * Usage:
+ *   node supabase/run-one-migration.js 097
+ *   node supabase/run-one-migration.js 042
  */
 
 const fs = require('fs');

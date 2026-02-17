@@ -1,12 +1,49 @@
 /**
- * Core API - relationships, org-chart, history, ask
- * Extracted from server.js
+ * Purpose:
+ *   Core platform API providing project stats, data reset, orphan cleanup,
+ *   relationship/org-chart views, processing history, and AI-powered Q&A
+ *   over the full knowledge base with optional GraphRAG augmentation.
  *
- * Handles:
- * - GET /api/relationships
- * - GET /api/org-chart
- * - GET /api/history
- * - POST /api/ask - AI Q&A over knowledge base
+ * Responsibilities:
+ *   - Project statistics aggregation
+ *   - Full project data reset (preserves team, contacts, cost data)
+ *   - Orphan data cleanup in storage and knowledge graph
+ *   - Relationships and org-chart data retrieval
+ *   - Processing history log
+ *   - AI Q&A: builds a rich context from facts, decisions, risks, people,
+ *     questions, search results, and optional graph data, then calls the LLM
+ *
+ * Key dependencies:
+ *   - storage (ctx): all knowledge data access, search, graph provider, project info
+ *   - llm (ctx): text generation for the /ask endpoint
+ *   - ../../llm/config: LLM provider/model resolution
+ *   - ../../graphrag.GraphRAGEngine: hybrid graph+vector search for enhanced Q&A context
+ *   - fs/path: filesystem cleanup during reset (newinfo, newtranscripts, archived)
+ *
+ * Side effects:
+ *   - POST /api/reset: clears storage, deletes files in newinfo/newtranscripts,
+ *     optionally clears archived docs, and runs MATCH (n) DETACH DELETE n on graph
+ *   - POST /api/cleanup-orphans: removes orphan nodes from the graph
+ *   - POST /api/ask: calls LLM (incurs cost); may initialize global.graphRAGEngine
+ *
+ * Notes:
+ *   - /api/reset requires a project ID (X-Project-Id header or body)
+ *   - /api/ask responds in the same language as the question
+ *   - GraphRAG is only used when a graph provider is connected and entities are detected
+ *   - The GraphRAGEngine singleton is cached on global for reuse across requests
+ *   - User role and role prompt from project settings tailor Q&A responses
+ *
+ * Routes:
+ *   GET  /api/stats              - Project knowledge statistics
+ *   POST /api/reset              - Reset project data (requires project ID)
+ *        Body: { project_id, clearArchived? }
+ *   POST /api/cleanup-orphans    - Clean orphan data from storage and graph
+ *   GET  /api/relationships      - Entity relationships
+ *   GET  /api/org-chart          - Org chart data
+ *   GET  /api/history            - Processing history
+ *   POST /api/ask                - AI Q&A over knowledge base
+ *        Body: { question, model? }
+ *        Response: { question, answer, sources }
  */
 
 const fs = require('fs');
@@ -16,6 +53,7 @@ const { parseBody } = require('../../server/request');
 const { getLogger } = require('../../server/requestContext');
 const { logError } = require('../../logger');
 
+/** Check whether a filesystem path exists (swallows ENOENT). */
 async function pathExists(p) {
     try { await fsp.access(p); return true; } catch { return false; }
 }

@@ -1,3 +1,29 @@
+/**
+ * Purpose:
+ *   Headless toast notification system inspired by shadcn/ui. Manages a
+ *   global queue of toast messages outside the React tree using a pub/sub
+ *   pattern, then exposes it to components via useToast().
+ *
+ * Responsibilities:
+ *   - Maintain a module-scoped toast state (memoryState) and listener list
+ *   - Provide toast() to imperatively add a toast from anywhere in the app
+ *   - Provide useToast() hook that subscribes to state updates and re-renders
+ *   - Auto-dismiss toasts after TOAST_REMOVE_DELAY and enforce TOAST_LIMIT
+ *
+ * Key dependencies:
+ *   - @/components/ui/toast: ToastProps and ToastActionElement types
+ *
+ * Side effects:
+ *   - Module-level mutable state (memoryState, listeners, toastTimeouts)
+ *   - setTimeout timers for auto-removal of dismissed toasts
+ *
+ * Notes:
+ *   - TOAST_LIMIT is 1 -- only one toast is visible at a time; new ones evict older.
+ *   - TOAST_REMOVE_DELAY is intentionally very large (1 000 000 ms) so dismissed
+ *     toasts stay in the DOM long enough for exit animations.
+ *   - The reducer's DISMISS_TOAST case has a known side effect (scheduling removal)
+ *     inside the reducer body -- kept for simplicity per the original shadcn pattern.
+ */
 import * as React from "react";
 
 import type { ToastActionElement, ToastProps } from "@/components/ui/toast";
@@ -163,6 +189,11 @@ function toast({ ...props }: Toast) {
   };
 }
 
+/**
+ * Hook that subscribes to the global toast state. Returns the current toast list
+ * plus the `toast` function for creating new toasts and `dismiss` for removing them.
+ * Re-renders whenever any toast is added, updated, dismissed, or removed.
+ */
 function useToast() {
   const [state, setState] = React.useState<State>(memoryState);
 

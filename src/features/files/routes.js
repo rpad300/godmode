@@ -1,14 +1,44 @@
 /**
- * Files API (pending files, upload, file-logs, folders)
- * Extracted from server.js
+ * Purpose:
+ *   File upload, management, and folder operations API. Handles drag-and-drop file
+ *   uploads with validation, optional Google Drive integration, email attachment linking,
+ *   and pending file queue management.
  *
- * Handles:
- * - GET /api/files - List pending files
- * - DELETE /api/files/:folder/:filename - Remove from pending queue
- * - POST /api/upload - Upload files (drag-and-drop)
- * - GET /api/file-logs - Get file processing logs
- * - GET /api/folders - Get folder paths (project-specific)
- * - POST /api/folders/open - Open folder in file explorer
+ * Responsibilities:
+ *   - GET /api/files: Scan and list pending files awaiting processing
+ *   - DELETE /api/files/:folder/:filename: Remove a file from the pending queue (newinfo/newtranscripts)
+ *   - POST /api/upload: Multipart file upload with extensive validation:
+ *     - Extension allowlist/blocklist, size limits (100MB/file, 500MB total, 512MB body)
+ *     - Dual storage: Google Drive (if configured per-project) or local filesystem
+ *     - Metadata sidecar files (.meta.json) for local uploads
+ *     - Email attachment linking when emailId is provided
+ *     - Auto-triggers transcript processing for newtranscripts folder
+ *   - GET /api/file-logs: Retrieve file processing logs (with limit param)
+ *   - GET /api/folders: Return folder paths for newinfo, newtranscripts, and archived
+ *   - POST /api/folders/open: Open a project folder in the native file explorer
+ *
+ * Key dependencies:
+ *   - ../../integrations/googleDrive/drive: Google Drive client, upload, config key
+ *   - ../../supabase/system: System configuration for Google Drive enable/disable
+ *   - ../../server/request: parseMultipart for file extraction, parseBody, parseUrl
+ *   - ../../server/response: jsonResponse, getMimeType
+ *   - processor: File scanning and transcript processing engine
+ *   - storage: Project data directory resolution, Supabase document/email attachment creation
+ *
+ * Side effects:
+ *   - Filesystem: writes uploaded files and .meta.json sidecars to project data directories;
+ *     deletes files from pending queue; creates directories on demand; opens native file explorer
+ *   - Google Drive: uploads files to project-specific Drive folders when configured
+ *   - Database: creates document and email_attachment records in Supabase
+ *   - Background processing: auto-processes transcript uploads asynchronously after response
+ *   - Cache: invalidates briefing cache after transcript processing completes
+ *
+ * Notes:
+ *   - DANGEROUS_EXTENSIONS (exe, bat, etc.) are rejected outright; only ALLOWED_EXTENSIONS pass
+ *   - If Google Drive upload fails, falls back to local filesystem storage transparently
+ *   - File paths use project-specific data directories (storage.getProjectDataDir())
+ *   - The open-folder endpoint uses platform-specific commands (explorer/open/xdg-open)
+ *   - Filenames are sanitized by replacing path-unsafe characters with underscores
  */
 
 const fs = require('fs');
