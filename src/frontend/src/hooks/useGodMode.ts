@@ -286,6 +286,30 @@ export function useDeletePendingFile() {
   });
 }
 
+// ── Briefing ────────────────────────────────────────────────────────────────
+
+export interface Briefing {
+  content: string;
+  generated_at?: string;
+  sections?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export function useBriefing(refresh?: boolean) {
+  return useQuery({
+    queryKey: ['briefing', refresh],
+    queryFn: () => apiClient.get<Briefing>(`/api/briefing${refresh ? '?refresh=true' : ''}`),
+    enabled: true,
+  });
+}
+
+export function useSotChat() {
+  return useMutation({
+    mutationFn: (data: { message: string; history?: Array<{ role: string; content: string }> }) =>
+      apiClient.post<{ response: string; sources?: ChatSource[] }>('/api/sot/chat', data),
+  });
+}
+
 // ── Project Config ──────────────────────────────────────────────────────────
 
 export interface ProjectConfig {
