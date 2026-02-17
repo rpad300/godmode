@@ -266,7 +266,7 @@ function ProjectDetail({ project, onBack, onUpdate }: { project: Project; onBack
 
       {/* Tab Content */}
       <div>
-        {activeTab === 'general' && <GeneralTab project={project} />}
+        {activeTab === 'general' && <GeneralTab project={project} onUpdate={onUpdate} onBack={onBack} />}
         {activeTab === 'members' && (
           <MembersTab
             project={project}
@@ -296,12 +296,49 @@ function ProjectDetail({ project, onBack, onUpdate }: { project: Project; onBack
 
 // ==================== GENERAL TAB ====================
 
-function GeneralTab({ project }: { project: any }) { // Using any temporarily as real project structure differs slightly
+function GeneralTab({ project, onUpdate, onBack }: { project: any; onUpdate: () => void; onBack: () => void }) {
   const [name, setName] = useState(project.name);
   const [description, setDescription] = useState(project.description);
   const [role, setRole] = useState(project.role || '');
   const [rolePrompt, setRolePrompt] = useState(project.rolePrompt || '');
   const [company, setCompany] = useState(project.company_id || project.company || '');
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const handleSave = async () => {
+    if (!name.trim()) {
+      toast.error('Project name is required');
+      return;
+    }
+    setSaving(true);
+    try {
+      await apiClient.put(`/api/projects/${project.id}`, {
+        name, description, role, rolePrompt, company_id: company,
+      });
+      toast.success('Project updated');
+      onUpdate();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update project');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      await apiClient.delete(`/api/projects/${project.id}`);
+      toast.success('Project deleted');
+      onUpdate();
+      onBack();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete project');
+    } finally {
+      setDeleting(false);
+      setConfirmDelete(false);
+    }
+  };
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
@@ -356,8 +393,13 @@ function GeneralTab({ project }: { project: any }) { // Using any temporarily as
         </div>
 
         <div className="flex justify-end pt-2">
-          <button className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors">
-            <Check className="w-4 h-4" /> Save Changes
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
+          >
+            {saving ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Check className="w-4 h-4" />}
+            {saving ? 'Saving...' : 'Save Changes'}
           </button>
         </div>
       </div>
@@ -368,9 +410,31 @@ function GeneralTab({ project }: { project: any }) { // Using any temporarily as
           <AlertTriangle className="w-4 h-4" /> Danger Zone
         </h3>
         <p className="text-xs text-muted-foreground mb-3">Deleting a project will permanently remove all associated data including questions, decisions, risks, and contacts.</p>
-        <button className="flex items-center gap-2 px-4 py-2 rounded-lg border border-destructive/30 text-destructive text-sm font-medium hover:bg-destructive/10 transition-colors">
-          <Trash2 className="w-4 h-4" /> Delete Project
-        </button>
+        {!confirmDelete ? (
+          <button
+            onClick={() => setConfirmDelete(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg border border-destructive/30 text-destructive text-sm font-medium hover:bg-destructive/10 transition-colors"
+          >
+            <Trash2 className="w-4 h-4" /> Delete Project
+          </button>
+        ) : (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-destructive text-destructive-foreground text-sm font-medium hover:bg-destructive/90 transition-colors disabled:opacity-50"
+            >
+              {deleting ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Trash2 className="w-4 h-4" />}
+              {deleting ? 'Deleting...' : 'Confirm Delete'}
+            </button>
+            <button
+              onClick={() => setConfirmDelete(false)}
+              className="px-4 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:bg-secondary transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
       </div>
     </motion.div>
   );
@@ -967,6 +1031,7 @@ function InviteMemberModal({
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loadingContacts, setLoadingContacts] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [sendingInvite, setSendingInvite] = useState(false);
 
   useEffect(() => {
     if (open && inviteTab === 'contacts') {
@@ -986,6 +1051,29 @@ function InviteMemberModal({
       console.error('Failed to fetch contacts:', error);
     } finally {
       setLoadingContacts(false);
+    }
+  };
+
+  const handleSendInvitation = async () => {
+    if (!email.trim()) {
+      toast.error('Please enter an email address');
+      return;
+    }
+    setSendingInvite(true);
+    try {
+      await apiClient.post(`/api/projects/${projectId}/members/invite`, {
+        email: email.trim(),
+        message: message.trim() || undefined,
+      });
+      toast.success('Invitation sent');
+      setEmail('');
+      setMessage('');
+      onMemberAdded();
+      onClose();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to send invitation');
+    } finally {
+      setSendingInvite(false);
     }
   };
 
@@ -1057,8 +1145,12 @@ function InviteMemberModal({
               <button onClick={onClose} className="px-4 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:bg-secondary transition-colors">
                 Cancel
               </button>
-              <button className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors">
-                Send Invitation
+              <button
+                onClick={handleSendInvitation}
+                disabled={sendingInvite || !email.trim()}
+                className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
+              >
+                {sendingInvite ? 'Sending...' : 'Send Invitation'}
               </button>
             </div>
           </div>
@@ -1424,7 +1516,10 @@ function AddRoleModal({ open, onClose, projectId, onRoleAdded }: { open: boolean
               className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-y"
             />
           </div>
-          <button className="flex items-center gap-2 text-sm text-accent font-medium hover:text-accent/80 transition-colors">
+          <button
+            onClick={() => toast.info('AI enhancement will use the project context to suggest role descriptions')}
+            className="flex items-center gap-2 text-sm text-accent font-medium hover:text-accent/80 transition-colors"
+          >
             <Sparkles className="w-4 h-4" /> Enhance with AI
           </button>
         </div>
