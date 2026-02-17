@@ -1,4 +1,29 @@
-
+/**
+ * Purpose:
+ *   Category management API routes. Categories are used to classify entities
+ *   (documents, contacts, etc.) within projects or globally.
+ *
+ * Responsibilities:
+ *   - GET /api/categories: Retrieve global (non-project) categories
+ *   - GET /api/projects/:projectId/categories: Retrieve categories for a project (includes global)
+ *   - POST /api/projects/:projectId/categories: Create a new category scoped to a project
+ *   - PUT /api/projects/:projectId/categories/:categoryId: Update a category's properties
+ *   - DELETE /api/projects/:projectId/categories/:categoryId: Delete a category
+ *
+ * Key dependencies:
+ *   - ../../supabase/categories: CRUD data access for the categories table
+ *   - ../../server/response: jsonResponse helper
+ *   - ../../server/request: parseBody for POST/PUT body parsing
+ *
+ * Side effects:
+ *   - Database: creates, updates, and deletes rows in the categories table
+ *
+ * Notes:
+ *   - No authentication is enforced at this route level; callers are expected to be
+ *     pre-authenticated by middleware. TODO: confirm whether auth middleware covers these routes
+ *   - Category name is required for creation; all other fields are optional
+ *   - The projectId from the URL is automatically injected into category data on creation
+ */
 
 const { getCategories, createCategory, updateCategory, deleteCategory } = require('../../supabase/categories');
 const { jsonResponse } = require('../../server/response');

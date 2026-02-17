@@ -1,9 +1,32 @@
 /**
- * Incremental Sync Module
- * Only process changes, not the entire graph
- * Tracks what has been synced and what needs updating
- * 
- * Refactored to use Supabase instead of local JSON files
+ * Purpose:
+ *   Track content hashes for documents, conversations, and entities so
+ *   that only changed items are re-processed, avoiding full-graph rescans.
+ *
+ * Responsibilities:
+ *   - Compute MD5 hashes of content and compare against previously stored
+ *     hashes to determine if a sync is needed
+ *   - Persist sync state (hashes + timestamps) in Supabase via the
+ *     sync_states table, keyed by project_id and sync_type
+ *   - Provide needsSync / markSynced pairs for documents, conversations,
+ *     and entities
+ *   - Support a full reset (delete sync state) to force re-processing
+ *
+ * Key dependencies:
+ *   - crypto: MD5 content hashing
+ *   - ../supabase/storageHelper: sync state persistence (soft-loaded)
+ *
+ * Side effects:
+ *   - Reads from and writes to the Supabase "sync_states" table
+ *   - resetState deletes the corresponding sync_states row
+ *
+ * Notes:
+ *   - In-memory cache has a 1-minute TTL; multiple calls within that
+ *     window avoid re-querying Supabase.
+ *   - The singleton factory (getIncrementalSync) maintains one instance
+ *     per syncType, unlike most other modules which use a single global.
+ *   - MD5 is used for speed, not security. Collision resistance is
+ *     adequate for change-detection purposes.
  */
 
 const crypto = require('crypto');

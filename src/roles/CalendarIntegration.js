@@ -1,6 +1,26 @@
 /**
- * Calendar Integration
- * Sync with calendar for temporal context in briefings
+ * Purpose:
+ *   Manages a local calendar of project events and provides temporal context
+ *   (today's schedule, upcoming deadlines) to role-based AI briefings.
+ *
+ * Responsibilities:
+ *   - CRUD operations on calendar events with JSON file persistence
+ *   - Date-range querying, filtering by category and tags
+ *   - Role-aware briefing context: surfaces meetings for managers, deadlines for devs
+ *   - Import/export in basic iCal (RFC 5545) format
+ *
+ * Key dependencies:
+ *   - fs / path: JSON file I/O for event persistence
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - Reads/writes calendar-events.json in the configured dataDir
+ *
+ * Notes:
+ *   - The iCal parser is intentionally minimal (field-per-line regex). Complex
+ *     recurrence rules (RRULE) are stored but not expanded into instances.
+ *   - Role-based filtering in getContextForBriefing uses keyword heuristics;
+ *     if the role prompt is ambiguous, all events are returned unfiltered.
  */
 
 const fs = require('fs');
@@ -9,6 +29,12 @@ const { logger } = require('../logger');
 
 const log = logger.child({ module: 'calendar-integration' });
 
+/**
+ * Local calendar store backed by a single JSON file.
+ *
+ * Lifecycle: call setDataDir() when the project path becomes known;
+ * this reloads events from the new location.
+ */
 class CalendarIntegration {
     constructor(options = {}) {
         this.dataDir = options.dataDir || './data';

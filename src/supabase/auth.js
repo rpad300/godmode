@@ -114,7 +114,17 @@ async function register(email, password, metadata = {}) {
 }
 
 /**
- * Login with email and password
+ * Authenticate with email + password via Supabase Auth.
+ *
+ * On success, fetches the user's profile from `user_profiles` and returns
+ * a sanitized user object along with session tokens. The raw Supabase
+ * error message is intentionally hidden behind a generic "Invalid email
+ * or password" to prevent information leakage.
+ *
+ * @param {string} email
+ * @param {string} password
+ * @returns {Promise<{success: boolean, user?: object, session?: object, error?: string}>}
+ *   session shape: { access_token, refresh_token, expires_at }
  */
 async function login(email, password) {
     const client = getClient();
@@ -158,7 +168,12 @@ async function login(email, password) {
 }
 
 /**
- * Logout (invalidate session)
+ * Sign out the current session. Always returns success even if the
+ * Supabase signOut call fails, because the client-side token should be
+ * discarded regardless.
+ *
+ * @param {string} [accessToken] - Currently unused by Supabase JS client
+ * @returns {Promise<{success: true}>}
  */
 async function logout(accessToken) {
     const client = getClient();
@@ -177,7 +192,14 @@ async function logout(accessToken) {
 }
 
 /**
- * Request password reset
+ * Request a password-reset email. Always returns success to prevent
+ * email enumeration attacks.
+ *
+ * The redirect URL is built from APP_URL env var (defaults to
+ * http://localhost:3005).
+ *
+ * @param {string} email
+ * @returns {Promise<{success: true, message: string}>}
  */
 async function requestPasswordReset(email) {
     const client = getClient();
@@ -306,7 +328,14 @@ async function refreshToken(refreshToken) {
 }
 
 /**
- * Get or create user profile in our user_profiles table
+ * Fetch the user's application-level profile from the `user_profiles` table.
+ *
+ * Uses the admin client to bypass RLS. Returns null (instead of throwing)
+ * if the table does not exist yet (PGRST116) or if no row is found, so
+ * callers can safely merge a potentially null profile.
+ *
+ * @param {string} userId - Supabase auth.users UUID
+ * @returns {Promise<object|null>} Profile row or null
  */
 async function getUserProfile(userId) {
     const admin = getAdminClient();
@@ -401,7 +430,11 @@ function sanitizeUser(user) {
 }
 
 /**
- * Middleware helper: Extract token from request
+ * Extract a Bearer token from the request. Checks the `Authorization`
+ * header first, then falls back to the `sb-access-token` cookie.
+ *
+ * @param {object} req - HTTP request with `headers` property
+ * @returns {string|null} JWT access token or null
  */
 function extractToken(req) {
     const authHeader = req.headers['authorization'];

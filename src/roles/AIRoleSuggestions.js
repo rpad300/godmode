@@ -30,6 +30,12 @@ const { getRoleTemplates } = require('./RoleTemplates');
 
 const log = logger.child({ module: 'ai-role-suggestions' });
 
+/**
+ * Analyses user activity to suggest personalised role prompts.
+ *
+ * Invariant: storage must be set (via constructor or setStorage) before
+ * calling suggestRolePrompt; without it the method returns an error payload.
+ */
 class AIRoleSuggestions {
     constructor(options = {}) {
         this.storage = options.storage;

@@ -37,7 +37,22 @@ const { getOntologyManager } = require('./OntologyManager');
 
 const log = logger.child({ module: 'schema-exporter' });
 
+/**
+ * Exports the canonical ontology schema into the graph database layer.
+ *
+ * For Cypher-based providers this creates __OntologySchema__, __EntityType__,
+ * and __RelationType__ meta-nodes plus property indexes. For Supabase
+ * providers the schema already lives in dedicated tables, so sync is a no-op.
+ *
+ * Lifecycle: construct -> setGraphProvider() -> syncToGraph() or
+ * checkSyncStatus() / validateGraphAgainstOntology().
+ */
 class SchemaExporter {
+    /**
+     * @param {object} options
+     * @param {object} [options.ontology] - OntologyManager instance (defaults to singleton)
+     * @param {object} [options.graphProvider] - Graph backend (Supabase or Cypher)
+     */
     constructor(options = {}) {
         this.ontology = options.ontology || getOntologyManager();
         this.graphProvider = options.graphProvider || null;

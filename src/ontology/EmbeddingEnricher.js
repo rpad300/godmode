@@ -37,7 +37,23 @@
 
 const { getOntologyManager } = require('./OntologyManager');
 
+/**
+ * Stateless text enrichment layer for vector embeddings.
+ *
+ * Transforms raw entity/relationship data into rich textual representations
+ * informed by the ontology schema (templates, type prefixes, property metadata)
+ * to improve downstream semantic search quality.
+ *
+ * No I/O or side effects -- all methods are pure transformations.
+ */
 class EmbeddingEnricher {
+    /**
+     * @param {object} options
+     * @param {object} [options.ontology] - OntologyManager instance (defaults to singleton)
+     * @param {boolean} [options.includeRelations=true] - Include relationship context in embeddings
+     * @param {number} [options.maxRelationsPerEntity=5] - Cap relationship context to control text length
+     * @param {number} [options.relationDepth=1] - Graph traversal depth for relationship context
+     */
     constructor(options = {}) {
         this.ontology = options.ontology || getOntologyManager();
         this.includeRelations = options.includeRelations !== false;
@@ -381,12 +397,20 @@ class EmbeddingEnricher {
     }
 
     /**
-     * Calculate embedding priority for an entity
-     * Higher priority entities get embedded first in batch operations
-     * @param {string} entityType 
-     * @param {object} entity 
-     * @param {object} stats - Entity statistics (connection count, etc.)
-     * @returns {number}
+     * Calculate embedding priority for an entity. Higher scores cause the
+     * entity to be embedded earlier in batch operations, ensuring the most
+     * important nodes are searchable first.
+     *
+     * Scoring factors:
+     *   - Base type priority (Person=8, Project=9, Client=7, etc.)
+     *   - Connection count boost (0.5 per connection, max +5)
+     *   - Property completeness boost (up to +3)
+     *   - Recency boost (+2 if < 7 days old, +1 if < 30 days)
+     *
+     * @param {string} entityType
+     * @param {object} entity
+     * @param {object} [stats] - { connectionCount }
+     * @returns {number} - Unbounded positive score (typically 3-20)
      */
     calculateEmbeddingPriority(entityType, entity, stats = {}) {
         let priority = 0;

@@ -1,3 +1,28 @@
+/**
+ * Purpose:
+ *   Full company management page with list, view (report), edit, and template
+ *   sub-views. Allows creating companies, triggering AI analysis, editing
+ *   metadata, and managing A4/PPT document templates.
+ *
+ * Responsibilities:
+ *   - List all companies with quick-create, analyze, edit, view, delete actions
+ *   - Display a multi-section analysis report (Portuguese section titles) per company
+ *   - Provide an edit form for company metadata (name, description, logo, website, linkedin)
+ *   - Manage A4 and PPT templates: load, generate with AI, save, and preview
+ *
+ * Key dependencies:
+ *   - apiClient: direct REST calls to /api/companies endpoints
+ *   - framer-motion: animated transitions between views
+ *   - AlertDialog (shadcn): confirmation dialog for destructive actions
+ *
+ * Side effects:
+ *   - Network: CRUD operations on companies, template loading/saving, AI analysis trigger
+ *
+ * Notes:
+ *   - Uses imperative `fetchCompanies()` rather than react-query; state is managed locally.
+ *   - Report section names (reportSections) are in Portuguese, matching the backend analysis output.
+ *   - The page uses a single-page navigation pattern via `pageView` state rather than routes.
+ */
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {

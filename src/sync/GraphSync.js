@@ -50,6 +50,21 @@ const { getInferenceEngine } = require('../ontology/InferenceEngine');
 
 const log = logger.child({ module: 'graph-sync' });
 
+/**
+ * Central graph synchronisation engine. Bridges domain entities to graph
+ * nodes and relationships, with optional ontology validation and background
+ * analysis hooks.
+ *
+ * Lifecycle:
+ *   1. Construct with graphProvider + storage (or set later via setters)
+ *   2. Optionally attach ontology, inference engine, and background worker
+ *   3. Call sync* methods on entity create/update, on*Deleted on removal
+ *   4. Periodically call incrementalSync / fullSync for bulk reconciliation
+ *
+ * Key invariant: every sync* method is idempotent -- calling it twice with
+ * the same data overwrites the existing node (upsert semantics depend on
+ * the provider's createNode implementation).
+ */
 class GraphSync {
     constructor(options = {}) {
         this.graphProvider = options.graphProvider;
@@ -1657,7 +1672,15 @@ class GraphSync {
     }
 
     /**
-     * Full incremental sync - sync all new/updated data
+     * Walk every entity collection in storage and upsert each item into the
+     * graph. This is a "crankshaft" operation suitable for periodic
+     * reconciliation (e.g. after restart or on a schedule).
+     *
+     * Syncs user stories BEFORE actions so that PART_OF relationships from
+     * actions can reference existing story nodes.
+     *
+     * @param {object} storage - Data store exposing getFacts, getDecisions, etc.
+     * @returns {Promise<object>} Per-type success counts and collected errors
      */
     async incrementalSync(storage) {
         if (!this.isGraphAvailable()) {

@@ -1,6 +1,26 @@
 /**
- * Collaborative Roles
- * Multi-user support with different roles in the same project
+ * Purpose:
+ *   Multi-user management within a single project -- tracks team members,
+ *   their roles/permissions, invitations, and collaboration activity.
+ *
+ * Responsibilities:
+ *   - Add/update/remove project users with role and permission data
+ *   - Create time-limited invitations and accept them to onboard new users
+ *   - Permission checking (supports 'admin' as a super-permission)
+ *   - Activity logging with automatic rotation (last 500 entries)
+ *   - Role distribution and collaboration statistics
+ *
+ * Key dependencies:
+ *   - fs / path: JSON file I/O for user/invitation persistence
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - Reads/writes project-users.json in the configured dataDir
+ *
+ * Notes:
+ *   - Invitations expire after 7 days by default.
+ *   - Duplicate detection for addUser uses both id and email.
+ *   - The singleton getter re-loads data when dataDir changes.
  */
 
 const fs = require('fs');

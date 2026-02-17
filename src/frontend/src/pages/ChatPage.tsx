@@ -1,3 +1,29 @@
+/**
+ * Purpose:
+ *   Multi-mode conversational interface for querying the project's knowledge base.
+ *   Supports three modes: RAG Chat (full knowledge search), SOT Chat (Source of Truth
+ *   focused), and a daily Briefing view.
+ *
+ * Responsibilities:
+ *   - Maintain chat message history in component state and persist to localStorage
+ *   - Send user messages via RAG or SOT mutation hooks and render streamed responses
+ *   - Display source citations and context-quality indicators on assistant messages
+ *   - Provide a daily briefing view generated server-side
+ *   - Allow clearing chat history
+ *
+ * Key dependencies:
+ *   - useSendChatMessage / useSotChat / useBriefing (useGodMode): backend chat endpoints
+ *   - localStorage: persists last 100 messages under STORAGE_KEY
+ *
+ * Side effects:
+ *   - localStorage read/write on every message change (capped at 100 messages)
+ *   - Network: sends chat messages and fetches briefing data
+ *   - Auto-scrolls to bottom on new messages
+ *
+ * Notes:
+ *   - History sent to the backend is limited to the last 10 messages for context window control.
+ *   - The briefing view is a separate render branch, not a chat continuation.
+ */
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, Trash2, Info, MessageCircle, Shield, FileBarChart, RotateCw, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';

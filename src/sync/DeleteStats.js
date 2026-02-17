@@ -314,7 +314,9 @@ class DeleteStats {
     }
 
     /**
-     * Get dashboard data
+     * Assemble a UI-ready dashboard payload including summary counts,
+     * per-type breakdown, hourly/daily/monthly distributions, and a
+     * traffic-light health assessment for graph sync rate and delete latency.
      */
     async getDashboard() {
         const stats = await this.getStats();

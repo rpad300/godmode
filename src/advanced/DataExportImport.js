@@ -1,6 +1,37 @@
 /**
- * Data Export/Import Module
- * Full project export and import for migration/backup
+ * Purpose:
+ *   Full-project export and import for backup, migration, or offline sharing.
+ *   Serializes all knowledge-base entities (facts, questions, decisions, actions,
+ *   contacts, conversations, ontology, config) into a single JSON bundle with
+ *   a SHA-256 checksum for integrity verification.
+ *
+ * Responsibilities:
+ *   - Export the current project to a timestamped JSON file
+ *   - Import from a previously exported JSON file (or pre-parsed object)
+ *   - Verify data integrity via SHA-256 checksum on import
+ *   - Optionally export to CSV or Markdown formats
+ *   - List and delete stored exports
+ *
+ * Key dependencies:
+ *   - crypto: SHA-256 checksum generation / verification
+ *   - fs / path: read/write export files under <dataDir>/exports/
+ *   - ../logger: structured logging
+ *   - storage backend (injected): provides getXxx / addXxx accessors for
+ *     each entity type
+ *
+ * Side effects:
+ *   - exportProject() creates files under <dataDir>/exports/
+ *   - importProject() writes data into the storage backend and may create
+ *     ontology/schema.json on disk
+ *   - deleteExport() removes files from the filesystem
+ *
+ * Notes:
+ *   - Import defaults to merge mode (options.merge !== false). Existing
+ *     entities are not deduplicated unless the storage layer does so itself.
+ *   - Embeddings are only exported when options.includeEmbeddings is true,
+ *     because they can be large and are re-computable.
+ *   - Facts and questions shorter than 10 characters are filtered out during
+ *     import to avoid noise.
  */
 
 const fs = require('fs');
@@ -10,6 +41,12 @@ const { logger } = require('../logger');
 
 const log = logger.child({ module: 'data-export-import' });
 
+/**
+ * Manages full-project export/import bundles with checksum integrity.
+ *
+ * Lifecycle: construct (with storage) -> exportProject / importProject.
+ * The storage dependency can be swapped at runtime via setStorage().
+ */
 class DataExportImport {
     constructor(options = {}) {
         this.dataDir = options.dataDir || './data';
@@ -27,7 +64,13 @@ class DataExportImport {
     }
 
     /**
-     * Export entire project
+     * Serialize the entire project from the storage backend into a JSON bundle.
+     *
+     * @param {Object} [options]
+     * @param {string} [options.format='full']
+     * @param {boolean} [options.includeEmbeddings=false] - Include embedding vectors (large)
+     * @returns {Promise<{ success: boolean, exportId?: string, file?: string, checksum?: string, error?: string }>}
+     * @side-effect Creates a timestamped JSON file under <dataDir>/exports/
      */
     async exportProject(options = {}) {
         const exportId = `export_${Date.now()}`;
@@ -110,7 +153,14 @@ class DataExportImport {
     }
 
     /**
-     * Import project from export file
+     * Restore project data from a previously exported JSON bundle.
+     * Validates the SHA-256 checksum before writing any data.
+     *
+     * @param {string|Object} exportFile - File path or already-parsed export object
+     * @param {Object} [options]
+     * @param {boolean} [options.merge=true] - Merge into existing data (vs. replace)
+     * @param {boolean} [options.importOntology=false] - Overwrite the ontology schema
+     * @returns {Promise<{ success: boolean, imported?: Object, error?: string }>}
      */
     async importProject(exportFile, options = {}) {
         try {
@@ -325,7 +375,12 @@ class DataExportImport {
     }
 
     /**
-     * Export to specific formats
+     * Export the project and then convert it to an alternative format.
+     *
+     * @param {'csv'|'markdown'|string} format - Target format
+     * @param {Object} [options] - Passed through to exportProject()
+     * @returns {Promise<Object>} Export result with additional format-specific fields
+     *   (e.g. `directory` for CSV, `markdownFile` for Markdown)
      */
     async exportToFormat(format, options = {}) {
         const baseExport = await this.exportProject(options);

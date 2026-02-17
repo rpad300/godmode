@@ -1,9 +1,33 @@
 /**
- * Ontology-Aware Prompts Module
- * Generates extraction prompts that use ontology context for consistent entity/relation extraction
- * 
- * PROMPTS ARE NOW STORED IN SUPABASE (system_prompts table)
- * This module loads templates from DB and renders them with context
+ * Purpose:
+ *   Builds extraction prompts enriched with the project ontology (entity types,
+ *   relation types) so the LLM produces graph-consistent output across documents,
+ *   transcripts, conversations, and images.
+ *
+ * Responsibilities:
+ *   - Load prompt templates from Supabase `system_prompts` table (async, cached)
+ *   - Fall back to comprehensive hard-coded prompts when DB is unavailable
+ *   - Inject ontology schema (entity + relation types) into every prompt
+ *   - Render Mustache-style {{VAR}} placeholders with runtime variables
+ *   - Generate Cypher MERGE statements from extraction output
+ *
+ * Key dependencies:
+ *   - ../logger: Structured logging
+ *   - ../ontology (getOntologyManager): Provides the entity/relation schema
+ *   - ../supabase/prompts: Optional DB-backed prompt storage
+ *
+ * Side effects:
+ *   - First call to loadPromptsFromDB() issues a Supabase query; results are
+ *     cached for the lifetime of the instance
+ *
+ * Notes:
+ *   - Async methods (buildDocumentPromptAsync, etc.) try DB first then delegate
+ *     to the sync fallback; prefer the async variants in new code
+ *   - The default ontology context covers the 10 core entity types and 10
+ *     relation types used by the knowledge graph
+ *   - generateCypherFromExtraction() produces parameterised Cypher to prevent
+ *     injection, but entity type labels are interpolated directly -- they come
+ *     from the controlled ontology schema, not user input
  */
 
 const { logger } = require('../logger');

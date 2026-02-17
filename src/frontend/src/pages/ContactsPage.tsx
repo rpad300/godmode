@@ -1,3 +1,26 @@
+/**
+ * Purpose:
+ *   CRUD management page for project contacts. Displays a searchable grid of
+ *   contact cards with detail modal, inline creation, and editing.
+ *
+ * Responsibilities:
+ *   - List contacts with avatar, role, org, email, phone info in a responsive grid
+ *   - Support search filtering via the contacts API
+ *   - Provide add/edit form (ContactForm) and detail view (ContactDetailModal)
+ *   - Handle create, update, and delete mutations with toast feedback
+ *
+ * Key dependencies:
+ *   - useContacts / useCreateContact / useUpdateContact / useDeleteContact (useGodMode): API hooks
+ *   - ContactForm: reusable form component for add/edit
+ *   - ContactDetailModal: read-only detail overlay with edit/delete actions
+ *
+ * Side effects:
+ *   - Network: fetches contacts list, creates/updates/deletes contacts via API
+ *
+ * Notes:
+ *   - API response shape is flexible: handles both `{ contacts: [...] }` and raw array.
+ *   - Avatar gradient is deterministically derived from the contact name hash.
+ */
 import { useState } from 'react';
 import {
   Users, Search, Plus, Loader2, Mail, Phone, Building2,

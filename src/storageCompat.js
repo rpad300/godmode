@@ -823,6 +823,13 @@ class StorageCompat {
         return this._cache.questions.find(q => q.id === id);
     }
 
+    /**
+     * Update a question by ID. Handles both UUID (Supabase) and numeric (legacy) IDs
+     * via string coercion. Returns a result object with { success, ok, question?, error? }.
+     *
+     * In Supabase mode: persists to DB first, then syncs cache. Returns the DB error
+     * directly instead of swallowing it, so callers can show meaningful messages.
+     */
     async updateQuestion(id, updates) {
         // Find question in cache first (handles both UUID and numeric IDs)
         let idx = this._cache.questions.findIndex(q =>
@@ -1032,7 +1039,11 @@ class StorageCompat {
     }
 
     /**
-     * Delete a document with cascade (removes all related facts, decisions, questions, etc.)
+     * Delete a document with cascade (removes all related facts, decisions, questions, etc.).
+     *
+     * In Supabase mode: delegates cascade to the DB (which handles referential integrity),
+     * removes from cache, and triggers a full cache refresh to reflect all cascade effects.
+     * In fallback mode: only removes the document from the local cache (no cascade).
      */
     async deleteDocument(documentId, options = {}) {
         log.debug({ event: 'delete_document_start', documentId }, 'deleteDocument called');
@@ -1310,7 +1321,10 @@ class StorageCompat {
     }
 
     /**
-     * Get unmatched participants - excludes names that match contact names or aliases
+     * Get people from knowledge extraction that haven't been matched to contacts.
+     * Builds a set of all known names (contact primary names + all aliases) and
+     * filters the people cache against it. Case-insensitive, trimmed comparison.
+     * Used by the UI to prompt users to link extracted people to real contacts.
      */
     getUnmatchedParticipants() {
         const people = this._cache.people || [];
@@ -4429,8 +4443,17 @@ async function createCompatStorage(dataDir) {
 }
 
 /**
- * Create sync-style storage (for backward compatibility during migration)
- * Note: This uses sync cache and may have stale data
+ * Factory: create a StorageCompat instance synchronously (no init).
+ *
+ * Returns immediately with an uninitialized instance. The caller must call
+ * init() themselves or accept that the cache starts empty.
+ *
+ * Assumption: Used only in contexts where async initialization is not possible
+ * (e.g. middleware that runs before the event loop is available).
+ * Data may be stale until refreshCache() or init() is called.
+ *
+ * @param {string} dataDir - Root data directory for local file fallback
+ * @returns {StorageCompat} Uninitialized storage instance
  */
 function createSyncCompatStorage(dataDir) {
     let supabaseStorage = null;

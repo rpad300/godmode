@@ -1,3 +1,28 @@
+/**
+ * Purpose:
+ *   Root application component that assembles providers, routing, and
+ *   authentication guards for the entire GodMode SPA.
+ *
+ * Responsibilities:
+ *   - Configure React Query with sensible defaults (30s stale, 1 retry)
+ *   - Wrap the component tree with AuthProvider, ProjectProvider, and QueryClientProvider
+ *   - Define all application routes under the /app basename
+ *   - Enforce authentication via the AuthGuard layout route
+ *
+ * Key dependencies:
+ *   - react-router-dom: client-side routing under /app basename
+ *   - @tanstack/react-query: server state management (QueryClient)
+ *   - AuthContext: session state and auth methods (login, logout, etc.)
+ *   - ProjectContext: active project selection and persistence
+ *
+ * Side effects:
+ *   - None beyond provider initialisation (auth session check, project fetch)
+ *
+ * Notes:
+ *   - BrowserRouter uses basename="/app" so all routes are prefixed with /app
+ *   - Unauthenticated users are redirected to /login; unknown paths to /dashboard
+ *   - refetchOnWindowFocus is disabled globally to reduce unnecessary requests
+ */
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
@@ -33,6 +58,11 @@ const queryClient = new QueryClient({
   },
 });
 
+/**
+ * Route guard that renders child routes only when the user is authenticated.
+ * While the auth state is loading, displays a centered spinner.
+ * If not authenticated, redirects to /login.
+ */
 function AuthGuard() {
   const { isAuthenticated, isLoading } = useAuth();
 

@@ -1,11 +1,31 @@
 /**
- * Professional Knowledge Graph View (V2) - Taxonomy Constants
- * 
- * This file acts as the single source of truth for all Node Labels and Relationship Types
- * used in the graph. It mirrors the definitions in `implementation_plan.md`.
- * 
- * Usage:
- * import { NodeLabel, RelationshipType } from './taxonomy';
+ * Purpose:
+ *   Single source of truth for the knowledge graph schema: node labels,
+ *   relationship types, source-table-to-label mappings, and presentation
+ *   colours. All graph producers and consumers should reference these
+ *   constants rather than using string literals.
+ *
+ * Responsibilities:
+ *   - Define every allowed NodeLabel (Project, Document, Person, etc.)
+ *   - Define every allowed RelationshipType grouped by domain layer
+ *     (structural, extraction, people, interpersonal, cross-entity, semantic)
+ *   - Map Supabase source table names to their corresponding NodeLabel
+ *   - Provide consistent colour tokens for graph visualisation
+ *
+ * Key dependencies:
+ *   - None (pure constants, no runtime imports)
+ *
+ * Side effects:
+ *   - None
+ *
+ * Notes:
+ *   - This file uses ES module `export` syntax. Consumers using CommonJS will
+ *     need a compatible bundler or transpiler.
+ *   - The definitions mirror `implementation_plan.md`; keep both in sync when
+ *     adding new entity types or relationship kinds.
+ *   - NodeColors map labels to Tailwind-style hex values for frontend rendering.
+ *   - Action (not Task) is used as the node label for action items, matching
+ *     the underlying `action_items` source table.
  */
 
 export const NodeLabel = {

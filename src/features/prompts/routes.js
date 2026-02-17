@@ -1,10 +1,27 @@
 /**
- * Prompts API - ontology-aware prompt preview and context
- * Extracted from server.js
+ * Purpose:
+ *   Ontology-aware prompt preview and context API. Allows the frontend to
+ *   inspect the prompts that will be sent to the LLM during document processing,
+ *   including the ontology entity/relation context injected into each prompt.
  *
- * Handles:
- * - GET /api/prompts/preview - Preview ontology-aware prompts
- * - GET /api/prompts/ontology - Get ontology context for prompts
+ * Responsibilities:
+ *   - Preview prompts for different content types (document, transcript, conversation, vision)
+ *   - Expose raw ontology context used for prompt construction
+ *
+ * Key dependencies:
+ *   - ../../prompts (getOntologyAwarePrompts): prompt builder with ontology injection
+ *   - config.userRole, config.projectContext: role/project context for prompt customization
+ *
+ * Side effects:
+ *   - None (read-only preview endpoints)
+ *
+ * Notes:
+ *   - Previews use a hardcoded sample string ("Sample content for preview...")
+ *   - Useful for debugging prompt engineering without triggering actual LLM calls
+ *
+ * Routes:
+ *   GET /api/prompts/preview   - Preview a prompt by type (query: ?type=document|transcript|conversation|vision)
+ *   GET /api/prompts/ontology  - Raw ontology context used in prompt construction
  */
 
 const { parseUrl } = require('../../server/request');

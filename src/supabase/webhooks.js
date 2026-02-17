@@ -445,7 +445,11 @@ async function deliverWebhook(webhook, eventType, payload, attemptNumber = 1) {
 }
 
 /**
- * Make HTTP request (helper)
+ * Low-level HTTP/HTTPS request helper using Node's built-in modules.
+ * Auto-selects protocol based on URL scheme. Supports timeout.
+ * @param {string} urlString - Fully qualified URL
+ * @param {object} options - { method, headers, body, timeout }
+ * @returns {Promise<{statusCode: number, headers: object, body: string}>}
  */
 function makeHttpRequest(urlString, options) {
     return new Promise((resolve, reject) => {

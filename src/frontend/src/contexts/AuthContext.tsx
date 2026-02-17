@@ -1,3 +1,26 @@
+/**
+ * Purpose:
+ *   Provides authentication state and actions to the entire application
+ *   via React Context, backed by Supabase Auth.
+ *
+ * Responsibilities:
+ *   - Bootstrap the session on mount (getSession + onAuthStateChange listener)
+ *   - Expose login, register, logout, forgotPassword, and resetPassword actions
+ *   - Derive convenience fields: user, isLoading, isAuthenticated
+ *
+ * Key dependencies:
+ *   - @supabase/supabase-js: underlying auth provider
+ *   - lib/supabase: pre-configured Supabase client singleton
+ *
+ * Side effects:
+ *   - Subscribes to Supabase auth state changes (unsubscribes on unmount)
+ *   - forgotPassword sends an email with a redirect to /app/reset-password
+ *
+ * Notes:
+ *   - Context value is null until a provider wraps the tree; useAuth throws
+ *     if called outside AuthProvider to fail fast during development.
+ *   - isAuthenticated is derived purely from session presence (!!session).
+ */
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
 import { supabase } from '../lib/supabase';
 import type { Session, User } from '@supabase/supabase-js';

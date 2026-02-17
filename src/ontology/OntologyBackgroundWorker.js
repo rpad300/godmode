@@ -194,8 +194,19 @@ class OntologyBackgroundWorker {
     }
 
     /**
-     * Run full analysis pipeline
-     * This is the main entry point for scheduled jobs
+     * Run the full analysis pipeline: gap detection, optional LLM analysis,
+     * and type-usage statistics. This is the main entry point for scheduled
+     * or manually triggered background jobs.
+     *
+     * Pipeline steps:
+     *   1. Check graph connectivity and minimum node count
+     *   2. Detect gaps between graph labels and ontology definitions
+     *   3. (Optional) Run LLM-powered deep analysis if llmConfig is set
+     *   4. Collect type-usage statistics
+     *
+     * @param {object} [config]
+     * @param {boolean} [config.useLLM=true] - Set false to skip LLM analysis
+     * @returns {Promise<object>} - Execution record with status, results, and duration
      */
     async runFullAnalysis(config = {}) {
         const startTime = Date.now();
@@ -419,8 +430,11 @@ class OntologyBackgroundWorker {
     }
 
     /**
-     * Schedule incremental analysis (debounced)
-     * Called after new data is synced
+     * Schedule a debounced analysis run. Repeated calls within the debounce
+     * window (default 5 min) reset the timer so only the final trigger fires.
+     * Typically called by data-sync hooks after new content arrives.
+     *
+     * @param {string} [type='incremental'] - 'incremental' (gaps + inference) or 'full'
      */
     scheduleAnalysis(type = 'incremental') {
         if (this.pendingAnalysis) {

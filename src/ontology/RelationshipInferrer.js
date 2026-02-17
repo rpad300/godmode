@@ -56,7 +56,28 @@ const { getLLM } = require('../llm');
 
 const log = logger.child({ module: 'relationship-inferrer' });
 
+/**
+ * Platform-wide relationship discovery engine.
+ *
+ * Unlike RelationInference (which processes ad-hoc text), this class sweeps
+ * structured Supabase data across every domain: contacts, teams, questions,
+ * risks, decisions, actions, facts, documents, meetings, and conversations.
+ *
+ * Lifecycle: construct -> setStorage() -> inferAllRelationships().
+ *
+ * The main entry point (inferAllRelationships) runs all 10 domain-specific
+ * inference methods sequentially, collects nodes and relationships, creates
+ * graph nodes, then saves relationships (auto-approved to graph or queued
+ * as suggestions depending on confidence).
+ */
 class RelationshipInferrer {
+    /**
+     * @param {object} options
+     * @param {object} [options.storage] - Supabase-backed storage layer
+     * @param {object} [options.graphProvider] - Graph backend (also set via storage)
+     * @param {string} [options.llmProvider='openai'] - Reserved for future AI-assisted inference
+     * @param {number} [options.autoApproveThreshold=0.8] - Confidence cutoff for direct graph writes
+     */
     constructor(options = {}) {
         this.storage = options.storage || null;
         this.graphProvider = options.graphProvider || null;
@@ -1307,7 +1328,13 @@ class RelationshipInferrer {
     }
 
     /**
-     * Find contact by name (fuzzy matching)
+     * Find a contact by name using case-insensitive fuzzy matching.
+     * Tries exact match first, then substring containment in either
+     * direction, then first-name-only match. Returns the first match
+     * found; may produce false positives for common short names.
+     *
+     * @param {string} name - Full or partial contact name
+     * @returns {object|null} - Matched contact record or null
      */
     findContactByName(name) {
         if (!name) return null;
@@ -1334,7 +1361,13 @@ class RelationshipInferrer {
     }
 
     /**
-     * Extract contacts mentioned in text content
+     * Scan text for mentions of known contacts. Uses full-name matching
+     * first, then requires both first and last name (each > 2 chars) to
+     * appear in the text for split-name matching -- this reduces false
+     * positives from common first names.
+     *
+     * @param {string} text - Content to scan
+     * @returns {Array<object>} - Matched contact records
      */
     extractMentionedContacts(text) {
         if (!text) return [];
@@ -1369,7 +1402,11 @@ class RelationshipInferrer {
     }
 
     /**
-     * Save relationship to graph and Supabase
+     * Persist a high-confidence relationship to both the graph database and
+     * (for contact-to-contact relations) the Supabase contact_relationships
+     * table. Uses upsert with ignoreDuplicates to handle idempotent re-runs.
+     *
+     * @param {object} rel - Relationship with fromId, toId, type, confidence, reason, source
      */
     async saveRelationship(rel) {
         // Save to graph
@@ -1421,7 +1458,10 @@ class RelationshipInferrer {
     }
 
     /**
-     * Save low-confidence relationship as suggestion
+     * Store a low-confidence inferred relationship as an ontology_changes
+     * record with change_type 'relationship_suggestion' for human review.
+     *
+     * @param {object} rel - Relationship with fromId, toId, type, confidence, reason, source
      */
     async saveSuggestion(rel) {
         // Store in ontology suggestions for user review

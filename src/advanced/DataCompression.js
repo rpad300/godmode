@@ -192,7 +192,11 @@ class DataCompression {
     }
 
     /**
-     * Decompress embeddings array
+     * Restore compressed embedding vectors back to their original float arrays.
+     * Inverse of compressEmbeddings().
+     *
+     * @param {Object[]} embeddings - Array potentially containing compressed entries
+     * @returns {Object[]} Array with embedding vectors restored
      */
     decompressEmbeddings(embeddings) {
         if (!Array.isArray(embeddings)) return embeddings;
@@ -213,7 +217,11 @@ class DataCompression {
     }
 
     /**
-     * Compress a file
+     * Gzip a file on disk. Defaults to writing alongside the original with a .gz suffix.
+     *
+     * @param {string} inputPath - Absolute path to the source file
+     * @param {string|null} [outputPath] - Destination; defaults to inputPath + '.gz'
+     * @returns {{ success: boolean, ratio?: string, error?: string }}
      */
     compressFile(inputPath, outputPath = null) {
         if (!fs.existsSync(inputPath)) {
@@ -273,7 +281,13 @@ class DataCompression {
     }
 
     /**
-     * Compress all JSON files in a directory
+     * Compress every .json file in a directory (non-recursive).
+     * Files already ending in .gz and files below minSizeToCompress are skipped.
+     *
+     * @param {string} dirPath
+     * @param {Object} [options]
+     * @param {boolean} [options.deleteOriginal=false] - Remove source .json after compression
+     * @returns {Object} Aggregate stats: files seen, compressed, skipped, sizes, ratio
      */
     compressDirectory(dirPath, options = {}) {
         const results = {
@@ -344,7 +358,10 @@ class DataCompression {
     }
 
     /**
-     * Estimate compression ratio for data
+     * Trial-compress data to estimate the achievable ratio without persisting.
+     *
+     * @param {*} data - Value to test
+     * @returns {{ wouldCompress: boolean, estimatedRatio: string, originalSize: number, estimatedSize: number }}
      */
     estimateRatio(data) {
         const sample = this.compress(data);
