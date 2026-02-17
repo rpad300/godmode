@@ -1,60 +1,200 @@
-import { useTeamAnalysis } from '../hooks/useGodMode';
-import { Users } from 'lucide-react';
+import { useState } from 'react';
+import { useTeamProfiles, useTeamDynamics, useTeamRelationships } from '../hooks/useGodMode';
+import {
+  Users, Loader2, Network, BarChart3, ArrowRight, TrendingUp,
+} from 'lucide-react';
+import { cn } from '../lib/utils';
+
+type Tab = 'profiles' | 'team' | 'relationships';
 
 export default function TeamAnalysisPage() {
-  const { data, isLoading, error } = useTeamAnalysis();
+  const [tab, setTab] = useState<Tab>('profiles');
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-[hsl(var(--muted-foreground))]">Loading team analysis...</div>
-      </div>
-    );
-  }
+  const profiles = useTeamProfiles();
+  const dynamics = useTeamDynamics();
+  const relationships = useTeamRelationships();
 
-  if (error) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-[hsl(var(--destructive))]">Failed to load team analysis.</div>
-      </div>
-    );
-  }
-
-  const profiles = (data as Record<string, unknown>)?.profiles as Array<Record<string, unknown>> | undefined;
+  const tabs: { key: Tab; label: string; icon: typeof Users }[] = [
+    { key: 'profiles', label: 'Profiles', icon: Users },
+    { key: 'team', label: 'Team Dynamics', icon: BarChart3 },
+    { key: 'relationships', label: 'Relationships', icon: Network },
+  ];
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Team Analysis</h1>
+    <div className="p-6 space-y-4">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-foreground">Team Analysis</h1>
       </div>
 
-      {profiles && profiles.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {profiles.map((profile, i) => (
-            <div key={i} className="rounded-lg border bg-[hsl(var(--card))] p-4">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="h-10 w-10 rounded-full bg-[hsl(var(--accent))] flex items-center justify-center">
-                  <Users className="h-5 w-5 text-[hsl(var(--muted-foreground))]" />
-                </div>
-                <div>
-                  <div className="font-medium">{String(profile.name ?? 'Unknown')}</div>
-                  <div className="text-xs text-[hsl(var(--muted-foreground))]">
-                    {String(profile.role ?? '')}
+      {/* Tabs */}
+      <div className="flex gap-1 bg-secondary rounded-xl p-1 max-w-md">
+        {tabs.map(t => {
+          const Icon = t.icon;
+          return (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={cn(
+                'flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+                tab === t.key
+                  ? 'bg-card text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              <Icon className="w-3.5 h-3.5" /> {t.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Profiles tab */}
+      {tab === 'profiles' && (
+        <>
+          {profiles.isLoading ? (
+            <div className="flex items-center justify-center h-32">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : (() => {
+            const profileList = (profiles.data?.profiles ?? []) as Array<Record<string, unknown>>;
+            return profileList.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {profileList.map((profile, i) => (
+                  <div key={i} className="bg-card border border-border rounded-xl p-4 hover:border-primary/30 transition-colors">
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                        <span className="text-sm font-bold text-primary">
+                          {String(profile.name ?? '?').substring(0, 2).toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-foreground truncate">{String(profile.name ?? 'Unknown')}</p>
+                        {profile.role && <p className="text-[10px] text-muted-foreground">{String(profile.role)}</p>}
+                      </div>
+                    </div>
+                    {profile.summary && (
+                      <p className="text-xs text-muted-foreground line-clamp-3">{String(profile.summary)}</p>
+                    )}
+                    {profile.communication_style && (
+                      <div className="mt-2">
+                        <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Communication</span>
+                        <p className="text-xs text-foreground mt-0.5">{String(profile.communication_style)}</p>
+                      </div>
+                    )}
+                    {profile.strengths && Array.isArray(profile.strengths) && (
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {(profile.strengths as string[]).slice(0, 3).map((s, j) => (
+                          <span key={j} className="text-[10px] px-1.5 py-0.5 rounded bg-success/10 text-success">{s}</span>
+                        ))}
+                      </div>
+                    )}
+                    {profile.concerns && Array.isArray(profile.concerns) && (profile.concerns as string[]).length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {(profile.concerns as string[]).slice(0, 2).map((c, j) => (
+                          <span key={j} className="text-[10px] px-1.5 py-0.5 rounded bg-warning/10 text-warning">{c}</span>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                </div>
+                ))}
               </div>
-              {profile.summary && (
-                <p className="text-sm text-[hsl(var(--muted-foreground))]">
-                  {String(profile.summary)}
-                </p>
+            ) : (
+              <div className="rounded-xl border border-border bg-card p-8 text-center text-muted-foreground">
+                <Users className="h-12 w-12 mx-auto mb-4 text-muted-foreground/40" />
+                No team profiles available. Process some documents first.
+              </div>
+            );
+          })()}
+        </>
+      )}
+
+      {/* Team Dynamics tab */}
+      {tab === 'team' && (
+        <>
+          {dynamics.isLoading ? (
+            <div className="flex items-center justify-center h-32">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : dynamics.data ? (
+            <div className="space-y-4">
+              {(dynamics.data as any).summary && (
+                <div className="bg-card border border-border rounded-xl p-5">
+                  <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">Team Summary</h3>
+                  <p className="text-sm text-foreground whitespace-pre-wrap">{String((dynamics.data as any).summary)}</p>
+                </div>
+              )}
+              {(dynamics.data as any).dynamics && Array.isArray((dynamics.data as any).dynamics) && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {((dynamics.data as any).dynamics as Record<string, unknown>[]).map((d, i) => (
+                    <div key={i} className="bg-card border border-border rounded-xl p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <TrendingUp className="w-4 h-4 text-primary" />
+                        <span className="text-sm font-medium text-foreground">{String(d.aspect || d.name || `Dynamic #${i + 1}`)}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{String(d.description || d.summary || '')}</p>
+                      {d.score !== undefined && (
+                        <div className="mt-2 flex items-center gap-2">
+                          <div className="flex-1 h-1.5 bg-secondary rounded-full">
+                            <div className="h-1.5 bg-primary rounded-full" style={{ width: `${Math.min(100, Number(d.score))}%` }} />
+                          </div>
+                          <span className="text-[10px] font-mono text-muted-foreground">{String(d.score)}%</span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {!(dynamics.data as any).summary && !(dynamics.data as any).dynamics && (
+                <div className="bg-card border border-border rounded-xl p-5">
+                  <pre className="text-xs text-muted-foreground overflow-x-auto">{JSON.stringify(dynamics.data, null, 2)}</pre>
+                </div>
               )}
             </div>
-          ))}
-        </div>
-      ) : (
-        <div className="rounded-lg border bg-[hsl(var(--card))] p-8 text-center text-[hsl(var(--muted-foreground))]">
-          No team analysis data available. Process some documents first.
-        </div>
+          ) : (
+            <div className="rounded-xl border border-border bg-card p-8 text-center text-muted-foreground">
+              <BarChart3 className="h-12 w-12 mx-auto mb-4 text-muted-foreground/40" />
+              No team dynamics data. Run a team analysis to generate insights.
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Relationships tab */}
+      {tab === 'relationships' && (
+        <>
+          {relationships.isLoading ? (
+            <div className="flex items-center justify-center h-32">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : (() => {
+            const rels = (relationships.data?.relationships ?? []) as Array<Record<string, unknown>>;
+            return rels.length > 0 ? (
+              <div className="space-y-2">
+                {rels.map((rel, i) => (
+                  <div key={i} className="bg-card border border-border rounded-xl p-4 flex items-center gap-3">
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <span className="text-sm font-medium text-foreground truncate">{String(rel.from || rel.source || rel.person_a || '?')}</span>
+                      <ArrowRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                      <span className="text-sm font-medium text-foreground truncate">{String(rel.to || rel.target || rel.person_b || '?')}</span>
+                    </div>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-secondary text-muted-foreground capitalize flex-shrink-0">
+                      {String(rel.type || rel.relationship_type || rel.label || 'related')}
+                    </span>
+                    {rel.strength !== undefined && (
+                      <span className="text-[10px] font-mono text-muted-foreground flex-shrink-0">
+                        {String(rel.strength)}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-xl border border-border bg-card p-8 text-center text-muted-foreground">
+                <Network className="h-12 w-12 mx-auto mb-4 text-muted-foreground/40" />
+                No relationship data. Process documents to discover team relationships.
+              </div>
+            );
+          })()}
+        </>
       )}
     </div>
   );

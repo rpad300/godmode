@@ -1,17 +1,25 @@
 import { useState, useCallback, useEffect } from 'react';
 import {
   Settings, Sun, Moon, Monitor, Database, Trash2, User, Cpu, Save,
-  Loader2, Check,
+  Loader2, Key, Webhook, Plus, Copy, X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '../lib/utils';
-import { useResetData, useProjectConfig, useUpdateProjectConfig } from '../hooks/useGodMode';
+import {
+  useResetData, useProjectConfig, useUpdateProjectConfig,
+  useApiKeys, useCreateApiKey, useDeleteApiKey,
+  useWebhooks, useCreateWebhook, useDeleteWebhook, useTestWebhook,
+} from '../hooks/useGodMode';
 import { useUser } from '../hooks/useUser';
 
-type SettingsTab = 'profile' | 'project' | 'data';
+type SettingsTab = 'profile' | 'project' | 'apikeys' | 'webhooks' | 'data';
 
 function getStoredTheme(): string {
   try { return localStorage.getItem('godmode-theme') || 'system'; } catch { return 'system'; }
+}
+
+function getProjectId(): string {
+  try { return localStorage.getItem('godmode_current_project') || 'default'; } catch { return 'default'; }
 }
 
 export default function SettingsPage() {
@@ -23,6 +31,8 @@ export default function SettingsPage() {
   const config = useProjectConfig();
   const updateConfig = useUpdateProjectConfig();
   const resetData = useResetData();
+
+  const projectId = getProjectId();
 
   // Local form state
   const [displayName, setDisplayName] = useState('');
@@ -86,7 +96,9 @@ export default function SettingsPage() {
   const tabs: { key: SettingsTab; label: string; icon: typeof Settings }[] = [
     { key: 'profile', label: 'Profile', icon: User },
     { key: 'project', label: 'Project', icon: Cpu },
-    { key: 'data', label: 'Data & Privacy', icon: Database },
+    { key: 'apikeys', label: 'API Keys', icon: Key },
+    { key: 'webhooks', label: 'Webhooks', icon: Webhook },
+    { key: 'data', label: 'Data', icon: Database },
   ];
 
   return (
@@ -97,14 +109,14 @@ export default function SettingsPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-secondary rounded-xl p-1 mb-6 max-w-md">
+      <div className="flex gap-1 bg-secondary rounded-xl p-1 mb-6 max-w-2xl overflow-x-auto">
         {tabs.map(tab => {
           const Icon = tab.icon;
           return (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
                 activeTab === tab.key
                   ? 'bg-card text-foreground shadow-sm'
                   : 'text-muted-foreground hover:text-foreground'
@@ -119,7 +131,6 @@ export default function SettingsPage() {
       {/* Profile Tab */}
       {activeTab === 'profile' && (
         <div className="space-y-6 max-w-lg">
-          {/* User info */}
           <div className="bg-card border border-border rounded-xl p-5 space-y-4">
             <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">User Profile</h3>
             <div>
@@ -154,7 +165,6 @@ export default function SettingsPage() {
             </button>
           </div>
 
-          {/* Appearance */}
           <div className="bg-card border border-border rounded-xl p-5 space-y-3">
             <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Appearance</h3>
             <div className="flex gap-2">
@@ -180,7 +190,6 @@ export default function SettingsPage() {
                 );
               })}
             </div>
-            <p className="text-xs text-muted-foreground">Choose your preferred color scheme.</p>
           </div>
         </div>
       )}
@@ -248,6 +257,12 @@ export default function SettingsPage() {
         </div>
       )}
 
+      {/* API Keys Tab */}
+      {activeTab === 'apikeys' && <ApiKeysTab projectId={projectId} />}
+
+      {/* Webhooks Tab */}
+      {activeTab === 'webhooks' && <WebhooksTab projectId={projectId} />}
+
       {/* Data Tab */}
       {activeTab === 'data' && (
         <div className="space-y-6 max-w-lg">
@@ -283,6 +298,269 @@ export default function SettingsPage() {
               </div>
             )}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── API Keys Tab ──
+
+function ApiKeysTab({ projectId }: { projectId: string }) {
+  const apiKeys = useApiKeys(projectId);
+  const createKey = useCreateApiKey();
+  const deleteKey = useDeleteApiKey();
+  const [showCreate, setShowCreate] = useState(false);
+  const [keyName, setKeyName] = useState('');
+  const [expiresInDays, setExpiresInDays] = useState('90');
+  const [newRawKey, setNewRawKey] = useState<string | null>(null);
+
+  const keys = apiKeys.data?.keys ?? [];
+
+  const handleCreate = () => {
+    if (!keyName.trim()) return;
+    createKey.mutate(
+      { projectId, name: keyName.trim(), expires_in_days: Number(expiresInDays) || undefined },
+      {
+        onSuccess: (data: any) => {
+          setNewRawKey(data.raw_key || null);
+          setKeyName('');
+          setShowCreate(false);
+          toast.success('API key created');
+        },
+        onError: () => toast.error('Failed to create API key'),
+      },
+    );
+  };
+
+  const handleDelete = (id: string) => {
+    deleteKey.mutate(id, {
+      onSuccess: () => toast.success('API key revoked'),
+      onError: () => toast.error('Failed to revoke key'),
+    });
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success('Copied to clipboard');
+  };
+
+  return (
+    <div className="space-y-4 max-w-lg">
+      <div className="flex items-center justify-between">
+        <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">API Keys</h3>
+        <button
+          onClick={() => setShowCreate(!showCreate)}
+          className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 flex items-center gap-1.5"
+        >
+          <Plus className="w-3.5 h-3.5" /> Create Key
+        </button>
+      </div>
+
+      {newRawKey && (
+        <div className="bg-warning/10 border border-warning/30 rounded-xl p-4 space-y-2">
+          <p className="text-xs font-medium text-warning">Copy your new API key now — it won't be shown again.</p>
+          <div className="flex gap-2">
+            <code className="flex-1 bg-secondary rounded-lg px-3 py-2 text-xs font-mono text-foreground break-all">{newRawKey}</code>
+            <button onClick={() => copyToClipboard(newRawKey)} className="px-3 py-2 rounded-lg bg-secondary hover:bg-muted">
+              <Copy className="w-3.5 h-3.5 text-muted-foreground" />
+            </button>
+          </div>
+          <button onClick={() => setNewRawKey(null)} className="text-xs text-muted-foreground hover:text-foreground">Dismiss</button>
+        </div>
+      )}
+
+      {showCreate && (
+        <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Key Name</label>
+            <input
+              value={keyName}
+              onChange={e => setKeyName(e.target.value)}
+              className="mt-1 w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              placeholder="e.g. Production API"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Expires In (days)</label>
+            <select
+              value={expiresInDays}
+              onChange={e => setExpiresInDays(e.target.value)}
+              className="mt-1 w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <option value="30">30 days</option>
+              <option value="90">90 days</option>
+              <option value="365">1 year</option>
+              <option value="">Never</option>
+            </select>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => setShowCreate(false)} className="px-3 py-1.5 rounded-lg bg-secondary text-secondary-foreground text-xs hover:bg-muted">Cancel</button>
+            <button onClick={handleCreate} disabled={createKey.isPending || !keyName.trim()} className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50">
+              {createKey.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Create'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {apiKeys.isLoading ? (
+        <div className="flex items-center justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
+      ) : keys.length === 0 ? (
+        <div className="bg-card border border-border rounded-xl p-6 text-center text-muted-foreground text-sm">
+          <Key className="w-8 h-8 mx-auto mb-2 opacity-40" />
+          No API keys yet. Create one to access the API programmatically.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {keys.map(key => (
+            <div key={key.id} className="bg-card border border-border rounded-xl p-4 flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-foreground">{key.name}</p>
+                <div className="flex items-center gap-3 mt-0.5">
+                  {key.key_prefix && <span className="text-[10px] font-mono text-muted-foreground">{key.key_prefix}...</span>}
+                  <span className="text-[10px] text-muted-foreground">Created {new Date(key.created_at).toLocaleDateString()}</span>
+                  {key.expires_at && <span className="text-[10px] text-muted-foreground">Expires {new Date(key.expires_at).toLocaleDateString()}</span>}
+                </div>
+              </div>
+              <button onClick={() => handleDelete(key.id)} className="p-2 text-muted-foreground hover:text-destructive transition-colors">
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Webhooks Tab ──
+
+function WebhooksTab({ projectId }: { projectId: string }) {
+  const webhooks = useWebhooks(projectId);
+  const createWebhook = useCreateWebhook();
+  const deleteWebhook = useDeleteWebhook();
+  const testWebhook = useTestWebhook();
+  const [showCreate, setShowCreate] = useState(false);
+  const [url, setUrl] = useState('');
+  const [events, setEvents] = useState<string[]>([]);
+
+  const webhookList = webhooks.data?.webhooks ?? [];
+
+  const availableEvents = [
+    'document.processed', 'document.created', 'document.deleted',
+    'entity.created', 'entity.updated', 'entity.deleted',
+    'contact.created', 'contact.updated',
+    'email.received', 'email.processed',
+  ];
+
+  const toggleEvent = (event: string) => {
+    setEvents(prev => prev.includes(event) ? prev.filter(e => e !== event) : [...prev, event]);
+  };
+
+  const handleCreate = () => {
+    if (!url.trim() || events.length === 0) return;
+    createWebhook.mutate(
+      { projectId, url: url.trim(), events },
+      {
+        onSuccess: () => {
+          toast.success('Webhook created');
+          setUrl('');
+          setEvents([]);
+          setShowCreate(false);
+        },
+        onError: () => toast.error('Failed to create webhook'),
+      },
+    );
+  };
+
+  const handleTest = (id: string) => {
+    testWebhook.mutate(id, {
+      onSuccess: () => toast.success('Test webhook sent'),
+      onError: () => toast.error('Test delivery failed'),
+    });
+  };
+
+  return (
+    <div className="space-y-4 max-w-lg">
+      <div className="flex items-center justify-between">
+        <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Webhooks</h3>
+        <button
+          onClick={() => setShowCreate(!showCreate)}
+          className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 flex items-center gap-1.5"
+        >
+          <Plus className="w-3.5 h-3.5" /> Add Webhook
+        </button>
+      </div>
+
+      {showCreate && (
+        <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Endpoint URL</label>
+            <input
+              value={url}
+              onChange={e => setUrl(e.target.value)}
+              className="mt-1 w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              placeholder="https://your-server.com/webhook"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5 block">Events</label>
+            <div className="flex flex-wrap gap-1.5">
+              {availableEvents.map(event => (
+                <button
+                  key={event}
+                  onClick={() => toggleEvent(event)}
+                  className={cn(
+                    'px-2 py-1 rounded-md text-[10px] font-medium transition-colors border',
+                    events.includes(event)
+                      ? 'bg-primary/10 border-primary/30 text-primary'
+                      : 'bg-secondary border-border text-muted-foreground hover:text-foreground'
+                  )}
+                >
+                  {event}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => setShowCreate(false)} className="px-3 py-1.5 rounded-lg bg-secondary text-secondary-foreground text-xs hover:bg-muted">Cancel</button>
+            <button onClick={handleCreate} disabled={createWebhook.isPending || !url.trim() || events.length === 0} className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50">
+              {createWebhook.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Create'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {webhooks.isLoading ? (
+        <div className="flex items-center justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
+      ) : webhookList.length === 0 ? (
+        <div className="bg-card border border-border rounded-xl p-6 text-center text-muted-foreground text-sm">
+          <Webhook className="w-8 h-8 mx-auto mb-2 opacity-40" />
+          No webhooks configured. Add one to receive real-time event notifications.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {webhookList.map(wh => (
+            <div key={wh.id} className="bg-card border border-border rounded-xl p-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm font-mono text-foreground truncate flex-1 mr-2">{wh.url}</p>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => handleTest(wh.id)} disabled={testWebhook.isPending} className="px-2 py-1 rounded-md bg-secondary text-[10px] text-muted-foreground hover:text-foreground">
+                    Test
+                  </button>
+                  <button onClick={() => deleteWebhook.mutate(wh.id, { onSuccess: () => toast.success('Webhook deleted') })} className="p-1.5 text-muted-foreground hover:text-destructive transition-colors">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {wh.events.map(evt => (
+                  <span key={evt} className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">{evt}</span>
+                ))}
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-1.5">Created {new Date(wh.created_at).toLocaleDateString()}</p>
+            </div>
+          ))}
         </div>
       )}
     </div>

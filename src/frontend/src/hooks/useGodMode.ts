@@ -720,6 +720,27 @@ export function useTeamAnalysis() {
   });
 }
 
+export function useTeamProfiles() {
+  return useQuery({
+    queryKey: ['teamProfiles'],
+    queryFn: () => apiClient.get<{ profiles: Array<Record<string, unknown>> }>('/api/team-analysis/profiles'),
+  });
+}
+
+export function useTeamDynamics() {
+  return useQuery({
+    queryKey: ['teamDynamics'],
+    queryFn: () => apiClient.get<Record<string, unknown>>('/api/team-analysis/team'),
+  });
+}
+
+export function useTeamRelationships() {
+  return useQuery({
+    queryKey: ['teamRelationships'],
+    queryFn: () => apiClient.get<{ relationships: Array<Record<string, unknown>> }>('/api/team-analysis/relationships'),
+  });
+}
+
 // ── Costs ───────────────────────────────────────────────────────────────────
 
 export function useCosts(period: string = 'month') {
@@ -729,7 +750,99 @@ export function useCosts(period: string = 'month') {
   });
 }
 
-// ── History ─────────────────────────────────────────────────────────────────
+// ── API Keys ─────────────────────────────────────────────────────────────────
+
+export interface ApiKey {
+  id: string;
+  name: string;
+  key_prefix?: string;
+  created_at: string;
+  expires_at?: string;
+  last_used_at?: string;
+  rate_limit?: number;
+  scopes?: string[];
+  is_active?: boolean;
+}
+
+export function useApiKeys(projectId: string) {
+  return useQuery({
+    queryKey: ['apiKeys', projectId],
+    queryFn: () => apiClient.get<{ keys: ApiKey[] }>(`/api/projects/${projectId}/api-keys`),
+    enabled: !!projectId,
+  });
+}
+
+export function useCreateApiKey() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ projectId, ...data }: { projectId: string; name: string; expires_in_days?: number; rate_limit?: number; scopes?: string[] }) =>
+      apiClient.post<{ key: ApiKey; raw_key?: string }>(`/api/projects/${projectId}/api-keys`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['apiKeys'] });
+    },
+  });
+}
+
+export function useDeleteApiKey() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete(`/api/api-keys/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['apiKeys'] });
+    },
+  });
+}
+
+// ── Webhooks ─────────────────────────────────────────────────────────────────
+
+export interface Webhook {
+  id: string;
+  url: string;
+  events: string[];
+  is_active?: boolean;
+  secret?: string;
+  created_at: string;
+  updated_at?: string;
+  headers?: Record<string, string>;
+  retry_count?: number;
+}
+
+export function useWebhooks(projectId: string) {
+  return useQuery({
+    queryKey: ['webhooks', projectId],
+    queryFn: () => apiClient.get<{ webhooks: Webhook[] }>(`/api/projects/${projectId}/webhooks`),
+    enabled: !!projectId,
+  });
+}
+
+export function useCreateWebhook() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ projectId, ...data }: { projectId: string; url: string; events: string[]; headers?: Record<string, string>; retry_count?: number }) =>
+      apiClient.post<{ webhook: Webhook }>(`/api/projects/${projectId}/webhooks`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['webhooks'] });
+    },
+  });
+}
+
+export function useDeleteWebhook() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete(`/api/webhooks/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['webhooks'] });
+    },
+  });
+}
+
+export function useTestWebhook() {
+  return useMutation({
+    mutationFn: (id: string) => apiClient.post<{ success: boolean }>(`/api/webhooks/${id}/test`),
+  });
+}
+
+// ── Audit / History ─────────────────────────────────────────────────────────
 
 export function useHistory() {
   return useQuery({
@@ -738,12 +851,59 @@ export function useHistory() {
   });
 }
 
+export function useAuditSummary(projectId: string, days: number = 30) {
+  return useQuery({
+    queryKey: ['audit', projectId, days],
+    queryFn: () => apiClient.get<Record<string, unknown>>(`/api/projects/${projectId}/audit/summary?days=${days}`),
+    enabled: !!projectId,
+  });
+}
+
 // ── Emails ──────────────────────────────────────────────────────────────────
 
-export function useEmails() {
+export function useEmails(params?: { requires_response?: boolean; direction?: string; limit?: number }) {
+  const qs = new URLSearchParams();
+  if (params?.requires_response !== undefined) qs.set('requires_response', String(params.requires_response));
+  if (params?.direction) qs.set('direction', params.direction);
+  if (params?.limit) qs.set('limit', String(params.limit));
+  const queryString = qs.toString();
   return useQuery({
-    queryKey: queryKeys.emails,
-    queryFn: () => apiClient.get<Array<Record<string, unknown>>>('/api/emails'),
+    queryKey: [...queryKeys.emails, queryString],
+    queryFn: () => apiClient.get<Array<Record<string, unknown>>>(`/api/emails${queryString ? `?${queryString}` : ''}`),
+  });
+}
+
+export function useEmail(id: string) {
+  return useQuery({
+    queryKey: ['email', id],
+    queryFn: () => apiClient.get<Record<string, unknown>>(`/api/emails/${id}`),
+    enabled: !!id,
+  });
+}
+
+export function useDeleteEmail() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete(`/api/emails/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.emails });
+    },
+  });
+}
+
+export function useMarkEmailResponded() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.post(`/api/emails/${id}/mark-responded`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.emails });
+    },
+  });
+}
+
+export function useGenerateEmailResponse() {
+  return useMutation({
+    mutationFn: (id: string) => apiClient.post<{ response: string }>(`/api/emails/${id}/response`),
   });
 }
 
