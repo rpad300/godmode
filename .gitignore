@@ -52,3 +52,12 @@ coverage/
 ollama-models/
 supabase-db-data/
 redis-data/
+
+# Debug/test output (prevent future root clutter)
+debug_output*.txt
+test_output*.txt
+tsc_errors.txt
+tsc_output.txt
+*_transcript.txt
+preflight-report.json
+temp_prompts.json
