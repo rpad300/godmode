@@ -1,8 +1,31 @@
 /**
- * Conversation Parser Module
- * 
- * Parses chat conversations from WhatsApp, Slack, Teams, and generic formats
- * into a normalized message structure.
+ * Purpose:
+ *   Parses raw pasted or exported chat text from WhatsApp, Slack, Microsoft
+ *   Teams, or generic "Speaker: message" formats into a normalised message
+ *   array with deterministic IDs, timestamps, and speaker attribution.
+ *
+ * Responsibilities:
+ *   - Auto-detect conversation format via heuristic line-pattern scoring
+ *   - Parse WhatsApp (multiple date/time patterns, system messages, multiline)
+ *   - Parse Slack (JSON export and copy-paste patterns)
+ *   - Parse Teams (header-then-body, multiple timestamp styles)
+ *   - Parse generic conversations (colon, bracket, angle-bracket, @-mention)
+ *   - Generate deterministic message IDs from content hashes
+ *   - Produce a normalised Conversation object with stats (participants, dateRange)
+ *
+ * Key dependencies:
+ *   - crypto (Node built-in): UUID generation for conversation-level IDs
+ *
+ * Side effects:
+ *   - None (pure parsing)
+ *
+ * Notes:
+ *   - detectFormat() samples the first 50 lines; confidence is never 1.0
+ *   - WhatsApp year normalisation: two-digit years > 50 map to 19xx, else 20xx
+ *   - Message IDs are deterministic (content-hash) so re-importing the same
+ *     conversation produces identical IDs, enabling deduplication downstream
+ *   - Continuation lines (multiline messages) are appended to the current
+ *     message's text with a newline separator
  */
 
 const crypto = require('crypto');

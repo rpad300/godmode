@@ -1,6 +1,32 @@
 /**
- * Multi-Language NER Module
- * Named Entity Recognition for Portuguese and English
+ * Purpose:
+ *   Extract named entities from text in both Portuguese and English using
+ *   a combination of rule-based regex patterns and LLM-powered extraction.
+ *
+ * Responsibilities:
+ *   - Auto-detect language (Portuguese vs English) via stop-word scoring
+ *     and presence of Portuguese-specific diacritics
+ *   - Extract structured entities (emails, URLs, dates, money, phone
+ *     numbers, roles) using locale-specific regex patterns
+ *   - Extract semantic entities (people, organizations, projects,
+ *     technologies, events) via LLM prompts
+ *   - Merge and deduplicate results from both extraction strategies
+ *   - Infer person-to-organization relationships by text proximity
+ *
+ * Key dependencies:
+ *   - ../llm: LLM text generation for semantic NER
+ *
+ * Side effects:
+ *   - Makes LLM API calls when extractWithLLM is invoked
+ *
+ * Notes:
+ *   - Rule-based extraction is fully synchronous and does not require
+ *     an LLM provider. LLM extraction gracefully falls back to an empty
+ *     result set on failure.
+ *   - Language detection is simplistic (stop-word counting); for mixed-
+ *     language documents the caller should pass options.language explicitly.
+ *   - Proximity-based relation inference (extractWithRelations) uses a
+ *     100-character window, which is a rough heuristic.
  */
 
 const { logger } = require('../logger');

@@ -1,10 +1,33 @@
 /**
- * Transcript Output Schema Validator v1.5
- * 
- * Validates transcript extraction output including:
- * - Standard extraction fields (entities, facts, decisions, etc.)
- * - Meeting Notes Pack (notes_metadata, notes, notes_rendered_text)
- * - Reference integrity (notes must reference existing extracted items)
+ * Purpose:
+ *   Hand-written runtime validator for the transcript extraction JSON schema
+ *   (v1.5 / v1.6). Ensures LLM output conforms to the expected structure
+ *   before it is persisted or displayed.
+ *
+ * Responsibilities:
+ *   - Validate top-level extraction fields: entities, relationships, facts,
+ *     decisions, risks, action_items, questions, turns
+ *   - Validate the Meeting Notes Pack (notes_metadata, notes, notes_rendered_text)
+ *   - Enforce referential integrity: notes must reference IDs present in the
+ *     extracted items (facts, decisions, risks, action_items, questions)
+ *   - Flag low-confidence items (< 0.70) referenced by key_points or outline
+ *   - Cross-check extraction_coverage counts against actual array lengths
+ *   - Enforce enum values (fact_category, action_status, priority, etc.)
+ *
+ * Key dependencies:
+ *   - None (zero external dependencies; pure validation logic)
+ *
+ * Side effects:
+ *   - None
+ *
+ * Notes:
+ *   - Errors block further processing; warnings are advisory
+ *   - "transcript" is a valid sentinel in source_item_ids for content derived
+ *     directly from the raw transcript rather than an extracted item
+ *   - ENUMS.fact_category is intentionally broad to tolerate common LLM
+ *     variations; add new categories here when the extraction prompt changes
+ *   - isValidTranscriptOutput() is a convenience boolean wrapper around
+ *     validateTranscriptOutput()
  */
 
 // Enums

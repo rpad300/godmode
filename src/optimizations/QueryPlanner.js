@@ -1,6 +1,33 @@
 /**
- * Query Planner Module
- * Optimizes Cypher queries automatically for better performance
+ * Purpose:
+ *   Statically analyze and rewrite Cypher queries to improve performance
+ *   and safety, and collect runtime execution statistics for profiling.
+ *
+ * Responsibilities:
+ *   - Apply regex-based optimization rules (inline WHERE into MATCH
+ *     patterns, merge consecutive MATCHes, cap excessive LIMITs)
+ *   - Automatically append LIMIT 100 to unbounded RETURN clauses
+ *   - Analyze queries for common anti-patterns (cartesian products,
+ *     RETURN *, missing LIMIT, excessive literal strings)
+ *   - Record query execution duration and result counts for profiling
+ *   - Surface slow and frequently used queries
+ *   - Suggest indexes based on observed property access patterns
+ *
+ * Key dependencies:
+ *   - graphProvider (injected): not directly used for optimization, but
+ *     stored for potential future EXPLAIN integration
+ *
+ * Side effects:
+ *   - None (pure analysis and in-memory statistics)
+ *
+ * Notes:
+ *   - The optimizer uses regex replacement, not a proper Cypher parser.
+ *     Complex queries with subqueries or UNION may not be rewritten
+ *     correctly.
+ *   - The auto-appended LIMIT 100 is a safety net for unbounded queries;
+ *     callers needing larger result sets should specify their own LIMIT.
+ *   - queryStats is an unbounded Map; for long-running servers consider
+ *     periodic pruning.
  */
 
 class QueryPlanner {

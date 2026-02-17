@@ -1,6 +1,33 @@
 /**
- * Data Versioning Module
- * Git-like versioning for documents and data
+ * Purpose:
+ *   Git-inspired content versioning for individual knowledge-base items.
+ *   Each version is content-addressed (SHA-256) and stored as a separate
+ *   JSON file, enabling diff, restore, and history browsing.
+ *
+ * Responsibilities:
+ *   - Create immutable version snapshots of any serializable content
+ *   - Skip duplicate versions when content hash is unchanged
+ *   - Maintain a per-item version chain via parent pointers
+ *   - Compare two versions with a field-level diff
+ *   - Restore content from any historical version
+ *   - Enforce a configurable maximum version count per item (default 50)
+ *   - Persist/load a version-index.json manifest to disk
+ *
+ * Key dependencies:
+ *   - crypto: SHA-256 hashing for content-addressing (truncated to 12 hex chars)
+ *   - fs / path: per-version JSON files and the index manifest
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - createVersion() writes a JSON file per version under <dataDir>/versions/
+ *   - Trimming old versions deletes their files from disk
+ *   - load() / saveIndex() read/write version-index.json
+ *
+ * Notes:
+ *   - The compare algorithm is shallow: it JSON-stringifies each top-level
+ *     field and reports changed fields. Nested diffs are not provided.
+ *   - restoreVersion() returns the content but does NOT write it back to the
+ *     storage backend -- the caller is responsible for that.
  */
 
 const fs = require('fs');
@@ -10,6 +37,16 @@ const { logger } = require('../logger');
 
 const log = logger.child({ module: 'data-versioning' });
 
+/**
+ * Content-addressable version store for knowledge-base items.
+ *
+ * Invariants:
+ *   - versionIndex maps itemId -> array of version metadata, newest first
+ *   - Each version file on disk contains the full content snapshot (not a delta)
+ *   - versions.length <= maxVersions for every item (excess trimmed on create)
+ *
+ * Lifecycle: construct (auto-loads index) -> createVersion / getVersion / compareVersions
+ */
 class DataVersioning {
     constructor(options = {}) {
         this.dataDir = options.dataDir || './data';
@@ -64,7 +101,16 @@ class DataVersioning {
     }
 
     /**
-     * Create a new version
+     * Snapshot the current content of an item as a new version.
+     * Skips if the content hash matches the most recent version.
+     *
+     * @param {string} itemId - Unique identifier of the versioned item
+     * @param {string} itemType - Category label (e.g. 'fact', 'decision')
+     * @param {*} content - JSON-serializable content to snapshot
+     * @param {Object} [options]
+     * @param {string} [options.createdBy='system']
+     * @param {string} [options.message='Auto-saved version']
+     * @returns {{ success?: boolean, version?: Object, skipped?: boolean, error?: string }}
      */
     createVersion(itemId, itemType, content, options = {}) {
         const hash = this.hashContent(content);
@@ -146,7 +192,11 @@ class DataVersioning {
     }
 
     /**
-     * Compare two versions
+     * Produce a shallow field-level diff between two version snapshots.
+     *
+     * @param {string} versionId1 - "before" version
+     * @param {string} versionId2 - "after" version
+     * @returns {{ v1: Object, v2: Object, changes: Array<{ field, before, after }> }|{ error: string }}
      */
     compareVersions(versionId1, versionId2) {
         const v1 = this.getVersion(versionId1);
@@ -185,7 +235,11 @@ class DataVersioning {
     }
 
     /**
-     * Restore to a specific version
+     * Retrieve the content of a specific version for restoration.
+     * The caller is responsible for writing the content back to storage.
+     *
+     * @param {string} versionId
+     * @returns {{ success: boolean, content: *, itemId: string, itemType: string }|{ error: string }}
      */
     restoreVersion(versionId) {
         const version = this.getVersion(versionId);
@@ -227,7 +281,10 @@ class DataVersioning {
     }
 
     /**
-     * Cleanup old versions
+     * Trim all items to at most `keepLast` versions, deleting older files from disk.
+     *
+     * @param {number} [keepLast=10] - Maximum versions to retain per item
+     * @returns {{ cleaned: number }} Count of version files deleted
      */
     cleanup(keepLast = 10) {
         let cleaned = 0;

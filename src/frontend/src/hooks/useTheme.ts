@@ -1,3 +1,26 @@
+/**
+ * Purpose:
+ *   Manages the application colour theme (light/dark) with localStorage
+ *   persistence and OS-preference detection as a fallback.
+ *
+ * Responsibilities:
+ *   - Read persisted theme from localStorage ('godmode-theme')
+ *   - Fall back to the OS prefers-color-scheme media query
+ *   - Toggle the 'dark' class on <html> so Tailwind dark-mode utilities apply
+ *   - Persist every change back to localStorage
+ *
+ * Key dependencies:
+ *   - None (pure browser APIs)
+ *
+ * Side effects:
+ *   - Reads/writes localStorage key 'godmode-theme'
+ *   - Mutates document.documentElement.classList ('dark' class)
+ *
+ * Notes:
+ *   - Re-renders the consuming component only when the theme value changes
+ *
+ * @returns {{ theme, toggleTheme, setTheme }}
+ */
 import { useState, useEffect, useCallback } from 'react';
 
 type Theme = 'light' | 'dark';

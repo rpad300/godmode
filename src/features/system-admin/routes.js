@@ -1,11 +1,62 @@
 /**
- * System Admin API (Config + Prompts)
- * Extracted from server.js
+ * Purpose:
+ *   Superadmin system administration API for global configuration, LLM presets,
+ *   prompt template management (with versioning and restore), system health stats,
+ *   configuration audit log, and user management (list, create, update, delete).
  *
- * Handles:
- * - POST/GET /api/system/config, PUT /api/system/config/:key
- * - POST /api/system/preset, GET /api/system/audit
- * - GET/PUT /api/system/prompts, versions, restore
+ * Responsibilities:
+ *   - Get/set system configuration keys (LLM per-task, processing, graph, routing, etc.)
+ *   - Apply LLM preset configurations
+ *   - Configuration audit log retrieval
+ *   - System health stats (CPU, RAM, disk usage) with platform-specific collection
+ *   - Prompt template CRUD with version history and rollback
+ *   - User management: list, invite/create, update (role, ban, password), delete
+ *
+ * Key dependencies:
+ *   - ../../supabase/system: system config and LLM config persistence
+ *   - ../../supabase/prompts: prompt template CRUD and cache
+ *   - ../../llm/presets: predefined LLM configuration presets
+ *   - supabase (ctx): admin client for auth user management, profile CRUD, audit log
+ *   - os, child_process: system resource stats (CPU via PowerShell on Windows, loadavg on Linux)
+ *
+ * Side effects:
+ *   - Config writes update both Supabase and in-memory config, then call saveConfig()
+ *   - Prompt saves create a new version row in prompt_versions
+ *   - Prompt restore calls the restore_prompt_version RPC and clears cache
+ *   - User create/update/delete mutate Supabase Auth and user_profiles
+ *   - System stats may execute shell commands (PowerShell on Windows)
+ *
+ * Notes:
+ *   - All routes require superadmin access except GET /api/system/config (read-only)
+ *   - Config PUT deep-merges LLM settings to avoid losing runtime state
+ *   - System stats include a hardcoded latency value (12ms) as a placeholder
+ *   - Windows and Linux have different CPU/disk collection strategies
+ *   - Falls back to in-memory config when Supabase is not configured
+ *
+ * Routes:
+ *   POST /api/system/config                        - Set config key (superadmin)
+ *        Body: { key, value, category }
+ *   GET  /api/system/config                        - Get all system configs
+ *   GET  /api/system/config/:key                   - Get single config value
+ *   PUT  /api/system/config/:key                   - Update config key (superadmin)
+ *        Body: { value }
+ *   GET  /api/system/stats                         - System health (CPU/RAM/disk, superadmin)
+ *   POST /api/system/preset                        - Apply LLM preset (superadmin)
+ *        Body: { preset }
+ *   GET  /api/system/audit                         - Config audit log (superadmin, ?limit=N)
+ *   GET  /api/system/prompts                       - List all prompt templates
+ *   PUT  /api/system/prompts/:key                  - Save prompt template (superadmin)
+ *        Body: { prompt }
+ *   GET  /api/system/prompts/:key/versions         - Prompt version history (superadmin)
+ *   GET  /api/system/prompts/:key/versions/:ver    - Single version detail (superadmin)
+ *   POST /api/system/prompts/:key/restore          - Restore prompt version (superadmin)
+ *        Body: { version }
+ *   GET  /api/system/users                         - List users (superadmin)
+ *   POST /api/system/users                         - Create/invite user (superadmin)
+ *        Body: { email, password?, name, role }
+ *   PUT  /api/system/users/:id                     - Update user (superadmin)
+ *        Body: { name, role, status, email, password }
+ *   DELETE /api/system/users/:id                   - Delete user (superadmin)
  */
 
 const { parseBody, parseUrl } = require('../../server/request');
@@ -16,6 +67,10 @@ const { exec } = require('child_process');
 const util = require('util');
 const execAsync = util.promisify(exec);
 
+/**
+ * Verify superadmin access. Sends 401/403 and returns null if denied.
+ * @returns {object|null} The authResult if authorized, or null.
+ */
 async function requireSuperAdmin(supabase, req, res) {
     const authResult = await supabase.auth.verifyRequest(req);
     if (!authResult.authenticated) {

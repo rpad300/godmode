@@ -1,8 +1,26 @@
 /**
- * Conversation Chunker Module
- * 
- * Chunks conversation messages for RAG embedding with overlap
- * to preserve context across chunk boundaries.
+ * Purpose:
+ *   Splits parsed conversations into overlapping message chunks suitable for
+ *   embedding and RAG retrieval, preserving cross-boundary context.
+ *
+ * Responsibilities:
+ *   - Chunk a conversation into groups of N messages with configurable overlap
+ *   - Enforce a per-chunk character limit (graceful truncation)
+ *   - Generate a compact conversation summary for single-vector retrieval
+ *   - Produce embedding items (summary + chunks) ready for the RAG pipeline
+ *
+ * Key dependencies:
+ *   - None (pure logic; works on in-memory conversation objects)
+ *
+ * Side effects:
+ *   - None
+ *
+ * Notes:
+ *   - Overlap defaults to 3 messages so that entity references near chunk
+ *     boundaries appear in both neighbouring chunks
+ *   - totalChunks metadata is back-filled after all chunks are created
+ *   - getConversationEmbeddingItems() emits both a summary item (isSummary: true)
+ *     and per-chunk items so the retriever can match at different granularities
  */
 
 /**

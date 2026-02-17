@@ -1,11 +1,37 @@
 /**
- * OrganizationResolver - Deduplicates company/organization entities
- * 
- * Handles variations like:
- * - "CGI" vs "CGI Inc" vs "CGI Group" vs "cgi.com"
- * - "Microsoft" vs "Microsoft Corporation" vs "microsoft.com"
- * 
- * SOTA v2.0 - State of the Art Entity Resolution
+ * Purpose:
+ *   Deduplicate organization/company entities by normalizing names,
+ *   matching domains, and optionally using LLM disambiguation for
+ *   ambiguous cases.
+ *
+ * Responsibilities:
+ *   - Normalize organization names by stripping common suffixes (Inc, Ltd,
+ *     Corp, GmbH, etc.), parenthetical remarks, and "The" prefixes
+ *   - Extract base domain names from emails and URLs for cross-referencing
+ *   - Calculate multi-signal similarity (Levenshtein, Jaccard on words,
+ *     containment, acronym matching)
+ *   - Search graph and storage for potential duplicates of a given org name
+ *   - Resolve ambiguous matches via LLM when confidence is moderate
+ *   - Provide a findOrCreate flow that returns an existing match or flags
+ *     the organization as new
+ *
+ * Key dependencies:
+ *   - ../llm: optional LLM-based disambiguation
+ *   - ../llm/config: per-task provider/model resolution
+ *   - graphProvider (injected): Cypher search for existing organizations
+ *   - storage (injected): alternative organization search
+ *
+ * Side effects:
+ *   - Makes LLM API calls in resolveWithLLM
+ *   - Caches duplicate-search results in memory (10-minute TTL)
+ *
+ * Notes:
+ *   - The suffix list is extensive but not exhaustive; uncommon legal
+ *     forms may slip through normalization.
+ *   - Acronym matching only checks names up to 5 characters long.
+ *   - Domain matching treats a shared domain as a 0.95+ similarity signal,
+ *     which may over-match when multiple companies share a domain (e.g.,
+ *     gmail.com).
  */
 
 const { logger } = require('../logger');

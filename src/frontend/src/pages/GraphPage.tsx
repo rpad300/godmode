@@ -1,3 +1,31 @@
+/**
+ * Purpose:
+ *   Interactive knowledge graph visualization using React Flow. Renders all project
+ *   entities (projects, people, documents, facts, decisions, etc.) as colored nodes
+ *   with relationship edges, and provides filtering, search, sync, and detail inspection.
+ *
+ * Responsibilities:
+ *   - Fetch graph nodes and edges from the backend and apply automatic layout
+ *   - Render an interactive force-directed / layouted graph with zoom, pan, minimap
+ *   - Support node type filtering (toggle visibility per entity type)
+ *   - Display a detail sidebar when a node is selected (type, tier, metadata, connections)
+ *   - Trigger graph sync to refresh data from the backend
+ *   - Show graph health status bar (healthy/degraded, last synced, counts)
+ *
+ * Key dependencies:
+ *   - @xyflow/react (React Flow): graph rendering engine
+ *   - GraphContext / useGraphState: shared filter and selection state
+ *   - useGraphData / useGraphLayout / useGraphSync: data fetching, layout computation, sync
+ *
+ * Side effects:
+ *   - Network: fetches graph data, triggers sync operations
+ *
+ * Notes:
+ *   - Node styling (size, shape, color) is tier-based: tier 0 = large circle (project),
+ *     tier 1 = medium, tier 2 = small default.
+ *   - The outer GraphPage wraps GraphPageInner in a GraphProvider for shared state.
+ *   - NODE_COLORS map entity types to consistent brand colors across the UI.
+ */
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   ReactFlow,

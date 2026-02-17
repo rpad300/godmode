@@ -1175,7 +1175,21 @@ class RelationshipInferrer {
     }
     
     /**
-     * Link items that came from the same source (same meeting/transcript)
+     * Group knowledge items by their source_file and create Meeting nodes +
+     * PRODUCED edges to link them. Also creates cross-type RELATED_TO edges
+     * between items sharing the same source. This fills in graph structure
+     * even when no transcript record exists in the DB.
+     *
+     * Assumption: source_file values that match indicate the items were
+     * extracted from the same meeting/transcript.
+     *
+     * @param {Array} facts - Fact records with source_file
+     * @param {Array} questions - Question records with source_file
+     * @param {Array} risks - Risk records with source_file
+     * @param {Array} decisions - Decision records with source_file
+     * @param {Array} actions - Action records with source_file
+     * @param {Array} relationships - Accumulator array (mutated)
+     * @param {Array} nodes - Accumulator array (mutated)
      */
     async linkItemsFromSameSource(facts, questions, risks, decisions, actions, relationships, nodes) {
         log.debug({ event: 'relationship_inferrer_link_sources' }, 'Linking items from same sources');

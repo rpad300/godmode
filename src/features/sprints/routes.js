@@ -552,6 +552,7 @@ async function handleSprints(ctx) {
         return text;
     }
 
+    /** Strip markdown code fences and extract the HTML document from LLM output. */
     function extractHtmlFromResponse(raw) {
         if (!raw || typeof raw !== 'string') return '';
         let s = raw.trim();

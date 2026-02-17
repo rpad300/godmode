@@ -1,6 +1,26 @@
 /**
- * Role Analytics
- * Track and analyze usage patterns by role
+ * Purpose:
+ *   Tracks and aggregates user interaction data segmented by role,
+ *   providing per-role dashboards, comparative analytics, and content recommendations.
+ *
+ * Responsibilities:
+ *   - Record timestamped interactions (type, category, query, duration)
+ *   - Maintain running aggregated stats per role (by type, category, hour, day-of-week)
+ *   - Produce per-role analytics, cross-role comparisons, and usage recommendations
+ *   - Cap raw interaction history at 1 000 entries (FIFO) and top queries at 20
+ *
+ * Key dependencies:
+ *   - fs / path: JSON file I/O for analytics persistence
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - Reads/writes role-analytics.json in the configured dataDir on every tracked interaction
+ *
+ * Notes:
+ *   - Average duration is computed incrementally (totalDuration / totalInteractions)
+ *     and may accumulate floating-point drift over very long histories.
+ *   - Recommendations are heuristic: "explore" for unused categories, "deep_dive"
+ *     when a single category exceeds 10 interactions.
  */
 
 const fs = require('fs');

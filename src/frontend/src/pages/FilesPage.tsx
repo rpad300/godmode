@@ -1,3 +1,29 @@
+/**
+ * Purpose:
+ *   Document and file management page. Handles uploading new files, viewing
+ *   processed documents with metadata, managing pending files in the processing
+ *   queue, and triggering (re)processing.
+ *
+ * Responsibilities:
+ *   - Display two tabs: processed "Documents" and "Pending" upload queue
+ *   - Support search, type filter, and status filter on the documents list
+ *   - Upload files via file input, trigger batch processing of pending files
+ *   - Show document detail view with metadata, entity counts, and content preview
+ *   - Allow reprocessing and deletion of individual documents
+ *
+ * Key dependencies:
+ *   - useDocuments / usePendingFiles / useUploadFiles / useProcessFiles / useDeleteDocument /
+ *     useReprocessDocument / useDeletePendingFile (useGodMode): API hooks for file operations
+ *   - framer-motion: animated list transitions
+ *
+ * Side effects:
+ *   - Network: file uploads (multipart), document CRUD, processing triggers
+ *
+ * Notes:
+ *   - Upload type is hardcoded to 'newinfo'; Assumption: the backend categorizes further.
+ *   - Status counts are returned alongside the documents list for summary badges.
+ *   - Document detail is rendered in-page (not a modal) by setting `selectedDoc`.
+ */
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import {

@@ -695,7 +695,11 @@ class OntologyBackgroundWorker {
     }
 
     /**
-     * Normalize name for comparison
+     * Normalize a person name for duplicate comparison: lowercase, strip
+     * non-alphanumeric characters, collapse whitespace.
+     *
+     * @param {string|null} name
+     * @returns {string|null} - Normalised name or null if input is falsy
      */
     _normalizeName(name) {
         if (!name) return null;

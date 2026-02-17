@@ -1,3 +1,28 @@
+/**
+ * Purpose:
+ *   Fetches and caches the current user's profile, and provides a mutation
+ *   to update it. Acts as the single source of truth for user identity
+ *   throughout the frontend.
+ *
+ * Responsibilities:
+ *   - Fetch profile from /api/profile (returns null on auth failure)
+ *   - Optimistically update the query cache after a successful profile mutation
+ *   - Expose isAuthenticated derived from the presence of user data
+ *
+ * Key dependencies:
+ *   - @tanstack/react-query: caching with 5-minute staleTime
+ *   - lib/api-client: authenticated HTTP requests
+ *
+ * Side effects:
+ *   - Network request to /api/profile; errors are logged but swallowed
+ *     (returns null so downstream code can treat the user as unauthenticated)
+ *
+ * Notes:
+ *   - retry is set to 1 to avoid hammering the server on auth failures
+ *   - updateProfile.onSuccess writes directly to the cache for instant UI feedback
+ *
+ * @returns {{ user, isLoading, error, updateProfile, isAuthenticated }}
+ */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../lib/api-client';
 

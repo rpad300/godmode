@@ -1,6 +1,34 @@
 /**
- * Parallel Processing Module
- * Process multiple documents/items in parallel for better performance
+ * Purpose:
+ *   Execute async processing functions across collections of items with
+ *   configurable concurrency, timeouts, rate limiting, and progress
+ *   reporting.
+ *
+ * Responsibilities:
+ *   - Process items in concurrent batches (processBatch) with per-item
+ *     timeout protection via Promise.race
+ *   - Process items sequentially with a rate limit (processWithRateLimit)
+ *   - Provide a concurrent map utility (mapConcurrent) for order-
+ *     preserving parallel transforms
+ *   - Execute prioritized task queues (executePriorityQueue)
+ *   - Report progress via an optional onProgress callback
+ *
+ * Key dependencies:
+ *   - worker_threads: imported but not currently used for actual Worker
+ *     spawning (processing stays in the main thread via async batching)
+ *
+ * Side effects:
+ *   - None beyond executing the caller-supplied processFn
+ *
+ * Notes:
+ *   - Despite importing worker_threads, actual work is done with
+ *     Promise.all batches, not OS-level threads. The import may have
+ *     been intended for future expansion.
+ *   - mapConcurrent's completed-promise filtering relies on a .isSettled
+ *     property that standard Promises do not have; this path may not
+ *     correctly remove resolved promises from the executing set.
+ *     Assumption: works in practice because Promise.all at the end
+ *     catches up.
  */
 
 const { Worker, isMainThread, parentPort, workerData } = require('worker_threads');

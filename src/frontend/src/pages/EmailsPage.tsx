@@ -1,3 +1,25 @@
+/**
+ * Purpose:
+ *   Email management page for viewing imported emails, filtering by response status,
+ *   reading full email details with AI summaries, and generating AI draft responses.
+ *
+ * Responsibilities:
+ *   - List all project emails with search and "needs response" filter
+ *   - Show email detail view with subject, sender, body, AI summary, and recipients
+ *   - Generate AI-drafted responses to emails
+ *   - Mark emails as responded, delete emails
+ *
+ * Key dependencies:
+ *   - useEmails / useDeleteEmail / useMarkEmailResponded / useGenerateEmailResponse (useGodMode): API hooks
+ *
+ * Side effects:
+ *   - Network: fetches emails, triggers AI response generation, deletes/updates emails
+ *
+ * Notes:
+ *   - Email data is loosely typed as `Record<string, unknown>` due to flexible backend schema.
+ *   - Client-side search filters by stringifying the entire email object (brute-force but simple).
+ *   - The "needs response" filter is applied server-side via query parameter.
+ */
 import { useState } from 'react';
 import {
   Mail, Loader2, Trash2, Search, ArrowLeft, Sparkles,

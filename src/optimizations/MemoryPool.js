@@ -1,6 +1,36 @@
 /**
- * Memory Pool Module
- * Manages memory for large datasets, prevents OOM
+ * Purpose:
+ *   Provide an application-level memory management layer that pools
+ *   embeddings, documents, and cache entries with configurable size
+ *   limits and automatic eviction to prevent out-of-memory crashes.
+ *
+ * Responsibilities:
+ *   - Allocate, retrieve, and remove keyed entries in named pools
+ *     (embeddings, documents, cache)
+ *   - Enforce per-pool capacity limits with LRU-ish eviction (sorted by
+ *     access count and staleness)
+ *   - Continuously monitor process heap usage against warning (80%) and
+ *     critical (90%) thresholds
+ *   - Trigger emergency cleanup (50% eviction from all pools + optional
+ *     GC) when memory is critical
+ *   - Report per-pool and aggregate memory statistics
+ *
+ * Key dependencies:
+ *   - process.memoryUsage(): heap telemetry
+ *   - global.gc: optional forced garbage collection (requires --expose-gc)
+ *
+ * Side effects:
+ *   - Starts a setInterval monitor on construction (default 30s)
+ *   - Calls global.gc() when available during emergency cleanup
+ *
+ * Notes:
+ *   - Memory size estimation is heuristic (string length * 2, 8 bytes
+ *     per number, JSON.stringify for objects); actual V8 memory overhead
+ *     may differ.
+ *   - The eviction sort combines accessCount and age into a single score;
+ *     this is not a strict LRU but a frequency-recency hybrid.
+ *   - Stopping the monitor (stopMonitoring) is important before shutdown
+ *     to avoid dangling intervals.
  */
 
 const { logger } = require('../logger');

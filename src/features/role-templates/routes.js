@@ -1,12 +1,34 @@
 /**
- * Role Templates feature routes
- * Extracted from server.js
+ * Purpose:
+ *   CRUD API for role templates. Role templates define reusable user role
+ *   configurations (name, description, context prompt, category, permissions)
+ *   that can be applied to project members.
  *
- * Handles:
- * - GET /api/role-templates - List role templates
- * - POST /api/role-templates - Create role template
- * - PUT /api/role-templates/:id - Update role template
- * - DELETE /api/role-templates/:id - Delete role template
+ * Responsibilities:
+ *   - List all role templates ordered by category and display name
+ *   - Create custom role templates (is_system = false)
+ *   - Update template fields (name, description, context, category, color, permissions)
+ *   - Delete non-system role templates (system roles are protected)
+ *
+ * Key dependencies:
+ *   - supabase.getAdminClient(): direct Supabase admin access to role_templates table
+ *
+ * Side effects:
+ *   - All mutations write directly to the role_templates table in Supabase
+ *
+ * Notes:
+ *   - System role templates (is_system = true) cannot be deleted; attempting to do so
+ *     returns 400
+ *   - If Supabase is not configured, GET returns an empty array; POST/PUT/DELETE return 503
+ *   - The `is_system` flag is always set to false on creation to prevent privilege escalation
+ *
+ * Routes:
+ *   GET    /api/role-templates      - List all role templates
+ *   POST   /api/role-templates      - Create a new custom role template
+ *     Body: { name, display_name?, description?, role_context?, category?, color?, permissions? }
+ *   PUT    /api/role-templates/:id  - Update an existing role template
+ *     Body: (partial update -- any subset of template fields)
+ *   DELETE /api/role-templates/:id  - Delete a non-system role template
  */
 
 const { parseBody } = require('../../server/request');

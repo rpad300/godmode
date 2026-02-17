@@ -1,5 +1,30 @@
 /**
- * React Query hooks for GodMode data fetching and mutations.
+ * Purpose:
+ *   Central collection of React Query hooks that cover every API domain
+ *   in the GodMode application: dashboard, projects, files, processing,
+ *   entities (questions, facts, risks, actions, decisions), contacts,
+ *   chat, team analysis, costs, emails, admin, API keys, webhooks,
+ *   audit/history, documents, briefing, and project configuration.
+ *
+ * Responsibilities:
+ *   - Define canonical query keys (queryKeys) for cache identity
+ *   - Provide useQuery hooks for read operations with appropriate staleTime / refetchInterval
+ *   - Provide useMutation hooks that invalidate related caches on success
+ *   - Export TypeScript interfaces for each API response shape
+ *
+ * Key dependencies:
+ *   - @tanstack/react-query: query/mutation lifecycle
+ *   - lib/api-client: authenticated HTTP methods (get, post, put, delete, upload)
+ *
+ * Side effects:
+ *   - All hooks trigger network requests; mutations invalidate query caches
+ *   - usePendingFiles polls every 10s; useProcessStatus polls every 3s
+ *
+ * Notes:
+ *   - Entity CRUD hooks (questions, facts, etc.) follow the same pattern:
+ *     list, create, update, delete with dashboard/stats invalidation on write.
+ *   - Some response interfaces use [key: string]: unknown for extensibility;
+ *     tighten these as the API contracts stabilise.
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../lib/api-client';
