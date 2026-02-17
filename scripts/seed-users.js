@@ -42,6 +42,10 @@ const adminUsers = [
     { id: '10', email: 'miguel@techcorp.com', name: 'Miguel Ferreira', role: 'user', rolePrompt: 'You are a standard user.', status: 'active' },
 ];
 
+/**
+ * Seed the CollaborativeRoles data store with demo users.
+ * Skips if any users already exist to avoid duplicates.
+ */
 async function seedUsers() {
     console.log('Seeding users...');
 

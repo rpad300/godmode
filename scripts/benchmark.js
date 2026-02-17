@@ -40,6 +40,10 @@ const endpoints = {
     dashboard: { url: `${BASE}/api/dashboard`, name: 'GET /api/dashboard', headers: ['Content-Type: application/json'] }
 };
 
+/**
+ * Executes autocannon via npx as a synchronous child process.
+ * Throws on non-zero exit to allow the caller to detect failures.
+ */
 function runAutocannon(url, name, duration = DEFAULT_DURATION, connections = DEFAULT_CONNECTIONS) {
     const args = ['-c', String(connections), '-d', String(duration), '-m', 'GET', url];
     console.log(`\n--- ${name} ---`);

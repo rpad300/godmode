@@ -34,6 +34,7 @@ const { createClient } = require('@supabase/supabase-js');
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '../src/.env') });
 
+/** Make a JSON HTTP request to the local GodMode server on port 3005. */
 async function fetchJson(path, method = 'GET', body = null) {
     return new Promise((resolve, reject) => {
         const options = {
@@ -64,6 +65,11 @@ async function fetchJson(path, method = 'GET', body = null) {
     });
 }
 
+/**
+ * Bypasses the server and connects directly to the Supabase-backed graph
+ * provider. Runs the OntologyExtractor manually to validate extraction
+ * independent of the API layer.
+ */
 async function testDirectConnection() {
     console.log('\n3. Testing Direct Graph Connection...');
 

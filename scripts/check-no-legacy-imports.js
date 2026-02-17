@@ -48,6 +48,7 @@ const EXCLUDED_FILES = [
 
 let violations = [];
 
+/** Recursively walk a directory, skipping node_modules and .git. */
 function scanDir(dir) {
   let entries;
   try {
@@ -68,6 +69,7 @@ function scanDir(dir) {
   }
 }
 
+/** Read a file and record any lines that contain a legacy pattern. */
 function checkFile(filePath) {
   const content = fs.readFileSync(filePath, 'utf8');
   const lines = content.split('\n');

@@ -25,6 +25,10 @@
  */
 const http = require('http');
 
+/**
+ * Issue a GET request and resolve true if the HTTP status is in expectedStatuses.
+ * Resolves (not rejects) false on connection errors so the caller can aggregate.
+ */
 function checkEndpoint(path, expectedStatuses) {
     return new Promise((resolve, reject) => {
         const req = http.get(`http://localhost:3005${path}`, (res) => {

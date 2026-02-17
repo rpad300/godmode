@@ -58,6 +58,10 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
     auth: { persistSession: false }
 });
 
+/**
+ * Enumerates migration files, splits them into statements, and logs the count.
+ * Actual execution is a no-op; see the manual instructions printed afterward.
+ */
 async function applyMigrations() {
     const migrationsDir = path.join(__dirname, '..', 'supabase', 'migrations');
     
@@ -128,7 +132,7 @@ async function applyMigrations() {
     console.log('---------------------------------------------------');
 }
 
-// Test connection first
+/** Verify Supabase reachability by calling auth.getSession(). */
 async function testConnection() {
     console.log('Testing Supabase connection...');
     console.log('URL:', SUPABASE_URL);

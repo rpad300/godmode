@@ -37,6 +37,7 @@ const outPath = path.join(__dirname, 'code-schema-manifest.json');
 const tables = new Set();
 const rpcs = new Set();
 
+/** Extract .from('table') and .rpc('name') references from a single file. */
 function scanFile(filePath) {
   const content = fs.readFileSync(filePath, 'utf8');
   const fromRe = /\.from\s*\(\s*['"]([a-z_][a-z0-9_]*)['"]/g;

@@ -1,7 +1,34 @@
 #!/usr/bin/env node
 /**
- * Apply Supabase Migrations Script
- * Executes SQL migration files directly against Supabase
+ * Purpose:
+ *   Attempts to execute SQL migration files (005+) against a remote Supabase
+ *   instance via the REST API/RPC. Falls back to generating a combined SQL file
+ *   and printing manual-application instructions when direct execution fails.
+ *
+ * Responsibilities:
+ *   - Read and sort .sql migration files from supabase/migrations/
+ *   - Try to execute each statement via supabase.rpc('exec_sql')
+ *   - If RPC is unavailable, write a combined SQL file for manual application
+ *   - Print instructions for Dashboard, CLI, and psql-based alternatives
+ *
+ * Key dependencies:
+ *   - @supabase/supabase-js: Supabase client for RPC-based SQL execution
+ *
+ * Side effects:
+ *   - May execute DDL statements against the remote database if exec_sql RPC exists
+ *   - Writes supabase/combined_migrations_005_011.sql to disk
+ *   - Reads src/.env for credentials
+ *
+ * Notes:
+ *   - The exec_sql RPC function must be pre-created in the database for
+ *     automated execution to work; otherwise the script is informational only
+ *   - SQL splitting uses a regex that respects single-quoted strings but may
+ *     break on dollar-quoted PL/pgSQL blocks -- use apply-via-api.js for those
+ *   - Only processes migrations numbered 005 and above (earlier ones are assumed
+ *     to have been applied during initial project setup)
+ *
+ * Usage:
+ *   node supabase/apply-migrations.js
  */
 
 const fs = require('fs');

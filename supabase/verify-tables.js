@@ -1,6 +1,32 @@
 #!/usr/bin/env node
 /**
- * Verify Supabase Tables
+ * Purpose:
+ *   Post-migration verification tool that checks whether all expected tables
+ *   (from migrations 005-011) exist in the remote Supabase project by probing
+ *   each table via the REST API.
+ *
+ * Responsibilities:
+ *   - Enumerate a hardcoded list of ~50 expected tables grouped by migration
+ *   - Issue a HEAD-like GET request (?limit=0) to each table's REST endpoint
+ *   - Report which tables exist (HTTP 200) and which are missing
+ *   - Print a summary: SUCCESS if all present, WARNING with counts if not
+ *
+ * Key dependencies:
+ *   - Node.js https module: direct HTTPS requests to Supabase REST API
+ *
+ * Side effects:
+ *   - Makes read-only HTTP requests to the Supabase REST API (one per table)
+ *
+ * Notes:
+ *   - PROJECT_REF is hardcoded to 'hoidqhdgdgvogehkjsdw'
+ *   - Tables are checked in parallel via Promise.all for speed
+ *   - A 404 status indicates the table does not exist or RLS blocks access;
+ *     service_role_key should bypass RLS
+ *   - The EXPECTED_TABLES list must be updated manually when new migrations
+ *     add tables
+ *
+ * Usage:
+ *   node supabase/verify-tables.js
  */
 
 const fs = require('fs');
@@ -47,7 +73,10 @@ const EXPECTED_TABLES = [
     'retention_policies', 'soft_deletes', 'archive'
 ];
 
-// Check if a table exists via REST API
+/**
+ * Probe a single table via GET /rest/v1/<table>?limit=0.
+ * HTTP 200 = table exists and is accessible via service_role_key.
+ */
 async function checkTable(tableName) {
     return new Promise((resolve) => {
         const options = {

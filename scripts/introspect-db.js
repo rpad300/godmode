@@ -46,6 +46,10 @@ if (process.env.SUPABASE_PROJECT_URL && !process.env.SUPABASE_URL) process.env.S
 
 const DATABASE_URL = process.env.DATABASE_URL;
 
+/**
+ * Connect to Postgres, query information_schema and pg_catalog, and return
+ * a structured report of tables, columns, RLS policies, and functions.
+ */
 async function introspect() {
   if (!DATABASE_URL) {
     console.error('DATABASE_URL is not set in src/.env');
