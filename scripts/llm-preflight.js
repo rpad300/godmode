@@ -1,12 +1,37 @@
 #!/usr/bin/env node
 /**
- * LLM Preflight Test CLI
- * Run: npm run llm:preflight
- * Or: node scripts/llm-preflight.js
- * 
- * Environment variables:
- *   LLM_PREFLIGHT_MODE=mock|live (default: mock)
- *   LLM_PREFLIGHT_OUTPUT=path/to/report.json (default: ./preflight-report.json)
+ * Purpose:
+ *   Interactive CLI that validates LLM provider connectivity before deployment.
+ *   Runs a suite of smoke tests against every configured provider and writes
+ *   a structured JSON report.
+ *
+ * Responsibilities:
+ *   - Load API keys from .env, config.json, and interactive prompts
+ *   - Detect local Ollama availability
+ *   - Delegate to src/tests/llmPreflightRunner for actual test execution
+ *   - Write a JSON report to disk and exit with a nonzero code on failure
+ *
+ * Key dependencies:
+ *   - src/tests/llmPreflightRunner: the core preflight test runner
+ *   - readline: interactive terminal prompts for API key entry
+ *
+ * Side effects:
+ *   - Reads .env / data/config.json from disk
+ *   - Makes live HTTP requests to LLM provider APIs when mode=live
+ *   - Probes localhost:11434 to detect Ollama
+ *   - Writes preflight-report.json to the working directory
+ *
+ * Notes:
+ *   - In mock mode (default), no real API calls are made
+ *   - --auto / -a skips the interactive key prompt and uses env/config keys only
+ *   - Each provider entry supports multiple env var names (e.g. GROK_API_KEY, XAI_API_KEY)
+ *   - Exit codes: 0 = all pass, 1 = test failures, 2 = runner crash
+ *
+ * Usage:
+ *   node scripts/llm-preflight.js                # mock mode, interactive
+ *   node scripts/llm-preflight.js --live --auto   # live mode, non-interactive
+ *   LLM_PREFLIGHT_MODE=live node scripts/llm-preflight.js
+ *   npm run llm:preflight
  */
 
 const fs = require('fs');

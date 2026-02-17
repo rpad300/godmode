@@ -1,6 +1,30 @@
 /**
- * Smart Notifications
- * Role-aware notification filtering and prioritization
+ * Purpose:
+ *   Role-aware notification engine that scores, filters, and prioritises
+ *   notifications based on per-role rule sets (priority categories, filter
+ *   categories, and keyword boosts).
+ *
+ * Responsibilities:
+ *   - Score notifications against built-in and custom role rules (0-100)
+ *   - Filter and sort notifications by score for a given role
+ *   - CRUD for notifications with read-state tracking
+ *   - Pub/sub subscriber mechanism (in-memory callbacks)
+ *   - Persist notification history and custom rules to JSON
+ *   - Provide per-role stats (total, relevant, high-priority, unread, relevance rate)
+ *
+ * Key dependencies:
+ *   - fs / path: JSON file I/O for notification config and history
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - Reads/writes smart-notifications.json in the configured dataDir
+ *   - Invokes subscriber callbacks on createNotification()
+ *
+ * Notes:
+ *   - DEFAULT_RULES maps canonical role keys to priority/filter/keyword lists.
+ *   - Notification history is capped at 500 entries (newest first).
+ *   - Scoring: base 50, +30 priority match, -40 filter match, +10 per keyword,
+ *     +20 urgent/high-priority, +15 if mentions present.
  */
 
 const fs = require('fs');

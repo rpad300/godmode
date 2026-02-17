@@ -1,9 +1,45 @@
 /**
- * AI Content Processor
- * Uses LLM to intelligently extract entities, relationships, and insights
- * from documents, transcripts, and conversations
- * 
- * SOTA v2.0 - Now includes EntityResolver integration for deduplication
+ * Purpose:
+ *   Central AI processing engine that sends documents, transcripts, and
+ *   conversations through the configured LLM to extract structured knowledge
+ *   (entities, relationships, facts, decisions, risks, questions, action items)
+ *   and generates Cypher queries for graph population.
+ *
+ * Responsibilities:
+ *   - Process documents: chunk large text, extract per-chunk, deduplicate, generate Cypher
+ *   - Process transcripts: build speaker-aware prompts, parse v1.5 Meeting Notes Pack
+ *   - Process conversations: detect participants, topics, sentiment, and extract knowledge
+ *   - Load prompt templates from Supabase (system_prompts) with hard-coded fallback
+ *   - Inject contacts context and v1.6 context variables (CONTACTS_INDEX, ORG_INDEX, etc.)
+ *   - Validate transcript output against the schema when validators are present
+ *   - Sync extracted Person entities to the contacts directory (findOrCreateContact)
+ *   - SOTA v2.0: Deduplicate entities via EntityResolver and normalise organisations
+ *     via OrganizationResolver before storage
+ *   - Generate Cypher MERGE/CREATE statements for documents, meetings, and conversations
+ *   - Provide regex-based fallback extraction when the LLM is unavailable or fails
+ *
+ * Key dependencies:
+ *   - ../llm: Provider-agnostic text generation
+ *   - ../llm/config: Centralised model/provider resolution from admin settings
+ *   - ../ontology (getOntologyManager): Entity/relation schema for prompts
+ *   - ../supabase/prompts (optional): DB-backed prompt templates
+ *   - ../validators (optional): Transcript schema validation
+ *   - ../optimizations/EntityResolver (optional): Fuzzy person deduplication
+ *   - ../optimizations/OrganizationResolver (optional): Company name canonicalisation
+ *   - ../logger: Structured logging
+ *
+ * Side effects:
+ *   - Network calls to LLM APIs
+ *   - Writes to contacts/people tables via storage.findOrCreateContact()
+ *   - Supabase reads for prompt templates and context variables
+ *
+ * Notes:
+ *   - maxTokens is dynamically adjusted based on model family (GPT-5/o1/o3 get higher limits)
+ *   - chunkContent() uses a rough 4-chars-per-token estimate
+ *   - cleanJsonString() strips control characters inside JSON string values that
+ *     commonly break JSON.parse on LLM output
+ *   - Entity deduplication is case-insensitive by name; properties are merged
+ *   - Singleton getAIContentProcessor() updates config fields on subsequent calls
  */
 
 const { logger } = require('../logger');

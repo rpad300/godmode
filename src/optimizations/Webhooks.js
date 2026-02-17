@@ -1,6 +1,37 @@
 /**
- * Webhooks Module
- * Send notifications when new insights are found
+ * Purpose:
+ *   Deliver real-time HTTP webhook notifications to registered endpoints
+ *   when knowledge-graph events occur (new entity, new fact, new decision,
+ *   document processed, etc.).
+ *
+ * Responsibilities:
+ *   - Persist webhook endpoint registrations in a local JSON config file
+ *   - Match triggered events to registered endpoints by event type filter
+ *   - Send JSON POST requests with HMAC-SHA256 signatures when a secret
+ *     is configured
+ *   - Retry failed deliveries up to a configurable number of attempts
+ *     with linear back-off
+ *   - Provide a test-endpoint utility for connectivity verification
+ *   - Expose convenience methods for common domain events (onNewEntity,
+ *     onNewFact, onNewDecision, onNewRisk, onDocumentProcessed,
+ *     onGraphUpdated)
+ *
+ * Key dependencies:
+ *   - https / http: outbound webhook HTTP requests
+ *   - fs / path: webhook configuration persistence (webhooks.json)
+ *   - crypto: HMAC-SHA256 signature generation
+ *
+ * Side effects:
+ *   - Reads and writes webhooks.json under this.dataDir
+ *   - Makes outbound HTTP POST requests to registered URLs
+ *   - Creates the data directory if it does not exist
+ *
+ * Notes:
+ *   - The event queue is processed serially within processQueue; high
+ *     webhook volume with slow endpoints could cause back-pressure.
+ *   - Endpoint configuration is stored in a local file, not Supabase,
+ *     so it is not shared across instances.
+ *   - Request timeout is hardcoded to 10 seconds.
  */
 
 const https = require('https');

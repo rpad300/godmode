@@ -1,9 +1,34 @@
+/**
+ * Purpose:
+ *   CRUD hook for saved graph view configurations. Users can snapshot the
+ *   current filter, layout, and camera state and restore it later. Views
+ *   may optionally be shared with other project members.
+ *
+ * Responsibilities:
+ *   - Fetch saved views for the current project (own views + shared views)
+ *   - Provide saveView mutation to persist a new configuration snapshot
+ *   - Provide deleteView mutation to remove a saved view
+ *
+ * Key dependencies:
+ *   - @/lib/supabase: direct Supabase client for graph_views table
+ *   - ProjectContext (useProject): currentProjectId
+ *   - useUser: user identity for ownership and visibility scoping
+ *
+ * Side effects:
+ *   - Reads/writes the graph_views Supabase table
+ *   - Invalidates the views query cache on save/delete
+ *
+ * Notes:
+ *   - Shared views are visible to all project members (is_shared = true).
+ *   - The configuration blob stores filters, layout, and camera as opaque JSON;
+ *     consider typing it more strictly as the schema stabilises.
+ *
+ * @returns {{ views, isLoading, saveView, deleteView }}
+ */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useProject } from '@/contexts/ProjectContext';
 import { useUser } from '@/hooks/useUser';
-
-export interface SavedView {
     id: string;
     project_id: string;
     name: string;

@@ -1,3 +1,28 @@
+/**
+ * Purpose:
+ *   CRUD hook for per-user graph node bookmarks, persisted in Supabase.
+ *   Allows users to pin important nodes for quick access.
+ *
+ * Responsibilities:
+ *   - Fetch bookmarks scoped to (project_id, user_id)
+ *   - Provide addBookmark and removeBookmark mutations
+ *   - Expose isBookmarked(nodeId) helper for UI toggle state
+ *
+ * Key dependencies:
+ *   - @/lib/supabase: direct Supabase client for graph_bookmarks table
+ *   - ProjectContext (useProject): currentProjectId
+ *   - useUser: current user identity for row-level scoping
+ *
+ * Side effects:
+ *   - Reads/writes the graph_bookmarks Supabase table
+ *   - Invalidates the bookmarks query cache on add/remove
+ *
+ * Notes:
+ *   - Query is disabled until both project and user are available.
+ *   - Bookmark uniqueness is enforced by (project_id, user_id, node_id).
+ *
+ * @returns {{ bookmarks, isLoading, addBookmark, removeBookmark, isBookmarked }}
+ */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useProject } from '@/contexts/ProjectContext';

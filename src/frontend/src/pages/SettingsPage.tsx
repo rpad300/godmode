@@ -1,3 +1,32 @@
+/**
+ * Purpose:
+ *   Application-level settings page with five tabs: Profile (user info + theme),
+ *   Project (LLM provider config), API Keys, Webhooks, and Data management.
+ *
+ * Responsibilities:
+ *   - Profile tab: edit display name, timezone; switch theme (light/dark/system)
+ *   - Project tab: configure project name and LLM provider; display configured models
+ *   - API Keys tab: create, list, copy, and revoke API keys for programmatic access
+ *   - Webhooks tab: create, list, test, and delete webhooks with event subscription
+ *   - Data tab: clear local browser cache; reset (destructively) all project knowledge data
+ *
+ * Key dependencies:
+ *   - useUser: current user profile and updateProfile mutation
+ *   - useProjectConfig / useUpdateProjectConfig (useGodMode): project-level settings
+ *   - useApiKeys / useCreateApiKey / useDeleteApiKey (useGodMode): API key management
+ *   - useWebhooks / useCreateWebhook / useDeleteWebhook / useTestWebhook (useGodMode): webhooks
+ *   - useResetData (useGodMode): destructive project data reset
+ *
+ * Side effects:
+ *   - localStorage: theme persistence under 'godmode-theme', cache clearing
+ *   - Network: user profile updates, project config CRUD, API key/webhook management
+ *   - DOM: toggles 'dark' class on document.documentElement for theme switching
+ *
+ * Notes:
+ *   - Project ID is read from localStorage ('godmode_current_project'), defaulting to 'default'.
+ *   - API key raw value is shown once on creation and never again -- user must copy immediately.
+ *   - The Data "Reset Project Data" is a two-step confirmation to prevent accidental deletion.
+ */
 import { useState, useCallback, useEffect } from 'react';
 import {
   Settings, Sun, Moon, Monitor, Database, Trash2, User, Cpu, Save,

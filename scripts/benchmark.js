@@ -1,11 +1,29 @@
 #!/usr/bin/env node
 /**
- * Performance benchmark script (requires server running on PORT).
- * Uses autocannon for load testing. Run: npm run benchmark
- * Or: node scripts/benchmark.js [health|config|dashboard|all]
+ * Purpose:
+ *   HTTP load-testing harness for key GodMode API endpoints.
+ *   Produces p50/p95/p99 latency, requests-per-second, and error-rate metrics.
  *
- * Baseline metrics: p50/p95/p99 latency, RPS, error rate.
- * Start server first: npm run start (or dev:backend).
+ * Responsibilities:
+ *   - Run autocannon against /health, /api/config, or /api/dashboard
+ *   - Accept an endpoint selector via CLI arg (health | config | dashboard | all)
+ *   - Allow duration and concurrency overrides via BENCH_DURATION / BENCH_CONNECTIONS env vars
+ *
+ * Key dependencies:
+ *   - autocannon (npx): HTTP benchmarking tool executed as a child process
+ *
+ * Side effects:
+ *   - Generates sustained HTTP traffic against the running server
+ *
+ * Notes:
+ *   - The server must already be running; this script does not start it
+ *   - Default: 30s duration, 10 concurrent connections
+ *   - Outputs are printed directly to stdout by autocannon
+ *
+ * Usage:
+ *   node scripts/benchmark.js [health|config|dashboard|all]
+ *   npm run benchmark
+ *   BENCH_DURATION=60 BENCH_CONNECTIONS=50 node scripts/benchmark.js all
  */
 
 const { execSync } = require('child_process');

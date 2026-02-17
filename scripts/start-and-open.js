@@ -1,7 +1,32 @@
 #!/usr/bin/env node
 /**
- * Start server and open browser
- * This script starts the server and opens the browser after a short delay
+ * Purpose:
+ *   Launches the GodMode backend server and opens the default browser
+ *   after a short delay. Acts as the primary developer entry point.
+ *
+ * Responsibilities:
+ *   - Enforce minimum Node.js version (14+) before spawning the server
+ *   - Spawn src/server.js as a child process with inherited stdio
+ *   - Open the browser at http://localhost:<PORT> after a 3-second warm-up
+ *   - Forward SIGINT/SIGTERM to the child process for clean shutdown
+ *
+ * Key dependencies:
+ *   - open (npm): cross-platform browser launcher (ESM dynamic import)
+ *   - src/server.js: the actual Express/backend server
+ *
+ * Side effects:
+ *   - Spawns a long-running child process (the server)
+ *   - Opens an OS browser window
+ *
+ * Notes:
+ *   - PORT defaults to 3005 if not set in the environment
+ *   - The 3-second delay before opening the browser is a rough heuristic;
+ *     if the server takes longer to bind, the browser may show an error page
+ *   - The `open` package is imported dynamically because it is ESM-only
+ *
+ * Usage:
+ *   node scripts/start-and-open.js
+ *   npm start
  */
 
 const { spawn } = require('child_process');

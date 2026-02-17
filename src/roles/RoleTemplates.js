@@ -367,6 +367,13 @@ const ROLE_CATEGORIES = {
     leadership: { name: 'Leadership', icon: '👑', color: '#e67e22' }
 };
 
+/**
+ * Role template registry with optional Supabase backing.
+ *
+ * After construction, templates come from the hardcoded ROLE_TEMPLATES map.
+ * Call loadFromSupabase() once at startup to overlay remote data; after that,
+ * _getTemplates() transparently returns whichever source is available.
+ */
 class RoleTemplates {
     constructor() {
         this.templates = ROLE_TEMPLATES;

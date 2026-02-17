@@ -192,7 +192,11 @@ class ScheduledJobs {
     }
 
     /**
-     * Execute a job
+     * Run a job immediately by invoking its registered handler.
+     * Updates the job's lastRun/nextRun/runCount and appends to the execution log.
+     *
+     * @param {string} jobId
+     * @returns {Promise<Object>} Execution record with status, duration, and result/error
      */
     async executeJob(jobId) {
         const job = this.jobs.get(jobId);
@@ -247,7 +251,8 @@ class ScheduledJobs {
     }
 
     /**
-     * Start the scheduler
+     * Activate the scheduler: create setInterval timers for all enabled jobs.
+     * No-op if already running.
      */
     start() {
         if (this.running) return;
@@ -263,7 +268,8 @@ class ScheduledJobs {
     }
 
     /**
-     * Stop the scheduler
+     * Deactivate the scheduler: clear all interval timers. Jobs can still be
+     * executed manually via executeJob().
      */
     stop() {
         this.running = false;
@@ -368,7 +374,11 @@ class ScheduledJobs {
     }
 
     /**
-     * Create default jobs
+     * Provision the standard set of GodMode maintenance jobs: auto backup (6h),
+     * daily cleanup (24h), retention policy (12h), graph sync (1h), and
+     * integrity check (4h). Handlers must still be registered separately.
+     *
+     * @returns {Object[]} All jobs after creation
      */
     createDefaultJobs() {
         // Auto backup every 6 hours

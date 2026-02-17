@@ -1,6 +1,32 @@
 /**
- * Full-text Search Index Module
- * Optimized search with inverted index
+ * Purpose:
+ *   Full-text search engine backed by an in-memory inverted index with
+ *   TF-IDF scoring, configurable field boosts, and basic stemming.
+ *
+ * Responsibilities:
+ *   - Index documents by extracting, tokenizing, stemming, and recording
+ *     term positions per field
+ *   - Score search queries using TF-IDF with per-field boost multipliers
+ *   - Provide prefix-based term suggestions (autocomplete)
+ *   - Persist the inverted index and document metadata to disk as JSON
+ *   - Rebuild the entire index from a document array
+ *
+ * Key dependencies:
+ *   - fs / path: loading/saving inverted-index.json and documents.json
+ *   - ../logger: structured logging
+ *
+ * Side effects:
+ *   - Constructor creates <dataDir>/search-index/ if it does not exist
+ *   - save() writes two JSON files to that directory
+ *
+ * Notes:
+ *   - Stop-word list includes both English and Portuguese terms to support
+ *     bilingual knowledge bases.
+ *   - The stemmer is a naive suffix-removal heuristic (not Snowball/Porter);
+ *     adequate for search recall but may over-stem in some cases.
+ *   - The index is fully in-memory; rebuild() is required after external data
+ *     changes that bypass indexDocument().
+ *   - IDF formula uses log(N / df + 1) to avoid division by zero.
  */
 
 const fs = require('fs');
@@ -9,6 +35,17 @@ const { logger } = require('../logger');
 
 const log = logger.child({ module: 'search-index' });
 
+/**
+ * In-memory inverted index with TF-IDF ranking and field-level boosting.
+ *
+ * Invariants:
+ *   - invertedIndex: Map<term, Array<{ docId, field, positions, frequency, boost }>>
+ *   - documents: Map<docId, metadata> -- every indexed docId has an entry here
+ *   - Field boosts are applied multiplicatively to the TF-IDF score
+ *
+ * Lifecycle: construct (auto-loads from disk) -> indexDocument() ->
+ *   search() / suggest() -> save() to persist.
+ */
 class SearchIndex {
     constructor(options = {}) {
         this.dataDir = options.dataDir || './data';
