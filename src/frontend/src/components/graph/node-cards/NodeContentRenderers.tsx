@@ -31,7 +31,7 @@
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NodeTheme } from './node-styles';
-import { cn } from '@/lib/utils';
+import { cn, getInitials, resolveAvatarUrl, isValidAvatarUrl } from '@/lib/utils';
 
 // --- ICONS MAPPING ---
 // Using strings as placeholders if actual Lucide icons aren't passed, 
@@ -101,7 +101,7 @@ const ProjectBody = ({ data, theme }: { data: any, theme: NodeTheme }) => (
                 📋
             </div>
             <div className="min-w-0">
-                <div className="text-base font-semibold text-white truncate">{data.name || data.label}</div>
+                <div className="text-base font-semibold text-white truncate">{data.name || data.label || 'Project'}</div>
                 <div className="text-xs text-slate-400 line-clamp-2 mt-0.5">{data.description || 'No description'}</div>
             </div>
         </div>
@@ -138,7 +138,7 @@ const DocumentBody = ({ data }: { data: any, theme: NodeTheme }) => {
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
                     <span className="text-sm">{data.file_type === 'transcript' ? '🎙️' : '📄'}</span>
-                    <span className="text-sm font-medium text-white truncate max-w-40">{data.name}</span>
+                    <span className="text-sm font-medium text-white truncate max-w-40">{data.name || '(unnamed)'}</span>
                 </div>
                 <StatusDot status={data.status} />
             </div>
@@ -153,18 +153,20 @@ const DocumentBody = ({ data }: { data: any, theme: NodeTheme }) => {
     );
 };
 
-const PersonBody = ({ data, theme }: { data: any, theme: NodeTheme }) => (
+const PersonBody = ({ data, theme }: { data: any, theme: NodeTheme }) => {
+    const avatarSrc = resolveAvatarUrl(data);
+    return (
     <div className="flex items-center gap-2.5">
         <div className={cn("w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 overflow-hidden", theme.avatar)}>
-            {(data.avatar_url || data.avatar || data.image) ? (
-                <img src={data.avatar_url || data.avatar || data.image} alt="" className="w-full h-full object-cover" />
+            {isValidAvatarUrl(avatarSrc) ? (
+                <img src={avatarSrc} alt="" className="w-full h-full object-cover" />
             ) : (
-                <span className="text-xs font-bold text-white">{data.initials || (data.name ? data.name.substring(0, 2).toUpperCase() : '??')}</span>
+                <span className="text-xs font-bold text-white">{data.initials || getInitials(data.name)}</span>
             )}
         </div>
         <div className="min-w-0">
             <div className="flex items-center gap-1.5">
-                <span className="text-sm font-medium text-white truncate">{data.name}</span>
+                <span className="text-sm font-medium text-white truncate">{data.name || '(unnamed)'}</span>
                 {data.isFavorite && <span className="text-yellow-400 text-xs">★</span>}
             </div>
             {data.role && <div className={cn("text-xs", theme.text)}>{data.role}</div>}
@@ -176,13 +178,14 @@ const PersonBody = ({ data, theme }: { data: any, theme: NodeTheme }) => (
             {data.department && <span className={cn("inline-block mt-1 text-[9px] px-1.5 py-0.5 rounded", theme.badge)}>🏷️ {data.department}</span>}
         </div>
     </div>
-);
+    );
+};
 
 const TeamBody = ({ data, theme }: { data: any, theme: NodeTheme }) => (
     <>
         <div className="flex items-center gap-1.5">
             <span className="text-sm">👥</span>
-            <span className="text-sm font-medium text-white">{data.name}</span>
+            <span className="text-sm font-medium text-white">{data.name || '(unnamed)'}</span>
         </div>
         <div className="text-[10px] text-slate-500 mt-0.5">{data.teamType || 'Team'} · {data.memberCount || 0} members</div>
         {/* Member avatars would require member list in data */}
@@ -208,7 +211,7 @@ const SprintBody = ({ data }: { data: any, theme: NodeTheme }) => (
         <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5">
                 <span className="text-sm">⚡</span>
-                <span className="text-sm font-medium text-white">{data.name}</span>
+                <span className="text-sm font-medium text-white">{data.name || '(unnamed)'}</span>
             </div>
             <div className={cn("w-2 h-2 rounded-full", data.active ? "bg-green-400 animate-pulse" : "bg-slate-500")} />
         </div>
@@ -229,7 +232,7 @@ const EmailBody = ({ data }: { data: any, theme: NodeTheme }) => {
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5 min-w-0">
                     <span className="text-sm">📧</span>
-                    <span className="text-sm font-medium text-white truncate">{data.name || data.subject}</span>
+                    <span className="text-sm font-medium text-white truncate">{data.name || data.subject || '(no subject)'}</span>
                 </div>
                 <span className={cn("text-xs", isInbound ? "text-blue-400" : "text-green-400")}>
                     {isInbound ? "←" : "→"}
@@ -250,7 +253,7 @@ const EventBody = ({ data, theme }: { data: any, theme: NodeTheme }) => (
         <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5">
                 <span className="text-sm">📅</span>
-                <span className="text-sm font-medium text-white truncate">{data.name || data.title}</span>
+                <span className="text-sm font-medium text-white truncate">{data.name || data.title || '(untitled)'}</span>
             </div>
             <div className="w-2 h-2 rounded-full bg-blue-400" />
         </div>
@@ -269,7 +272,7 @@ const FactBody = ({ data, theme }: { data: any, theme: NodeTheme }) => (
             </div>
             <span className="text-[9px] bg-blue-900/60 text-blue-300 px-1.5 py-0.5 rounded">{data.category || 'general'}</span>
         </div>
-        <div className="text-xs text-slate-200 mt-1.5 line-clamp-2 leading-relaxed">"{data.name || data.content}"</div>
+        <div className="text-xs text-slate-200 mt-1.5 line-clamp-2 leading-relaxed">"{data.name || data.content || '—'}"</div>
         <div className="flex items-center gap-2 mt-2">
             <ConfidenceBar value={data.confidence || 0.8} />
             {data.verified && <span className="text-green-400 text-xs">✅</span>}
@@ -286,7 +289,7 @@ const DecisionBody = ({ data, theme }: { data: any, theme: NodeTheme }) => (
             </div>
             <StatusDot status={data.status} />
         </div>
-        <div className="text-xs text-slate-200 mt-1.5 line-clamp-2 leading-relaxed">"{data.name || data.content}"</div>
+        <div className="text-xs text-slate-200 mt-1.5 line-clamp-2 leading-relaxed">"{data.name || data.content || '—'}"</div>
         <div className="flex items-center gap-2 mt-2 text-[10px] text-slate-500">
             <span>👤 {data.owner || 'Board'}</span>
             <span>·</span>
@@ -312,7 +315,7 @@ const RiskBody = ({ data, theme }: { data: any, theme: NodeTheme }) => {
                 <span className="text-sm">⚠️</span>
                 <span className="text-xs font-medium text-slate-400">Risk</span>
             </div>
-            <div className="text-xs text-slate-200 mt-1.5 line-clamp-2 leading-relaxed">"{data.name || data.content}"</div>
+            <div className="text-xs text-slate-200 mt-1.5 line-clamp-2 leading-relaxed">"{data.name || data.content || '—'}"</div>
             <div className="flex items-center justify-between mt-2">
                 <div className="flex items-center gap-1">
                     <span className={cn("text-[9px] px-1.5 py-0.5 rounded font-semibold", getBadgeStyle(impact))}>
@@ -353,7 +356,7 @@ const ActionBody = ({ data }: { data: any, theme: NodeTheme }) => {
                     {priority}
                 </span>
             </div>
-            <div className="text-xs text-slate-200 mt-1.5 line-clamp-2 leading-relaxed">"{data.name || data.content}"</div>
+            <div className="text-xs text-slate-200 mt-1.5 line-clamp-2 leading-relaxed">"{data.name || data.content || '—'}"</div>
             <div className="flex items-center gap-1.5 mt-2 text-[10px] text-slate-500 flex-wrap">
                 <span>👤 {data.owner || 'Me'}</span>
                 {data.deadline && (
@@ -392,7 +395,7 @@ const QuestionBody = ({ data }: { data: any, theme: NodeTheme }) => {
                     {priority}
                 </span>
             </div>
-            <div className="text-xs text-slate-200 mt-1.5 line-clamp-2 leading-relaxed">"{data.name || data.content}"</div>
+            <div className="text-xs text-slate-200 mt-1.5 line-clamp-2 leading-relaxed">"{data.name || data.content || '—'}"</div>
             <div className="flex items-center gap-2 mt-2 text-[10px] text-slate-500">
                 <div className="flex items-center gap-1">
                     <StatusDot status={data.status} />
@@ -418,7 +421,7 @@ const UserStoryBody = ({ data }: { data: any, theme: NodeTheme }) => (
             </div>
             <StatusDot status={data.status} />
         </div>
-        <div className="text-xs text-slate-200 mt-1.5 line-clamp-2 leading-relaxed">"{data.name || data.content}"</div>
+        <div className="text-xs text-slate-200 mt-1.5 line-clamp-2 leading-relaxed">"{data.name || data.content || '—'}"</div>
         <div className="flex items-center gap-2 mt-2 text-[10px]">
             <span className="bg-pink-900/60 text-pink-300 px-1.5 py-0.5 rounded font-semibold">📊 {data.story_points || data.points || 0} pts</span>
             <span className="text-slate-500">{data.done_count || data.done || 0}/{data.tasks_count || data.tasks || 0} tasks</span>

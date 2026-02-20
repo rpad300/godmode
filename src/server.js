@@ -166,22 +166,8 @@ const rbac = require('./rbac');
 // Check if running as packaged executable
 const IS_PACKAGED = !!process.pkg;
 
-// Map environment variables to provider API keys
-const ENV_TO_PROVIDER = {
-    'OPENAI_API_KEY': 'openai',
-    'GEMINI_API_KEY': 'gemini',
-    'GOOGLE_API_KEY': 'gemini',
-    'GROK_API_KEY': 'grok',
-    'XAI_API_KEY': 'grok',
-    'XAI_API': 'grok',
-    'DEEPSEEK_API_KEY': 'deepseek',
-    'CLAUDE_API_KEY': 'claude',
-    'ANTHROPIC_API_KEY': 'claude',
-    'KIMI_API_KEY': 'kimi',
-    'MOONSHOT_API_KEY': 'kimi',
-    'MINIMAX_API_KEY': 'minimax',
-    'GENSPARK_API_KEY': 'genspark'
-};
+// LLM provider API keys are stored exclusively in Supabase secrets (encrypted).
+// The ENV_TO_PROVIDER map was removed — keys no longer come from .env or process.env.
 
 // Configuration
 const PORT = process.env.PORT || 3005;
@@ -219,14 +205,14 @@ const DEFAULT_CONFIG = {
         embeddingsProvider: 'ollama', // Provider for embeddings (fallback to ollama when provider lacks support)
         providers: {
             ollama: { host: '127.0.0.1', port: 11434 },
-            openai: { apiKey: null, baseUrl: null, organization: null, manualModels: null },
-            gemini: { apiKey: null, baseUrl: null, manualModels: null },
-            grok: { apiKey: null, baseUrl: null, manualModels: null },
-            deepseek: { apiKey: null, baseUrl: null, manualModels: null },
-            genspark: { apiKey: null, baseUrl: null, manualModels: null },
-            claude: { apiKey: null, baseUrl: null, manualModels: null },
-            kimi: { apiKey: null, baseUrl: null, manualModels: null },
-            minimax: { apiKey: null, baseUrl: null, groupId: null, manualModels: null }
+            openai: { baseUrl: null, organization: null, manualModels: null },
+            gemini: { baseUrl: null, manualModels: null },
+            grok: { baseUrl: null, manualModels: null },
+            deepseek: { baseUrl: null, manualModels: null },
+            genspark: { baseUrl: null, manualModels: null },
+            claude: { baseUrl: null, manualModels: null },
+            kimi: { baseUrl: null, manualModels: null },
+            minimax: { baseUrl: null, groupId: null, manualModels: null }
         },
         // Token limits policy
         tokenPolicy: {
@@ -299,8 +285,8 @@ function maskApiKey(key) {
 
 /**
  * Deep-clone the LLM config and strip raw API keys so it is safe to send
- * to the browser. Each provider gets an `apiKeyMasked` field and an
- * `isConfigured` boolean; the raw `apiKey` is deleted.
+ * to the browser. API keys are stored in Supabase secrets and are NOT in the
+ * config object. The frontend uses GET /api/system/providers for key status.
  * @param {Object} llmConfig - The full llm configuration object
  * @returns {Object|null} Sanitized copy, or null if input is falsy
  */
@@ -309,15 +295,17 @@ function getLLMConfigForFrontend(llmConfig) {
 
     const masked = JSON.parse(JSON.stringify(llmConfig)); // Deep clone
 
-    // Mask API keys and add isConfigured flags
+    // Keys live in Supabase secrets, not config — ensure nothing leaks
     const providerIds = ['openai', 'gemini', 'grok', 'deepseek', 'genspark', 'claude', 'kimi', 'minimax'];
     for (const pid of providerIds) {
         if (masked.providers?.[pid]) {
-            const provider = masked.providers[pid];
-            const hasKey = !!(provider.apiKey && provider.apiKey.length > 0);
-            provider.apiKeyMasked = maskApiKey(provider.apiKey);
-            provider.isConfigured = hasKey;
-            delete provider.apiKey; // Never send raw key to frontend
+            delete masked.providers[pid].apiKey;
+            delete masked.providers[pid].apiKeyMasked;
+            // isConfigured will be populated by the /api/system/providers endpoint
+            // For backwards compat, set false here — frontend should use useSystemProviderKeys()
+            if (masked.providers[pid].isConfigured === undefined) {
+                masked.providers[pid].isConfigured = false;
+            }
         }
     }
 
@@ -422,31 +410,17 @@ function loadConfig() {
                 }
             }
 
-            // Merge API keys from environment variables (ONLY in dev mode)
-            // ENV VARS TAKE PRIORITY - this ensures .env file is always respected
-            if (!IS_PACKAGED) {
-                for (const [envVar, providerId] of Object.entries(ENV_TO_PROVIDER)) {
-                    if (process.env[envVar]) {
-                        if (!merged.llm.providers[providerId]) {
-                            merged.llm.providers[providerId] = {};
-                        }
-                        // ENV vars ALWAYS override config - this is the expected behavior
-                        merged.llm.providers[providerId].apiKey = process.env[envVar];
-                        log.debug({ event: 'config_env_key', provider: providerId, envVar }, 'Using API key from env');
-                    }
+            // API keys are stored exclusively in Supabase secrets (encrypted).
+            // Strip any stale apiKey values from config.json — they must NOT be used at runtime.
+            // The LLM queue resolves keys from Supabase vault (project → system scope).
+            for (const pid of Object.keys(merged.llm.providers)) {
+                if (pid !== 'ollama') {
+                    delete merged.llm.providers[pid].apiKey;
+                    delete merged.llm.providers[pid].apiKeyMasked;
+                    delete merged.llm.providers[pid].isConfigured;
                 }
             }
-
-            // Mark providers as configured based on having an API key
-            for (const [pid, pconfig] of Object.entries(merged.llm.providers)) {
-                if (pid !== 'ollama' && pconfig.apiKey) {
-                    merged.llm.providers[pid].isConfigured = true;
-                    // Mask API key for frontend
-                    if (pconfig.apiKey.length > 8) {
-                        merged.llm.providers[pid].apiKeyMasked = pconfig.apiKey.substring(0, 4) + '••••' + pconfig.apiKey.substring(pconfig.apiKey.length - 4);
-                    }
-                }
-            }
+            // isConfigured will be determined at runtime from Supabase secrets, not config
 
             // IMPORTANT: Always recalculate dataDir based on current exe location
             // This ensures portability - the app works even if moved to a different location
@@ -500,21 +474,13 @@ async function loadConfigAsync() {
                 }
             }
         }
-        if (!IS_PACKAGED) {
-            for (const [envVar, providerId] of Object.entries(ENV_TO_PROVIDER)) {
-                if (process.env[envVar]) {
-                    if (!merged.llm.providers[providerId]) merged.llm.providers[providerId] = {};
-                    merged.llm.providers[providerId].apiKey = process.env[envVar];
-                    log.debug({ event: 'config_env_key', provider: providerId, envVar }, 'Using API key from env');
-                }
-            }
-        }
-        for (const [pid, pconfig] of Object.entries(merged.llm.providers)) {
-            if (pid !== 'ollama' && pconfig.apiKey) {
-                merged.llm.providers[pid].isConfigured = true;
-                if (pconfig.apiKey.length > 8) {
-                    merged.llm.providers[pid].apiKeyMasked = pconfig.apiKey.substring(0, 4) + '••••' + pconfig.apiKey.substring(pconfig.apiKey.length - 4);
-                }
+        // API keys are stored exclusively in Supabase secrets (encrypted).
+        // Strip any stale apiKey values from config.json — they must NOT be used at runtime.
+        for (const pid of Object.keys(merged.llm.providers)) {
+            if (pid !== 'ollama') {
+                delete merged.llm.providers[pid].apiKey;
+                delete merged.llm.providers[pid].apiKeyMasked;
+                delete merged.llm.providers[pid].isConfigured;
             }
         }
         const projectsPath = path.join(DATA_DIR, 'projects.json');
@@ -545,7 +511,17 @@ function saveConfig(config) {
     if (!fs.existsSync(DATA_DIR)) {
         fs.mkdirSync(DATA_DIR, { recursive: true });
     }
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+    // Safety: strip any apiKey that may have leaked into the config object before writing
+    const toSave = JSON.parse(JSON.stringify(config));
+    if (toSave.llm?.providers) {
+        for (const pid of Object.keys(toSave.llm.providers)) {
+            if (pid !== 'ollama') {
+                delete toSave.llm.providers[pid].apiKey;
+                delete toSave.llm.providers[pid].apiKeyMasked;
+            }
+        }
+    }
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(toSave, null, 2));
 }
 
 // Initialize (async bootstrap so config load does not block event loop)
@@ -1045,7 +1021,7 @@ loadConfigAsync().then((c) => {
     const { handleSync } = require('./features/sync/routes');
     const { handleActivity } = require('./features/activity/routes');
     const { handleRoleTemplates } = require('./features/role-templates/routes');
-    const { handleSecrets } = require('./features/secrets/routes');
+    // const { handleSecrets } = require('./features/secrets/routes');
     const { handleGoogleDrive } = require('./features/googleDrive/routes');
     const { handleSystemAdmin } = require('./features/system-admin/routes');
     const { handleFiles } = require('./features/files/routes');
@@ -1062,7 +1038,7 @@ loadConfigAsync().then((c) => {
     const { handleCore } = require('./features/core/routes');
     const { handleChat } = require('./features/chat/routes');
     const { handleRag } = require('./features/rag/routes');
-    const { handleData } = require('./features/data/routes');
+    // const { handleData } = require('./features/data/routes');
     const { handleAdvanced } = require('./features/advanced/routes');
     const { handleOntology } = require('./features/ontology/routes');
     const { handleGraph } = require('./features/graph/routes');
@@ -1221,7 +1197,7 @@ loadConfigAsync().then((c) => {
             if (await handleSprints({ req, res, pathname, storage, config })) return;
             if (await handleRag({ req, res, pathname, storage, config, processor, llm, invalidateBriefingCache })) return;
             if (await handleAdvanced({ req, res, pathname, storage })) return;
-            if (await handleData({ req, res, pathname, storage })) return;
+            // if (await handleData({ req, res, pathname, storage })) return;
             if (await handleOntology({ req, res, pathname, storage, config, supabase })) return;
             if (await handleGraph({ req, res, pathname, storage, config, supabase, saveConfig })) return;
             if (await handleGraphrag({ req, res, pathname, storage, config })) return;
@@ -1243,7 +1219,7 @@ loadConfigAsync().then((c) => {
             if (await handleCosts({ req, res, pathname, storage, llm })) return;
 
             // ==================== Contacts Routes (extracted to features/contacts/routes.js) ====================
-            if (await handleContacts({ req, res, pathname, storage, llm, supabase })) return;
+            if (await handleContacts({ req, res, pathname, storage, llm, supabase, config })) return;
 
             // ==================== Teams Routes (extracted to features/teams/routes.js) ====================
             if (await handleTeams({ req, res, pathname, storage })) return;
@@ -1274,7 +1250,7 @@ loadConfigAsync().then((c) => {
 
             // ==================== Config Routes (extracted to features/config/routes.js) ====================
             if (await handleConfig({ req, res, pathname, config, saveConfig, processor, llm, getLLMConfigForFrontend })) return;
-            if (await handleSecrets({ req, res, pathname, supabase })) return;
+            // if (await handleSecrets({ req, res, pathname, supabase })) return;
             if (await handleGoogleDrive({ req, res, pathname, supabase })) return;
             if (await handleSystemAdmin({ req, res, pathname, supabase, config, saveConfig })) return;
             if (await handleFiles({ req, res, pathname, processor, storage, config, invalidateBriefingCache })) return;
@@ -1440,7 +1416,9 @@ loadConfigAsync().then((c) => {
                 '/contacts', '/team-analysis', '/files', '/emails',
                 '/graph', '/costs', '/history', '/projects',
                 '/companies', '/settings', '/user-settings', '/admin', '/profile',
-                '/documents', '/transcripts'
+                '/documents', '/transcripts', '/conversations', '/reports',
+                '/optimizations', '/search',
+                '/sprints', '/login'
             ];
             if (spaRoutes.some(route => pathname === route || pathname.startsWith(route + '/'))) {
                 pathname = '/index.html';

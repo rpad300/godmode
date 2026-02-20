@@ -392,13 +392,14 @@ class DocumentAnalyzer {
      * Generate vision output
      */
     async llmGenerateVision(model, prompt, images, options = {}) {
-        const providerConfig = this.config.llm?.vision?.providerConfig || {};
-        const provider = this.config.llm?.vision?.provider || 'ollama';
+        const visionCfg = llmConfig.getVisionConfig(this.config, { model });
+        const provider = visionCfg.provider;
+        const providerConfig = visionCfg.providerConfig || {};
 
         const result = await llm.generateVision({
             provider,
             providerConfig,
-            model: model,
+            model: visionCfg.model || model,
             prompt,
             images,
             temperature: options.temperature || 0.2,
@@ -703,10 +704,12 @@ Output ONLY valid JSON:
     async detectAndResolveQuestionsWithAI(storage, config) {
         let resolved = 0;
         try {
-            const pendingQuestions = storage.getQuestions({ status: 'pending' });
+            const allQuestions = await Promise.resolve(storage.getQuestions());
+            const pendingQuestions = (allQuestions || []).filter(q => q.status === 'pending' || !q.status);
             if (pendingQuestions.length === 0) return 0;
 
-            const facts = storage.getFacts().slice(-50);
+            const allFacts = await Promise.resolve(storage.getFacts());
+            const facts = (allFacts || []).slice(-50);
             const decisions = storage.knowledge?.decisions?.slice(-20) || [];
             if (facts.length === 0 && decisions.length === 0) return 0;
 
@@ -798,7 +801,7 @@ CONFIDENCE: <high|medium|low>`;
                     const matchRatio = matchingTerms.length / Math.max(taskTerms.size, 1);
 
                     if (matchRatio >= 0.4 && matchingTerms.length >= 2) {
-                        storage.updateActionItem(action.id, {
+                        storage.updateAction(action.id, {
                             status: 'completed',
                             completion_note: `[Auto-completed] ${text.substring(0, 200)}`
                         });

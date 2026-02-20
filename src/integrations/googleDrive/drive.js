@@ -344,6 +344,92 @@ async function initializeProjectFolder(project, ownerUsername) {
     }
 }
 
+/**
+ * Upload an avatar image to Google Drive, make it publicly accessible, and return a direct thumbnail URL.
+ * Stores avatars in a dedicated "avatars" folder under the root.
+ * @param {Buffer} buffer - Image file content
+ * @param {string} mimeType - e.g. 'image/jpeg'
+ * @param {string} entityId - User or contact ID (used as filename)
+ * @param {string} ext - File extension (jpg, png, etc.)
+ * @returns {{ fileId: string, url: string }} - The Drive file ID and a publicly-accessible thumbnail URL
+ */
+async function uploadAvatar(buffer, mimeType, entityId, ext = 'jpg') {
+    const client = await getDriveClientForSystem();
+    if (!client || !client.drive || !client.rootFolderId) {
+        throw new Error('Google Drive not configured');
+    }
+
+    const avatarsFolderId = await ensureFolder(client, client.rootFolderId, 'avatars');
+    const filename = `${entityId}.${ext}`;
+
+    // Check if file already exists and delete it (to avoid duplicates with different extensions)
+    try {
+        const safeParentId = avatarsFolderId.replace(/'/g, "\\'");
+        const list = await client.drive.files.list({
+            q: `'${safeParentId}' in parents and name contains '${entityId}' and trashed = false`,
+            fields: 'files(id)',
+            pageSize: 10
+        });
+        const existing = list.data.files || [];
+        for (const f of existing) {
+            try { await client.drive.files.delete({ fileId: f.id }); } catch {}
+        }
+    } catch {}
+
+    const result = await uploadFile(client, buffer, mimeType, avatarsFolderId, filename);
+
+    // Make file publicly accessible
+    await withRetry(async () => {
+        await client.drive.permissions.create({
+            fileId: result.id,
+            requestBody: {
+                role: 'reader',
+                type: 'anyone'
+            }
+        });
+    }, 'setAvatarPublic');
+
+    const url = `https://drive.google.com/thumbnail?id=${result.id}&sz=w400`;
+
+    return { fileId: result.id, url };
+}
+
+/**
+ * Delete an avatar from Google Drive by entity ID.
+ * Searches the avatars folder for files matching the entity ID.
+ */
+async function deleteAvatar(entityId) {
+    const client = await getDriveClientForSystem();
+    if (!client || !client.drive || !client.rootFolderId) return;
+
+    try {
+        const avatarsFolderId = await ensureFolder(client, client.rootFolderId, 'avatars');
+        const safeParentId = avatarsFolderId.replace(/'/g, "\\'");
+        const list = await client.drive.files.list({
+            q: `'${safeParentId}' in parents and name contains '${entityId}' and trashed = false`,
+            fields: 'files(id)',
+            pageSize: 10
+        });
+        for (const f of (list.data.files || [])) {
+            try { await client.drive.files.delete({ fileId: f.id }); } catch {}
+        }
+    } catch (err) {
+        log.warn({ event: 'drive_delete_avatar_error', entityId, reason: err.message });
+    }
+}
+
+/**
+ * Check if Google Drive is configured and available for avatar storage.
+ */
+async function isDriveAvailable() {
+    try {
+        const client = await getDriveClientForSystem();
+        return !!(client && client.drive && client.rootFolderId);
+    } catch {
+        return false;
+    }
+}
+
 module.exports = {
     getDriveClientForSystem,
     getDriveClientForProject,
@@ -353,6 +439,9 @@ module.exports = {
     ensureFolder,
     initializeProjectFolder,
     clearSystemClientCache,
+    uploadAvatar,
+    deleteAvatar,
+    isDriveAvailable,
     CONFIG_KEY,
     SECRET_NAME
 };

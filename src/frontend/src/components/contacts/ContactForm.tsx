@@ -34,7 +34,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Plus, Save, User, Briefcase, Mail, Phone, Building2, Linkedin, MapPin, Clock, Image, StickyNote } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { cn } from "@/lib/utils";
+import { cn, resolveAvatarUrl } from "@/lib/utils";
 import { apiClient } from '@/lib/api-client';
 import type { Contact } from '@/types/godmode';
 
@@ -118,7 +118,7 @@ const ContactForm = ({ contact, onSubmit, onCancel, mode }: ContactFormProps) =>
         email: contact.email || '',
         phone: contact.phone || '',
         linkedin: contact.linkedin || '',
-        avatarUrl: contact.avatarUrl || contact.avatar || '',
+        avatarUrl: resolveAvatarUrl(contact as any) || '',
         department: contact.department || '',
         location: contact.location || '',
         timezone: contact.timezone || '',

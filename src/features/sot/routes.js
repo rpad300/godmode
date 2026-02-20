@@ -306,7 +306,7 @@ async function handleSot(ctx) {
     if (pathname === '/api/sot/versions' && req.method === 'GET') {
         try {
             const sotEngine = new SourceOfTruthEngine(storage);
-            const versions = sotEngine.getVersionHistory();
+            const versions = await sotEngine.getVersions();
             jsonResponse(res, { versions });
         } catch (e) {
             jsonResponse(res, { error: e.message }, 500);
@@ -387,32 +387,55 @@ async function handleSot(ctx) {
             const health = sotEngine.calculateHealthScore();
             const insights = sotEngine.generateInsights();
 
-            const facts = storage.getFacts();
-            const decisions = storage.getDecisions();
+            const facts = await storage.getFacts();
+            const decisions = await storage.getDecisions();
             const risks = storage.getRisks ? await storage.getRisks() : [];
-            const actions = storage.getActionItems();
+            const actions = await storage.getActionItems();
 
-            const sotContext = `
-You are an AI assistant with access to this project's Source of Truth knowledge base.
+            // Vector-search for relevance-ranked context (if embeddings available)
+            let semanticContext = '';
+            try {
+                const embedCfg = llmConfig.getEmbeddingsConfig(config);
+                if (embedCfg?.provider && embedCfg?.model && typeof storage.searchBySimilarity === 'function') {
+                    const queryResult = await llm.embed({
+                        provider: embedCfg.provider,
+                        providerConfig: embedCfg.providerConfig,
+                        model: embedCfg.model,
+                        texts: [message]
+                    });
+                    if (queryResult.success && queryResult.embeddings?.[0]) {
+                        const similar = await storage.searchBySimilarity(queryResult.embeddings[0], null, 15, 0.6);
+                        if (similar && similar.length > 0) {
+                            semanticContext = '\nRELEVANT KNOWLEDGE (ranked by relevance to question):\n' +
+                                similar.map((s, i) => `${i + 1}. [${s.entity_type}] ${s.content}`).join('\n');
+                        }
+                    }
+                }
+            } catch (embErr) {
+                log.debug({ event: 'sot_chat_embed_skip', reason: embErr.message }, 'Embedding search skipped');
+            }
+
+            const sotContext = `You are an AI assistant with access to this project's Source of Truth knowledge base.
 
 PROJECT HEALTH: ${health.score}/100 (${health.status})
+${semanticContext}
 
 FACTS (${facts.length} total):
-${facts.slice(0, 20).map(f => `- [${f.category}] ${f.content}`).join('\n')}
+${facts.slice(0, 25).map(f => `- [${f.category || 'general'}] ${f.content}`).join('\n')}
 
 DECISIONS (${decisions.length} total):
-${decisions.slice(0, 10).map(d => `- ${d.content} (${d.owner || 'N/A'})`).join('\n')}
+${decisions.slice(0, 15).map(d => `- ${d.content} (${d.owner || 'N/A'})`).join('\n')}
 
 RISKS (${risks.length} total):
-${risks.slice(0, 10).map(r => `- [${r.impact}/${r.status}] ${r.content}`).join('\n')}
+${risks.slice(0, 10).map(r => `- [${r.impact || '?'}/${r.status || '?'}] ${r.content}`).join('\n')}
 
 PENDING ACTIONS (${actions.filter(a => a.status === 'pending').length}):
-${actions.filter(a => a.status === 'pending').slice(0, 10).map(a => `- ${a.task} (${a.owner || 'N/A'})`).join('\n')}
+${actions.filter(a => a.status === 'pending').slice(0, 15).map(a => `- ${a.task || a.content} (${a.owner || 'N/A'})`).join('\n')}
 
 KEY INSIGHTS:
 ${insights.slice(0, 5).map(i => `- ${i.title}: ${i.message}`).join('\n')}
 
-Answer questions about this project based on the knowledge above. Be specific and reference facts when possible.`;
+Answer questions about this project based on the knowledge above. Be specific, reference facts by content when possible, and cite data to support your answers.`;
 
             const sotTextCfg = llmConfig.getTextConfig(config, { model });
             const result = await llm.generateText({
@@ -435,7 +458,8 @@ Answer questions about this project based on the knowledge above. Be specific an
             jsonResponse(res, {
                 response: result.text,
                 model: sotTextCfg.model,
-                healthScore: health.score
+                healthScore: health.score,
+                sources: semanticContext ? 'vector+sot' : 'sot'
             });
         } catch (e) {
             jsonResponse(res, { error: e.message }, 500);

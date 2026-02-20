@@ -40,6 +40,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, List, Layers, BookOpen, Filter, Target, ChevronDown, ChevronRight, FileBarChart, Sparkles, Loader2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Action, Sprint, UserStory } from '@/types/godmode';
+import { useSotChat } from '../../hooks/useGodMode';
 import ActionModal from './ActionModal';
 import ActionDetailView from './ActionDetailView';
 import CreateSprintModal from './CreateSprintModal';
@@ -49,24 +50,25 @@ type ViewMode = 'list' | 'by_sprint' | 'by_story';
 type StatusFilter = 'all' | 'pending' | 'in_progress' | 'completed' | 'overdue';
 
 const statusColor = (s: string) =>
-  s === 'completed' ? 'bg-success/10 text-success' :
-    s === 'overdue' ? 'bg-destructive/10 text-destructive' :
-      s === 'in_progress' ? 'bg-primary/10 text-primary' :
-        'bg-muted text-muted-foreground';
+  s === 'completed' ? 'bg-green-500/10 text-green-400' :
+    s === 'overdue' ? 'bg-red-500/10 text-red-400' :
+      s === 'in_progress' ? 'bg-blue-500/10 text-blue-400' :
+        'bg-white/5 text-slate-400';
 
 const priorityColor = (p: string) =>
-  p === 'high' ? 'bg-destructive/10 text-destructive' :
-    p === 'medium' ? 'bg-warning/10 text-warning' :
-      'bg-muted text-muted-foreground';
+  p === 'high' ? 'bg-red-500/10 text-red-400' :
+    p === 'medium' ? 'bg-yellow-500/10 text-yellow-400' :
+      'bg-white/5 text-slate-400';
 
 const sprintStatusColor = (s: string) =>
-  s === 'active' ? 'bg-success/10 text-success' :
-    s === 'completed' ? 'bg-muted text-muted-foreground' :
-      'bg-primary/10 text-primary';
+  s === 'active' ? 'bg-green-500/10 text-green-400' :
+    s === 'completed' ? 'bg-white/5 text-slate-400' :
+      'bg-blue-500/10 text-blue-400';
 
 const ActionsPanel = ({ initialData = [], initialSprints = [], onSave, onDelete }: { initialData?: Action[]; initialSprints?: Sprint[]; onSave?: (a: Action) => void; onDelete?: (id: string) => void }) => {
   const [actions, setActions] = useState<Action[]>(initialData);
   const [sprints, setSprints] = useState<Sprint[]>(initialSprints);
+  const chatMut = useSotChat();
 
   useEffect(() => {
     if (initialData) setActions(initialData);
@@ -87,34 +89,29 @@ const ActionsPanel = ({ initialData = [], initialSprints = [], onSave, onDelete 
 
   const handleAiSuggestActions = async () => {
     setAiSuggestLoading(true);
-    await new Promise(r => setTimeout(r, 1800));
-    const suggested: Action[] = [
-      {
-        id: `ai-${Date.now()}-1`,
-        title: '[AI] Review and update project documentation',
-        description: 'AI detected outdated documentation based on recent changes. Suggested review and update.',
-        status: 'pending',
-        priority: 'medium',
-        owner: 'AI Suggested',
-        deadline: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
-        sprintId: sprints.find(s => s.status === 'active')?.id,
-        createdAt: new Date().toISOString().split('T')[0],
+    chatMut.mutate({ message: 'Based on the project state, suggest one important action item. Return on line 1: the action title. Line 2: description. Line 3: priority (high/medium/low).' }, {
+      onSuccess: (d) => {
+        const resp = (d as Record<string, unknown>)?.response as string;
+        if (resp) {
+          const lines = resp.split('\n').filter(l => l.trim());
+          const title = lines[0]?.replace(/^["'\-*\d.]+\s*/, '').trim() || resp.trim();
+          const desc = lines[1]?.replace(/^["'\-*\d.]+\s*/, '').trim() || '';
+          const priMatch = resp.toLowerCase().match(/(high|medium|low)/);
+          const newA: Action = {
+            id: `ai-${Date.now()}`, title, description: desc,
+            status: 'pending', priority: (priMatch?.[1] as Action['priority']) || 'medium',
+            owner: '', deadline: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
+            sprintId: sprints.find(s => s.status === 'active')?.id,
+            createdAt: new Date().toISOString().split('T')[0],
+          };
+          setActions(prev => [...prev, newA]);
+          onSave?.(newA);
+        }
+        setAiSuggestLoading(false);
+        toast.success('AI suggested a new action');
       },
-      {
-        id: `ai-${Date.now()}-2`,
-        title: '[AI] Address overdue risk mitigations',
-        description: 'AI identified unaddressed risks that need immediate mitigation actions.',
-        status: 'pending',
-        priority: 'high',
-        owner: 'AI Suggested',
-        deadline: new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0],
-        sprintId: sprints.find(s => s.status === 'active')?.id,
-        createdAt: new Date().toISOString().split('T')[0],
-      },
-    ];
-    setActions(prev => [...prev, ...suggested]);
-    setAiSuggestLoading(false);
-    toast.success(`AI suggested ${suggested.length} new actions`);
+      onError: () => { setAiSuggestLoading(false); toast.error('AI suggestion failed'); },
+    });
   };
 
   // Filter actions
@@ -193,26 +190,26 @@ const ActionsPanel = ({ initialData = [], initialSprints = [], onSave, onDelete 
       layout
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="bg-card border border-border rounded-xl p-3.5 hover:border-primary/30 transition-colors cursor-pointer group"
+      className="bg-[var(--gm-surface-primary)] border border-[var(--gm-border-primary)] rounded-xl p-3.5 hover:border-blue-500/30 transition-colors cursor-pointer group"
       onClick={() => setDetailAction(action)}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-foreground truncate group-hover:text-primary transition-colors">{action.title}</p>
-          <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{action.description}</p>
+          <p className="text-sm font-medium text-[var(--gm-text-primary)] truncate group-hover:text-blue-400 transition-colors">{action.task || action.title || action.content || '(no title)'}</p>
+          <p className="text-xs text-[var(--gm-text-tertiary)] mt-0.5 line-clamp-1">{action.description || ''}</p>
         </div>
         <div className="flex gap-1.5 flex-shrink-0">
-          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${priorityColor(action.priority)}`}>{action.priority}</span>
-          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${statusColor(action.status)}`}>{(action.status || '').replace('_', ' ')}</span>
+          {action.priority && <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${priorityColor(action.priority)}`}>{action.priority}</span>}
+          {action.status && <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${statusColor(action.status)}`}>{action.status.replace('_', ' ')}</span>}
         </div>
       </div>
       <div className="flex items-center justify-between mt-2.5">
         {action.owner ? (
           <OwnerBadge name={action.owner} size="sm" />
         ) : (
-          <span className="text-[11px] text-muted-foreground">Unassigned</span>
+          <span className="text-[11px] text-[var(--gm-text-tertiary)]">Unassigned</span>
         )}
-        {action.deadline && <span className="text-[10px] text-muted-foreground">📅 {action.deadline}</span>}
+        {action.deadline && <span className="text-[10px] text-[var(--gm-text-tertiary)]">📅 {action.deadline}</span>}
       </div>
     </motion.div>
   );
@@ -228,19 +225,19 @@ const ActionsPanel = ({ initialData = [], initialSprints = [], onSave, onDelete 
     return (
       <div className="space-y-3">
         {groups.map(({ sprint, actions: sprintActions }) => (
-          <div key={sprint.id} className="bg-secondary/30 rounded-xl overflow-hidden">
+          <div key={sprint.id} className="bg-[var(--gm-interactive-secondary)]/30 rounded-xl overflow-hidden">
             <button
               onClick={() => toggleGroup(sprint.id)}
-              className="w-full flex items-center gap-2 px-4 py-3 hover:bg-secondary/50 transition-colors text-left"
+              className="w-full flex items-center gap-2 px-4 py-3 hover:bg-[var(--gm-interactive-secondary)]/50 transition-colors text-left"
             >
               {expandedGroups.has(sprint.id)
-                ? <ChevronDown className="w-4 h-4 text-muted-foreground" />
-                : <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                ? <ChevronDown className="w-4 h-4 text-[var(--gm-text-tertiary)]" />
+                : <ChevronRight className="w-4 h-4 text-[var(--gm-text-tertiary)]" />
               }
-              <Target className="w-4 h-4 text-primary" />
-              <span className="text-sm font-medium text-foreground flex-1">{sprint.name}</span>
-              <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${sprintStatusColor(sprint.status)}`}>{sprint.status}</span>
-              <span className="text-[10px] text-muted-foreground">{sprintActions.length} actions</span>
+              <Target className="w-4 h-4 text-blue-400" />
+              <span className="text-sm font-medium text-[var(--gm-text-primary)] flex-1">{sprint.name || '(unnamed sprint)'}</span>
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${sprintStatusColor(sprint.status)}`}>{sprint.status || '—'}</span>
+              <span className="text-[10px] text-[var(--gm-text-tertiary)]">{sprintActions.length} actions</span>
             </button>
             <AnimatePresence>
               {expandedGroups.has(sprint.id) && (
@@ -251,11 +248,11 @@ const ActionsPanel = ({ initialData = [], initialSprints = [], onSave, onDelete 
                   className="overflow-hidden"
                 >
                   {sprint.context && (
-                    <p className="text-xs text-muted-foreground px-4 pb-2">{sprint.context}</p>
+                    <p className="text-xs text-[var(--gm-text-tertiary)] px-4 pb-2">{sprint.context}</p>
                   )}
                   <div className="px-3 pb-3 space-y-2">
                     {sprintActions.length === 0 ? (
-                      <p className="text-xs text-muted-foreground text-center py-4">No actions in this sprint</p>
+                      <p className="text-xs text-[var(--gm-text-tertiary)] text-center py-4">No actions in this sprint</p>
                     ) : (
                       sprintActions.map(a => <ActionCard key={a.id} action={a} />)
                     )}
@@ -267,17 +264,17 @@ const ActionsPanel = ({ initialData = [], initialSprints = [], onSave, onDelete 
         ))}
 
         {unassigned.length > 0 && (
-          <div className="bg-secondary/30 rounded-xl overflow-hidden">
+          <div className="bg-[var(--gm-interactive-secondary)]/30 rounded-xl overflow-hidden">
             <button
               onClick={() => toggleGroup('no-sprint')}
-              className="w-full flex items-center gap-2 px-4 py-3 hover:bg-secondary/50 transition-colors text-left"
+              className="w-full flex items-center gap-2 px-4 py-3 hover:bg-[var(--gm-interactive-secondary)]/50 transition-colors text-left"
             >
               {expandedGroups.has('no-sprint')
-                ? <ChevronDown className="w-4 h-4 text-muted-foreground" />
-                : <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                ? <ChevronDown className="w-4 h-4 text-[var(--gm-text-tertiary)]" />
+                : <ChevronRight className="w-4 h-4 text-[var(--gm-text-tertiary)]" />
               }
-              <span className="text-sm font-medium text-muted-foreground flex-1">No Sprint</span>
-              <span className="text-[10px] text-muted-foreground">{unassigned.length} actions</span>
+              <span className="text-sm font-medium text-[var(--gm-text-tertiary)] flex-1">No Sprint</span>
+              <span className="text-[10px] text-[var(--gm-text-tertiary)]">{unassigned.length} actions</span>
             </button>
             <AnimatePresence>
               {expandedGroups.has('no-sprint') && (
@@ -311,19 +308,19 @@ const ActionsPanel = ({ initialData = [], initialSprints = [], onSave, onDelete 
         {storiesWithActions.map(({ story, actions: storyActions }) => {
           const sprint = sprints.find(s => s.id === story.sprintId);
           return (
-            <div key={story.id} className="bg-secondary/30 rounded-xl overflow-hidden">
+            <div key={story.id} className="bg-[var(--gm-interactive-secondary)]/30 rounded-xl overflow-hidden">
               <button
                 onClick={() => toggleGroup(story.id)}
-                className="w-full flex items-center gap-2 px-4 py-3 hover:bg-secondary/50 transition-colors text-left"
+                className="w-full flex items-center gap-2 px-4 py-3 hover:bg-[var(--gm-interactive-secondary)]/50 transition-colors text-left"
               >
                 {expandedGroups.has(story.id)
-                  ? <ChevronDown className="w-4 h-4 text-muted-foreground" />
-                  : <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                  ? <ChevronDown className="w-4 h-4 text-[var(--gm-text-tertiary)]" />
+                  : <ChevronRight className="w-4 h-4 text-[var(--gm-text-tertiary)]" />
                 }
                 <BookOpen className="w-4 h-4 text-accent" />
-                <span className="text-sm font-medium text-foreground flex-1 truncate">{story.title}</span>
-                {sprint && <span className="text-[10px] text-muted-foreground">{sprint.name}</span>}
-                <span className="text-[10px] text-muted-foreground">{storyActions.length}</span>
+                <span className="text-sm font-medium text-[var(--gm-text-primary)] flex-1 truncate">{story.title || '(untitled story)'}</span>
+                {sprint && <span className="text-[10px] text-[var(--gm-text-tertiary)]">{sprint.name || '—'}</span>}
+                <span className="text-[10px] text-[var(--gm-text-tertiary)]">{storyActions.length}</span>
               </button>
               <AnimatePresence>
                 {expandedGroups.has(story.id) && (
@@ -342,17 +339,17 @@ const ActionsPanel = ({ initialData = [], initialSprints = [], onSave, onDelete 
         })}
 
         {noStory.length > 0 && (
-          <div className="bg-secondary/30 rounded-xl overflow-hidden">
+          <div className="bg-[var(--gm-interactive-secondary)]/30 rounded-xl overflow-hidden">
             <button
               onClick={() => toggleGroup('no-story')}
-              className="w-full flex items-center gap-2 px-4 py-3 hover:bg-secondary/50 transition-colors text-left"
+              className="w-full flex items-center gap-2 px-4 py-3 hover:bg-[var(--gm-interactive-secondary)]/50 transition-colors text-left"
             >
               {expandedGroups.has('no-story')
-                ? <ChevronDown className="w-4 h-4 text-muted-foreground" />
-                : <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                ? <ChevronDown className="w-4 h-4 text-[var(--gm-text-tertiary)]" />
+                : <ChevronRight className="w-4 h-4 text-[var(--gm-text-tertiary)]" />
               }
-              <span className="text-sm font-medium text-muted-foreground flex-1">No Story</span>
-              <span className="text-[10px] text-muted-foreground">{noStory.length}</span>
+              <span className="text-sm font-medium text-[var(--gm-text-tertiary)] flex-1">No Story</span>
+              <span className="text-[10px] text-[var(--gm-text-tertiary)]">{noStory.length}</span>
             </button>
             <AnimatePresence>
               {expandedGroups.has('no-story') && (
@@ -376,7 +373,7 @@ const ActionsPanel = ({ initialData = [], initialSprints = [], onSave, onDelete 
   const renderList = () => (
     <div className="space-y-2">
       {filtered.length === 0 ? (
-        <p className="text-sm text-muted-foreground text-center py-8">No actions match the current filter</p>
+        <p className="text-sm text-[var(--gm-text-tertiary)] text-center py-8">No actions match the current filter</p>
       ) : (
         filtered.map(a => <ActionCard key={a.id} action={a} />)
       )}
@@ -388,15 +385,15 @@ const ActionsPanel = ({ initialData = [], initialSprints = [], onSave, onDelete 
       {/* Report strip */}
       <div className="flex gap-2 flex-wrap">
         {[
-          { label: 'Total', value: stats.total, color: 'text-foreground' },
-          { label: 'Pending', value: stats.pending, color: 'text-muted-foreground' },
+          { label: 'Total', value: stats.total, color: 'text-[var(--gm-text-primary)]' },
+          { label: 'Pending', value: stats.pending, color: 'text-[var(--gm-text-tertiary)]' },
           { label: 'In Progress', value: stats.inProgress, color: 'text-primary' },
           { label: 'Completed', value: stats.completed, color: 'text-success' },
           { label: 'Overdue', value: stats.overdue, color: 'text-destructive' },
         ].map(s => (
-          <div key={s.label} className="bg-card border border-border rounded-lg px-3 py-2 flex items-center gap-2">
+          <div key={s.label} className="bg-[var(--gm-surface-primary)] border border-[var(--gm-border-primary)] rounded-lg px-3 py-2 flex items-center gap-2">
             <span className={`text-lg font-bold ${s.color}`}>{s.value}</span>
-            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">{s.label}</span>
+            <span className="text-[10px] text-[var(--gm-text-tertiary)] uppercase tracking-wider">{s.label}</span>
           </div>
         ))}
       </div>
@@ -404,7 +401,7 @@ const ActionsPanel = ({ initialData = [], initialSprints = [], onSave, onDelete 
       {/* Toolbar */}
       <div className="flex items-center gap-2 flex-wrap">
         {/* View mode tabs */}
-        <div className="flex bg-secondary rounded-lg p-0.5">
+        <div className="flex bg-[var(--gm-interactive-secondary)] rounded-lg p-0.5">
           {([
             { id: 'list' as ViewMode, icon: List, label: 'List' },
             { id: 'by_sprint' as ViewMode, icon: Layers, label: 'Sprints' },
@@ -413,7 +410,7 @@ const ActionsPanel = ({ initialData = [], initialSprints = [], onSave, onDelete 
             <button
               key={v.id}
               onClick={() => setViewMode(v.id)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${viewMode === v.id ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${viewMode === v.id ? 'bg-[var(--gm-surface-primary)] text-[var(--gm-text-primary)] shadow-sm' : 'text-[var(--gm-text-tertiary)] hover:text-[var(--gm-text-primary)]'
                 }`}
             >
               <v.icon className="w-3.5 h-3.5" />
@@ -427,10 +424,10 @@ const ActionsPanel = ({ initialData = [], initialSprints = [], onSave, onDelete 
           <select
             value={sprintFilter}
             onChange={e => setSprintFilter(e.target.value)}
-            className="bg-secondary border border-border rounded-lg px-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            className="bg-[var(--gm-interactive-secondary)] border border-[var(--gm-border-primary)] rounded-lg px-3 py-1.5 text-xs text-[var(--gm-text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--gm-border-focus)]"
           >
             <option value="">All sprints</option>
-            {sprints.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            {sprints.map(s => <option key={s.id} value={s.id}>{s.name || '(unnamed)'}</option>)}
           </select>
         )}
 
@@ -438,7 +435,7 @@ const ActionsPanel = ({ initialData = [], initialSprints = [], onSave, onDelete 
         <select
           value={statusFilter}
           onChange={e => setStatusFilter(e.target.value as StatusFilter)}
-          className="bg-secondary border border-border rounded-lg px-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          className="bg-[var(--gm-interactive-secondary)] border border-[var(--gm-border-primary)] rounded-lg px-3 py-1.5 text-xs text-[var(--gm-text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--gm-border-focus)]"
         >
           <option value="all">All statuses</option>
           <option value="pending">Pending</option>
@@ -452,14 +449,14 @@ const ActionsPanel = ({ initialData = [], initialSprints = [], onSave, onDelete 
         {/* Actions */}
         <button
           onClick={() => setSprintModalOpen(true)}
-          className="px-3 py-1.5 rounded-lg bg-secondary text-secondary-foreground text-xs font-medium hover:bg-muted transition-colors flex items-center gap-1.5"
+          className="px-3 py-1.5 rounded-lg bg-[var(--gm-interactive-secondary)] text-slate-300 text-xs font-medium hover:bg-[var(--gm-surface-hover)] transition-colors flex items-center gap-1.5"
         >
           <Target className="w-3.5 h-3.5" /> Sprint
         </button>
         <button
           onClick={handleAiSuggestActions}
           disabled={aiSuggestLoading}
-          className="px-3 py-1.5 rounded-lg bg-accent/10 text-accent text-xs font-medium hover:bg-accent/20 transition-colors flex items-center gap-1.5 disabled:opacity-50"
+          className="px-3 py-1.5 rounded-lg bg-purple-500/10 text-purple-400 text-xs font-medium hover:bg-purple-500/20 transition-colors flex items-center gap-1.5 disabled:opacity-50"
         >
           {aiSuggestLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
           AI Suggest
@@ -470,7 +467,7 @@ const ActionsPanel = ({ initialData = [], initialSprints = [], onSave, onDelete 
             setActionModalMode('create');
             setActionModalOpen(true);
           }}
-          className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors flex items-center gap-1.5"
+          className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-colors flex items-center gap-1.5"
         >
           <Plus className="w-3.5 h-3.5" /> Add Action
         </button>

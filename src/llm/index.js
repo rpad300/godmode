@@ -107,6 +107,30 @@ function clearCache() {
 }
 
 /**
+ * Resolve provider config by ensuring the API key comes from Supabase secrets.
+ * Called for non-queue paths (direct calls, queue disabled, or _bypassQueue).
+ * If the incoming config already has an apiKey (set by the queue's processItem), it's kept.
+ * Otherwise we look up the key from Supabase secrets (project → system fallback).
+ */
+async function resolveProviderConfig(provider, providerConfig = {}, projectId = null) {
+    // Skip if key is already present (e.g. set by queue's processItem or test route)
+    if (providerConfig.apiKey) return providerConfig;
+    // Ollama doesn't need API keys
+    if (provider === 'ollama') return providerConfig;
+
+    try {
+        const secrets = require('../supabase/secrets');
+        const result = await secrets.getProviderApiKey(provider, projectId || null);
+        if (result.success && result.value) {
+            return { ...providerConfig, apiKey: result.value };
+        }
+    } catch (err) {
+        log.warn({ event: 'llm_resolve_key_error', provider, reason: err.message }, 'Failed to resolve API key from Supabase');
+    }
+    return providerConfig;
+}
+
+/**
  * Test connection to a provider
  * @param {string} providerId - Provider identifier
  * @param {object} config - Provider configuration (may include temporary apiKey for testing)
@@ -188,10 +212,14 @@ async function generateText(options) {
         return generateTextQueued({ ...options, _bypassQueue: true }, priority);
     }
     
+    // When bypassing queue, ensure API key comes from Supabase secrets if not already set
+    // The queue does this in processItem(), but direct calls need it too
+    const resolvedConfig = await resolveProviderConfig(provider, providerConfig, options.projectId);
+    
     const startTime = Date.now();
     
     try {
-        const client = getClient(provider, providerConfig);
+        const client = getClient(provider, resolvedConfig);
         const result = await client.generateText(rest);
         
         const latency = Date.now() - startTime;
@@ -275,10 +303,11 @@ async function generateVision(options) {
         return queue.enqueue({ ...options, _bypassQueue: true, _operation: 'vision' }, priority);
     }
     
+    const resolvedConfig = await resolveProviderConfig(provider, providerConfig, options.projectId);
     const startTime = Date.now();
     
     try {
-        const client = getClient(provider, providerConfig);
+        const client = getClient(provider, resolvedConfig);
         
         // Check if provider supports vision
         if (!client.constructor.capabilities.vision) {
@@ -336,10 +365,11 @@ async function embed(options) {
         return queue.enqueue({ ...options, _bypassQueue: true, _operation: 'embed' }, priority);
     }
     
+    const resolvedConfig = await resolveProviderConfig(provider, providerConfig, options.projectId);
     const startTime = Date.now();
     
     try {
-        const client = getClient(provider, providerConfig);
+        const client = getClient(provider, resolvedConfig);
         
         // Check if provider supports embeddings
         if (!client.constructor.capabilities.embeddings) {

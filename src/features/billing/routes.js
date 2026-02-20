@@ -93,11 +93,37 @@ async function handleBilling(ctx) {
     const billing = require('../../supabase/billing');
 
     // GET /api/admin/billing/projects - Get all projects billing overview (superadmin)
+    // Enriches each project with key_source info (which LLM providers use project vs system keys)
     if (pathname === '/api/admin/billing/projects' && req.method === 'GET') {
         try {
             const user = await checkSuperAdmin(supabase, req, res);
             if (!user) return true;
             const projects = await billing.getAllProjectsBilling();
+
+            // Enrich with BYOK key source info per project
+            const secrets = require('../../supabase/secrets');
+            const mainProviders = ['openai', 'anthropic', 'gemini', 'grok', 'deepseek'];
+            for (const project of projects) {
+                try {
+                    const keyInfo = {};
+                    for (const p of mainProviders) {
+                        const result = await secrets.getProviderApiKey(p, project.project_id);
+                        if (result.success) {
+                            keyInfo[p] = result.source; // 'project' or 'system'
+                        }
+                    }
+                    project.key_sources = keyInfo;
+                    // If ANY key comes from 'project', billing is partially/fully BYOK
+                    const sources = Object.values(keyInfo);
+                    project.uses_own_keys = sources.includes('project');
+                    project.all_own_keys = sources.length > 0 && sources.every(s => s === 'project');
+                } catch (e) {
+                    project.key_sources = {};
+                    project.uses_own_keys = false;
+                    project.all_own_keys = false;
+                }
+            }
+
             jsonResponse(res, { success: true, projects });
         } catch (error) {
             log.warn({ event: 'billing_projects_error', reason: error?.message }, 'Error getting all projects billing');

@@ -224,14 +224,16 @@ async function handleCompanies(ctx) {
         }
 
         let braveSnippets = '';
-        let braveApiKey = process.env.BRAVE_API_KEY || '';
-        if (!braveApiKey && supabase?.isConfigured?.()) {
-            try {
-                const secrets = require('../../supabase/secrets');
-                const r = await secrets.getSecret('system', 'BRAVE_API_KEY');
-                if (r.success && r.value) braveApiKey = r.value;
-            } catch (_) { /* ignore */ }
-        }
+        let braveApiKey = '';
+        try {
+            const secrets = require('../../supabase/secrets');
+            // Try canonical name first, then legacy UPPERCASE
+            let r = await secrets.getSecret('system', 'brave_api_key');
+            if (!r.success || !r.value) {
+                r = await secrets.getSecret('system', 'BRAVE_API_KEY');
+            }
+            if (r.success && r.value) braveApiKey = r.value;
+        } catch (_) { /* Supabase not available */ }
         if (braveApiKey && (company.name || company.website_url || company.linkedin_url)) {
             const queries = [];
             if (company.name) queries.push(company.name);

@@ -229,7 +229,6 @@ async function handleProfile(ctx) {
         }
         
         try {
-            // Parse multipart form data
             const boundary = req.headers['content-type']?.split('boundary=')[1];
             if (!boundary) {
                 jsonResponse(res, { error: 'Invalid content type' }, 400);
@@ -241,8 +240,6 @@ async function handleProfile(ctx) {
                 chunks.push(chunk);
             }
             const buffer = Buffer.concat(chunks);
-            
-            // Parse the multipart data (simplified - extract file data)
             const data = buffer.toString('binary');
             const parts = data.split('--' + boundary);
             
@@ -254,11 +251,8 @@ async function handleProfile(ctx) {
                 if (part.includes('filename=')) {
                     const match = part.match(/filename="([^"]+)"/);
                     if (match) fileName = match[1];
-                    
                     const typeMatch = part.match(/Content-Type:\s*([^\r\n]+)/i);
                     if (typeMatch) contentType = typeMatch[1].trim();
-                    
-                    // Extract file content (after double CRLF)
                     const contentStart = part.indexOf('\r\n\r\n') + 4;
                     const contentEnd = part.lastIndexOf('\r\n');
                     if (contentStart > 3 && contentEnd > contentStart) {
@@ -272,45 +266,43 @@ async function handleProfile(ctx) {
                 return true;
             }
             
-            // Upload to Supabase Storage
             const userId = authResult.user.id;
             const ext = fileName.split('.').pop() || 'jpg';
-            const storagePath = `avatars/${userId}.${ext}`;
-            
-            const client = supabase.getAdminClient();
-            
-            // Upload to storage bucket (create bucket if needed)
-            const { data: uploadData, error: uploadError } = await client.storage
-                .from('avatars')
-                .upload(storagePath, fileBuffer, {
-                    contentType,
-                    upsert: true
-                });
-            
-            if (uploadError) {
-                // Try creating bucket first
-                if (uploadError.message.includes('not found')) {
-                    await client.storage.createBucket('avatars', { public: true });
-                    const { error: retryError } = await client.storage
-                        .from('avatars')
-                        .upload(storagePath, fileBuffer, { contentType, upsert: true });
-                    if (retryError) throw retryError;
-                } else {
-                    throw uploadError;
+            let avatarUrl;
+
+            // Try Google Drive first, fallback to Supabase Storage
+            const driveModule = require('../../integrations/googleDrive/drive');
+            const driveAvailable = await driveModule.isDriveAvailable();
+
+            if (driveAvailable) {
+                log.info({ event: 'profile_avatar_upload_drive', userId }, 'Uploading avatar to Google Drive');
+                const result = await driveModule.uploadAvatar(fileBuffer, contentType, userId, ext);
+                avatarUrl = result.url;
+            } else {
+                const storagePath = `avatars/${userId}.${ext}`;
+                const client = supabase.getAdminClient();
+                const { error: uploadError } = await client.storage
+                    .from('avatars')
+                    .upload(storagePath, fileBuffer, { contentType, upsert: true });
+                
+                if (uploadError) {
+                    if (uploadError.message.includes('not found')) {
+                        await client.storage.createBucket('avatars', { public: true });
+                        const { error: retryError } = await client.storage
+                            .from('avatars')
+                            .upload(storagePath, fileBuffer, { contentType, upsert: true });
+                        if (retryError) throw retryError;
+                    } else {
+                        throw uploadError;
+                    }
                 }
+                
+                const { data: urlData } = client.storage.from('avatars').getPublicUrl(storagePath);
+                avatarUrl = urlData.publicUrl;
             }
             
-            // Get public URL
-            const { data: urlData } = client.storage
-                .from('avatars')
-                .getPublicUrl(storagePath);
-            
-            const avatarUrl = urlData.publicUrl;
-            
-            // Update user profile with avatar URL
             await supabase.auth.upsertUserProfile(userId, { avatar_url: avatarUrl });
-            
-            jsonResponse(res, { avatar_url: avatarUrl });
+            jsonResponse(res, { avatar_url: avatarUrl, storage: driveAvailable ? 'google_drive' : 'supabase' });
         } catch (error) {
             log.warn({ event: 'profile_avatar_upload_error', reason: error.message }, 'Avatar upload error');
             jsonResponse(res, { error: 'Avatar upload failed: ' + error.message }, 500);
@@ -333,20 +325,22 @@ async function handleProfile(ctx) {
         
         try {
             const userId = authResult.user.id;
+
+            // Delete from Google Drive (if configured)
+            try {
+                const driveModule = require('../../integrations/googleDrive/drive');
+                await driveModule.deleteAvatar(userId);
+            } catch {}
+
+            // Delete from Supabase Storage
             const client = supabase.getAdminClient();
-            
-            // Delete from storage (try common extensions)
             for (const ext of ['jpg', 'jpeg', 'png', 'gif', 'webp']) {
                 try {
                     await client.storage.from('avatars').remove([`avatars/${userId}.${ext}`]);
-                } catch (e) {
-                    // Ignore errors - file might not exist
-                }
+                } catch {}
             }
             
-            // Clear avatar URL in profile
             await supabase.auth.upsertUserProfile(userId, { avatar_url: null });
-            
             jsonResponse(res, { success: true });
         } catch (error) {
             log.warn({ event: 'profile_avatar_delete_error', reason: error.message }, 'Avatar delete error');

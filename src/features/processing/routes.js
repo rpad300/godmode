@@ -115,6 +115,8 @@ async function handleProcessing(ctx) {
                     }
                 }
             }
+        }).catch(err => {
+            log.warn({ event: 'processing_pipeline_error', error: err?.message }, 'Background processing failed');
         });
 
         jsonResponse(res, { status: 'started', message: `Processing started (text: ${textModel}, vision: ${visionModel || 'auto'})` });
@@ -123,7 +125,11 @@ async function handleProcessing(ctx) {
 
     // GET /api/process/status
     if (pathname === '/api/process/status' && req.method === 'GET') {
-        jsonResponse(res, processor.getState());
+        if (processor && typeof processor.getState === 'function') {
+            jsonResponse(res, processor.getState());
+        } else {
+            jsonResponse(res, { status: 'idle', progress: 0, totalFiles: 0, processedFiles: 0 });
+        }
         return true;
     }
 

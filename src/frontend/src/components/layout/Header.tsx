@@ -24,11 +24,15 @@
  *     react-router Layout while AppHeader is used in the legacy tab-based
  *     AppLayout. Assumption: one will be removed during consolidation.
  */
-import { Moon, Sun, Zap, Menu, LogOut } from 'lucide-react';
+import { useState } from 'react';
+import { Moon, Sun, Zap, Menu, LogOut, Bell } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../ui/Button';
 import { useAuth } from '../../contexts/AuthContext';
 import type { Project } from '../../hooks/useGodMode';
+import { useNotificationsCount } from '../../hooks/useGodMode';
+import { GlobalSearch } from './GlobalSearch';
+import { NotificationsPanel } from './NotificationsPanel';
 
 interface HeaderProps {
   theme: 'light' | 'dark';
@@ -37,6 +41,25 @@ interface HeaderProps {
   currentProjectId: string | null;
   onSelectProject: (id: string | null) => void;
   onToggleSidebar: () => void;
+}
+
+function NotificationsBell() {
+  const [open, setOpen] = useState(false);
+  const { data } = useNotificationsCount();
+  const count = data?.count ?? 0;
+  return (
+    <>
+      <Button variant="ghost" size="icon" onClick={() => setOpen(prev => !prev)} title="Notifications" className="relative">
+        <Bell className="h-4 w-4" />
+        {count > 0 && (
+          <span className="absolute -top-0.5 -right-0.5 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] text-[9px] font-bold min-w-[16px] h-4 flex items-center justify-center rounded-full">
+            {count > 99 ? '99+' : count}
+          </span>
+        )}
+      </Button>
+      <NotificationsPanel open={open} onClose={() => setOpen(false)} />
+    </>
+  );
 }
 
 function LogoutButton() {
@@ -89,6 +112,8 @@ export function Header({
       </div>
 
       <div className="flex items-center gap-2">
+        <GlobalSearch />
+        <NotificationsBell />
         <Button variant="ghost" size="icon" onClick={onToggleTheme} title="Toggle theme">
           {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </Button>

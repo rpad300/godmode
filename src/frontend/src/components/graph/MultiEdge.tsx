@@ -101,7 +101,7 @@ export default function MultiEdge({
                             fontSize: 12,
                             pointerEvents: 'all',
                         }}
-                        className="nodrag nopan bg-card px-2 py-1 border rounded shadow-sm text-xs text-muted-foreground font-mono"
+                        className="nodrag nopan bg-[var(--gm-surface-primary)] px-2 py-1 border rounded shadow-sm text-xs text-slate-400 font-mono"
                     >
                         {label}
                     </div>

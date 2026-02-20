@@ -373,7 +373,7 @@ class LLMQueueManager extends EventEmitter {
      * Process a retry item from database
      */
     async processRetryItem(dbRequest) {
-        // Get current provider config from app config (API keys are not stored in DB)
+        // Get provider config (non-secret fields only — keys come from Supabase)
         let providerConfig = {};
         try {
             if (this.configProvider) {
@@ -381,6 +381,7 @@ class LLMQueueManager extends EventEmitter {
                 const llmConfig = require('./config');
                 const cfg = llmConfig.getLLMConfig(appConfig);
                 providerConfig = cfg.getProviderConfig(dbRequest.provider) || {};
+                delete providerConfig.apiKey; // Never use config-file keys
             }
         } catch (err) {
             log.warn({ event: 'llm_queue_retry_config_failed', reason: err.message }, 'Could not get provider config for retry');
@@ -393,12 +394,11 @@ class LLMQueueManager extends EventEmitter {
             context: dbRequest.context,
             projectId: dbRequest.projectId || dbRequest.inputData?.projectId || null,
             _operation: dbRequest.requestType,
-            providerConfig  // Add current provider config with API key
+            providerConfig
         };
 
-        // BYOK: Resolve API key from Supabase vault for retry
-        // All keys come from Supabase - project keys first, then system keys
-        if (request.provider) {
+        // Resolve API key from Supabase vault — the ONLY key source
+        if (request.provider && request.provider !== 'ollama') {
             try {
                 const byokResult = await this.resolveProjectApiKey(request.provider, request.projectId);
                 if (byokResult) {
@@ -407,9 +407,11 @@ class LLMQueueManager extends EventEmitter {
                         apiKey: byokResult.apiKey
                     };
                     log.debug({ event: 'llm_queue_byok_retry_resolved', provider: request.provider, source: byokResult.source, projectId: request.projectId }, `BYOK retry: Using ${byokResult.source} API key`);
+                } else {
+                    log.warn({ event: 'llm_queue_retry_no_key', provider: request.provider }, 'No API key in Supabase for retry — request will likely fail');
                 }
             } catch (byokError) {
-                log.warn({ event: 'llm_queue_byok_retry_error', reason: byokError.message }, 'BYOK retry resolution error (continuing with existing key)');
+                log.warn({ event: 'llm_queue_byok_retry_error', reason: byokError.message }, 'BYOK retry resolution error — request will likely fail');
             }
         }
 
@@ -654,22 +656,50 @@ class LLMQueueManager extends EventEmitter {
         const projectId = item.request.projectId;
 
         // BYOK: Resolve API key from Supabase vault BEFORE billing check
-        // All keys (project + system) come from Supabase vault
+        // ALL keys come exclusively from Supabase vault — no config.json or env fallback
         // When source='project' (BYOK), billing restrictions are bypassed
         let byokSource = null;
-        if (item.request.provider) {
+        const providerName = item.request.provider;
+        if (providerName && providerName !== 'ollama') {
             try {
-                const byokResult = await this.resolveProjectApiKey(item.request.provider, projectId);
+                const byokResult = await this.resolveProjectApiKey(providerName, projectId);
                 if (byokResult) {
                     byokSource = byokResult.source; // 'project' or 'system'
                     item.request.providerConfig = {
                         ...(item.request.providerConfig || {}),
                         apiKey: byokResult.apiKey
                     };
-                    log.debug({ event: 'llm_queue_byok_resolved', id: item.id, provider: item.request.provider, source: byokSource, projectId }, `BYOK: Using ${byokSource} API key`);
+                    log.debug({ event: 'llm_queue_byok_resolved', id: item.id, provider: providerName, source: byokSource, projectId }, `BYOK: Using ${byokSource} API key`);
+                } else if (!item.request.providerConfig?.apiKey) {
+                    // No key in Supabase and no key in config — reject the request
+                    const noKeyMsg = `No API key configured for ${providerName}. Add it in Admin > LLM Providers.`;
+                    log.warn({ event: 'llm_queue_no_key', id: item.id, provider: providerName, projectId }, noKeyMsg);
+                    item.status = 'rejected';
+                    if (this.dbEnabled && item.dbId) {
+                        try { await this.dbQueue.failRequest({ requestId: item.dbId, error: noKeyMsg, errorCode: 'NO_API_KEY', retry: false }); } catch (_) {}
+                    }
+                    this.processingByKey.delete(key);
+                    this.lastRequestTimeByKey.set(key, Date.now());
+                    setImmediate(() => this.processNext());
+                    item.reject(new Error(noKeyMsg));
+                    return;
                 }
             } catch (byokError) {
-                log.warn({ event: 'llm_queue_byok_error', reason: byokError.message }, 'BYOK resolution error (continuing with existing key)');
+                // If Supabase is down and no key in providerConfig, fail instead of silently continuing
+                if (!item.request.providerConfig?.apiKey) {
+                    const failMsg = `Supabase unavailable and no API key for ${providerName}: ${byokError.message}`;
+                    log.error({ event: 'llm_queue_byok_error', reason: byokError.message, provider: providerName }, failMsg);
+                    item.status = 'rejected';
+                    if (this.dbEnabled && item.dbId) {
+                        try { await this.dbQueue.failRequest({ requestId: item.dbId, error: failMsg, errorCode: 'KEY_RESOLUTION_FAILED', retry: true }); } catch (_) {}
+                    }
+                    this.processingByKey.delete(key);
+                    this.lastRequestTimeByKey.set(key, Date.now());
+                    setImmediate(() => this.processNext());
+                    item.reject(new Error(failMsg));
+                    return;
+                }
+                log.warn({ event: 'llm_queue_byok_error', reason: byokError.message }, 'BYOK resolution error (using existing key from caller)');
             }
         }
 
@@ -723,6 +753,15 @@ class LLMQueueManager extends EventEmitter {
         try {
             // Execute the LLM request
             const result = await this.executeRequest(item);
+            
+            // Provider may return {success: false} without throwing
+            if (result && result.success === false) {
+                const errMsg = result.error?.message || result.error || 'LLM provider returned failure';
+                const syntheticError = new Error(errMsg);
+                if (result.error?.status) syntheticError.status = result.error.status;
+                if (result.error?.code) syntheticError.code = result.error.code;
+                throw syntheticError;
+            }
             
             // Success
             const processingTime = Date.now() - item.startedAt;
@@ -829,12 +868,16 @@ class LLMQueueManager extends EventEmitter {
                 }, this.config.rateLimitDelay);
                 
             } else if (error.message?.includes('timeout') && item.retries < item.maxRetries) {
-                // Retry on timeout
+                // Retry on timeout with exponential backoff
                 item.retries++;
                 item.status = 'pending';
                 this.stats.totalRetries++;
-                log.warn({ event: 'llm_queue_timeout', id: item.id, retries: item.retries, maxRetries: item.maxRetries }, 'Timeout');
-                this.queue.unshift(item);
+                const timeoutDelay = Math.min(5000 * Math.pow(2, item.retries - 1), 60000);
+                log.warn({ event: 'llm_queue_timeout', id: item.id, retries: item.retries, maxRetries: item.maxRetries, delayMs: timeoutDelay }, 'Timeout');
+                setTimeout(() => {
+                    this.queue.unshift(item);
+                    this.processNext();
+                }, timeoutDelay);
                 
             } else {
                 // Failed permanently

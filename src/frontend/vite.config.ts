@@ -28,9 +28,15 @@ import { fileURLToPath } from 'url';
 import { copyFileSync, existsSync } from 'fs';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import dotenv from 'dotenv';
+import { expand } from 'dotenv-expand';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+// Load environment variables from .env file
+const envConfig = dotenv.config({ path: resolve(__dirname, '../../.env') });
+expand(envConfig);
 
 /**
  * Custom Vite plugin that copies standalone HTML pages (landing, terms, privacy)
@@ -56,6 +62,14 @@ export default defineConfig({
   root: resolve(__dirname, 'src'),
 
   plugins: [react(), tailwindcss(), copyStaticPages()],
+
+  // Expose environment variables to the frontend with VITE_ prefix mapping
+  define: {
+    'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(process.env.SUPABASE_URL),
+    'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(process.env.SUPABASE_ANON_KEY),
+    'import.meta.env.VITE_SUPABASE_PROJECT_URL': JSON.stringify(process.env.SUPABASE_PROJECT_URL),
+    'import.meta.env.VITE_SUPABASE_PROJECT_ANON_KEY': JSON.stringify(process.env.SUPABASE_PROJECT_ANON_KEY),
+  },
 
   build: {
     // Output directly to src/public for the server to serve

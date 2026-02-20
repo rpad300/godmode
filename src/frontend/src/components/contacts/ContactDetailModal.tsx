@@ -37,17 +37,19 @@
  *   - Error handling is minimal (console.error only).
  */
 import { useState, useEffect } from 'react';
-import { User, FolderOpen, Users2, Clock, Building2, Mail, Phone, Linkedin, MapPin, Globe, Briefcase, StickyNote, CheckCircle2, AlertTriangle, Plus, Trash2, Sparkles, ArrowRight, ArrowLeft, MessageSquare, FileText, FileAudio } from 'lucide-react';
+import { User, FolderOpen, Users2, Clock, Building2, Mail, Phone, Linkedin, MapPin, Globe, Briefcase, StickyNote, CheckCircle2, AlertTriangle, Plus, Trash2, Sparkles, ArrowRight, ArrowLeft, MessageSquare, FileText, FileAudio, Loader2, X, Link2 as LinkIcon } from 'lucide-react';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { apiClient } from '@/lib/api-client';
+import { toast } from 'sonner';
+import { useEnrichContact, useDeleteRelationship, useUnlinkParticipant } from '@/hooks/useGodMode';
 import type { Contact, ContactRelationship, Project, ContactMention } from '@/types/godmode';
-
-const getInitials = (name: string) =>
-  name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+import { CommentsPanel } from '../shared/CommentsPanel';
+import { AvatarUpload } from '../shared/AvatarUpload';
+import { getInitials, resolveAvatarUrl } from '../../lib/utils';
 
 const avatarGradients = [
   'from-rose-400 to-pink-500',
@@ -76,11 +78,11 @@ interface ContactDetailModalProps {
 const InfoRow = ({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value?: string }) => {
   if (!value) return null;
   return (
-    <div className="grid grid-cols-2 gap-4 py-2.5 border-b border-border last:border-0">
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Icon className="w-4 h-4 text-destructive/70" /> {label}
+    <div className="grid grid-cols-2 gap-4 py-2.5 border-b border-white/10 last:border-0">
+      <div className="flex items-center gap-2 text-sm text-slate-400">
+        <Icon className="w-4 h-4 text-blue-400" /> {label}
       </div>
-      <p className="text-sm text-foreground break-all">{value}</p>
+      <p className="text-sm text-white break-all">{value}</p>
     </div>
   );
 };
@@ -99,15 +101,22 @@ const ContactDetailModal = ({ contact, open, onClose, onEdit, onDelete, onUpdate
   const [mentions, setMentions] = useState<ContactMention[]>([]);
   const [allContacts, setAllContacts] = useState<Contact[]>([]);
 
+  // Hooks
+  const enrichContact = useEnrichContact();
+  const deleteRelationship = useDeleteRelationship();
+  const unlinkParticipant = useUnlinkParticipant();
+
   // UI State
   const [showAddRelation, setShowAddRelation] = useState(false);
   const [newRelTarget, setNewRelTarget] = useState('');
   const [newRelType, setNewRelType] = useState('works_with');
   const [mentionFilter, setMentionFilter] = useState<string | null>(null);
+  const [contactAvatarUrl, setContactAvatarUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (contact && open) {
       loadData();
+      setContactAvatarUrl(resolveAvatarUrl(contact as any));
     }
   }, [contact, open]);
 
@@ -244,24 +253,71 @@ const ContactDetailModal = ({ contact, open, onClose, onEdit, onDelete, onUpdate
           <button onClick={onClose} className="absolute top-3 right-3 text-white/80 hover:text-white transition-colors">
             <span className="sr-only">Close</span>
           </button>
-          <Button variant="secondary" size="sm" className="absolute top-4 right-4 gap-1.5 bg-white/20 text-white border-0 hover:bg-white/30 backdrop-blur-sm" onClick={() => onEdit(contact)}>
-            <Sparkles className="w-3.5 h-3.5" /> Edit Contact
-          </Button>
+          <div className="absolute top-4 right-4 flex gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              className="gap-1.5 bg-white/20 text-white border-0 hover:bg-white/30 backdrop-blur-sm"
+              disabled={enrichContact.isPending}
+              onClick={() => {
+                enrichContact.mutate(contact.id, {
+                  onSuccess: (data: any) => {
+                    toast.success('AI enrichment complete');
+                    if (data?.suggestions) {
+                      const s = data.suggestions;
+                      const fields: string[] = [];
+                      if (s.role) fields.push(`Role: ${s.role}`);
+                      if (s.department) fields.push(`Dept: ${s.department}`);
+                      if (s.tags) fields.push(`Tags: ${(s.tags as string[]).join(', ')}`);
+                      if (fields.length) toast.info(fields.join(' | '));
+                    }
+                    loadData();
+                  },
+                  onError: () => toast.error('Enrichment failed'),
+                });
+              }}
+            >
+              {enrichContact.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />} Enrich AI
+            </Button>
+            <Button variant="secondary" size="sm"
+              className="gap-1.5 bg-white/20 text-white border-0 hover:bg-white/30 backdrop-blur-sm"
+              disabled={unlinkParticipant.isPending}
+              onClick={() => {
+                const name = contact.display_name || contact.name || '';
+                if (!name) { toast.error('No participant name to unlink'); return; }
+                unlinkParticipant.mutate(name, {
+                  onSuccess: () => toast.success(`Unlinked participant "${name}"`),
+                  onError: () => toast.error('Unlink failed'),
+                });
+              }}>
+              {unlinkParticipant.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LinkIcon className="w-3.5 h-3.5" />} Unlink
+            </Button>
+            <Button variant="secondary" size="sm" className="gap-1.5 bg-white/20 text-white border-0 hover:bg-white/30 backdrop-blur-sm" onClick={() => onEdit(contact)}>
+              Edit
+            </Button>
+          </div>
         </div>
 
         {/* Avatar + Name overlapping header */}
         <div className="px-6 -mt-10 relative z-10">
           <div className="flex items-end gap-4">
-            <div className={`w-16 h-16 rounded-full bg-gradient-to-br ${getGradient(contact.name)} flex items-center justify-center shadow-lg border-4 border-background`}>
-              {contact.avatarUrl || contact.avatar ? (
-                <img src={contact.avatarUrl || contact.avatar} alt={contact.name} className="w-full h-full rounded-full object-cover" />
-              ) : (
-                <span className="text-lg font-bold text-white">{getInitials(contact.name)}</span>
-              )}
-            </div>
+            <AvatarUpload
+              currentUrl={contactAvatarUrl}
+              name={contact.name}
+              uploadEndpoint={`/api/contacts/${contact.id}/avatar`}
+              deleteEndpoint={`/api/contacts/${contact.id}/avatar`}
+              onUploaded={(url) => { setContactAvatarUrl(url); loadData(); }}
+              onRemoved={() => { setContactAvatarUrl(null); loadData(); }}
+              size="md"
+              showUrlInput={false}
+              className="!gap-0"
+            />
             <div className="pb-1">
-              <h2 className="text-xl font-bold text-foreground">{contact.name}</h2>
-              <p className="text-sm text-muted-foreground">{contact.role}</p>
+              <h2 className="text-xl font-bold text-white">{contact.name || '(unnamed)'}</h2>
+              <p className="text-sm text-slate-300">
+                {contact.role || contact.cargo || '—'}
+                {(contact.organization || contact.empresa) && ` · ${contact.organization || contact.empresa}`}
+              </p>
             </div>
           </div>
         </div>
@@ -269,7 +325,7 @@ const ContactDetailModal = ({ contact, open, onClose, onEdit, onDelete, onUpdate
         {/* Tabs */}
         <div className="px-6 mt-4">
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="w-full justify-start bg-transparent border-b border-border rounded-none h-auto p-0 gap-0">
+            <TabsList className="w-full justify-start bg-transparent border-b border-white/10 rounded-none h-auto p-0 gap-0">
               {[
                 { id: 'info', label: 'Info', icon: User, count: undefined },
                 { id: 'projects', label: 'Projects', icon: FolderOpen, count: assignedProjectIds.length },
@@ -280,12 +336,12 @@ const ContactDetailModal = ({ contact, open, onClose, onEdit, onDelete, onUpdate
                 <TabsTrigger
                   key={tab.id}
                   value={tab.id}
-                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-destructive data-[state=active]:text-destructive data-[state=active]:shadow-none bg-transparent px-4 py-2.5 text-sm gap-1.5"
+                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-blue-500 data-[state=active]:text-blue-400 data-[state=active]:shadow-none bg-transparent text-slate-400 hover:text-slate-200 px-4 py-2.5 text-sm gap-1.5"
                 >
                   <tab.icon className="w-3.5 h-3.5" />
                   {tab.label}
                   {tab.count !== undefined && (
-                    <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-destructive/10 text-destructive font-semibold">
+                    <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 font-semibold">
                       {tab.count}
                     </span>
                   )}
@@ -295,7 +351,7 @@ const ContactDetailModal = ({ contact, open, onClose, onEdit, onDelete, onUpdate
 
             {/* Info Tab */}
             <TabsContent value="info" className="mt-4 pb-0">
-              <div className="divide-y divide-border">
+              <div className="divide-y divide-white/10">
                 <InfoRow icon={User} label="Name *" value={contact.name} />
                 <InfoRow icon={Briefcase} label="Role" value={contact.role} />
                 <InfoRow icon={Mail} label="Email" value={contact.email} />
@@ -306,13 +362,13 @@ const ContactDetailModal = ({ contact, open, onClose, onEdit, onDelete, onUpdate
                 <InfoRow icon={MapPin} label="Location" value={contact.location} />
                 <InfoRow icon={Globe} label="Timezone" value={contact.timezone} />
                 {contact.aliases && contact.aliases.length > 0 && (
-                  <div className="grid grid-cols-2 gap-4 py-2.5 border-b border-border last:border-0">
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <User className="w-4 h-4 text-destructive/70" /> Aliases
+                  <div className="grid grid-cols-2 gap-4 py-2.5 border-b border-white/10 last:border-0">
+                    <div className="flex items-center gap-2 text-sm text-slate-400">
+                      <User className="w-4 h-4 text-blue-400" /> Aliases
                     </div>
                     <div className="flex flex-wrap gap-1">
                       {contact.aliases.map(a => (
-                        <span key={a} className="text-xs px-1.5 py-0.5 bg-secondary rounded text-muted-foreground">{a}</span>
+                        <span key={a} className="text-xs px-1.5 py-0.5 bg-white/5 rounded text-slate-400">{a}</span>
                       ))}
                     </div>
                   </div>
@@ -328,20 +384,20 @@ const ContactDetailModal = ({ contact, open, onClose, onEdit, onDelete, onUpdate
                   const isAssigned = assignedProjectIds.includes(p.id);
                   const isPrimary = primaryProjectId === p.id;
                   return (
-                    <div key={p.id} className="flex items-center justify-between py-2.5 border-b border-border last:border-0 hover:bg-secondary/10 px-2 rounded">
+                    <div key={p.id} className="flex items-center justify-between py-2.5 border-b border-white/10 last:border-0 hover:bg-white/5 px-2 rounded">
                       <div className="flex items-center gap-3 cursor-pointer flex-1" onClick={() => toggleProject(p.id)}>
-                        <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${isAssigned ? 'border-primary bg-primary' : 'border-border hover:border-muted-foreground'}`}>
-                          {isAssigned && <CheckCircle2 className="w-3 h-3 text-primary-foreground" />}
+                        <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${isAssigned ? 'border-blue-500 bg-blue-600' : 'border-white/20 hover:border-slate-400'}`}>
+                          {isAssigned && <CheckCircle2 className="w-3 h-3 text-white" />}
                         </div>
                         <div className="flex flex-col">
-                          <span className={`text-sm ${isAssigned ? 'text-foreground' : 'text-muted-foreground'}`}>{p.name}</span>
-                          {p.description && <span className="text-[10px] text-muted-foreground truncate max-w-[200px]">{p.description}</span>}
+                          <span className={`text-sm ${isAssigned ? 'text-white' : 'text-slate-400'}`}>{p.name}</span>
+                          {p.description && <span className="text-[10px] text-slate-400 truncate max-w-[200px]">{p.description}</span>}
                         </div>
                       </div>
                       {isPrimary ? (
-                        <span className="text-[10px] px-2 py-0.5 rounded bg-primary text-primary-foreground font-semibold">Primary</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded bg-blue-600 text-white font-semibold">Primary</span>
                       ) : isAssigned ? (
-                        <button onClick={(e) => { e.stopPropagation(); setPrimary(p.id); }} className="text-[10px] px-2 py-0.5 rounded bg-secondary text-muted-foreground hover:text-foreground transition-colors">
+                        <button onClick={(e) => { e.stopPropagation(); setPrimary(p.id); }} className="text-[10px] px-2 py-0.5 rounded bg-white/5 text-slate-400 hover:text-white transition-colors">
                           Set Primary
                         </button>
                       ) : null}
@@ -358,29 +414,47 @@ const ContactDetailModal = ({ contact, open, onClose, onEdit, onDelete, onUpdate
                   {relations.map((r, i) => {
                     const label = (r.type || '').replace('_', ' ');
                     const otherName = r.other_contact?.name || 'Unknown';
-                    const Icon = r.direction === 'forward' ? ArrowRight : ArrowLeft;
 
                     return (
-                      <div key={i} className="flex items-center gap-3 py-2.5 border-b border-border last:border-0">
-                        <Users2 className="w-4 h-4 text-muted-foreground" />
+                      <div key={i} className="flex items-center gap-3 py-2.5 border-b border-white/10 last:border-0 group/rel">
+                        <Users2 className="w-4 h-4 text-slate-400" />
                         <div className="flex-1 flex items-center gap-2 text-sm">
-                          <span className="font-medium text-foreground">{contact.name}</span>
-                          <span className="text-muted-foreground text-xs px-1 bg-secondary rounded">{label}</span>
-                          <span className="font-medium text-foreground">{otherName}</span>
+                          <span className="font-medium text-white">{contact.name}</span>
+                          <span className="text-slate-400 text-xs px-1 bg-white/5 rounded">{label}</span>
+                          <span className="font-medium text-white">{otherName}</span>
                         </div>
+                        <button
+                          className="opacity-0 group-hover/rel:opacity-100 transition-opacity text-red-400/60 hover:text-red-400"
+                          title="Remove relationship"
+                          onClick={() => {
+                            if (!r.other_contact?.id) return;
+                            deleteRelationship.mutate(
+                              { contactId: contact.id, toContactId: r.other_contact.id, type: r.type },
+                              {
+                                onSuccess: () => {
+                                  setRelations(prev => prev.filter((_, idx) => idx !== i));
+                                  toast.success('Relationship removed');
+                                },
+                                onError: () => toast.error('Failed to remove relationship'),
+                              }
+                            );
+                          }}
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     );
                   })}
                 </div>
               ) : (
-                <div className="flex flex-col items-center py-8 text-muted-foreground">
+                <div className="flex flex-col items-center py-8 text-slate-400">
                   <Users2 className="w-10 h-10 mb-2 opacity-40" />
                   <p className="text-sm">No relationships yet</p>
                 </div>
               )}
 
               {showAddRelation ? (
-                <div className="mt-3 p-3 rounded-lg border border-border bg-secondary/30 space-y-3">
+                <div className="mt-3 p-3 rounded-lg border border-white/10 bg-white/5 space-y-3">
                   <div className="grid grid-cols-2 gap-2">
                     <Select value={newRelTarget} onValueChange={setNewRelTarget}>
                       <SelectTrigger className="text-sm">
@@ -414,7 +488,7 @@ const ContactDetailModal = ({ contact, open, onClose, onEdit, onDelete, onUpdate
                   </div>
                 </div>
               ) : (
-                <button onClick={() => setShowAddRelation(true)} className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mt-4 transition-colors">
+                <button onClick={() => setShowAddRelation(true)} className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-white mt-4 transition-colors">
                   <Plus className="w-4 h-4" /> Add Relationship
                 </button>
               )}
@@ -430,8 +504,8 @@ const ContactDetailModal = ({ contact, open, onClose, onEdit, onDelete, onUpdate
                         key={type}
                         onClick={() => setMentionFilter(type === 'all' ? null : type)}
                         className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${(mentionFilter === type || (mentionFilter === null && type === 'all'))
-                          ? 'bg-destructive/10 text-destructive border-destructive/20'
-                          : 'bg-secondary/50 text-muted-foreground border-transparent hover:bg-secondary'
+                          ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                          : 'bg-white/5 text-slate-400 border-transparent hover:bg-white/10 hover:text-slate-200'
                           }`}
                       >
                         {type.charAt(0).toUpperCase() + type.slice(1)}s
@@ -443,7 +517,7 @@ const ContactDetailModal = ({ contact, open, onClose, onEdit, onDelete, onUpdate
                     {mentions
                       .filter(m => !mentionFilter || m.type === mentionFilter)
                       .map((mention) => (
-                        <div key={mention.id} className="flex gap-3 py-3 border-b border-border last:border-0 group">
+                        <div key={mention.id} className="flex gap-3 py-3 border-b border-white/10 last:border-0 group">
                           <div className="mt-0.5">
                             {mention.type === 'email' ? <Mail className="w-3.5 h-3.5 text-blue-400" /> :
                               mention.type === 'conversation' ? <MessageSquare className="w-3.5 h-3.5 text-violet-400" /> :
@@ -451,16 +525,16 @@ const ContactDetailModal = ({ contact, open, onClose, onEdit, onDelete, onUpdate
                           </div>
                           <div className="flex-1 space-y-1">
                             <div className="flex justify-between items-start">
-                              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{mention.source}</span>
-                              <span className="text-[10px] text-muted-foreground whitespace-nowrap ml-2">
-                                {new Date(mention.date).toLocaleDateString()}
+                              <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">{mention.source || '—'}</span>
+                              <span className="text-[10px] text-slate-400 whitespace-nowrap ml-2">
+                                {mention.date ? new Date(mention.date).toLocaleDateString() : '—'}
                               </span>
                             </div>
-                            <p className="text-sm text-foreground line-clamp-2 bg-secondary/20 p-2 rounded border border-border/50 italic">
+                            <p className="text-sm text-white line-clamp-2 bg-white/5 p-2 rounded border border-white/10 italic">
                               "{mention.text}"
                             </p>
                             {mention.link && (
-                              <a href={mention.link} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline inline-flex items-center gap-1 mt-1 font-medium transition-colors">
+                              <a href={mention.link} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-400 hover:underline inline-flex items-center gap-1 mt-1 font-medium transition-colors">
                                 View Context <ArrowRight className="w-3 h-3" />
                               </a>
                             )}
@@ -468,12 +542,12 @@ const ContactDetailModal = ({ contact, open, onClose, onEdit, onDelete, onUpdate
                         </div>
                       ))}
                     {mentions.filter(m => !mentionFilter || m.type === mentionFilter).length === 0 && (
-                      <p className="text-center text-sm text-muted-foreground py-8">No mentions found for this filter</p>
+                      <p className="text-center text-sm text-slate-400 py-8">No mentions found for this filter</p>
                     )}
                   </div>
                 </div>
               ) : (
-                <div className="flex flex-col items-center py-8 text-muted-foreground">
+                <div className="flex flex-col items-center py-8 text-slate-400">
                   <MessageSquare className="w-10 h-10 mb-2 opacity-40" />
                   <p className="text-sm">No mentions found</p>
                 </div>
@@ -485,23 +559,23 @@ const ContactDetailModal = ({ contact, open, onClose, onEdit, onDelete, onUpdate
               {activity.length > 0 ? (
                 <div className="space-y-2 max-h-60 overflow-y-auto">
                   {activity.map((item) => (
-                    <div key={`${item.type}-${item.id}`} className="flex items-center gap-3 py-2.5 border-b border-border last:border-0">
+                    <div key={`${item.type}-${item.id}`} className="flex items-center gap-3 py-2.5 border-b border-white/10 last:border-0">
                       {item.status === 'completed' || item.status === 'approved' ? (
                         <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
                       ) : item.status === 'overdue' || item.status === 'rejected' ? (
-                        <AlertTriangle className="w-4 h-4 text-destructive shrink-0" />
+                        <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
                       ) : (
-                        <Clock className="w-4 h-4 text-muted-foreground shrink-0" />
+                        <Clock className="w-4 h-4 text-slate-400 shrink-0" />
                       )}
-                      <span className="text-sm text-foreground flex-1 truncate">{item.description}</span>
-                      <span className="text-[10px] text-muted-foreground shrink-0">
-                        {new Date(item.date).toLocaleDateString()}
+                      <span className="text-sm text-white flex-1 truncate">{item.description}</span>
+                      <span className="text-[10px] text-slate-400 shrink-0">
+                        {item.date ? new Date(item.date).toLocaleDateString() : '—'}
                       </span>
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="flex flex-col items-center py-8 text-muted-foreground">
+                <div className="flex flex-col items-center py-8 text-slate-400">
                   <Clock className="w-10 h-10 mb-2 opacity-40" />
                   <p className="text-sm">No activity recorded yet</p>
                 </div>
@@ -511,16 +585,21 @@ const ContactDetailModal = ({ contact, open, onClose, onEdit, onDelete, onUpdate
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-border mt-4">
-          <Button variant="outline" size="sm" className="text-destructive border-destructive/30 hover:bg-destructive/10 gap-1.5" onClick={() => onDelete(contact.id)}>
+        <div className="flex items-center justify-between px-6 py-4 border-t border-white/10 mt-4">
+          <Button variant="outline" size="sm" className="text-red-400 border-red-400/30 hover:bg-red-500/10 gap-1.5" onClick={() => onDelete(contact.id)}>
             <Trash2 className="w-3.5 h-3.5" /> Delete
           </Button>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-            <Button size="sm" className="gap-1.5 bg-destructive hover:bg-destructive/90" onClick={() => onEdit(contact)}>
+            <Button variant="outline" size="sm" className="text-slate-300 border-white/20 hover:bg-white/10" onClick={onClose}>Cancel</Button>
+            <Button size="sm" className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white" onClick={() => onEdit(contact)}>
               <CheckCircle2 className="w-3.5 h-3.5" /> Save Changes
             </Button>
           </div>
+        </div>
+
+        {/* Comments */}
+        <div className="mt-4">
+          <CommentsPanel targetType="contact" targetId={contact.id} />
         </div>
       </DialogContent>
     </Dialog>

@@ -31,6 +31,10 @@ import { useAuth } from '../contexts/AuthContext';
 
 type AuthMode = 'login' | 'register' | 'forgot';
 
+const CARD = 'rounded-xl border border-[var(--gm-border-primary)] bg-[var(--gm-surface-primary)] shadow-[var(--shadow-sm)] transition-all duration-200';
+const INPUT = 'w-full bg-[var(--gm-bg-tertiary)] border border-[var(--gm-border-primary)] rounded-lg px-3 py-2 text-sm text-[var(--gm-text-primary)] placeholder:text-[var(--gm-text-placeholder)] focus:outline-none focus:border-[var(--gm-border-focus)] focus:shadow-[var(--shadow-focus)] transition-all duration-150';
+const BTN_PRIMARY = 'inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--gm-interactive-primary)] text-[var(--gm-text-on-brand)] hover:bg-[var(--gm-interactive-primary-hover)] shadow-sm transition-all duration-150 disabled:opacity-50';
+
 export default function LoginPage() {
   const { isAuthenticated, isLoading, login, register, forgotPassword } = useAuth();
   const [mode, setMode] = useState<AuthMode>('login');
@@ -42,8 +46,8 @@ export default function LoginPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-background">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="flex items-center justify-center h-screen bg-[var(--gm-bg-primary)]">
+        <Loader2 className="h-8 w-8 animate-spin text-[var(--gm-accent-primary)]" />
       </div>
     );
   }
@@ -86,36 +90,36 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center px-4">
+    <div className="min-h-screen bg-[var(--gm-bg-primary)] flex items-center justify-center px-4">
       {/* Background decoration */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-primary/5 rounded-full blur-3xl" />
-        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-primary/5 rounded-full blur-3xl" />
+        <div className="absolute -top-40 -right-40 w-80 h-80 bg-[var(--gm-interactive-primary)]/5 rounded-full blur-3xl" />
+        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-[var(--gm-interactive-primary)]/5 rounded-full blur-3xl" />
       </div>
 
       <div className="relative w-full max-w-md">
         {/* Logo */}
         <div className="flex items-center justify-center gap-2 mb-8">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center shadow-lg shadow-primary/30">
-            <Zap className="w-5 h-5 text-primary-foreground" />
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[var(--gm-interactive-primary)] to-[var(--gm-interactive-primary)]/70 flex items-center justify-center shadow-lg shadow-[var(--gm-interactive-primary)]/30">
+            <Zap className="w-5 h-5 text-[var(--gm-text-on-brand)]" />
           </div>
-          <span className="text-2xl font-bold text-foreground tracking-tight">GodMode</span>
+          <span className="text-2xl font-bold text-[var(--gm-text-primary)] tracking-tight">GodMode</span>
         </div>
 
         {/* Card */}
-        <div className="bg-card rounded-2xl border border-border p-8 shadow-xl">
+        <div className="bg-[var(--gm-surface-primary)] rounded-2xl border border-[var(--gm-border-primary)] p-8 shadow-xl">
           <div className="text-center mb-6">
-            <h1 className="text-xl font-bold text-foreground">
+            <h1 className="text-xl font-bold text-[var(--gm-text-primary)]">
               {mode === 'login' ? 'Welcome back' : mode === 'register' ? 'Create account' : 'Reset password'}
             </h1>
-            <p className="text-sm text-muted-foreground mt-1">
+            <p className="text-sm text-[var(--gm-text-tertiary)] mt-1">
               {mode === 'login' ? 'Sign in to your account' : mode === 'register' ? 'Get started with GodMode' : 'Enter your email to receive a reset link'}
             </p>
           </div>
 
           {/* Mode switcher for login/register */}
           {mode !== 'forgot' && (
-            <div className="flex mb-6 bg-secondary rounded-lg p-1">
+            <div className="flex mb-6 bg-[var(--gm-bg-tertiary)] rounded-lg p-1">
               {(['login', 'register'] as const).map(tab => (
                 <button
                   key={tab}
@@ -123,8 +127,8 @@ export default function LoginPage() {
                   onClick={() => setMode(tab)}
                   className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${
                     mode === tab
-                      ? 'bg-primary text-primary-foreground shadow-sm'
-                      : 'text-muted-foreground hover:text-foreground'
+                      ? 'bg-[var(--gm-interactive-primary)] text-[var(--gm-text-on-brand)] shadow-sm'
+                      : 'text-[var(--gm-text-tertiary)] hover:text-[var(--gm-text-primary)]'
                   }`}
                 >
                   {tab === 'login' ? 'Sign In' : 'Sign Up'}
@@ -135,7 +139,7 @@ export default function LoginPage() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5">
+              <label className="block text-xs font-medium text-[var(--gm-text-tertiary)] uppercase tracking-wider mb-1.5">
                 Email
               </label>
               <input
@@ -145,13 +149,13 @@ export default function LoginPage() {
                 placeholder="you@example.com"
                 required
                 autoComplete="email"
-                className="w-full px-3 py-2.5 bg-secondary border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-ring"
+                className="w-full px-3 py-2.5 bg-[var(--gm-bg-tertiary)] border border-[var(--gm-border-primary)] rounded-lg text-sm text-[var(--gm-text-primary)] placeholder:text-[var(--gm-text-placeholder)] focus:outline-none focus:border-[var(--gm-border-focus)] focus:shadow-[var(--shadow-focus)]"
               />
             </div>
 
             {mode !== 'forgot' && (
               <div>
-                <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5">
+                <label className="block text-xs font-medium text-[var(--gm-text-tertiary)] uppercase tracking-wider mb-1.5">
                   Password
                 </label>
                 <div className="relative">
@@ -162,12 +166,12 @@ export default function LoginPage() {
                     placeholder={mode === 'register' ? 'Min 6 characters' : 'Your password'}
                     required
                     autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-                    className="w-full px-3 py-2.5 pr-10 bg-secondary border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-ring"
+                    className="w-full px-3 py-2.5 pr-10 bg-[var(--gm-bg-tertiary)] border border-[var(--gm-border-primary)] rounded-lg text-sm text-[var(--gm-text-primary)] placeholder:text-[var(--gm-text-placeholder)] focus:outline-none focus:border-[var(--gm-border-focus)] focus:shadow-[var(--shadow-focus)]"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--gm-text-tertiary)] hover:text-[var(--gm-text-primary)]"
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
@@ -177,7 +181,7 @@ export default function LoginPage() {
 
             {mode === 'register' && (
               <div>
-                <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5">
+                <label className="block text-xs font-medium text-[var(--gm-text-tertiary)] uppercase tracking-wider mb-1.5">
                   Confirm Password
                 </label>
                 <input
@@ -187,7 +191,7 @@ export default function LoginPage() {
                   placeholder="Repeat your password"
                   required
                   autoComplete="new-password"
-                  className="w-full px-3 py-2.5 bg-secondary border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-ring"
+                  className="w-full px-3 py-2.5 bg-[var(--gm-bg-tertiary)] border border-[var(--gm-border-primary)] rounded-lg text-sm text-[var(--gm-text-primary)] placeholder:text-[var(--gm-text-placeholder)] focus:outline-none focus:border-[var(--gm-border-focus)] focus:shadow-[var(--shadow-focus)]"
                 />
               </div>
             )}
@@ -195,7 +199,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={submitting}
-              className="w-full py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              className="w-full py-2.5 bg-[var(--gm-interactive-primary)] text-[var(--gm-text-on-brand)] rounded-lg text-sm font-medium hover:bg-[var(--gm-interactive-primary-hover)] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
               {submitting
@@ -211,7 +215,7 @@ export default function LoginPage() {
               <button
                 type="button"
                 onClick={() => setMode('forgot')}
-                className="text-xs text-primary hover:text-primary/80 transition-colors"
+                className="text-xs text-[var(--gm-accent-primary)] hover:text-[var(--gm-accent-primary)]/80 transition-colors"
               >
                 Forgot password?
               </button>
@@ -220,7 +224,7 @@ export default function LoginPage() {
               <button
                 type="button"
                 onClick={() => setMode('login')}
-                className="text-xs text-primary hover:text-primary/80 transition-colors inline-flex items-center gap-1"
+                className="text-xs text-[var(--gm-accent-primary)] hover:text-[var(--gm-accent-primary)]/80 transition-colors inline-flex items-center gap-1"
               >
                 <ArrowLeft className="w-3 h-3" /> Back to sign in
               </button>
@@ -228,7 +232,7 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <p className="text-center text-xs text-muted-foreground mt-6">
+        <p className="text-center text-xs text-[var(--gm-text-tertiary)] mt-6">
           By continuing, you agree to our Terms of Service and Privacy Policy.
         </p>
       </div>

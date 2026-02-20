@@ -141,11 +141,7 @@ async function getUserNotifications(userId, options = {}) {
     try {
         let query = supabase
             .from('notifications')
-            .select(`
-                *,
-                actor:user_profiles!actor_id(id, username, display_name, avatar_url),
-                project:projects!project_id(id, name)
-            `, { count: 'exact' })
+            .select('*', { count: 'exact' })
             .eq('user_id', userId)
             .order('created_at', { ascending: false })
             .range(offset, offset + limit - 1);

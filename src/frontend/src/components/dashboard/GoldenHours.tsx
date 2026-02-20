@@ -10,8 +10,7 @@
  *     local time labels
  *   - Groups contacts by timezone and draws work-hour bars (9:00-18:00
  *     local mapped to UTC 0-24 axis) for up to 5 timezones
- *   - Highlights the "golden hours" overlap zone (hardcoded 14:00-17:00
- *     UTC) as a yellow gradient bar
+ *   - Dynamically computes the overlap zone across all displayed timezones
  *   - Shows a summary card with overlap duration and scheduling advice
  *   - Renders four suggested meeting slot buttons
  *
@@ -19,25 +18,11 @@
  *   - date-fns (format): current time display
  *   - Contact (godmode types): contact shape with timezone field
  *   - cn (utils): conditional class merging
- *
- * Side effects:
- *   - None
- *
- * Notes:
- *   - Golden hours are hardcoded to 14:00-17:00 UTC for the MVP; a
- *     real implementation should compute the actual intersection of all
- *     displayed work-hour windows.
- *   - Work-hour bars do not handle UTC wrap-around (e.g., UTC+12 where
- *     9 local = 21 UTC previous day); the bar may render outside the
- *     0-24 range. This is noted as an MVP simplification.
- *   - Suggested meeting slots are static strings, not computed.
- *   - addHours, startOfDay, isSameDay are imported but unused.
  */
 import React, { useMemo } from 'react';
-import { Clock, Users, Sun, Star, Info } from 'lucide-react';
+import { Clock, Users, Sun, Star, AlertTriangle, Globe } from 'lucide-react';
 import { Contact } from '@/types/godmode';
-import { cn } from '@/lib/utils';
-import { format, addHours, startOfDay, isSameDay } from 'date-fns';
+import { cn, resolveAvatarUrl, getInitials } from '@/lib/utils';
 
 interface GoldenHoursProps {
     className?: string;
@@ -48,10 +33,8 @@ export const GoldenHours: React.FC<GoldenHoursProps & { allContacts?: Contact[] 
     const [mode, setMode] = React.useState<'team' | 'all'>('team');
     const currentTime = new Date();
 
-    // Use the appropriate list based on mode
     const displayContacts = mode === 'team' ? teamContacts : allContacts;
 
-    // De-duplicate contacts by ID just in case
     const uniqueContacts = useMemo(() => {
         const seen = new Set();
         return displayContacts.filter(c => {
@@ -61,7 +44,6 @@ export const GoldenHours: React.FC<GoldenHoursProps & { allContacts?: Contact[] 
         });
     }, [displayContacts]);
 
-    // Group contacts by timezone to avoid duplicate rows
     const timezones = useMemo(() => {
         const tzMap = new Map<string, Contact[]>();
         uniqueContacts.forEach(contact => {
@@ -72,161 +54,222 @@ export const GoldenHours: React.FC<GoldenHoursProps & { allContacts?: Contact[] 
         return Array.from(tzMap.entries()).map(([tz, contacts]) => ({
             tz,
             contacts,
-            // Simple offset calculation (approximate for MVP)
             offset: getTimezoneOffset(tz)
         }));
     }, [uniqueContacts]);
 
-    // Calculate generic "Golden Hours" (overlap)
-    // For MVP, we'll hardcode a logic or use a simple intersection of 9-18
-    // This is a visualization component, so we calculate "work hours" bars relative to UTC/Local
+    const goldenWindow = useMemo(() => computeGoldenHours(timezones.map(t => t.offset)), [timezones]);
+
+    const currentHourUTC = currentTime.getUTCHours() + currentTime.getUTCMinutes() / 60;
 
     return (
         <div className={cn("space-y-4", className)}>
-            <div className="golden-hours-header flex items-center justify-between">
-                <div className="flex items-center gap-2 text-foreground">
-                    <div className="p-1.5 bg-yellow-500/10 rounded-lg">
-                        <Sun className="w-5 h-5 text-yellow-500" />
+            {/* Header */}
+            <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-gm-text-primary">
+                    <div className="p-1.5 bg-amber-500/10 rounded-lg">
+                        <Sun className="w-5 h-5 text-amber-500" />
                     </div>
                     <h3 className="font-semibold text-lg">Golden Hours</h3>
                 </div>
-                <span className="text-sm text-muted-foreground font-medium">
-                    {format(currentTime, 'HH:mm')} your time
-                </span>
+                <div className="flex items-center gap-2">
+                    <Globe className="w-3.5 h-3.5 text-gm-text-tertiary" />
+                    <span className="text-sm text-gm-text-secondary font-medium">
+                        {currentTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })} your time
+                    </span>
+                </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-4">
-                <div className="golden-card bg-card/50 backdrop-blur-sm border border-border/50 rounded-xl p-5 space-y-6 shadow-sm">
+            <div className="golden-card bg-gm-surface-secondary backdrop-blur-sm border border-gm-border-primary rounded-xl p-5 space-y-6">
+                {/* Toggle */}
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        <button
+                            onClick={() => setMode('team')}
+                            className={cn(
+                                "flex items-center gap-2 text-sm font-medium transition-all px-3 py-1.5 rounded-lg",
+                                mode === 'team'
+                                    ? "bg-blue-600/10 text-gm-interactive-primary"
+                                    : "text-gm-text-tertiary hover:bg-gm-surface-hover hover:text-gm-text-primary"
+                            )}
+                        >
+                            <Users className="w-4 h-4" />
+                            <span>Team</span>
+                            <span className="bg-gm-bg-secondary text-gm-text-primary px-1.5 py-0.5 rounded text-xs ml-1 border border-gm-border-primary">
+                                {teamContacts.length}
+                            </span>
+                        </button>
 
-                    {/* Contacts Header & Toggle */}
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                            <button
-                                onClick={() => setMode('team')}
-                                className={cn(
-                                    "flex items-center gap-2 text-sm font-medium transition-colors px-3 py-1.5 rounded-lg",
-                                    mode === 'team'
-                                        ? "bg-primary/10 text-primary"
-                                        : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
-                                )}
-                            >
-                                <Users className="w-4 h-4" />
-                                <span>Team Availability</span>
-                                <span className="bg-background/50 text-foreground px-1.5 py-0.5 rounded text-xs ml-1 border border-border/50">
-                                    {teamContacts.length}
-                                </span>
-                            </button>
+                        <div className="h-4 w-px bg-gm-border-primary" />
 
-                            <div className="h-4 w-px bg-border/50" />
-
-                            <button
-                                onClick={() => setMode('all')}
-                                className={cn(
-                                    "flex items-center gap-2 text-sm font-medium transition-colors px-3 py-1.5 rounded-lg",
-                                    mode === 'all'
-                                        ? "bg-primary/10 text-primary"
-                                        : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
-                                )}
-                            >
-                                <Users className="w-4 h-4" />
-                                <span>All Contacts</span>
-                                <span className="bg-background/50 text-foreground px-1.5 py-0.5 rounded text-xs ml-1 border border-border/50">
-                                    {allContacts.length}
-                                </span>
-                            </button>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                            <span className="text-xs text-muted-foreground">Live</span>
-                        </div>
+                        <button
+                            onClick={() => setMode('all')}
+                            className={cn(
+                                "flex items-center gap-2 text-sm font-medium transition-all px-3 py-1.5 rounded-lg",
+                                mode === 'all'
+                                    ? "bg-blue-600/10 text-gm-interactive-primary"
+                                    : "text-gm-text-tertiary hover:bg-gm-surface-hover hover:text-gm-text-primary"
+                            )}
+                        >
+                            <Users className="w-4 h-4" />
+                            <span>All Contacts</span>
+                            <span className="bg-gm-bg-secondary text-gm-text-primary px-1.5 py-0.5 rounded text-xs ml-1 border border-gm-border-primary">
+                                {allContacts.length}
+                            </span>
+                        </button>
                     </div>
+                    <div className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                        <span className="text-xs text-gm-text-tertiary">Live</span>
+                    </div>
+                </div>
 
-                    {/* People List */}
-                    <div className="people-list flex gap-3 overflow-x-auto pb-2 -mx-2 px-2 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent">
-                        {uniqueContacts.length === 0 ? (
-                            <div className="text-sm text-muted-foreground py-4 px-2 italic">No contacts found in this view.</div>
-                        ) : (
-                            uniqueContacts.map(contact => (
-                                <div key={contact.id} className="flex flex-col items-center min-w-[70px] space-y-1 group cursor-pointer">
-                                    <div className="relative">
-                                        <div className="w-12 h-12 rounded-full p-0.5 bg-gradient-to-br from-border to-transparent group-hover:from-yellow-500/50 transition-all">
+                {/* People Strip */}
+                <div className="flex gap-3 overflow-x-auto pb-2 -mx-2 px-2">
+                    {uniqueContacts.length === 0 ? (
+                        <div className="text-sm text-gm-text-tertiary py-4 px-2 italic">
+                            No contacts with timezones found. Add timezones to your contacts to see availability.
+                        </div>
+                    ) : (
+                        uniqueContacts.map(contact => (
+                            <div key={contact.id} className="flex flex-col items-center min-w-[70px] space-y-1 group cursor-pointer">
+                                <div className="relative">
+                                    <div className="w-12 h-12 rounded-full p-0.5 bg-gradient-to-br from-gm-border-primary to-transparent group-hover:from-amber-500/50 transition-all">
+                                        {resolveAvatarUrl(contact as any) ? (
                                             <img
-                                                src={contact.avatar || contact.avatarUrl || `https://i.pravatar.cc/150?u=${contact.id}`}
+                                                src={resolveAvatarUrl(contact as any)!}
                                                 alt={contact.name}
-                                                className="w-full h-full rounded-full object-cover border-2 border-background"
-                                                onError={(e) => {
-                                                    // Fallback if image fails
-                                                    (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(contact.name)}&background=random`;
-                                                }}
+                                                className="w-full h-full rounded-full object-cover border-2 border-gm-bg-primary"
+                                                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).nextElementSibling && ((e.target as HTMLImageElement).nextElementSibling as HTMLElement).classList.remove('hidden'); }}
                                             />
+                                        ) : null}
+                                        <div className={cn(
+                                            'w-full h-full rounded-full border-2 border-gm-bg-primary bg-blue-600/20 flex items-center justify-center text-xs font-bold text-gm-interactive-primary',
+                                            resolveAvatarUrl(contact as any) ? 'hidden' : ''
+                                        )}>
+                                            {getInitials(contact.name)}
                                         </div>
-                                        <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-background rounded-full"></div>
                                     </div>
-                                    <div className="text-center">
-                                        <p className="text-xs font-medium truncate w-[70px] leading-tight">{contact.name.split(' ')[0]}</p>
-                                        <p className="text-[10px] text-muted-foreground">{getLocalDate(contact.timezone)}</p>
-                                    </div>
+                                    {isInWorkHours(contact.timezone) && (
+                                        <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-gm-bg-primary rounded-full" />
+                                    )}
                                 </div>
-                            ))
-                        )}
-                    </div>
+                                <div className="text-center">
+                                    <p className="text-xs font-medium text-gm-text-primary truncate w-[70px] leading-tight">
+                                        {contact.name.split(' ')[0]}
+                                    </p>
+                                    <p className="text-[10px] text-gm-text-tertiary">{getLocalTime(contact.timezone)}</p>
+                                </div>
+                            </div>
+                        ))
+                    )}
+                </div>
 
-                    {/* Timezone Visualization */}
-                    <div className="timezone-viz space-y-3 relative py-4">
-                        {/* Axis Lines */}
-                        <div className="absolute inset-0 flex justify-between px-[10%] pointer-events-none h-full w-full">
-                            {[0, 6, 12, 18, 24].map((bucket) => (
-                                <div key={bucket} className="h-full border-r border-dashed border-border/30 first:border-l relative w-px">
-                                    <span className="absolute -top-4 -translate-x-1/2 text-[10px] text-muted-foreground/50">{bucket}:00</span>
+                {/* Timezone Bars */}
+                {timezones.length > 0 && (
+                    <div className="space-y-3 relative py-4">
+                        {/* UTC axis labels */}
+                        <div className="absolute inset-0 flex justify-between px-[calc(96px+12px)] pointer-events-none h-full w-full">
+                            {[0, 6, 12, 18, 24].map((h) => (
+                                <div key={h} className="h-full border-r border-dashed border-[var(--gm-border-primary)] first:border-l relative w-px">
+                                    <span className="absolute -top-4 -translate-x-1/2 text-[10px] text-gray-500">{h}:00</span>
                                 </div>
                             ))}
+                        </div>
+
+                        {/* "Now" indicator */}
+                        <div
+                            className="absolute top-0 bottom-0 w-px bg-blue-600/60 z-20 pointer-events-none"
+                            style={{ left: `calc(108px + ${(currentHourUTC / 24) * 100}% * (1 - 108px / 100%))` }}
+                        >
+                            <span className="absolute -top-4 -translate-x-1/2 text-[9px] font-semibold text-gm-interactive-primary bg-gm-bg-primary px-1 rounded">
+                                NOW
+                            </span>
                         </div>
 
                         <div className="space-y-3 relative z-10 pt-2">
-                            {/* Only show distinct timezones from the current list */}
-                            {timezones.slice(0, 5).map((tz, i) => (
+                            {timezones.slice(0, 6).map((tz, i) => (
                                 <div key={i} className="flex items-center gap-3">
-                                    <div className="w-24 text-xs font-medium text-muted-foreground truncate text-right">
-                                        {tz.tz.split('/')[1]?.replace('_', ' ') || tz.tz}
+                                    <div className="w-24 text-xs font-medium text-gm-text-tertiary truncate text-right" title={tz.tz}>
+                                        {formatTzLabel(tz.tz)}
+                                        <span className="block text-[10px] text-gm-text-placeholder">
+                                            UTC{tz.offset >= 0 ? '+' : ''}{tz.offset}
+                                        </span>
                                     </div>
-                                    <div className="flex-1 h-8 bg-secondary/30 rounded-md relative overflow-hidden">
+                                    <div className="flex-1 h-8 bg-[var(--gm-surface-hover)] rounded-md relative overflow-hidden">
                                         {renderWorkHoursBar(tz.offset)}
+                                        {goldenWindow && renderGoldenOverlay(goldenWindow)}
+                                    </div>
+                                    <div className="w-8 text-[10px] text-gm-text-tertiary text-center">
+                                        {tz.contacts.length}
                                     </div>
                                 </div>
                             ))}
-                            {timezones.length === 0 && (
-                                <div className="text-center text-xs text-muted-foreground py-4">
-                                    Add contacts with timezones to see availability overlap.
-                                </div>
-                            )}
+                        </div>
+
+                        {/* Legend */}
+                        <div className="flex items-center gap-4 pt-2 text-[10px] text-gm-text-tertiary">
+                            <div className="flex items-center gap-1.5">
+                                <span className="w-3 h-2 rounded-sm bg-blue-600/20" />
+                                Work hours (9-18 local)
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                                <span className="w-3 h-2 rounded-full bg-gradient-to-r from-amber-500 to-amber-400" />
+                                Golden overlap
+                            </div>
                         </div>
                     </div>
+                )}
 
-                    {/* Summary Box */}
-                    <div className="golden-summary p-4 rounded-xl bg-gradient-to-r from-yellow-500/5 via-orange-500/5 to-transparent border border-yellow-500/10 flex items-start gap-3">
-                        <div className="p-2 bg-yellow-500/10 rounded-lg shrink-0 mt-0.5">
-                            <Star className="w-4 h-4 text-yellow-600 dark:text-yellow-400" />
+                {/* Summary */}
+                {goldenWindow ? (
+                    <div className="golden-summary p-4 rounded-xl bg-gradient-to-r from-amber-500/5 via-orange-500/5 to-transparent border border-amber-500/10 flex items-start gap-3">
+                        <div className="p-2 bg-amber-500/10 rounded-lg shrink-0 mt-0.5">
+                            <Star className="w-4 h-4 text-amber-600 dark:text-amber-400" />
                         </div>
                         <div>
-                            <h4 className="font-semibold text-sm text-yellow-700 dark:text-yellow-400">Golden Hours: 14:00 - 17:00</h4>
-                            <p className="text-xs text-muted-foreground mt-1">
-                                Checking <strong>4+ hours</strong> of overlap for the {mode === 'team' ? 'team' : 'contacts'}.
-                                Best time to schedule mostly synchronous meetings.
+                            <h4 className="font-semibold text-sm text-amber-700 dark:text-amber-400">
+                                Golden Hours: {formatHour(goldenWindow.start)} – {formatHour(goldenWindow.end)} UTC
+                            </h4>
+                            <p className="text-xs text-gm-text-secondary mt-1">
+                                <strong>{goldenWindow.duration}h</strong> of overlap across {timezones.length} timezone{timezones.length > 1 ? 's' : ''}.
+                                {goldenWindow.duration >= 3
+                                    ? ' Great window for synchronous meetings.'
+                                    : goldenWindow.duration >= 1
+                                        ? ' Tight — prioritize short standups.'
+                                        : ' Very limited overlap — consider async.'}
                             </p>
                         </div>
                     </div>
+                ) : timezones.length > 0 ? (
+                    <div className="golden-summary golden-summary-warning p-4 rounded-xl bg-gradient-to-r from-red-500/5 via-red-500/3 to-transparent border border-red-500/15 flex items-start gap-3">
+                        <div className="p-2 bg-red-500/10 rounded-lg shrink-0 mt-0.5">
+                            <AlertTriangle className="w-4 h-4 text-red-500" />
+                        </div>
+                        <div>
+                            <h4 className="font-semibold text-sm text-red-600 dark:text-red-400">No Overlap Found</h4>
+                            <p className="text-xs text-gm-text-secondary mt-1">
+                                There are no common work hours across these timezones. Consider async communication or rotating meeting times.
+                            </p>
+                        </div>
+                    </div>
+                ) : null}
 
-                    {/* Meeting Suggestions */}
+                {/* Suggested Slots */}
+                {goldenWindow && (
                     <div className="space-y-1">
-                        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70 mb-3">Suggested Slots</h4>
+                        <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">Suggested Slots</h4>
                         <div className="grid grid-cols-2 gap-2">
-                            {['Today, 14:30', 'Today, 16:00', 'Tomorrow, 10:00', 'Tomorrow, 15:00'].map((time, i) => (
-                                <button key={i} className="flex items-center justify-between p-2 rounded-lg bg-secondary/40 hover:bg-secondary/70 border border-transparent hover:border-border transition-all text-xs group cursor-pointer text-left">
+                            {getSuggestedSlots(goldenWindow).map((slot, i) => (
+                                <button
+                                    key={i}
+                                    className="flex items-center justify-between p-2.5 rounded-lg bg-[var(--gm-surface-hover)] hover:bg-gm-surface-hover border border-transparent hover:border-gm-border-primary transition-all text-xs group cursor-pointer text-left"
+                                >
                                     <div className="flex items-center gap-2">
-                                        <Clock className="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground" />
-                                        <span className="font-medium">{time}</span>
+                                        <Clock className="w-3.5 h-3.5 text-gm-text-tertiary group-hover:text-gm-text-primary transition-colors" />
+                                        <span className="font-medium text-gm-text-primary">{slot}</span>
                                     </div>
-                                    <div className="flex items-center gap-1 bg-background/50 px-1.5 py-0.5 rounded text-[10px] text-muted-foreground">
+                                    <div className="flex items-center gap-1 bg-gm-bg-secondary px-1.5 py-0.5 rounded text-[10px] text-gm-text-tertiary">
                                         <Users className="w-3 h-3" />
                                         <span>{uniqueContacts.length}/{uniqueContacts.length}</span>
                                     </div>
@@ -234,72 +277,128 @@ export const GoldenHours: React.FC<GoldenHoursProps & { allContacts?: Contact[] 
                             ))}
                         </div>
                     </div>
-                </div>
+                )}
             </div>
         </div>
     );
 };
 
-// Helpers
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
 function getTimezoneOffset(timeZone: string): number {
     try {
         const date = new Date();
         const str = date.toLocaleString('en-US', { timeZone, timeZoneName: 'shortOffset' });
-        // str "2/11/2025, 12:00:00 PM GMT+1"
         const parts = str.split('GMT');
         if (parts.length > 1) {
             const offsetStr = parts[1].trim();
-            // +1, -5:30
             const sign = offsetStr.startsWith('-') ? -1 : 1;
             const [h, m] = offsetStr.replace('+', '').replace('-', '').split(':').map(Number);
             return sign * (h + (m || 0) / 60);
         }
-    } catch (e) { }
+    } catch { /* fallback */ }
     return 0;
 }
 
-function getLocalDate(timeZone: string) {
+function getLocalTime(timeZone?: string) {
     try {
+        if (!timeZone) return '—';
         return new Date().toLocaleTimeString('en-US', { timeZone, hour: '2-digit', minute: '2-digit', hour12: false });
     } catch {
-        return "12:00";
+        return '—';
     }
 }
 
+function isInWorkHours(timeZone?: string): boolean {
+    try {
+        if (!timeZone) return false;
+        const h = Number(new Date().toLocaleString('en-US', { timeZone, hour: 'numeric', hour12: false }));
+        return h >= 9 && h < 18;
+    } catch {
+        return false;
+    }
+}
+
+function formatTzLabel(tz: string): string {
+    const city = tz.split('/').pop()?.replace(/_/g, ' ');
+    return city || tz;
+}
+
+function formatHour(h: number): string {
+    const hh = Math.floor(h);
+    const mm = Math.round((h - hh) * 60);
+    return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+}
+
+interface GoldenWindow {
+    start: number;
+    end: number;
+    duration: number;
+}
+
+function computeGoldenHours(offsets: number[]): GoldenWindow | null {
+    if (offsets.length === 0) return null;
+
+    let overlapStart = 0;
+    let overlapEnd = 24;
+
+    for (const offset of offsets) {
+        const workStart = 9 - offset;
+        const workEnd = 18 - offset;
+        overlapStart = Math.max(overlapStart, workStart);
+        overlapEnd = Math.min(overlapEnd, workEnd);
+    }
+
+    const duration = overlapEnd - overlapStart;
+    if (duration <= 0) return null;
+
+    return { start: overlapStart, end: overlapEnd, duration: Math.round(duration * 10) / 10 };
+}
+
+function getSuggestedSlots(gw: GoldenWindow): string[] {
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const todayLabel = 'Today';
+    const tomorrowLabel = 'Tomorrow';
+    const mid = (gw.start + gw.end) / 2;
+
+    const slot1 = Math.max(gw.start, Math.floor(gw.start) + 0.5);
+    const slot2 = Math.min(gw.end - 0.5, Math.ceil(mid));
+
+    return [
+        `${todayLabel}, ${formatHour(slot1)} UTC`,
+        `${todayLabel}, ${formatHour(slot2)} UTC`,
+        `${tomorrowLabel}, ${formatHour(slot1)} UTC`,
+        `${tomorrowLabel}, ${formatHour(slot2)} UTC`,
+    ];
+}
+
 function renderWorkHoursBar(offset: number) {
-    // Assume chart is 0-24 UTC.
-    // Work hours 9-18 Local.
-    // UTC start = 9 - offset.
-    // UTC end = 18 - offset.
-
-    // Normalize to 0-24
-    let start = 9 - offset;
-    let end = 18 - offset;
-
-    // Handle wrap around roughly? Simplification: just clamp or shift
-    // Ideally we render multiple bars if it wraps, but for MVP simplified
-
+    const start = 9 - offset;
+    const end = 18 - offset;
     const width = ((end - start) / 24) * 100;
     const left = (start / 24) * 100;
 
     return (
-        <>
-            {/* Work hours gray */}
-            <div
-                className="absolute h-full bg-slate-400/20 top-0 rounded-sm"
-                style={{
-                    left: `${Math.max(0, left)}%`,
-                    width: `${width}%`
-                }}
-            />
-            {/* Golden hours - illustrative overlap (e.g. 14-17 UTC) */}
-            <div
-                className="absolute h-1/2 top-1/4 bg-gradient-to-r from-yellow-500 to-amber-400 rounded-full opacity-80 shadow-[0_0_10px_rgba(245,158,11,0.3)]"
-                style={{
-                    left: `${(14 / 24) * 100}%`,
-                    width: `${(3 / 24) * 100}%`
-                }}
-            />
-        </>
-    )
+        <div
+            className="absolute h-full bg-blue-600/15 top-0 rounded-sm"
+            style={{
+                left: `${Math.max(0, left)}%`,
+                width: `${Math.min(100 - Math.max(0, left), width)}%`
+            }}
+        />
+    );
+}
+
+function renderGoldenOverlay(gw: GoldenWindow) {
+    const left = (gw.start / 24) * 100;
+    const width = (gw.duration / 24) * 100;
+    return (
+        <div
+            className="absolute h-1/2 top-1/4 bg-gradient-to-r from-amber-500 to-amber-400 rounded-full opacity-80 shadow-[0_0_10px_rgba(245,158,11,0.3)]"
+            style={{ left: `${left}%`, width: `${width}%` }}
+        />
+    );
 }

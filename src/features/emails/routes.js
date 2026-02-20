@@ -298,7 +298,8 @@ async function handleEmails(ctx) {
             if (llmProvider && model) {
                 try {
                     const promptsService = require('../../supabase/prompts');
-                    const supabasePrompt = promptsService.getPrompt('email')?.prompt_template || null;
+                    const supabasePromptObj = await promptsService.getPrompt('email');
+                    const supabasePrompt = supabasePromptObj?.prompt_template || null;
                     const contextVariables = savedEmail.project_id
                         ? await promptsService.buildContextVariables(savedEmail.project_id, 4000)
                         : {};
@@ -557,9 +558,9 @@ async function handleEmails(ctx) {
 
             log.debug({ event: 'emails_response_draft', provider: llmProvider, model }, 'Generating draft');
 
-            const facts = storage.getFacts().slice(0, 10);
-            const questions = storage.getQuestions().filter(q => q.status !== 'resolved').slice(0, 5);
-            const decisions = storage.getDecisions().slice(0, 5);
+            const facts = (await storage.getFacts()).slice(0, 10);
+            const questions = (await storage.getQuestions()).filter(q => q.status !== 'resolved').slice(0, 5);
+            const decisions = (await storage.getDecisions()).slice(0, 5);
 
             const responsePrompt = emailParser.buildResponsePrompt(email, { facts, questions, decisions });
             const providerConfig = config.llm?.providers?.[llmProvider] || {};
@@ -612,6 +613,237 @@ async function handleEmails(ctx) {
             jsonResponse(res, { ok: true, message: 'Email marked as responded' });
         } catch (error) {
             log.warn({ event: 'emails_mark_responded_error', reason: error?.message }, 'Mark responded error');
+            jsonResponse(res, { ok: false, error: error.message }, 500);
+        }
+        return true;
+    }
+
+    // GET /api/emails/stats - Email statistics summary
+    if (pathname === '/api/emails/stats' && req.method === 'GET') {
+        try {
+            const allEmails = await storage.getEmails({ limit: 10000 });
+            const total = allEmails.length;
+            const unread = allEmails.filter(e => !e.is_read).length;
+            const starred = allEmails.filter(e => e.is_starred).length;
+            const needing_response = allEmails.filter(e => e.requires_response).length;
+            jsonResponse(res, { ok: true, total, unread, starred, needing_response });
+        } catch (error) {
+            jsonResponse(res, { ok: false, error: error.message }, 500);
+        }
+        return true;
+    }
+
+    // PUT /api/emails/:id/star - Star an email
+    const emailStarMatch = pathname.match(/^\/api\/emails\/([a-f0-9\-]+)\/star$/);
+    if (emailStarMatch && req.method === 'PUT') {
+        try {
+            const updated = await storage.updateEmail(emailStarMatch[1], { is_starred: true });
+            jsonResponse(res, { ok: !!updated, email: updated });
+        } catch (error) {
+            jsonResponse(res, { ok: false, error: error.message }, 500);
+        }
+        return true;
+    }
+
+    // PUT /api/emails/:id/unstar - Unstar an email
+    const emailUnstarMatch = pathname.match(/^\/api\/emails\/([a-f0-9\-]+)\/unstar$/);
+    if (emailUnstarMatch && req.method === 'PUT') {
+        try {
+            const updated = await storage.updateEmail(emailUnstarMatch[1], { is_starred: false });
+            jsonResponse(res, { ok: !!updated, email: updated });
+        } catch (error) {
+            jsonResponse(res, { ok: false, error: error.message }, 500);
+        }
+        return true;
+    }
+
+    // PUT /api/emails/:id/archive - Archive an email
+    const emailArchiveMatch = pathname.match(/^\/api\/emails\/([a-f0-9\-]+)\/archive$/);
+    if (emailArchiveMatch && req.method === 'PUT') {
+        try {
+            const updated = await storage.updateEmail(emailArchiveMatch[1], { is_archived: true });
+            jsonResponse(res, { ok: !!updated, email: updated });
+        } catch (error) {
+            jsonResponse(res, { ok: false, error: error.message }, 500);
+        }
+        return true;
+    }
+
+    // PUT /api/emails/:id/read - Mark as read
+    const emailReadMatch = pathname.match(/^\/api\/emails\/([a-f0-9\-]+)\/read$/);
+    if (emailReadMatch && req.method === 'PUT') {
+        try {
+            const updated = await storage.updateEmail(emailReadMatch[1], { is_read: true });
+            jsonResponse(res, { ok: !!updated, email: updated });
+        } catch (error) {
+            jsonResponse(res, { ok: false, error: error.message }, 500);
+        }
+        return true;
+    }
+
+    // PUT /api/emails/:id/unread - Mark as unread
+    const emailUnreadMatch = pathname.match(/^\/api\/emails\/([a-f0-9\-]+)\/unread$/);
+    if (emailUnreadMatch && req.method === 'PUT') {
+        try {
+            const updated = await storage.updateEmail(emailUnreadMatch[1], { is_read: false });
+            jsonResponse(res, { ok: !!updated, email: updated });
+        } catch (error) {
+            jsonResponse(res, { ok: false, error: error.message }, 500);
+        }
+        return true;
+    }
+
+    // GET /api/emails/thread/:threadId - Get emails in a thread
+    const threadMatch = pathname.match(/^\/api\/emails\/thread\/([a-f0-9\-]+)$/);
+    if (threadMatch && req.method === 'GET') {
+        try {
+            const threadId = threadMatch[1];
+            const allEmails = await storage.getEmails({ limit: 10000 });
+            const threadEmails = allEmails
+                .filter(e => e.thread_id === threadId)
+                .sort((a, b) => new Date(a.date || a.created_at || 0).getTime() - new Date(b.date || b.created_at || 0).getTime());
+            jsonResponse(res, { ok: true, emails: threadEmails, count: threadEmails.length });
+        } catch (error) {
+            jsonResponse(res, { ok: false, error: error.message }, 500);
+        }
+        return true;
+    }
+
+    // POST /api/emails/send - Send/store an outbound email
+    if (pathname === '/api/emails/send' && req.method === 'POST') {
+        try {
+            const body = await parseBody(req);
+            const { to, cc, subject, body: emailBody, replyToId } = body;
+
+            if (!to || !Array.isArray(to) || to.length === 0) {
+                jsonResponse(res, { ok: false, error: 'Recipients (to) required' }, 400);
+                return true;
+            }
+
+            const savedEmail = await storage.saveEmail({
+                from: { email: 'me@godmode.local', name: 'Me' },
+                to: to.map(e => ({ email: e, name: '' })),
+                cc: (cc || []).map(e => ({ email: e, name: '' })),
+                subject: subject || '',
+                text: emailBody || '',
+                date: new Date().toISOString(),
+                source_type: 'outbound',
+                direction: 'outbound',
+                is_read: true,
+                response_sent: true,
+                in_reply_to: replyToId || null,
+            });
+
+            if (replyToId) {
+                await storage.updateEmail(replyToId, {
+                    response_sent: true,
+                    requires_response: false,
+                });
+            }
+
+            jsonResponse(res, { ok: true, email: savedEmail });
+        } catch (error) {
+            log.warn({ event: 'emails_send_error', reason: error?.message }, 'Send error');
+            jsonResponse(res, { ok: false, error: error.message }, 500);
+        }
+        return true;
+    }
+
+    // POST /api/emails/:id/categorize - AI categorize an email
+    const emailCategorizeMatch = pathname.match(/^\/api\/emails\/([a-f0-9\-]+)\/categorize$/);
+    if (emailCategorizeMatch && req.method === 'POST') {
+        const emailId = emailCategorizeMatch[1];
+        try {
+            const email = await storage.getEmail(emailId);
+            if (!email) {
+                jsonResponse(res, { ok: false, error: 'Email not found' }, 404);
+                return true;
+            }
+
+            const emailTextCfg = llmConfig.getTextConfig(config);
+            const llmProvider = emailTextCfg.provider;
+            const model = emailTextCfg.model;
+
+            if (!llmProvider || !model) {
+                jsonResponse(res, { ok: false, error: 'No LLM configured' }, 400);
+                return true;
+            }
+
+            const prompt = `/no_think
+Categorize this email. Return JSON only.
+
+Subject: ${email.subject || ''}
+From: ${email.from_name || email.from_email || ''}
+Body: ${(email.body_text || '').substring(0, 2000)}
+
+Output format:
+{"category": "meeting|project|sales|support|personal|newsletter|other", "priority": "urgent|high|medium|low", "sentiment": "positive|neutral|negative"}`;
+
+            const providerConfig = config.llm?.providers?.[llmProvider] || {};
+            const result = await llm.generateText({
+                provider: llmProvider, model, prompt, temperature: 0.2, maxTokens: 200, context: 'email_categorize', providerConfig,
+            });
+
+            if (result.success) {
+                const jsonMatch = (result.text || '').match(/\{[\s\S]*\}/);
+                if (jsonMatch) {
+                    const parsed = JSON.parse(jsonMatch[0]);
+                    await storage.updateEmail(emailId, {
+                        ai_category: parsed.category,
+                        ai_priority: parsed.priority,
+                        sentiment: parsed.sentiment,
+                    });
+                    jsonResponse(res, { ok: true, ...parsed });
+                    return true;
+                }
+            }
+            jsonResponse(res, { ok: false, error: 'Failed to categorize' }, 500);
+        } catch (error) {
+            jsonResponse(res, { ok: false, error: error.message }, 500);
+        }
+        return true;
+    }
+
+    // POST /api/emails/:id/summarize - AI summarize an email
+    const emailSummarizeMatch = pathname.match(/^\/api\/emails\/([a-f0-9\-]+)\/summarize$/);
+    if (emailSummarizeMatch && req.method === 'POST') {
+        const emailId = emailSummarizeMatch[1];
+        try {
+            const email = await storage.getEmail(emailId);
+            if (!email) {
+                jsonResponse(res, { ok: false, error: 'Email not found' }, 404);
+                return true;
+            }
+
+            const emailTextCfg = llmConfig.getTextConfig(config);
+            const llmProvider = emailTextCfg.provider;
+            const model = emailTextCfg.model;
+
+            if (!llmProvider || !model) {
+                jsonResponse(res, { ok: false, error: 'No LLM configured' }, 400);
+                return true;
+            }
+
+            const prompt = `/no_think
+Summarize this email in 2-3 sentences. Output only the summary text, no JSON.
+
+Subject: ${email.subject || ''}
+From: ${email.from_name || email.from_email || ''}
+Body: ${(email.body_text || '').substring(0, 3000)}`;
+
+            const providerConfig = config.llm?.providers?.[llmProvider] || {};
+            const result = await llm.generateText({
+                provider: llmProvider, model, prompt, temperature: 0.3, maxTokens: 300, context: 'email_summarize', providerConfig,
+            });
+
+            if (result.success) {
+                const summary = (result.text || '').trim();
+                await storage.updateEmail(emailId, { ai_summary: summary });
+                jsonResponse(res, { ok: true, summary });
+            } else {
+                jsonResponse(res, { ok: false, error: 'Failed to summarize' }, 500);
+            }
+        } catch (error) {
             jsonResponse(res, { ok: false, error: error.message }, 500);
         }
         return true;

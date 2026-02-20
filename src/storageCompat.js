@@ -1038,6 +1038,13 @@ class StorageCompat {
         return { exists: false };
     }
 
+    async findDocumentByHash(contentHash) {
+        if (this._supabase) {
+            return this._supabase.findDocumentByHash(contentHash);
+        }
+        return null;
+    }
+
     /**
      * Delete a document with cascade (removes all related facts, decisions, questions, etc.).
      *
@@ -1625,6 +1632,13 @@ class StorageCompat {
         return (this._cache.contactProjects || []).filter(cp => cp.contact_id === contactId);
     }
 
+    async getContactActivity(contactId) {
+        if (this._supabase) {
+            return await this._supabase.getContactActivity(contactId);
+        }
+        return [];
+    }
+
     /**
      * Find existing contact or create new one (for entity extraction deduplication)
      * @param {Object} personData - Person data with name, email, organization, role
@@ -1787,7 +1801,7 @@ class StorageCompat {
         return headers.join(',') + '\n' + rows.join('\n');
     }
 
-    importContactsJSON(data) {
+    async importContactsJSON(data) {
         const contacts = data.contacts || data;
         if (!Array.isArray(contacts)) {
             throw new Error('Invalid JSON format');
@@ -1796,18 +1810,28 @@ class StorageCompat {
         let added = 0;
         for (const c of contacts) {
             if (c.name) {
-                this._cache.contacts.push({
+                const contactData = {
                     id: c.id || `contact-${Date.now()}-${added}`,
                     ...c,
                     importedAt: new Date().toISOString()
-                });
+                };
+                this._cache.contacts.push(contactData);
+
+                if (this._supabase) {
+                    try {
+                        await this._supabase.addContact(contactData);
+                    } catch (err) {
+                        // Cache already updated, log and continue
+                        console.warn(`Import: failed to persist contact "${c.name}" to Supabase:`, err?.message);
+                    }
+                }
                 added++;
             }
         }
         return { added, total: this._cache.contacts.length };
     }
 
-    importContactsCSV(csv) {
+    async importContactsCSV(csv) {
         const lines = csv.split('\n').filter(l => l.trim());
         if (lines.length < 2) return { added: 0, total: this._cache.contacts.length };
 
@@ -1828,11 +1852,20 @@ class StorageCompat {
             });
 
             if (contact.name) {
-                this._cache.contacts.push({
+                const contactData = {
                     id: `contact-${Date.now()}-${added}`,
                     ...contact,
                     importedAt: new Date().toISOString()
-                });
+                };
+                this._cache.contacts.push(contactData);
+
+                if (this._supabase) {
+                    try {
+                        await this._supabase.addContact(contactData);
+                    } catch (err) {
+                        console.warn(`Import CSV: failed to persist contact "${contact.name}" to Supabase:`, err?.message);
+                    }
+                }
                 added++;
             }
         }
@@ -2062,6 +2095,22 @@ class StorageCompat {
             return this._supabase.getProjectStats(projectId);
         }
         return this.getStats();
+    }
+
+    // ==================== SOT Versions ====================
+
+    async getSOTVersions(limit = 10) {
+        if (this._supabase) {
+            return this._supabase.getSOTVersions(limit);
+        }
+        return [];
+    }
+
+    async saveSOTVersion(content, summary = null, changes = null) {
+        if (this._supabase) {
+            return this._supabase.saveSOTVersion(content, summary, changes);
+        }
+        return null;
     }
 
     // ==================== Config ====================
@@ -3146,6 +3195,38 @@ class StorageCompat {
      */
     getConversations() {
         return this._cache.conversations || [];
+    }
+
+    /**
+     * Get conversation statistics
+     */
+    async getConversationStats() {
+        if (this._isSupabaseMode && this._supabase) {
+            const projectId = this._supabase.getProjectId();
+            const { data, error } = await this._supabase.supabase
+                .from('conversations')
+                .select('id, source, messages, conversation_type')
+                .eq('project_id', projectId)
+                .is('deleted_at', null);
+            if (error) throw error;
+            const rows = data || [];
+            const bySource = {};
+            let totalMessages = 0;
+            for (const c of rows) {
+                const src = c.source || c.conversation_type || 'unknown';
+                bySource[src] = (bySource[src] || 0) + 1;
+                totalMessages += Array.isArray(c.messages) ? c.messages.length : 0;
+            }
+            return { total: rows.length, bySource, totalMessages };
+        }
+        const items = this.conversations.items || [];
+        const bySource = {};
+        let totalMessages = 0;
+        for (const conv of items) {
+            bySource[conv.sourceApp || conv.source || 'unknown'] = (bySource[conv.sourceApp || conv.source || 'unknown'] || 0) + 1;
+            totalMessages += conv.messageCount || (Array.isArray(conv.messages) ? conv.messages.length : 0);
+        }
+        return { total: items.length, bySource, totalMessages };
     }
 
     /**

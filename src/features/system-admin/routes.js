@@ -196,10 +196,13 @@ async function handleSystemAdmin(ctx) {
                 log.warn({ event: 'system_stats_disk_error', error: e.message }, 'Failed to get Disk usage');
             }
 
-            const finalStorage = storageBreakdown.map(d => ({
+            const diskColors = ['hsl(200 100% 55%)', 'hsl(260 80% 60%)', 'hsl(150 70% 50%)', 'hsl(30 90% 55%)'];
+            const finalStorage = storageBreakdown.map((d, i) => ({
                 category: d.category,
                 size: d.sizeMB,
-                color: 'hsl(200 100% 55%)'
+                free: d.freeMB,
+                used: d.sizeMB - d.freeMB,
+                color: diskColors[i % diskColors.length]
             }));
 
             if (totalDisk > 0) {
@@ -207,19 +210,63 @@ async function handleSystemAdmin(ctx) {
             }
 
             if (finalStorage.length === 0) {
-                finalStorage.push({ category: 'System', size: 1000, color: 'hsl(200 100% 55%)' });
+                finalStorage.push({ category: 'System', size: 1000, free: 500, used: 500, color: diskColors[0] });
             }
 
             const totalStorageMB = Math.round(totalDisk / (1024 * 1024)) || 1000;
+
+            // Event loop lag
+            const eventLoopLagMs = await new Promise((resolve) => {
+                const start = Date.now();
+                setImmediate(() => resolve(Date.now() - start));
+            });
+
+            // Process info
+            const memUsageProcess = process.memoryUsage();
+            const heapUsedMB = Math.round(memUsageProcess.heapUsed / 1024 / 1024);
+            const heapTotalMB = Math.round(memUsageProcess.heapTotal / 1024 / 1024);
+            const rssMB = Math.round(memUsageProcess.rss / 1024 / 1024);
+            const externalMB = Math.round(memUsageProcess.external / 1024 / 1024);
+
+            // DB connectivity
+            let dbStatus = 'not configured';
+            try {
+                if (supabase && supabase.testConnection) {
+                    const conn = await supabase.testConnection();
+                    dbStatus = conn && conn.success ? 'connected' : (conn && conn.error) || 'error';
+                }
+            } catch (_) { dbStatus = 'error'; }
 
             jsonResponse(res, {
                 cpu: cpuUsage,
                 ram: memUsage,
                 disk: diskUsage,
-                latency: 12, // Mock latency for now
+                latency: eventLoopLagMs,
                 storageBreakdown: finalStorage,
                 totalStorage: totalStorageMB,
-                timestamp: new Date().toISOString()
+                timestamp: new Date().toISOString(),
+                server: {
+                    nodeVersion: process.version,
+                    platform: process.platform,
+                    arch: process.arch,
+                    uptime: Math.round(process.uptime()),
+                    pid: process.pid,
+                },
+                memory: {
+                    totalMB: Math.round(totalMem / 1024 / 1024),
+                    freeMB: Math.round(freeMem / 1024 / 1024),
+                    usedMB: Math.round(usedMem / 1024 / 1024),
+                },
+                process: {
+                    heapUsedMB,
+                    heapTotalMB,
+                    rssMB,
+                    externalMB,
+                    heapPercent: heapTotalMB > 0 ? Math.round((heapUsedMB / heapTotalMB) * 100) : 0,
+                },
+                database: dbStatus,
+                cpuCores: os.cpus().length,
+                hostname: os.hostname(),
             });
 
         } catch (e) {
@@ -455,20 +502,39 @@ async function handleSystemAdmin(ctx) {
                 const authResult = await requireSuperAdmin(supabase, req, res);
                 if (!authResult) return true;
 
-                const promptsService = require('../../supabase/prompts');
-                const result = await promptsService.savePrompt(key, body.prompt, authResult.user.id);
+                const admin = supabase.getAdminClient();
 
-                if (!result.success) {
-                    jsonResponse(res, { error: result.error }, 500);
-                    return true;
+                // Toggle active or update description (no template change = no version bump)
+                if (body.is_active !== undefined || body.description !== undefined) {
+                    const updates = {};
+                    if (body.is_active !== undefined) updates.is_active = !!body.is_active;
+                    if (body.description !== undefined) updates.description = body.description;
+                    updates.updated_at = new Date().toISOString();
+                    updates.updated_by = authResult.user.id;
+                    const { error } = await admin.from('system_prompts').update(updates).eq('key', key);
+                    if (error) { jsonResponse(res, { error: error.message }, 500); return true; }
                 }
 
-                jsonResponse(res, { success: true, prompt: result.prompt });
+                // Update prompt template (triggers auto-versioning via DB trigger)
+                if (body.prompt !== undefined) {
+                    const promptsService = require('../../supabase/prompts');
+                    const result = await promptsService.savePrompt(key, body.prompt, authResult.user.id);
+                    if (!result.success) { jsonResponse(res, { error: result.error }, 500); return true; }
+                }
+
+                // If change_reason was provided, update the latest version row
+                if (body.change_reason) {
+                    const { data: latest } = await admin.from('prompt_versions').select('id').eq('prompt_key', key).order('version', { ascending: false }).limit(1).single();
+                    if (latest) {
+                        await admin.from('prompt_versions').update({ change_reason: body.change_reason }).eq('id', latest.id);
+                    }
+                }
+
+                jsonResponse(res, { success: true });
             } else {
-                // Update in-memory config
                 const config = require('../../server').config || {};
                 if (!config.prompts) config.prompts = {};
-                config.prompts[key] = body.prompt;
+                if (body.prompt) config.prompts[key] = body.prompt;
                 jsonResponse(res, { success: true });
             }
         } catch (e) {
@@ -698,6 +764,105 @@ async function handleSystemAdmin(ctx) {
             jsonResponse(res, { ok: true });
         } catch (e) {
             log.warn({ event: 'system_admin_user_delete_error', reason: e.message }, 'Error deleting user');
+            jsonResponse(res, { error: e.message }, 500);
+        }
+        return true;
+    }
+
+    // ── GET /api/system/providers — Provider key status for admin ────────────
+    if (pathname === '/api/system/providers' && req.method === 'GET') {
+        const authResult = await requireSuperAdmin(supabase, req, res);
+        if (!authResult) return true;
+
+        try {
+            const secrets = require('../../supabase/secrets');
+            // Use canonical IDs that match what the queue and billing system use
+            // claude→anthropic, gemini→google, xai→grok are aliases handled by secrets module
+            const providers = ['openai', 'anthropic', 'google', 'grok', 'deepseek', 'kimi', 'minimax'];
+            // Also include frontend-friendly aliases
+            const displayNames = { openai: 'OpenAI', anthropic: 'Claude / Anthropic', google: 'Google / Gemini', grok: 'Grok / xAI', deepseek: 'DeepSeek', kimi: 'Kimi', minimax: 'MiniMax' };
+            const aliases = { anthropic: ['claude', 'anthropic'], google: ['gemini', 'google'], grok: ['xai', 'grok'] };
+            const providerStatus = [];
+            for (const p of providers) {
+                const result = await secrets.getProviderApiKey(p, null);
+                providerStatus.push({
+                    id: p,
+                    aliases: aliases[p] || [p],
+                    name: displayNames[p] || p,
+                    configured: result.success,
+                    source: result.source || null,
+                    masked: result.success ? (result.value ? result.value.substring(0, 4) + '****' + result.value.slice(-4) : null) : null,
+                });
+            }
+            // Also check service API keys (Resend, Brave, etc.)
+            const serviceKeys = [
+                { id: 'resend', name: 'Resend (Email Service)', secretName: 'resend_api_key', legacyName: 'RESEND_API_KEY' },
+                { id: 'brave', name: 'Brave Search (Company Analysis)', secretName: 'brave_api_key', legacyName: 'BRAVE_API_KEY' },
+            ];
+            const serviceStatus = [];
+            for (const svc of serviceKeys) {
+                let found = null;
+                let r = await secrets.getSecret('system', svc.secretName);
+                if (!r.success || !r.value) {
+                    r = await secrets.getSecret('system', svc.legacyName);
+                }
+                if (r.success && r.value) {
+                    found = r.value;
+                }
+                serviceStatus.push({
+                    id: svc.id,
+                    name: svc.name,
+                    configured: !!found,
+                    masked: found ? found.substring(0, 4) + '****' + found.slice(-4) : null,
+                });
+            }
+
+            jsonResponse(res, { ok: true, providers: providerStatus, services: serviceStatus });
+        } catch (e) {
+            log.warn({ event: 'system_providers_error', reason: e.message }, 'Error checking provider status');
+            jsonResponse(res, { ok: true, providers: [], services: [], error: e.message });
+        }
+        return true;
+    }
+
+    // ── POST /api/system/providers — Save API key to Supabase secrets (LLM providers + service keys) ──
+    if (pathname === '/api/system/providers' && req.method === 'POST') {
+        const authResult = await requireSuperAdmin(supabase, req, res);
+        if (!authResult) return true;
+
+        try {
+            const body = await parseBody(req);
+            const { provider, apiKey } = body;
+            if (!provider || !apiKey) {
+                jsonResponse(res, { error: 'provider and apiKey are required' }, 400);
+                return true;
+            }
+            const secrets = require('../../supabase/secrets');
+            const userId = authResult.user?.id || null;
+
+            // Service keys (resend, brave) use simple secret names, not the LLM provider convention
+            const serviceKeyNames = { resend: 'resend_api_key', brave: 'brave_api_key' };
+            let result;
+            if (serviceKeyNames[provider]) {
+                result = await secrets.setSecret({ scope: 'system', name: serviceKeyNames[provider], value: apiKey, provider, userId });
+            } else {
+                result = await secrets.setProviderApiKey(provider, apiKey, 'system', null, userId);
+            }
+            if (result.success) {
+                // Keys live ONLY in Supabase secrets — never in config.json
+                // Invalidate BYOK cache so the queue picks up the new key immediately
+                try {
+                    const { getQueueManager } = require('../../llm/queue');
+                    const queue = getQueueManager();
+                    if (queue) queue.invalidateByokCache(null);
+                } catch (_) { /* queue not initialized yet */ }
+                log.info({ event: 'system_provider_key_saved', provider }, 'Provider API key saved to Supabase secrets (encrypted)');
+                jsonResponse(res, { ok: true, provider });
+            } else {
+                jsonResponse(res, { error: result.error || 'Failed to save' }, 500);
+            }
+        } catch (e) {
+            log.warn({ event: 'system_provider_key_error', reason: e.message }, 'Error saving provider key');
             jsonResponse(res, { error: e.message }, 500);
         }
         return true;

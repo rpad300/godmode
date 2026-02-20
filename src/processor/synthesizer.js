@@ -355,7 +355,8 @@ ${allContent}
         let totalRisksAdded = 0;
         let totalPeopleAdded = 0;
 
-        const pendingQuestions = this.storage.getQuestions({ status: 'pending' });
+        const allQuestions = await Promise.resolve(this.storage.getQuestions());
+        const pendingQuestions = (allQuestions || []).filter(q => q.status === 'pending' || !q.status);
 
         for (let batchNum = 0; batchNum < totalBatches; batchNum++) {
             try {
@@ -369,7 +370,7 @@ ${allContent}
 
                 log.debug({ event: 'synthesizer_batch_start', batchNum: batchNum + 1 }, 'Synthesis batch');
 
-                const existingFacts = this.storage.getFacts();
+                const existingFacts = await Promise.resolve(this.storage.getFacts());
 
                 const batchContent = batchFiles.map(f => {
                     const name = f.name.replace('.md', '');
@@ -501,8 +502,8 @@ ${allContent}
                     if (!name || name.length < 2) continue;
 
                     // Simple dupe check
-                    const existingPeople = this.storage.getPeople();
-                    if (existingPeople.some(p => p.name?.toLowerCase().trim() === name.toLowerCase().trim())) continue;
+                    const existingPeople = await Promise.resolve(this.storage.getPeople());
+                    if ((existingPeople || []).some(p => p.name?.toLowerCase().trim() === name.toLowerCase().trim())) continue;
 
                     try {
                         await this.storage.addPerson({
@@ -559,7 +560,8 @@ ${allContent}
                 try {
                     // Create dummy extracted object for summary generation
                     const docBaseName = (doc.name || doc.filename || '').replace(/\.[^/.]+$/, '').toLowerCase();
-                    const facts = this.storage.getFacts().filter(f =>
+                    const allFacts = await Promise.resolve(this.storage.getFacts());
+                    const facts = (allFacts || []).filter(f =>
                         (f.source_file && f.source_file.toLowerCase().includes(docBaseName)) ||
                         (f.source_document_id && f.source_document_id === doc.id)
                     );
@@ -616,9 +618,10 @@ ${allContent}
     }
 
     async _enrichQuestionsWithPeopleImpl() {
-        const people = this.storage.getPeople();
-        const questions = this.storage.getQuestions({ status: 'pending' });
-        if (people.length === 0 || questions.length === 0) return;
+        const people = await Promise.resolve(this.storage.getPeople());
+        const allQuestions = await Promise.resolve(this.storage.getQuestions());
+        const questions = (allQuestions || []).filter(q => q.status === 'pending' || !q.status);
+        if (!people || people.length === 0 || questions.length === 0) return;
 
         let enrichedCount = 0;
 

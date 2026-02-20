@@ -37,7 +37,7 @@ import {
   File, MessageSquare, Briefcase, Calendar, Shield, HelpCircle,
   Lightbulb, Mail, Target
 } from 'lucide-react';
-import { cn } from "@/lib/utils";
+import { cn, getInitials } from "@/lib/utils";
 
 // Mapping icons for lucide
 const iconMap: Record<string, any> = {
@@ -100,16 +100,16 @@ const GraphNode = ({ data, selected }: NodeProps) => {
         <>
           <Avatar className="h-9 w-9 border-2 border-background shadow-sm shrink-0">
             <AvatarImage src={nodeData.avatarUrl} alt={nodeData.label} />
-            <AvatarFallback className="text-[10px] bg-muted text-muted-foreground font-bold">
-              {nodeData.label.substring(0, 2).toUpperCase()}
+            <AvatarFallback className="text-[10px] bg-white/5 text-slate-400 font-bold">
+              {getInitials(nodeData.label)}
             </AvatarFallback>
           </Avatar>
           <div className="flex flex-col min-w-0 flex-1">
-            <span className="text-[11px] font-bold text-foreground truncate w-full" title={nodeData.label}>
-              {nodeData.label}
+            <span className="text-[11px] font-bold text-white truncate w-full" title={nodeData.label}>
+              {nodeData.label || '(unnamed)'}
             </span>
             {nodeData.subtitle && (
-              <span className="text-[9px] text-muted-foreground truncate w-full">
+              <span className="text-[9px] text-slate-400 truncate w-full">
                 {nodeData.subtitle}
               </span>
             )}
@@ -128,11 +128,11 @@ const GraphNode = ({ data, selected }: NodeProps) => {
           <Icon size={16} strokeWidth={2.5} />
         </div>
         <div className="flex flex-col min-w-0 flex-1">
-          <span className="text-[11px] font-semibold text-foreground truncate w-full" title={nodeData.label}>
-            {nodeData.label}
+          <span className="text-[11px] font-semibold text-white truncate w-full" title={nodeData.label}>
+            {nodeData.label || '(unnamed)'}
           </span>
           {(nodeData.subtitle || nodeData.detail || nodeData.status) && (
-            <span className="text-[9px] text-muted-foreground truncate w-full flex items-center gap-1.5 mt-0.5">
+            <span className="text-[9px] text-slate-400 truncate w-full flex items-center gap-1.5 mt-0.5">
               {nodeData.status && (
                 <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${getStatusColor(nodeData.status)}`} />
               )}
@@ -154,8 +154,8 @@ const GraphNode = ({ data, selected }: NodeProps) => {
 
       <div
         className={cn(
-          "flex items-center gap-3 px-2.5 py-2 rounded-xl border bg-card/95 backdrop-blur-sm shadow-sm hover:shadow-md transition-all duration-200 cursor-pointer min-w-[170px] max-w-[240px]",
-          selected ? 'ring-2 ring-primary ring-offset-2 ring-offset-background border-primary' : 'border-border/60 hover:border-border',
+          "flex items-center gap-3 px-2.5 py-2 rounded-xl border bg-[var(--gm-surface-primary)] backdrop-blur-sm shadow-sm hover:shadow-md transition-all duration-200 cursor-pointer min-w-[170px] max-w-[240px]",
+          selected ? 'ring-2 ring-primary ring-offset-2 ring-offset-background border-primary' : 'border-white/10 hover:border-white/10',
           highlighted ? 'scale-105 shadow-xl ring-1 ring-primary/30 border-primary/50' : 'hover:scale-[1.02]'
         )}
         style={{

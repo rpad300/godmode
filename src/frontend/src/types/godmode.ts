@@ -22,7 +22,7 @@
  *     an Electron shell; it is inert in the browser build.
  *   - ProjectMember.role uses display strings like "Top G", "Admin", etc.
  */
-export type TabId = 'dashboard' | 'chat' | 'sot' | 'timeline' | 'contacts' | 'team-analysis' | 'files' | 'emails' | 'graph' | 'costs' | 'history' | 'projects' | 'companies' | 'settings' | 'user-settings' | 'admin' | 'profile';
+export type TabId = 'dashboard' | 'chat' | 'sot' | 'timeline' | 'contacts' | 'team-analysis' | 'files' | 'emails' | 'conversations' | 'graph' | 'costs' | 'history' | 'projects' | 'companies' | 'settings' | 'user-settings' | 'admin' | 'profile' | 'sprints';
 
 export interface Category {
   id: string;
@@ -101,13 +101,13 @@ export interface Question {
 
 export interface Risk {
   id: string;
-  title: string;
-  description: string;
+  content: string;
   impact: 'high' | 'medium' | 'low';
   likelihood: 'high' | 'medium' | 'low';
   mitigation?: string;
   owner?: string;
   status: 'open' | 'mitigated' | 'accepted';
+  reported_by?: string;
 }
 
 export interface Sprint {
@@ -131,43 +131,54 @@ export interface UserStory {
 
 export interface Action {
   id: string;
-  title: string;
-  description: string;
+  task: string;
+  description?: string;
   owner?: string;
   deadline?: string;
   status: 'pending' | 'in_progress' | 'completed' | 'overdue';
   priority: 'high' | 'medium' | 'low';
-  sprintId?: string;
-  storyId?: string;
-  createdAt?: string;
-  updatedAt?: string;
+  sprint_id?: string;
+  parent_story_id?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface Decision {
   id: string;
-  title: string;
-  description: string;
+  content: string;
+  rationale?: string;
   owner?: string;
-  date: string;
-  status: 'approved' | 'pending' | 'rejected';
+  decision_date?: string;
+  status: 'approved' | 'pending' | 'rejected' | 'active';
+  context?: string;
+  impact?: string;
+  made_by?: string;
+  approved_by?: string;
+  summary?: string;
 }
 
 export interface Contact {
   id: string;
   name: string;
-  role: string;
-  organization: string;
+  role?: string;
+  organization?: string;
   email?: string;
   phone?: string;
   linkedin?: string;
   avatarUrl?: string;
+  avatar?: string;
+  photo_url?: string;
   department?: string;
   location?: string;
   timezone?: string;
   notes?: string;
-  avatar?: string;
-  mentionCount: number;
+  mentionCount?: number;
   aliases?: string[];
+  is_favorite?: boolean;
+  isFavorite?: boolean;
+  tags?: string[];
+  cargo?: string;
+  empresa?: string;
 }
 
 export interface ContactRole {

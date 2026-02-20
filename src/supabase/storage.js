@@ -846,7 +846,8 @@ class SupabaseStorage {
                 doc_type: doc.doc_type || 'document',
                 uploaded_by: user?.id,
                 sprint_id: doc.sprint_id || doc.sprintId || null,
-                action_id: doc.action_id || doc.actionId || null
+                action_id: doc.action_id || doc.actionId || null,
+                metadata: doc.metadata || null
             })
             .select()
             .single();
@@ -907,6 +908,24 @@ class SupabaseStorage {
         }
 
         return { exists: false };
+    }
+
+    /**
+     * Find a processed document by its content hash (for deduplication)
+     */
+    async findDocumentByHash(contentHash) {
+        if (!contentHash) return null;
+        const projectId = this.getProjectId();
+        const { data } = await this.supabase
+            .from('documents')
+            .select('id, filename, status, created_at')
+            .eq('project_id', projectId)
+            .eq('file_hash', contentHash)
+            .eq('status', 'processed')
+            .is('deleted_at', null)
+            .limit(1)
+            .single();
+        return data || null;
     }
 
     /**
@@ -3306,10 +3325,11 @@ class SupabaseStorage {
         const allContacts = [...(legacyContacts || []), ...linkedContacts];
         const uniqueContactsMap = new Map();
         for (const contact of allContacts) {
-            // Map photo_url to avatar and avatarUrl for frontend compatibility
-            if (contact.photo_url) {
-                contact.avatar = contact.photo_url;
-                contact.avatarUrl = contact.photo_url;
+            // Map photo_url / avatar_url to avatar and avatarUrl for frontend compatibility
+            const photoSrc = contact.photo_url || contact.avatar_url;
+            if (photoSrc) {
+                contact.avatar = photoSrc;
+                contact.avatarUrl = photoSrc;
             }
             uniqueContactsMap.set(contact.id, contact);
         }
@@ -3477,9 +3497,12 @@ class SupabaseStorage {
             return null;
         }
 
-        if (data && data.photo_url) {
-            data.avatar = data.photo_url;
-            data.avatarUrl = data.photo_url;
+        if (data) {
+            const photoSrc = data.photo_url || data.avatar_url;
+            if (photoSrc) {
+                data.avatar = photoSrc;
+                data.avatarUrl = photoSrc;
+            }
         }
 
         return data;
@@ -5156,23 +5179,34 @@ class SupabaseStorage {
     async upsertEmbedding(entityType, entityId, content, embedding, model = 'snowflake-arctic-embed') {
         const projectId = this.getProjectId();
 
-        const { data, error } = await this.supabase
-            .from('embeddings')
-            .upsert({
-                project_id: projectId,
-                entity_type: entityType,
-                entity_id: entityId,
-                content: content,
-                embedding: embedding,
-                model: model
-            }, {
-                onConflict: 'entity_type,entity_id'
-            })
-            .select()
-            .single();
+        try {
+            const { data, error } = await this.supabase
+                .from('embeddings')
+                .upsert({
+                    project_id: projectId,
+                    entity_type: entityType,
+                    entity_id: entityId,
+                    content: content,
+                    embedding: embedding,
+                    model: model
+                }, {
+                    onConflict: 'entity_type,entity_id'
+                })
+                .select()
+                .single();
 
-        if (error) throw error;
-        return data;
+            if (error) {
+                const wrapped = new Error(`Embedding upsert failed for ${entityType}/${entityId}: ${error.message}`);
+                wrapped.code = error.code;
+                throw wrapped;
+            }
+            return data;
+        } catch (err) {
+            if (err.message?.startsWith('Embedding upsert failed')) throw err;
+            const wrapped = new Error(`Embedding upsert error for ${entityType}/${entityId}: ${err.message}`);
+            wrapped.code = err.code;
+            throw wrapped;
+        }
     }
 
     /**
@@ -5181,21 +5215,32 @@ class SupabaseStorage {
     async searchBySimilarity(queryEmbedding, entityTypes = null, limit = 10, threshold = 0.7) {
         const projectId = this.getProjectId();
 
-        let query = this.supabase.rpc('match_embeddings', {
-            query_embedding: queryEmbedding,
-            match_threshold: threshold,
-            match_count: limit,
-            filter_project_id: projectId
-        });
+        try {
+            let query = this.supabase.rpc('match_embeddings', {
+                query_embedding: queryEmbedding,
+                match_threshold: threshold,
+                match_count: limit,
+                filter_project_id: projectId
+            });
 
-        const { data, error } = await query;
-        if (error) throw error;
+            const { data, error } = await query;
+            if (error) {
+                const wrapped = new Error(`Similarity search failed: ${error.message}`);
+                wrapped.code = error.code;
+                throw wrapped;
+            }
 
-        if (entityTypes) {
-            return data.filter(item => entityTypes.includes(item.entity_type));
+            if (entityTypes) {
+                return (data || []).filter(item => entityTypes.includes(item.entity_type));
+            }
+
+            return data || [];
+        } catch (err) {
+            if (err.message?.startsWith('Similarity search failed')) throw err;
+            const wrapped = new Error(`Similarity search error: ${err.message}`);
+            wrapped.code = err.code;
+            throw wrapped;
         }
-
-        return data;
     }
 
     /**
@@ -7190,7 +7235,8 @@ class SupabaseStorage {
             'extracted_entities', 'ai_summary', 'detected_intent', 'sentiment',
             'requires_response', 'response_drafted', 'response_sent',
             'draft_response', 'draft_generated_at', 'sender_contact_id',
-            'processed_at', 'thread_id', 'sprint_id', 'action_id'
+            'processed_at', 'thread_id', 'sprint_id', 'action_id',
+            'is_starred', 'is_read', 'is_archived'
         ];
 
         const updateData = {};

@@ -37,17 +37,45 @@ const { logger } = require('../logger');
 
 const log = logger.child({ module: 'email' });
 
-const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const RESEND_API_URL = 'https://api.resend.com/emails';
 
 // Default sender - update with your verified domain
 const DEFAULT_FROM = 'GodMode <noreply@godmode.app>';
 
+// Cached Resend key resolved from Supabase secrets
+let _resendKeyCache = null;
+let _resendKeyCacheTime = 0;
+const CACHE_TTL = 60_000; // 60s
+
+async function getResendApiKey() {
+    if (_resendKeyCache && (Date.now() - _resendKeyCacheTime) < CACHE_TTL) {
+        return _resendKeyCache;
+    }
+    try {
+        const secrets = require('./secrets');
+        const result = await secrets.getSecret('system', 'resend_api_key');
+        if (result.success && result.value) {
+            _resendKeyCache = result.value;
+            _resendKeyCacheTime = Date.now();
+            return result.value;
+        }
+        // Legacy UPPERCASE fallback
+        const legacy = await secrets.getSecret('system', 'RESEND_API_KEY');
+        if (legacy.success && legacy.value) {
+            _resendKeyCache = legacy.value;
+            _resendKeyCacheTime = Date.now();
+            return legacy.value;
+        }
+    } catch (_) { /* Supabase not available */ }
+    return null;
+}
+
 /**
- * Check if Resend is configured
+ * Check if Resend is configured (async — checks Supabase secrets)
  */
-function isConfigured() {
-    return !!(RESEND_API_KEY && RESEND_API_KEY !== 're_1234567890');
+async function isConfigured() {
+    const key = await getResendApiKey();
+    return !!(key && key !== 're_1234567890');
 }
 
 /**
@@ -66,7 +94,8 @@ function isConfigured() {
  * @returns {Promise<{success: boolean, id?: string, error?: string}>}
  */
 async function sendEmail({ to, subject, html, text, from = DEFAULT_FROM, replyTo }) {
-    if (!isConfigured()) {
+    const apiKey = await getResendApiKey();
+    if (!apiKey || apiKey === 're_1234567890') {
         log.warn({ event: 'email_not_configured' }, 'Resend not configured - email not sent');
         return { success: false, error: 'Email service not configured' };
     }
@@ -75,7 +104,7 @@ async function sendEmail({ to, subject, html, text, from = DEFAULT_FROM, replyTo
         const response = await fetch(RESEND_API_URL, {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${RESEND_API_KEY}`,
+                'Authorization': `Bearer ${apiKey}`,
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({

@@ -33,6 +33,15 @@ import { useUser } from '../hooks/useUser';
 import { useProject } from '../contexts/ProjectContext';
 import { apiClient } from '@/lib/api-client';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
+
+const CARD = 'rounded-xl border border-[var(--gm-border-primary)] bg-[var(--gm-surface-primary)] shadow-[var(--shadow-sm)] transition-all duration-200';
+const INPUT = 'w-full bg-[var(--gm-bg-tertiary)] border border-[var(--gm-border-primary)] rounded-lg px-3 py-2 text-sm text-[var(--gm-text-primary)] placeholder:text-[var(--gm-text-placeholder)] focus:outline-none focus:border-[var(--gm-border-focus)] focus:shadow-[var(--shadow-focus)] transition-all duration-150';
+const BTN_PRIMARY = 'inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--gm-interactive-primary)] text-[var(--gm-text-on-brand)] hover:bg-[var(--gm-interactive-primary-hover)] shadow-sm transition-all duration-150 disabled:opacity-50';
+const BTN_SECONDARY = 'inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--gm-interactive-secondary)] text-[var(--gm-text-primary)] hover:bg-[var(--gm-interactive-secondary-hover)] border border-[var(--gm-border-primary)] transition-all duration-150';
+const BTN_DANGER = 'inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-danger-500)] text-white hover:bg-[var(--color-danger-600)] shadow-sm transition-all duration-150 disabled:opacity-50';
+const SECTION_TITLE = 'text-[10px] font-bold text-[var(--gm-accent-primary)] uppercase tracking-[0.1em]';
+const LABEL = 'text-[10px] font-bold text-[var(--gm-text-tertiary)] uppercase tracking-wider mb-1 flex items-center gap-1.5';
 
 type UserSettingsSection = 'general' | 'privacy' | 'profile';
 
@@ -47,7 +56,7 @@ const UserSettingsPage = () => {
 
   return (
     <div className="p-6 space-y-4">
-      <h1 className="text-2xl font-bold text-foreground">Settings</h1>
+      <h1 className="text-2xl font-bold text-[var(--gm-text-primary)]">Settings</h1>
 
       <div className="flex gap-6">
         {/* Side Nav */}
@@ -56,8 +65,9 @@ const UserSettingsPage = () => {
             <button
               key={s.id}
               onClick={() => setActiveSection(s.id)}
-              className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${activeSection === s.id ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
-                }`}
+              className={cn('w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors',
+                activeSection === s.id ? 'bg-[var(--gm-interactive-primary)]/10 text-[var(--gm-accent-primary)] font-medium' : 'text-[var(--gm-text-tertiary)] hover:text-[var(--gm-text-primary)] hover:bg-[var(--gm-surface-hover)]'
+              )}
             >
               <s.icon className="w-4 h-4" /> {s.label}
             </button>
@@ -102,31 +112,31 @@ function GeneralSection() {
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
-      <div className="bg-card border border-border rounded-xl p-5 space-y-5">
-        <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider flex items-center gap-2">
+      <div className={cn(CARD, 'p-5 space-y-5')}>
+        <h3 className={cn(SECTION_TITLE, 'flex items-center gap-2')}>
           <Sparkles className="w-4 h-4" /> Appearance
         </h3>
 
         <div>
-          <label className="text-sm font-medium text-foreground mb-1 block">Theme</label>
+          <label className={LABEL}>Theme</label>
           <select
             value={theme}
             onChange={e => handleThemeChange(e.target.value)}
-            className="w-full h-9 bg-background border border-border rounded-lg px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            className={cn(INPUT, 'h-9')}
           >
             <option value="light">Light</option>
             <option value="dark">Dark</option>
             <option value="system">System</option>
           </select>
-          <p className="text-[10px] text-muted-foreground mt-1">Choose your preferred color scheme</p>
+          <p className="text-[10px] text-[var(--gm-text-tertiary)] mt-1">Choose your preferred color scheme</p>
         </div>
 
         <div>
-          <label className="text-sm font-medium text-foreground mb-1 block">Language</label>
+          <label className={LABEL}>Language</label>
           <select
             value={language}
             onChange={e => handleLanguageChange(e.target.value)}
-            className="w-full h-9 bg-background border border-border rounded-lg px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            className={cn(INPUT, 'h-9')}
           >
             <option value="en">English</option>
             <option value="pt">Português</option>
@@ -134,21 +144,20 @@ function GeneralSection() {
             <option value="fr">Français</option>
             <option value="de">Deutsch</option>
           </select>
-          <p className="text-[10px] text-muted-foreground mt-1">Interface language preference</p>
+          <p className="text-[10px] text-[var(--gm-text-tertiary)] mt-1">Interface language preference</p>
         </div>
 
-        <div className="flex items-center gap-3 p-3 rounded-lg border border-primary/20 bg-primary/5">
-          <Info className="w-4 h-4 text-primary flex-shrink-0" />
-          <p className="text-xs text-muted-foreground">
-            For <span className="text-primary font-medium">LLM configuration</span>, <span className="text-primary font-medium">Graph</span>, and other platform settings, use the <span className="text-primary font-medium">Admin</span> section in the sidebar menu.
+        <div className="flex items-center gap-3 p-3 rounded-lg border border-[var(--gm-accent-primary)]/30 bg-[var(--gm-interactive-primary)]/10">
+          <Info className="w-4 h-4 text-[var(--gm-accent-primary)] flex-shrink-0" />
+          <p className="text-xs text-[var(--gm-text-tertiary)]">
+            For <span className="text-[var(--gm-accent-primary)] font-medium">LLM configuration</span>, <span className="text-[var(--gm-accent-primary)] font-medium">Graph</span>, and other platform settings, use the <span className="text-[var(--gm-accent-primary)] font-medium">Admin</span> section in the sidebar menu.
           </p>
         </div>
       </div>
 
-      <div className="bg-card border border-border rounded-xl p-4 flex justify-end gap-2">
-        <button onClick={handleCancel} className="px-4 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:bg-secondary transition-colors">Cancel</button>
-        <button onClick={handleSave} disabled={!dirty}
-          className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50">
+      <div className={cn(CARD, 'p-4 flex justify-end gap-2')}>
+        <button onClick={handleCancel} className={BTN_SECONDARY}>Cancel</button>
+        <button onClick={handleSave} disabled={!dirty} className={BTN_PRIMARY}>
           <Check className="w-4 h-4" /> Save Settings
         </button>
       </div>
@@ -175,9 +184,8 @@ function ProfileRoleSection() {
 
     // Fetch Roles
     const fetchRoles = async () => {
-      if (!currentProjectId || currentProjectId === 'default') return;
       try {
-        const res = await apiClient.get<any>(`/api/projects/${currentProjectId}/roles`);
+        const res = await apiClient.get<any>('/api/role-templates');
         if (res.roles) setAvailableRoles(res.roles);
       } catch (e) {
         console.error("Failed to fetch roles", e);
@@ -227,46 +235,46 @@ function ProfileRoleSection() {
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
-      <div className="bg-card border border-border rounded-xl p-5 space-y-5">
-        <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider flex items-center gap-2">
+      <div className={cn(CARD, 'p-5 space-y-5')}>
+        <h3 className={cn(SECTION_TITLE, 'flex items-center gap-2')}>
           <UserCog className="w-4 h-4" /> Role & Context
         </h3>
 
         {/* Current Project Info */}
-        <div className="p-3 rounded-lg bg-secondary/50 border border-border">
-          <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Active Project</p>
-          <p className="text-sm font-medium text-foreground">{currentProject?.name || 'No Active Project'}</p>
+        <div className="p-3 rounded-lg bg-[var(--gm-bg-tertiary)]/50 border border-[var(--gm-border-primary)]">
+          <p className={LABEL}>Active Project</p>
+          <p className="text-sm font-medium text-[var(--gm-text-primary)]">{currentProject?.name || 'No Active Project'}</p>
         </div>
 
         {/* Role Selector */}
         <div>
-          <label className="text-sm font-medium text-foreground mb-1 block">Project Role</label>
+          <label className={LABEL}>Project Role</label>
           <div className="relative">
-            <Building2 className="absolute left-3 top-2.5 w-4 h-4 text-muted-foreground" />
+            <Building2 className="absolute left-3 top-2.5 w-4 h-4 text-[var(--gm-text-tertiary)]" />
             <select
               value={selectedRole}
               onChange={e => setSelectedRole(e.target.value)}
               disabled={!currentProjectId || currentProjectId === 'default'}
-              className="w-full h-9 pl-9 bg-background border border-border rounded-lg px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+              className={cn(INPUT, 'h-9 pl-9 disabled:opacity-50')}
             >
               <option value="">Select a role...</option>
-              {availableRoles.map(r => (
-                <option key={r.id || r.name} value={r.name}>{r.name}</option>
+              {availableRoles.filter((r: any) => r.name || r.display_name).map((r: any) => (
+                <option key={r.id || r.name} value={r.display_name || r.name}>{r.display_name || r.name}</option>
               ))}
             </select>
           </div>
-          <p className="text-[10px] text-muted-foreground mt-1">Your role in the current project (defines permissions)</p>
+          <p className="text-[10px] text-[var(--gm-text-tertiary)] mt-1">Your role in the current project (defines permissions)</p>
         </div>
 
         {/* Timezone Selector */}
         <div>
-          <label className="text-sm font-medium text-foreground mb-1 block">Timezone</label>
+          <label className={LABEL}>Timezone</label>
           <div className="relative">
-            <Clock className="absolute left-3 top-2.5 w-4 h-4 text-muted-foreground" />
+            <Clock className="absolute left-3 top-2.5 w-4 h-4 text-[var(--gm-text-tertiary)]" />
             <select
               value={selectedTimezone}
               onChange={e => setSelectedTimezone(e.target.value)}
-              className="w-full h-9 pl-9 bg-background border border-border rounded-lg px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              className={cn(INPUT, 'h-9 pl-9')}
             >
               <option value="">Select timezone...</option>
               {availableTimezones.map(tz => (
@@ -274,16 +282,16 @@ function ProfileRoleSection() {
               ))}
             </select>
           </div>
-          <p className="text-[10px] text-muted-foreground mt-1">Used for scheduling and notifications</p>
+          <p className="text-[10px] text-[var(--gm-text-tertiary)] mt-1">Used for scheduling and notifications</p>
         </div>
       </div>
 
-      <div className="bg-card border border-border rounded-xl p-4 flex justify-end gap-2">
-        <button className="px-4 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:bg-secondary transition-colors">Cancel</button>
+      <div className={cn(CARD, 'p-4 flex justify-end gap-2')}>
+        <button className={BTN_SECONDARY}>Cancel</button>
         <button
           onClick={handleSave}
           disabled={isLoading}
-          className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-70"
+          className={BTN_PRIMARY}
         >
           {isLoading ? 'Saving...' : <><Check className="w-4 h-4" /> Save Changes</>}
         </button>
@@ -324,17 +332,17 @@ function PrivacySection() {
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
-      <div className="bg-card border border-border rounded-xl p-5">
-        <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider flex items-center gap-2 mb-4">
+      <div className={cn(CARD, 'p-5')}>
+        <h3 className={cn(SECTION_TITLE, 'flex items-center gap-2 mb-4')}>
           <Shield className="w-4 h-4" /> Privacy Settings
         </h3>
 
         <div className="space-y-1">
           {toggles.map(t => (
-            <div key={t.label} className="flex items-center justify-between py-3 border-b border-border last:border-0">
+            <div key={t.label} className="flex items-center justify-between py-3 border-b border-[var(--gm-border-primary)] last:border-0">
               <div>
-                <p className="text-sm font-medium text-foreground">{t.label}</p>
-                <p className="text-xs text-muted-foreground">{t.desc}</p>
+                <p className="text-sm font-medium text-[var(--gm-text-primary)]">{t.label}</p>
+                <p className="text-xs text-[var(--gm-text-tertiary)]">{t.desc}</p>
               </div>
               <Switch checked={t.value} onCheckedChange={t.set} />
             </div>
@@ -342,10 +350,9 @@ function PrivacySection() {
         </div>
       </div>
 
-      <div className="bg-card border border-border rounded-xl p-4 flex justify-end gap-2">
-        <button onClick={handleCancel} className="px-4 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:bg-secondary transition-colors">Cancel</button>
-        <button onClick={handleSave} disabled={!dirty}
-          className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50">
+      <div className={cn(CARD, 'p-4 flex justify-end gap-2')}>
+        <button onClick={handleCancel} className={BTN_SECONDARY}>Cancel</button>
+        <button onClick={handleSave} disabled={!dirty} className={BTN_PRIMARY}>
           <Check className="w-4 h-4" /> Save Settings
         </button>
       </div>

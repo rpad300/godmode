@@ -21,11 +21,11 @@ interface PlaceholderPageProps {
 const PlaceholderPage = ({ title, description }: PlaceholderPageProps) => {
   return (
     <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
-      <div className="w-16 h-16 rounded-2xl bg-muted flex items-center justify-center mb-4">
-        <Construction className="w-8 h-8 text-muted-foreground" />
+      <div className="w-16 h-16 rounded-2xl bg-[var(--gm-bg-tertiary)] flex items-center justify-center mb-4">
+        <Construction className="w-8 h-8 text-[var(--gm-text-tertiary)]" />
       </div>
-      <h2 className="text-xl font-semibold text-foreground mb-2">{title}</h2>
-      <p className="text-sm text-muted-foreground max-w-md">
+      <h2 className="text-xl font-semibold text-[var(--gm-text-primary)] mb-2">{title}</h2>
+      <p className="text-sm text-[var(--gm-text-tertiary)] max-w-md">
         {description || 'This section is coming soon. Connect your GodMode backend to enable this feature.'}
       </p>
     </div>

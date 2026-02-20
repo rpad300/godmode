@@ -25,13 +25,17 @@
  * @returns {{ projectId, setProjectId, projects, currentProject }}
  */
 import { useState, useCallback, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { setCurrentProjectId } from '../lib/api-client';
 import { useProjects } from './useGodMode';
 
+const LS_KEY = 'godmode-project-id';
+
 export function useProject() {
+  const queryClient = useQueryClient();
   const [projectId, setProjectIdState] = useState<string | null>(() => {
     try {
-      return localStorage.getItem('godmode-project-id');
+      return localStorage.getItem(LS_KEY);
     } catch {
       return null;
     }
@@ -40,23 +44,28 @@ export function useProject() {
   const { data: projects = [] } = useProjects();
 
   const setProjectId = useCallback((id: string | null) => {
+    const prev = projectId;
     setProjectIdState(id);
     setCurrentProjectId(id);
     try {
       if (id) {
-        localStorage.setItem('godmode-project-id', id);
+        localStorage.setItem(LS_KEY, id);
+        localStorage.setItem('godmode_current_project', id);
       } else {
-        localStorage.removeItem('godmode-project-id');
+        localStorage.removeItem(LS_KEY);
+        localStorage.removeItem('godmode_current_project');
       }
-    } catch {}
-  }, []);
+    } catch { }
+    if (id !== prev) {
+      queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== 'projects' });
+    }
+  }, [projectId, queryClient]);
 
-  // Sync API client on mount
   useEffect(() => {
     setCurrentProjectId(projectId);
   }, [projectId]);
 
-  const currentProject = projects.find((p) => p.id === projectId) ?? null;
+  const currentProject = (Array.isArray(projects) ? projects : []).find((p) => p.id === projectId) ?? null;
 
   return { projectId, setProjectId, projects, currentProject };
 }

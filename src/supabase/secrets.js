@@ -437,48 +437,74 @@ async function validateSecret(scope, name, projectId = null) {
  * Naming convention: the secret name is `{provider}_api_key`.
  * Returns the source ('project' or 'system') so callers know which scope was used.
  */
+// Canonical provider IDs for Supabase secrets.
+// Some providers have aliases (e.g. claude/anthropic, gemini/google, xai/grok).
+// We store under the canonical name and look up both when reading.
+const PROVIDER_ALIASES = {
+    claude: 'anthropic',
+    anthropic: 'anthropic',
+    gemini: 'google',
+    google: 'google',
+    xai: 'grok',
+    grok: 'grok',
+};
+
+function canonicalProvider(provider) {
+    return PROVIDER_ALIASES[provider] || provider;
+}
+
 async function getProviderApiKey(provider, projectId = null) {
-    const name = `${provider}_api_key`;
+    const canonical = canonicalProvider(provider);
+    const names = [`${canonical}_api_key`];
+    // Also try the original name if different (backwards compat with existing secrets)
+    if (canonical !== provider) {
+        names.push(`${provider}_api_key`);
+    }
 
     // Try project secret first
     if (projectId) {
-        const projectResult = await getSecret('project', name, projectId);
-        if (projectResult.success && projectResult.value) {
-            return {
-                success: true,
-                value: projectResult.value,
-                source: 'project',
-                provider
-            };
+        for (const name of names) {
+            const projectResult = await getSecret('project', name, projectId);
+            if (projectResult.success && projectResult.value) {
+                return {
+                    success: true,
+                    value: projectResult.value,
+                    source: 'project',
+                    provider: canonical
+                };
+            }
         }
     }
 
     // Fall back to system secret
-    const systemResult = await getSecret('system', name);
-    if (systemResult.success && systemResult.value) {
-        return {
-            success: true,
-            value: systemResult.value,
-            source: 'system',
-            provider
-        };
+    for (const name of names) {
+        const systemResult = await getSecret('system', name);
+        if (systemResult.success && systemResult.value) {
+            return {
+                success: true,
+                value: systemResult.value,
+                source: 'system',
+                provider: canonical
+            };
+        }
     }
 
-    return { success: false, error: `No API key found for ${provider}` };
+    return { success: false, error: `No API key found for ${canonical}` };
 }
 
 /**
  * Set API key for a provider
  */
 async function setProviderApiKey(provider, value, scope = 'system', projectId = null, userId = null) {
-    const name = `${provider}_api_key`;
+    const canonical = canonicalProvider(provider);
+    const name = `${canonical}_api_key`;
 
     return setSecret({
         scope,
         projectId,
         name,
         value,
-        provider,
+        provider: canonical,
         userId
     });
 }

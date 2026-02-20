@@ -60,28 +60,28 @@ const CreateSprintModal = ({ open, onClose, onSave }: CreateSprintModalProps) =>
     <AnimatePresence>
       {open && (
         <>
-          <div className="fixed inset-0 bg-black/60 z-50" onClick={onClose} />
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50" onClick={onClose} />
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
             className="fixed inset-0 z-50 flex items-center justify-center p-4"
           >
-            <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
-              <div className="flex items-center justify-between p-5 border-b border-border">
-                <h2 className="text-lg font-semibold text-foreground">Create Sprint</h2>
-                <button onClick={onClose} className="w-8 h-8 rounded-lg hover:bg-secondary flex items-center justify-center transition-colors">
-                  <X className="w-4 h-4 text-muted-foreground" />
+            <div className="bg-[var(--gm-bg-elevated)] border border-[var(--gm-border-primary)] rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between p-5 border-b border-[var(--gm-border-primary)]" style={{ background: 'linear-gradient(to right, rgba(37,99,235,0.18), rgba(37,99,235,0.05))' }}>
+                <h2 className="text-lg font-semibold text-white">Create Sprint</h2>
+                <button onClick={onClose} className="w-8 h-8 rounded-lg hover:bg-white/10 flex items-center justify-center transition-colors">
+                  <X className="w-4 h-4 text-slate-400" />
                 </button>
               </div>
 
               <form onSubmit={handleSubmit} className="p-5 space-y-4">
                 <div>
-                  <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Sprint Name *</label>
+                  <label className="text-xs font-medium text-[var(--gm-text-tertiary)] uppercase tracking-wider">Sprint Name *</label>
                   <input
                     value={form.name}
                     onChange={e => setForm({ ...form, name: e.target.value })}
-                    className="mt-1 w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    className="mt-1 w-full bg-[var(--gm-bg-tertiary)] border border-[var(--gm-border-primary)] rounded-lg px-3 py-2 text-sm text-[var(--gm-text-primary)] placeholder:text-[var(--gm-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--gm-border-focus)]"
                     placeholder="e.g. Sprint 4 — Analytics"
                     required
                   />
@@ -89,31 +89,31 @@ const CreateSprintModal = ({ open, onClose, onSave }: CreateSprintModalProps) =>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Start Date</label>
+                    <label className="text-xs font-medium text-[var(--gm-text-tertiary)] uppercase tracking-wider">Start Date</label>
                     <input
                       type="date"
                       value={form.startDate}
                       onChange={e => setForm({ ...form, startDate: e.target.value })}
-                      className="mt-1 w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      className="mt-1 w-full bg-[var(--gm-bg-tertiary)] border border-[var(--gm-border-primary)] rounded-lg px-3 py-2 text-sm text-[var(--gm-text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--gm-border-focus)]"
                     />
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">End Date</label>
+                    <label className="text-xs font-medium text-[var(--gm-text-tertiary)] uppercase tracking-wider">End Date</label>
                     <input
                       type="date"
                       value={form.endDate}
                       onChange={e => setForm({ ...form, endDate: e.target.value })}
-                      className="mt-1 w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      className="mt-1 w-full bg-[var(--gm-bg-tertiary)] border border-[var(--gm-border-primary)] rounded-lg px-3 py-2 text-sm text-[var(--gm-text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--gm-border-focus)]"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Context / Goals</label>
+                  <label className="text-xs font-medium text-[var(--gm-text-tertiary)] uppercase tracking-wider">Context / Goals</label>
                   <textarea
                     value={form.context}
                     onChange={e => setForm({ ...form, context: e.target.value })}
-                    className="mt-1 w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring min-h-[60px] resize-y"
+                    className="mt-1 w-full bg-[var(--gm-bg-tertiary)] border border-[var(--gm-border-primary)] rounded-lg px-3 py-2 text-sm text-[var(--gm-text-primary)] placeholder:text-[var(--gm-text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--gm-border-focus)] min-h-[60px] resize-y"
                     placeholder="Sprint goals and context..."
                   />
                 </div>
@@ -122,13 +122,13 @@ const CreateSprintModal = ({ open, onClose, onSave }: CreateSprintModalProps) =>
                   <button
                     type="button"
                     onClick={onClose}
-                    className="flex-1 px-4 py-2.5 rounded-lg bg-secondary text-secondary-foreground text-sm font-medium hover:bg-muted transition-colors"
+                    className="flex-1 px-4 py-2.5 rounded-lg bg-[var(--gm-interactive-secondary)] text-[var(--gm-text-primary)] text-sm font-medium hover:bg-[var(--gm-surface-hover)] transition-colors"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="flex-1 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+                    className="flex-1 px-4 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors"
                   >
                     Create Sprint
                   </button>

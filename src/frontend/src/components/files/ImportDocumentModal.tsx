@@ -58,14 +58,14 @@ const ImportDocumentModal = ({ open, onClose, onImport }: Props) => {
     <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
       <DialogContent className="max-w-md p-0 gap-0">
         <DialogHeader className="p-5 pb-0">
-          <DialogTitle className="text-lg">Import Document</DialogTitle>
+          <DialogTitle className="text-lg text-white">Import Document</DialogTitle>
         </DialogHeader>
 
-        <div className="flex gap-4 px-5 pt-3 border-b border-border">
-          <button onClick={() => setTab('paste')} className={`pb-2 text-sm font-medium border-b-2 transition-colors ${tab === 'paste' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>
+        <div className="flex gap-4 px-5 pt-3 border-b border-white/10">
+          <button onClick={() => setTab('paste')} className={`pb-2 text-sm font-medium border-b-2 transition-colors ${tab === 'paste' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
             Paste Text
           </button>
-          <button onClick={() => setTab('upload')} className={`pb-2 text-sm font-medium border-b-2 transition-colors ${tab === 'upload' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>
+          <button onClick={() => setTab('upload')} className={`pb-2 text-sm font-medium border-b-2 transition-colors ${tab === 'upload' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
             Upload File
           </button>
         </div>
@@ -74,25 +74,26 @@ const ImportDocumentModal = ({ open, onClose, onImport }: Props) => {
           {tab === 'paste' ? (
             <>
               <div>
-                <label className="text-xs font-medium text-muted-foreground">Document Title</label>
-                <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Architecture Review" className="mt-1 w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring" />
+                <label className="text-xs font-medium text-gray-400">Document Title</label>
+                <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Architecture Review" className="mt-1 w-full rounded-lg px-3 py-2 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50" style={{ backgroundColor: 'var(--gm-surface-secondary, #252540)', borderColor: 'var(--gm-border-primary, #2d2d44)', border: '1px solid var(--gm-border-primary, #2d2d44)' }} />
               </div>
               <div>
-                <p className="text-sm font-medium text-foreground mb-2">Paste document content:</p>
+                <p className="text-sm font-medium text-white mb-2">Paste document content:</p>
                 <textarea
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
                   placeholder="Paste the document content here..."
-                  className="w-full min-h-[150px] bg-secondary border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-ring resize-y"
+                  className="w-full min-h-[150px] rounded-lg px-3 py-2 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 resize-y"
+                  style={{ backgroundColor: 'var(--gm-surface-secondary, #252540)', border: '1px solid var(--gm-border-primary, #2d2d44)' }}
                 />
               </div>
             </>
           ) : (
-            <div className="border-2 border-dashed border-border rounded-xl p-8 text-center hover:border-primary/30 transition-colors">
-              <FileText className="w-10 h-10 mx-auto mb-3 text-muted-foreground/50" />
+            <div className="border-2 border-dashed rounded-xl p-8 text-center transition-colors" style={{ borderColor: 'var(--gm-border-primary, #2d2d44)' }}>
+              <FileText className="w-10 h-10 mx-auto mb-3 text-gray-500" />
               <label className="cursor-pointer">
-                <p className="text-sm font-medium text-primary">Drop document file here</p>
-                <p className="text-xs text-muted-foreground mt-1">or click to browse • .pdf, .docx, .txt, .pptx, .xlsx, .csv</p>
+                <p className="text-sm font-medium text-blue-400">Drop document file here</p>
+                <p className="text-xs text-gray-400 mt-1">or click to browse • .pdf, .docx, .txt, .pptx, .xlsx, .csv</p>
                 <input type="file" className="hidden" accept=".pdf,.docx,.txt,.pptx,.xlsx,.csv" onChange={(e) => {
                   if (e.target.files?.[0]) {
                     setFileName(e.target.files[0].name);
@@ -100,17 +101,17 @@ const ImportDocumentModal = ({ open, onClose, onImport }: Props) => {
                   }
                 }} />
               </label>
-              {fileName && <p className="text-sm text-foreground mt-3 font-medium">{fileName}</p>}
+              {fileName && <p className="text-sm text-white mt-3 font-medium">{fileName}</p>}
             </div>
           )}
 
           <SprintTaskAssociation sprintId={sprintId} taskId={taskId} onSprintChange={setSprintId} onTaskChange={setTaskId} />
 
           <div className="flex gap-2 pt-2">
-            <button onClick={handleClose} className="flex-1 px-4 py-2 rounded-lg bg-secondary text-secondary-foreground text-sm font-medium hover:bg-muted transition-colors">
+            <button onClick={handleClose} className="flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors text-gray-300 hover:text-white" style={{ backgroundColor: 'var(--gm-surface-secondary, #252540)' }}>
               Cancel
             </button>
-            <button onClick={handleSubmit} className="flex-1 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors">
+            <button onClick={handleSubmit} className="flex-1 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors">
               Import
             </button>
           </div>

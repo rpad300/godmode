@@ -35,11 +35,22 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   FolderOpen, Plus, Edit2, ArrowLeft, Settings2, Users, ShieldCheck, SlidersHorizontal,
-  AlertTriangle, Trash2, Check, User, X, Copy, Link2, Mail, Sparkles, CheckSquare, GripVertical
+  AlertTriangle, Trash2, Check, User, X, Copy, Link2, Mail, Sparkles, CheckSquare, GripVertical,
+  UserPlus, UsersRound, Loader2, Clock, Activity, Download, Upload, Star, Play, Key, TestTube,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { cn, isValidAvatarUrl, getInitials, resolveAvatarUrl } from '@/lib/utils';
+
+// ── Style tokens (aligned with ProfilePage) ─────────────────────────────────
+const CARD = 'rounded-xl border border-[var(--gm-border-primary)] bg-[var(--gm-surface-primary)] shadow-[var(--shadow-sm)] transition-all duration-200';
+const INPUT = 'w-full bg-[var(--gm-bg-tertiary)] border border-[var(--gm-border-primary)] rounded-lg px-3 py-2 text-sm text-[var(--gm-text-primary)] placeholder:text-[var(--gm-text-placeholder)] focus:outline-none focus:border-[var(--gm-border-focus)] focus:shadow-[var(--shadow-focus)] transition-all duration-150';
+const BTN_PRIMARY = 'inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--gm-interactive-primary)] text-[var(--gm-text-on-brand)] hover:bg-[var(--gm-interactive-primary-hover)] shadow-sm transition-all duration-150 disabled:opacity-50';
+const BTN_SECONDARY = 'inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--gm-interactive-secondary)] text-[var(--gm-text-primary)] hover:bg-[var(--gm-interactive-secondary-hover)] border border-[var(--gm-border-primary)] transition-all duration-150';
+const BTN_DANGER = 'inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-danger-500)] text-white hover:bg-[var(--color-danger-600)] shadow-sm transition-all duration-150 disabled:opacity-50';
+const SECTION_TITLE = 'text-[10px] font-bold text-[var(--gm-accent-primary)] uppercase tracking-[0.1em]';
+const LABEL = 'text-[10px] font-bold text-[var(--gm-text-tertiary)] uppercase tracking-wider mb-1 flex items-center gap-1.5';
 import { useProject } from '@/contexts/ProjectContext';
-import { mockProjectRoles, mockContacts, type ProjectRole } from '@/data/mock-data';
+import { mockProjectRoles, type ProjectRole } from '@/data/mock-data';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -49,21 +60,39 @@ import {
   Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue
 } from '@/components/ui/select';
 import { Project, Contact, Category } from '@/types/godmode';
+import {
+  useProjectInvites, useCreateInvite, useGenerateInviteLink, useRevokeInvite,
+  useTeams, useCreateTeam, useDeleteTeam, useUpdateTeam, useAddTeamMember, useRemoveTeamMember,
+  useAcceptInvite, useAuditLog,
+  useProjectActivity, type ActivityEntry,
+  useProjectStats, useActivateProject, useSetDefaultProject,
+  useExportProject, useImportProject,
+  useProjectProviders, useSetProjectProviderKey, useDeleteProjectProviderKey, useValidateProjectProviderKey,
+} from '@/hooks/useGodMode';
 
-type ProjectTab = 'general' | 'members' | 'roles' | 'categories';
+type ProjectTab = 'general' | 'members' | 'roles' | 'categories' | 'invites' | 'teams' | 'providers' | 'activity';
 
 const projectTabs: { id: ProjectTab; label: string; icon: React.ElementType; count?: number }[] = [
   { id: 'general', label: 'General', icon: Settings2 },
   { id: 'members', label: 'Members', icon: Users, count: 0 },
+  { id: 'invites', label: 'Invites', icon: UserPlus },
+  { id: 'teams', label: 'Teams', icon: UsersRound },
   { id: 'roles', label: 'Roles', icon: ShieldCheck },
   { id: 'categories', label: 'Categories', icon: SlidersHorizontal },
-
+  { id: 'providers', label: 'AI Providers', icon: Key },
+  { id: 'activity', label: 'Activity', icon: Activity },
 ];
 
 const ProjectsPage = () => {
-  // START: Using real data from context
-  const { projects, refreshProjects } = useProject();
+  const { projects, refreshProjects, currentProjectId } = useProject();
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const activateProject = useActivateProject();
+  const setDefaultProject = useSetDefaultProject();
+  const exportProject = useExportProject();
+  const importProject = useImportProject();
+  const [showImport, setShowImport] = useState(false);
+  const [importData, setImportData] = useState('');
+  const [importName, setImportName] = useState('');
 
   const selectedProject = projects.find(p => p.id === selectedProjectId) || null;
   const [showNewForm, setShowNewForm] = useState(false);
@@ -72,6 +101,46 @@ const ProjectsPage = () => {
   const [companies, setCompanies] = useState<{ id: string; name: string }[]>([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>('');
   const [isCreating, setIsCreating] = useState(false);
+
+  const handleActivate = (projectId: string) => {
+    activateProject.mutate(projectId, {
+      onSuccess: () => { toast.success('Project activated'); refreshProjects(); },
+      onError: () => toast.error('Failed to activate project'),
+    });
+  };
+
+  const handleSetDefault = (projectId: string) => {
+    setDefaultProject.mutate(projectId, {
+      onSuccess: () => { toast.success('Default project set'); refreshProjects(); },
+      onError: () => toast.error('Failed to set default'),
+    });
+  };
+
+  const handleExport = () => {
+    exportProject.mutate(undefined, {
+      onSuccess: (data) => {
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = `project-export-${Date.now()}.json`; a.click();
+        URL.revokeObjectURL(url);
+        toast.success('Project exported');
+      },
+      onError: () => toast.error('Export failed'),
+    });
+  };
+
+  const handleImport = () => {
+    try {
+      const parsed = JSON.parse(importData);
+      importProject.mutate({ data: parsed, name: importName || undefined }, {
+        onSuccess: () => { toast.success('Project imported'); setShowImport(false); setImportData(''); setImportName(''); refreshProjects(); },
+        onError: () => toast.error('Import failed'),
+      });
+    } catch {
+      toast.error('Invalid JSON data');
+    }
+  };
 
   useEffect(() => {
     const fetchCompanies = async () => {
@@ -125,15 +194,47 @@ const ProjectsPage = () => {
 
   return (
     <div className="p-6 space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-foreground">Projects</h1>
-        <button
-          onClick={() => setShowNewForm(!showNewForm)}
-          className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors flex items-center gap-1.5"
-        >
-          <Plus className="w-4 h-4" /> New Project
-        </button>
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <h1 className="text-lg font-bold text-[var(--gm-text-primary)]">Projects</h1>
+        <div className="flex items-center gap-2">
+          <button onClick={handleExport} disabled={exportProject.isPending} className={BTN_SECONDARY}>
+            {exportProject.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />} Export
+          </button>
+          <button onClick={() => setShowImport(!showImport)} className={BTN_SECONDARY}>
+            <Upload className="w-3.5 h-3.5" /> Import
+          </button>
+          <button onClick={() => setShowNewForm(!showNewForm)} className={BTN_PRIMARY}>
+            <Plus className="w-3.5 h-3.5" /> New Project
+          </button>
+        </div>
       </div>
+
+      {/* Import Form */}
+      <AnimatePresence>
+        {showImport && (
+          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+            className={cn(CARD, 'p-5')}>
+            <h3 className={SECTION_TITLE}>Import Project</h3>
+            <div className="space-y-3 mt-3">
+              <div>
+                <label className={LABEL}>Project Name (optional)</label>
+                <input value={importName} onChange={e => setImportName(e.target.value)} placeholder="Project name..." className={INPUT} />
+              </div>
+              <div>
+                <label className={LABEL}>JSON Data</label>
+                <textarea value={importData} onChange={e => setImportData(e.target.value)} placeholder="Paste exported JSON data here..." rows={5}
+                  className={cn(INPUT, 'resize-none font-mono')} />
+              </div>
+              <div className="flex gap-2 justify-end">
+                <button onClick={() => setShowImport(false)} className={BTN_SECONDARY}>Cancel</button>
+                <button onClick={handleImport} disabled={importProject.isPending || !importData.trim()} className={BTN_PRIMARY}>
+                  {importProject.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />} Import
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Create Form */}
       <AnimatePresence>
@@ -142,47 +243,33 @@ const ProjectsPage = () => {
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
-            className="bg-card border border-border rounded-xl p-5"
+            className={cn(CARD, 'p-5')}
           >
-            <h3 className="text-base font-semibold text-foreground mb-3">Create New Project</h3>
-            <div className="space-y-3">
-              <input
-                value={formName}
-                onChange={(e) => setFormName(e.target.value)}
-                placeholder="Project name..."
-                className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-              />
-              <textarea
-                value={formDesc}
-                onChange={(e) => setFormDesc(e.target.value)}
-                placeholder="Description..."
-                rows={2}
-                className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
-              />
-
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-foreground">Company</label>
-                <select
-                  value={selectedCompanyId}
-                  onChange={(e) => setSelectedCompanyId(e.target.value)}
-                  className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                >
+            <h3 className={SECTION_TITLE}>Create New Project</h3>
+            <div className="space-y-3 mt-3">
+              <div>
+                <label className={LABEL}>Project Name *</label>
+                <input value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="Project name..." className={INPUT} />
+              </div>
+              <div>
+                <label className={LABEL}>Description</label>
+                <textarea value={formDesc} onChange={(e) => setFormDesc(e.target.value)} placeholder="Description..." rows={2} className={cn(INPUT, 'resize-none')} />
+              </div>
+              <div>
+                <label className={LABEL}>Company</label>
+                <select value={selectedCompanyId} onChange={(e) => setSelectedCompanyId(e.target.value)} className={INPUT}>
                   <option value="" disabled>Select a company</option>
                   {companies.map(c => (
                     <option key={c.id} value={c.id}>{c.name}</option>
                   ))}
                 </select>
               </div>
-
-              <div className="flex gap-2 pt-2">
-                <button
-                  onClick={handleCreateProject}
-                  disabled={isCreating}
-                  className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
-                >
+              <div className="flex gap-2 justify-end pt-2">
+                <button onClick={() => setShowNewForm(false)} className={BTN_SECONDARY}>Cancel</button>
+                <button onClick={handleCreateProject} disabled={isCreating} className={BTN_PRIMARY}>
+                  {isCreating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
                   {isCreating ? 'Creating...' : 'Create'}
                 </button>
-                <button onClick={() => setShowNewForm(false)} className="px-4 py-2 rounded-lg bg-secondary text-secondary-foreground text-sm hover:bg-muted transition-colors">Cancel</button>
               </div>
             </div>
           </motion.div>
@@ -191,36 +278,59 @@ const ProjectsPage = () => {
 
       {/* Projects List */}
       <div className="space-y-3">
-        {projects.map((project, i) => (
-          <motion.div
-            key={project.id}
-            initial={{ opacity: 0, y: 15 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.06 }}
-            className={`bg-card border rounded-xl p-5 transition-colors border-border hover:border-primary/20`}
-          >
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3 flex-1 min-w-0">
-                <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-secondary`}>
-                  <FolderOpen className={`w-5 h-5 text-muted-foreground`} />
+        {projects.map((project, i) => {
+          const isActive = currentProjectId === project.id;
+          const isDefault = (project as Record<string, unknown>).is_default === true;
+          return (
+            <motion.div
+              key={project.id}
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.06 }}
+              className={cn(CARD, 'p-5',
+                isActive && 'border-[var(--gm-accent-primary)]/40 ring-1 ring-[var(--gm-accent-primary)]/20')}
+            >
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3 flex-1 min-w-0">
+                  <div className={cn('w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0',
+                    isActive ? 'bg-[var(--gm-interactive-primary)]/10' : 'bg-[var(--gm-bg-tertiary)]')}>
+                    <FolderOpen className={cn('w-5 h-5', isActive ? 'text-[var(--gm-accent-primary)]' : 'text-[var(--gm-text-tertiary)]')} />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-semibold text-[var(--gm-text-primary)]">{project.name || '(unnamed project)'}</h3>
+                      {isActive && (
+                        <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[var(--gm-interactive-primary)]/10 text-[var(--gm-accent-primary)]">Active</span>
+                      )}
+                      {isDefault && (
+                        <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 flex items-center gap-0.5"><Star className="w-2.5 h-2.5" /> Default</span>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-[var(--gm-text-tertiary)] font-mono">{project.id}</p>
+                    {project.description && <p className="text-[10px] text-[var(--gm-text-tertiary)] mt-0.5 truncate max-w-md">{project.description}</p>}
+                  </div>
                 </div>
-                <div className="min-w-0">
-                  <h3 className="text-base font-semibold text-foreground">{project.name}</h3>
-                  <p className="text-xs text-muted-foreground font-mono">{project.id}</p>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {!isActive && (
+                    <button onClick={() => handleActivate(project.id)} disabled={activateProject.isPending}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[var(--gm-interactive-primary)]/10 text-[var(--gm-accent-primary)] text-[10px] font-medium hover:bg-[var(--gm-interactive-primary)]/20 transition-colors">
+                      <Play className="w-3 h-3" /> Switch
+                    </button>
+                  )}
+                  {!isDefault && (
+                    <button onClick={() => handleSetDefault(project.id)} disabled={setDefaultProject.isPending}
+                      className={BTN_SECONDARY} title="Set as default project">
+                      <Star className="w-3 h-3" />
+                    </button>
+                  )}
+                  <button onClick={() => setSelectedProjectId(project.id)} className={BTN_SECONDARY}>
+                    <Edit2 className="w-3 h-3" /> Edit
+                  </button>
                 </div>
               </div>
-              <div className="flex items-center gap-3 flex-shrink-0">
-                {/* isActive logic removed as it was mock-dependent. Could restore if useProject provides current. */}
-                <button
-                  onClick={() => setSelectedProjectId(project.id)}
-                  className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  Edit
-                </button>
-              </div>
-            </div>
-          </motion.div>
-        ))}
+            </motion.div>
+          );
+        })}
       </div>
     </div>
   );
@@ -260,36 +370,36 @@ function ProjectDetail({ project, onBack, onUpdate }: { project: Project; onBack
 
   return (
     <div className="p-6 space-y-4">
-      <button onClick={onBack} className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-2">
-        <ArrowLeft className="w-4 h-4" /> Back to Projects
+      <button onClick={onBack} className="flex items-center gap-1.5 text-xs text-[var(--gm-text-tertiary)] hover:text-[var(--gm-text-primary)] transition-colors mb-2">
+        <ArrowLeft className="w-3.5 h-3.5" /> Back to Projects
       </button>
 
       {/* Header */}
       <div className="flex items-center gap-4">
-        <div className="w-14 h-14 rounded-xl bg-primary/10 flex items-center justify-center">
-          <FolderOpen className="w-7 h-7 text-primary" />
+        <div className="w-12 h-12 rounded-xl bg-[var(--gm-interactive-primary)]/10 flex items-center justify-center">
+          <FolderOpen className="w-6 h-6 text-[var(--gm-accent-primary)]" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-foreground">{project.name}</h1>
-          <p className="text-sm text-muted-foreground">{project.description || 'No description'}</p>
+          <h1 className="text-lg font-bold text-[var(--gm-text-primary)]">{project.name || '(unnamed project)'}</h1>
+          <p className="text-xs text-[var(--gm-text-tertiary)]">{project.description || 'No description'}</p>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-border">
+      <div className="flex border-b border-[var(--gm-border-primary)] overflow-x-auto">
         {projectTabs.map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors border-b-2 ${activeTab === tab.id
-              ? 'text-primary border-primary'
-              : 'text-muted-foreground border-transparent hover:text-foreground'
+            className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-colors border-b-2 whitespace-nowrap ${activeTab === tab.id
+              ? 'text-[var(--gm-accent-primary)] border-[var(--gm-accent-primary)]'
+              : 'text-[var(--gm-text-tertiary)] border-transparent hover:text-[var(--gm-text-primary)]'
               }`}
           >
             <tab.icon className="w-4 h-4" />
             {tab.label}
             {(tab.id === 'members' ? members.length : tab.count) !== undefined && (
-              <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded-full">
+              <span className="text-[10px] bg-[var(--gm-bg-tertiary)] px-1.5 py-0.5 rounded-full">
                 {tab.id === 'members' ? members.length : tab.count}
               </span>
             )}
@@ -318,16 +428,37 @@ function ProjectDetail({ project, onBack, onUpdate }: { project: Project; onBack
           <CategoriesTab
             project={project}
             members={members}
-            onUpdate={onUpdate} // Use the prop passed to ProjectDetail
+            onUpdate={onUpdate}
           />
         )}
-
+        {activeTab === 'invites' && <InvitesTab projectId={project.id} />}
+        {activeTab === 'teams' && <TeamsTab />}
+        {activeTab === 'providers' && <ProvidersTab projectId={project.id} />}
+        {activeTab === 'activity' && <ActivityTab projectId={project.id} />}
       </div>
     </div>
   );
 }
 
 // ==================== GENERAL TAB ====================
+
+function ProjectStatsBar({ projectId }: { projectId: string }) {
+  const { data, isLoading } = useProjectStats(projectId);
+  if (isLoading || !data) return null;
+  const stats = data as Record<string, unknown>;
+  const items = Object.entries(stats).filter(([, v]) => typeof v === 'number').slice(0, 8);
+  if (items.length === 0) return null;
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+      {items.map(([key, val]) => (
+        <div key={key} className="bg-[var(--gm-bg-tertiary)] rounded-lg px-3 py-2 text-center">
+          <p className="text-lg font-bold text-[var(--gm-text-primary)]">{String(val)}</p>
+          <p className="text-[10px] text-[var(--gm-text-tertiary)] capitalize">{key.replace(/[_-]/g, ' ')}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function GeneralTab({ project, onUpdate, onBack }: { project: any; onUpdate: () => void; onBack: () => void }) {
   const [name, setName] = useState(project.name);
@@ -338,6 +469,13 @@ function GeneralTab({ project, onUpdate, onBack }: { project: any; onUpdate: () 
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [roleTemplates, setRoleTemplates] = useState<{ id: string; name: string; display_name?: string }[]>([]);
+
+  useEffect(() => {
+    apiClient.get<{ roles: any[] }>('/api/role-templates')
+      .then(data => setRoleTemplates(data.roles || []))
+      .catch(() => {});
+  }, []);
 
   const handleSave = async () => {
     if (!name.trim()) {
@@ -375,16 +513,17 @@ function GeneralTab({ project, onUpdate, onBack }: { project: any; onUpdate: () 
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
-      <div className="bg-card border border-border rounded-xl p-5 space-y-5">
+      <ProjectStatsBar projectId={project.id} />
+      <div className={cn(CARD, 'p-5 space-y-5')}>
         <div>
-          <label className="text-xs font-medium text-foreground mb-1 flex items-center gap-1.5">
-            <FolderOpen className="w-3.5 h-3.5 text-muted-foreground" /> Project Name *
+          <label className={LABEL}>
+            <FolderOpen className="w-3.5 h-3.5 text-[var(--gm-text-tertiary)]" /> Project Name *
           </label>
-          <Input value={name} onChange={e => setName(e.target.value)} className="bg-background border-border text-sm" />
+          <Input value={name} onChange={e => setName(e.target.value)} className="bg-[var(--gm-bg-tertiary)] border-[var(--gm-border-primary)] text-sm" />
         </div>
 
         <div>
-          <label className="text-xs font-medium text-foreground mb-1 flex items-center gap-1.5">
+          <label className={LABEL}>
             ≡ Description
           </label>
           <textarea
@@ -392,36 +531,47 @@ function GeneralTab({ project, onUpdate, onBack }: { project: any; onUpdate: () 
             onChange={e => setDescription(e.target.value)}
             placeholder="Brief description of the project"
             rows={4}
-            className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-y"
+            className={cn(INPUT, 'resize-y')}
           />
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label className="text-xs font-medium text-foreground mb-1 flex items-center gap-1.5">
-              <User className="w-3.5 h-3.5 text-muted-foreground" /> Your Role
+            <label className={LABEL}>
+              <User className="w-3.5 h-3.5 text-[var(--gm-text-tertiary)]" /> Your Role
             </label>
-            <Input value={role} onChange={e => setRole(e.target.value)} className="bg-background border-border text-sm" />
-            <p className="text-[10px] text-muted-foreground mt-1">Your role in this project (used for AI context)</p>
+            <Select value={role} onValueChange={setRole}>
+              <SelectTrigger className="bg-[var(--gm-bg-tertiary)] border-[var(--gm-border-primary)] text-sm">
+                <SelectValue placeholder="Select role..." />
+              </SelectTrigger>
+              <SelectContent>
+                {roleTemplates.filter(r => r.name || r.display_name).map(r => (
+                  <SelectItem key={r.id || r.name} value={r.display_name || r.name}>
+                    {r.display_name || r.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[10px] text-[var(--gm-text-tertiary)] mt-1">Your role in this project (used for AI context)</p>
           </div>
           <div>
-            <label className="text-xs font-medium text-foreground mb-1 flex items-center gap-1.5">
+            <label className={LABEL}>
               💬 Role Prompt
             </label>
-            <Input value={rolePrompt} onChange={e => setRolePrompt(e.target.value)} className="bg-background border-border text-sm" />
-            <p className="text-[10px] text-muted-foreground mt-1">Brief description of your responsibilities</p>
+            <Input value={rolePrompt} onChange={e => setRolePrompt(e.target.value)} className="bg-[var(--gm-bg-tertiary)] border-[var(--gm-border-primary)] text-sm" />
+            <p className="text-[10px] text-[var(--gm-text-tertiary)] mt-1">Brief description of your responsibilities</p>
           </div>
         </div>
 
         <div>
-          <label className="text-xs font-medium text-foreground mb-1 flex items-center gap-1.5">
-            <FolderOpen className="w-3.5 h-3.5 text-muted-foreground" /> Company
+          <label className={LABEL}>
+            <FolderOpen className="w-3.5 h-3.5 text-[var(--gm-text-tertiary)]" /> Company
           </label>
           <Input
             value={company}
             onChange={e => setCompany(e.target.value)}
             placeholder="Company this project belongs to..."
-            className="w-full h-9 bg-background border border-border rounded-lg px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            className={INPUT}
           />
         </div>
 
@@ -429,7 +579,7 @@ function GeneralTab({ project, onUpdate, onBack }: { project: any; onUpdate: () 
           <button
             onClick={handleSave}
             disabled={saving}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
+            className={BTN_PRIMARY}
           >
             {saving ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Check className="w-4 h-4" />}
             {saving ? 'Saving...' : 'Save Changes'}
@@ -438,15 +588,15 @@ function GeneralTab({ project, onUpdate, onBack }: { project: any; onUpdate: () 
       </div>
 
       {/* Danger Zone */}
-      <div className="border border-destructive/30 bg-destructive/5 rounded-xl p-5">
-        <h3 className="text-sm font-semibold text-destructive mb-1 flex items-center gap-2">
+      <div className="border border-[var(--color-danger-500)]/30 bg-[var(--color-danger-500)]/5 rounded-xl p-5">
+        <h3 className="text-sm font-semibold text-[var(--color-danger-500)] mb-1 flex items-center gap-2">
           <AlertTriangle className="w-4 h-4" /> Danger Zone
         </h3>
-        <p className="text-xs text-muted-foreground mb-3">Deleting a project will permanently remove all associated data including questions, decisions, risks, and contacts.</p>
+        <p className="text-xs text-[var(--gm-text-tertiary)] mb-3">Deleting a project will permanently remove all associated data including questions, decisions, risks, and contacts.</p>
         {!confirmDelete ? (
           <button
             onClick={() => setConfirmDelete(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg border border-destructive/30 text-destructive text-sm font-medium hover:bg-destructive/10 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg border border-[var(--color-danger-500)]/30 text-[var(--color-danger-500)] text-sm font-medium hover:bg-[var(--color-danger-500)]/10 transition-colors"
           >
             <Trash2 className="w-4 h-4" /> Delete Project
           </button>
@@ -455,14 +605,14 @@ function GeneralTab({ project, onUpdate, onBack }: { project: any; onUpdate: () 
             <button
               onClick={handleDelete}
               disabled={deleting}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-destructive text-destructive-foreground text-sm font-medium hover:bg-destructive/90 transition-colors disabled:opacity-50"
+              className={BTN_DANGER}
             >
               {deleting ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Trash2 className="w-4 h-4" />}
               {deleting ? 'Deleting...' : 'Confirm Delete'}
             </button>
             <button
               onClick={() => setConfirmDelete(false)}
-              className="px-4 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:bg-secondary transition-colors"
+              className={BTN_SECONDARY}
             >
               Cancel
             </button>
@@ -686,23 +836,23 @@ function MembersTab({
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
-      <div className="bg-card border border-border rounded-xl p-5">
+      <div className={cn(CARD, 'p-5')}>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-4">
-            <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-[var(--gm-text-primary)] flex items-center gap-2">
               <Users className="w-4 h-4" /> TEAM MEMBERS ({members.length})
             </h3>
-            <div className="flex bg-secondary rounded-lg p-0.5">
+            <div className="flex bg-[var(--gm-bg-tertiary)] rounded-lg p-0.5">
               <button
                 onClick={() => setViewMode('list')}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${viewMode === 'list' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${viewMode === 'list' ? 'bg-[var(--gm-surface-primary)] text-[var(--gm-text-primary)] shadow-[var(--shadow-sm)]' : 'text-[var(--gm-text-tertiary)] hover:text-[var(--gm-text-primary)]'
                   }`}
               >
                 List
               </button>
               <button
                 onClick={() => setViewMode('teams')}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${viewMode === 'teams' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${viewMode === 'teams' ? 'bg-[var(--gm-surface-primary)] text-[var(--gm-text-primary)] shadow-[var(--shadow-sm)]' : 'text-[var(--gm-text-tertiary)] hover:text-[var(--gm-text-primary)]'
                   }`}
               >
                 Teams
@@ -711,7 +861,7 @@ function MembersTab({
           </div>
           <button
             onClick={() => setShowInviteModal(true)}
-            className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors flex items-center gap-1.5"
+            className={BTN_PRIMARY}
           >
             <Users className="w-4 h-4" /> Invite
           </button>
@@ -719,17 +869,17 @@ function MembersTab({
 
         {loading || loadingCategories ? (
           <div className="flex justify-center py-8">
-            <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            <div className="w-6 h-6 border-2 border-[var(--gm-accent-primary)] border-t-transparent rounded-full animate-spin" />
           </div>
         ) : members.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-center">
-            <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-3">
-              <Users className="w-8 h-8 text-muted-foreground" />
+            <div className="w-16 h-16 rounded-full bg-[var(--gm-bg-tertiary)] flex items-center justify-center mb-3">
+              <Users className="w-8 h-8 text-[var(--gm-text-tertiary)]" />
             </div>
-            <p className="text-sm text-muted-foreground mb-4">No team members yet</p>
+            <p className="text-sm text-[var(--gm-text-tertiary)] mb-4">No team members yet</p>
             <button
               onClick={() => setShowInviteModal(true)}
-              className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+              className={BTN_PRIMARY}
             >
               Invite Member
             </button>
@@ -737,24 +887,24 @@ function MembersTab({
         ) : viewMode === 'list' ? (
           <div className="grid gap-3">
             {members.map((member) => (
-              <div key={member.user_id} className="flex items-center justify-between p-3 rounded-lg border border-border bg-secondary/20 hover:bg-secondary/40 transition-colors">
+              <div key={member.user_id} className="flex items-center justify-between p-3 rounded-lg border border-[var(--gm-border-primary)] bg-[var(--gm-bg-tertiary)]/20 hover:bg-[var(--gm-bg-tertiary)]/40 transition-colors">
                 <div className="flex items-center gap-3">
-                  {member.avatar_url || member.linked_contact?.avatar_url ? (
+                  {isValidAvatarUrl(member.avatar_url) || isValidAvatarUrl(member.linked_contact?.avatar_url) ? (
                     <img
-                      src={member.avatar_url || member.linked_contact?.avatar_url}
+                      src={(isValidAvatarUrl(member.avatar_url) ? member.avatar_url : member.linked_contact?.avatar_url)!}
                       alt={member.display_name || member.linked_contact?.name || 'Member'}
-                      className="w-10 h-10 rounded-full object-cover bg-secondary"
+                      className="w-10 h-10 rounded-full object-cover bg-[var(--gm-bg-tertiary)]"
                     />
                   ) : (
-                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold">
-                      {(member.display_name?.[0] || member.username?.[0] || member.linked_contact?.name?.[0] || '?').toUpperCase()}
+                    <div className="w-10 h-10 rounded-full bg-[var(--gm-interactive-primary)]/10 flex items-center justify-center text-[var(--gm-accent-primary)] font-bold">
+                      {getInitials(member.display_name || member.username || member.linked_contact?.name)}
                     </div>
                   )}
                   <div>
-                    <h4 className="text-sm font-medium text-foreground">
+                    <h4 className="text-sm font-medium text-[var(--gm-text-primary)]">
                       {member.display_name || member.linked_contact?.name || member.username || 'Unknown User'}
                     </h4>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-2 text-xs text-[var(--gm-text-tertiary)]">
                       <span>{member.user_role || member.role}</span>
                       {member.linked_contact?.organization && (
                         <>
@@ -766,16 +916,16 @@ function MembersTab({
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
-                  <div className="text-xs text-right text-muted-foreground">
-                    <p>Joined {new Date(member.joined_at).toLocaleDateString()}</p>
+                  <div className="text-xs text-right text-[var(--gm-text-tertiary)]">
+                    <p>Joined {member.joined_at ? new Date(member.joined_at).toLocaleDateString() : '—'}</p>
                   </div>
                   <button
                     onClick={() => setMemberToRemove(member)}
                     disabled={removing === member.user_id}
-                    className="p-2 text-muted-foreground hover:text-destructive transition-colors disabled:opacity-50"
+                    className="p-2 text-[var(--gm-text-tertiary)] hover:text-[var(--color-danger-500)] transition-colors disabled:opacity-50"
                   >
                     {removing === member.user_id ? (
-                      <div className="w-4 h-4 border-2 border-destructive border-t-transparent rounded-full animate-spin" />
+                      <div className="w-4 h-4 border-2 border-[var(--color-danger-500)] border-t-transparent rounded-full animate-spin" />
                     ) : (
                       <Trash2 className="w-4 h-4" />
                     )}
@@ -796,7 +946,7 @@ function MembersTab({
                   key={category.id}
                   initial={{ opacity: 0, y: 15 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="bg-card border border-border rounded-xl p-5"
+                  className={cn(CARD, 'p-5')}
                   onDragOver={handleDragOver}
                   onDrop={(e) => handleDrop(e, category.id)}
                 >
@@ -806,14 +956,14 @@ function MembersTab({
                         <Users className="w-5 h-5" />
                       </div>
                       <div>
-                        <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
+                        <h3 className="text-base font-semibold text-[var(--gm-text-primary)] flex items-center gap-2">
                           {category.display_name}
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-secondary text-muted-foreground">{teamMembers.length}</span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--gm-bg-tertiary)] text-[var(--gm-text-tertiary)]">{teamMembers.length}</span>
                         </h3>
                         {lead && (
-                          <p className="text-xs text-muted-foreground flex items-center gap-1">
+                          <p className="text-xs text-[var(--gm-text-tertiary)] flex items-center gap-1">
                             <ShieldCheck className="w-3 h-3 text-amber-500" />
-                            Lead: <span className="font-medium text-foreground">{lead.display_name}</span>
+                            Lead: <span className="font-medium text-[var(--gm-text-primary)]">{lead.display_name}</span>
                           </p>
                         )}
                       </div>
@@ -826,26 +976,26 @@ function MembersTab({
                       return (
                         <div
                           key={m.user_id}
-                          className={`flex items-center gap-4 p-3 rounded-xl border transition-all cursor-grab active:cursor-grabbing group relative ${isLead ? 'bg-amber-500/5 border-amber-500/20' : 'bg-background border-border hover:border-primary/30'
+                          className={`flex items-center gap-4 p-3 rounded-xl border transition-all cursor-grab active:cursor-grabbing group relative ${isLead ? 'bg-amber-500/5 border-amber-500/20' : 'bg-[var(--gm-bg-primary)] border-[var(--gm-border-primary)] hover:border-[var(--gm-accent-primary)]/30'
                             }`}
                           draggable={true}
                           onDragStart={(e) => handleDragStart(e, m.user_id)}
                         >
                           {/* Avatar */}
                           <div className="relative">
-                            {m.avatar_url || m.linked_contact?.avatar_url ? (
+                            {isValidAvatarUrl(m.avatar_url) || isValidAvatarUrl(m.linked_contact?.avatar_url) ? (
                               <img
-                                src={m.avatar_url || m.linked_contact?.avatar_url}
+                                src={(isValidAvatarUrl(m.avatar_url) ? m.avatar_url : m.linked_contact?.avatar_url)!}
                                 alt={m.display_name}
-                                className="w-10 h-10 rounded-full object-cover border border-border"
+                                className="w-10 h-10 rounded-full object-cover border border-[var(--gm-border-primary)]"
                               />
                             ) : (
-                              <div className="w-10 h-10 rounded-full bg-secondary flex items-center justify-center text-sm font-bold text-muted-foreground border border-border">
-                                {(m.display_name?.[0] || '?').toUpperCase()}
+                              <div className="w-10 h-10 rounded-full bg-[var(--gm-bg-tertiary)] flex items-center justify-center text-sm font-bold text-[var(--gm-text-tertiary)] border border-[var(--gm-border-primary)]">
+                                {getInitials(m.display_name)}
                               </div>
                             )}
                             {isLead && (
-                              <div className="absolute -bottom-1 -right-1 bg-amber-500 text-white rounded-full p-0.5 border-2 border-background">
+                              <div className="absolute -bottom-1 -right-1 bg-amber-500 text-white rounded-full p-0.5 border-2 border-[var(--gm-bg-primary)]">
                                 <ShieldCheck className="w-3 h-3" />
                               </div>
                             )}
@@ -854,9 +1004,9 @@ function MembersTab({
                           {/* Info */}
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
-                              <h4 className="text-sm font-medium text-foreground truncate">{m.display_name}</h4>
+                              <h4 className="text-sm font-medium text-[var(--gm-text-primary)] truncate">{m.display_name}</h4>
                               {m.linked_contact?.organization && (
-                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground truncate max-w-[100px]">
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--gm-bg-tertiary)] text-[var(--gm-text-tertiary)] truncate max-w-[100px]">
                                   {m.linked_contact.organization}
                                 </span>
                               )}
@@ -867,7 +1017,7 @@ function MembersTab({
                                 value={m.user_role || m.role || ''}
                                 onValueChange={(value) => handleRoleChange(m.user_id, value === 'no-role' ? '' : value)}
                               >
-                                <SelectTrigger className="h-5 text-[11px] bg-transparent border-none p-0 text-muted-foreground focus:ring-0 shadow-none w-auto gap-1 hover:text-foreground">
+                                <SelectTrigger className="h-5 text-[11px] bg-transparent border-none p-0 text-[var(--gm-text-tertiary)] focus:ring-0 shadow-none w-auto gap-1 hover:text-[var(--gm-text-primary)]">
                                   <SelectValue placeholder="No Role" />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -877,7 +1027,7 @@ function MembersTab({
                                     if (catRoles.length === 0) return null;
                                     return (
                                       <SelectGroup key={cat.id}>
-                                        <SelectLabel className="text-[10px] font-bold text-muted-foreground px-2 py-1.5">{cat.display_name}</SelectLabel>
+                                        <SelectLabel className="text-[10px] font-bold text-[var(--gm-text-tertiary)] px-2 py-1.5">{cat.display_name}</SelectLabel>
                                         {catRoles.map(r => (
                                           <SelectItem key={r.id} value={r.name} className="text-[10px]">{r.name}</SelectItem>
                                         ))}
@@ -899,14 +1049,14 @@ function MembersTab({
                               }}
                               className={`p-2 rounded-lg transition-colors ${isLead
                                 ? 'text-amber-500 bg-amber-500/10 hover:bg-amber-500/20'
-                                : 'text-muted-foreground hover:text-amber-500 hover:bg-amber-500/10'
+                                : 'text-[var(--gm-text-tertiary)] hover:text-amber-500 hover:bg-amber-500/10'
                                 }`}
                               title={isLead ? "Current Team Lead" : "Make Team Lead"}
                             >
                               <ShieldCheck className="w-4 h-4" />
                             </button>
-                            <div className="w-px h-4 bg-border mx-1" />
-                            <div className="p-2 text-muted-foreground cursor-grab active:cursor-grabbing">
+                            <div className="w-px h-4 bg-[var(--gm-border-primary)] mx-1" />
+                            <div className="p-2 text-[var(--gm-text-tertiary)] cursor-grab active:cursor-grabbing">
                               <GripVertical className="w-4 h-4" />
                             </div>
                           </div>
@@ -914,9 +1064,9 @@ function MembersTab({
                       );
                     })}
                     {teamMembers.length === 0 && (
-                      <div className="flex flex-col items-center justify-center py-8 text-center border border-dashed border-border/50 rounded-xl bg-secondary/5">
-                        <Users className="w-8 h-8 text-muted-foreground/30 mb-2" />
-                        <p className="text-xs text-muted-foreground">Drag members here to assign them to {category.display_name}</p>
+                      <div className="flex flex-col items-center justify-center py-8 text-center border border-dashed border-[var(--gm-border-primary)]/50 rounded-xl bg-[var(--gm-bg-tertiary)]/5">
+                        <Users className="w-8 h-8 text-[var(--gm-text-tertiary)]/30 mb-2" />
+                        <p className="text-xs text-[var(--gm-text-tertiary)]">Drag members here to assign them to {category.display_name}</p>
                       </div>
                     )}
                   </div>
@@ -929,33 +1079,33 @@ function MembersTab({
               <motion.div
                 initial={{ opacity: 0, y: 15 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="bg-card border border-border border-dashed rounded-xl p-5"
+                className="bg-[var(--gm-surface-primary)] border border-[var(--gm-border-primary)] border-dashed rounded-xl p-5"
                 onDragOver={handleDragOver}
                 onDrop={(e) => handleDrop(e, null)}
               >
-                <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+                <h3 className="text-sm font-semibold text-[var(--gm-text-primary)] mb-3 flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
                   Unassigned Members
-                  <span className="text-[10px] bg-secondary text-muted-foreground px-2 py-0.5 rounded-full">{getUnassignedMembers().length}</span>
+                  <span className="text-[10px] bg-[var(--gm-bg-tertiary)] text-[var(--gm-text-tertiary)] px-2 py-0.5 rounded-full">{getUnassignedMembers().length}</span>
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                   {getUnassignedMembers().map((m) => (
                     <div
                       key={m.user_id}
-                      className="flex items-center gap-3 bg-secondary/10 border border-border/50 hover:border-amber-500/50 rounded-xl p-3 cursor-grab active:cursor-grabbing group relative transition-colors"
+                      className="flex items-center gap-3 bg-[var(--gm-bg-tertiary)]/10 border border-[var(--gm-border-primary)]/50 hover:border-amber-500/50 rounded-xl p-3 cursor-grab active:cursor-grabbing group relative transition-colors"
                       draggable={true}
                       onDragStart={(e) => handleDragStart(e, m.user_id)}
                     >
                       {/* Avatar */}
                       <div className="relative">
-                        {m.avatar_url || m.linked_contact?.avatar_url ? (
+                        {isValidAvatarUrl(m.avatar_url) || isValidAvatarUrl(m.linked_contact?.avatar_url) ? (
                           <img
-                            src={m.avatar_url || m.linked_contact?.avatar_url}
+                            src={(isValidAvatarUrl(m.avatar_url) ? m.avatar_url : m.linked_contact?.avatar_url)!}
                             alt={m.display_name}
-                            className="w-10 h-10 rounded-full object-cover border border-border"
+                            className="w-10 h-10 rounded-full object-cover border border-[var(--gm-border-primary)]"
                           />
                         ) : (
-                          <div className="w-10 h-10 rounded-full bg-secondary flex items-center justify-center text-sm font-bold text-muted-foreground border border-border">
+                          <div className="w-10 h-10 rounded-full bg-[var(--gm-bg-tertiary)] flex items-center justify-center text-sm font-bold text-[var(--gm-text-tertiary)] border border-[var(--gm-border-primary)]">
                             {(m.display_name?.[0] || '?').toUpperCase()}
                           </div>
                         )}
@@ -967,7 +1117,7 @@ function MembersTab({
                       {/* Info */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <h4 className="text-sm font-medium text-foreground truncate">{m.display_name}</h4>
+                          <h4 className="text-sm font-medium text-[var(--gm-text-primary)] truncate">{m.display_name}</h4>
                         </div>
 
                         <div className="flex items-center gap-2 mt-1">
@@ -975,7 +1125,7 @@ function MembersTab({
                             value={m.user_role || m.role || ''}
                             onValueChange={(val) => handleRoleChange(m.user_id, val)}
                           >
-                            <SelectTrigger className="h-6 text-[11px] bg-background border-border w-full">
+                            <SelectTrigger className="h-6 text-[11px] bg-[var(--gm-bg-primary)] border-[var(--gm-border-primary)] w-full">
                               <SelectValue placeholder="Select Role..." />
                             </SelectTrigger>
                             <SelectContent>
@@ -985,7 +1135,7 @@ function MembersTab({
                                 if (catRoles.length === 0) return null;
                                 return (
                                   <SelectGroup key={cat.id}>
-                                    <SelectLabel className="text-[10px] font-bold text-muted-foreground px-2 py-1.5">{cat.display_name}</SelectLabel>
+                                    <SelectLabel className="text-[10px] font-bold text-[var(--gm-text-tertiary)] px-2 py-1.5">{cat.display_name}</SelectLabel>
                                     {catRoles.map(r => (
                                       <SelectItem key={r.id} value={r.name} className="text-[10px]">{r.name}</SelectItem>
                                     ))}
@@ -998,7 +1148,7 @@ function MembersTab({
                       </div>
 
                       {/* Drag Handle */}
-                      <div className="text-muted-foreground opacity-50 group-hover:opacity-100">
+                      <div className="text-[var(--gm-text-tertiary)] opacity-50 group-hover:opacity-100">
                         <GripVertical className="w-4 h-4" />
                       </div>
                     </div>
@@ -1031,7 +1181,7 @@ function MembersTab({
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleRemoveMember}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="bg-[var(--color-danger-500)] text-white hover:bg-[var(--color-danger-600)]"
             >
               Remove Member
             </AlertDialogAction>
@@ -1130,22 +1280,22 @@ function InviteMemberModal({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[500px] bg-card border-border">
+      <DialogContent className="sm:max-w-[500px] bg-[var(--gm-surface-primary)] border-[var(--gm-border-primary)]">
         <DialogHeader>
-          <DialogTitle className="text-foreground">Invite Team Member</DialogTitle>
+          <DialogTitle className="text-[var(--gm-text-primary)]">Invite Team Member</DialogTitle>
         </DialogHeader>
 
-        <div className="flex border-b border-border mb-4">
+        <div className="flex border-b border-[var(--gm-border-primary)] mb-4">
           <button
             onClick={() => setInviteTab('email')}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${inviteTab === 'email' ? 'text-primary border-primary' : 'text-muted-foreground border-transparent'
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${inviteTab === 'email' ? 'text-[var(--gm-accent-primary)] border-[var(--gm-accent-primary)]' : 'text-[var(--gm-text-tertiary)] border-transparent'
               }`}
           >
             New Email
           </button>
           <button
             onClick={() => setInviteTab('contacts')}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${inviteTab === 'contacts' ? 'text-primary border-primary' : 'text-muted-foreground border-transparent'
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${inviteTab === 'contacts' ? 'text-[var(--gm-accent-primary)] border-[var(--gm-accent-primary)]' : 'text-[var(--gm-text-tertiary)] border-transparent'
               }`}
           >
             Existing Contacts
@@ -1155,33 +1305,33 @@ function InviteMemberModal({
         {inviteTab === 'email' ? (
           <div className="space-y-4">
             <div>
-              <label className="text-xs font-medium text-foreground mb-1 block">Email Address *</label>
-              <Input value={email} onChange={e => setEmail(e.target.value)} placeholder="colleague@example.com" className="bg-background border-border text-sm" />
-              <p className="text-[10px] text-muted-foreground mt-1">They will receive an email invitation to join this project</p>
+              <label className="text-xs font-medium text-[var(--gm-text-primary)] mb-1 block">Email Address *</label>
+              <Input value={email} onChange={e => setEmail(e.target.value)} placeholder="colleague@example.com" className="bg-[var(--gm-bg-tertiary)] border-[var(--gm-border-primary)] text-sm" />
+              <p className="text-[10px] text-[var(--gm-text-tertiary)] mt-1">They will receive an email invitation to join this project</p>
             </div>
             <div>
-              <label className="text-xs font-medium text-foreground mb-1 block">Access Level</label>
-              <p className="text-sm text-foreground">Member - Can view and edit data</p>
-              <p className="text-[10px] text-muted-foreground mt-1">You can assign a project role after they join.</p>
+              <label className="text-xs font-medium text-[var(--gm-text-primary)] mb-1 block">Access Level</label>
+              <p className="text-sm text-[var(--gm-text-primary)]">Member - Can view and edit data</p>
+              <p className="text-[10px] text-[var(--gm-text-tertiary)] mt-1">You can assign a project role after they join.</p>
             </div>
             <div>
-              <label className="text-xs font-medium text-foreground mb-1 block">Personal Message (optional)</label>
+              <label className="text-xs font-medium text-[var(--gm-text-primary)] mb-1 block">Personal Message (optional)</label>
               <textarea
                 value={message}
                 onChange={e => setMessage(e.target.value)}
                 placeholder="Add a personal note to the invitation..."
                 rows={3}
-                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+                className={cn(INPUT, 'resize-none')}
               />
             </div>
             <div className="flex justify-end gap-2 pt-2">
-              <button onClick={onClose} className="px-4 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:bg-secondary transition-colors">
+              <button onClick={onClose} className={BTN_SECONDARY}>
                 Cancel
               </button>
               <button
                 onClick={handleSendInvitation}
                 disabled={sendingInvite || !email.trim()}
-                className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
+                className={BTN_PRIMARY}
               >
                 {sendingInvite ? 'Sending...' : 'Send Invitation'}
               </button>
@@ -1191,10 +1341,10 @@ function InviteMemberModal({
           <div className="space-y-3">
             {loadingContacts ? (
               <div className="flex justify-center py-8">
-                <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                <div className="w-6 h-6 border-2 border-[var(--gm-accent-primary)] border-t-transparent rounded-full animate-spin" />
               </div>
             ) : contacts.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground text-sm">
+              <div className="text-center py-8 text-[var(--gm-text-tertiary)] text-sm">
                 No contacts found.
               </div>
             ) : (
@@ -1204,44 +1354,44 @@ function InviteMemberModal({
                     key={contact.id}
                     onClick={() => setSelectedContact(contact.id)}
                     className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer border transition-all ${selectedContact === contact.id
-                      ? 'bg-primary/10 border-primary shadow-sm'
-                      : 'bg-card hover:bg-secondary/50 border-border hover:border-border/80'
+                      ? 'bg-[var(--gm-interactive-primary)]/10 border-[var(--gm-accent-primary)] shadow-[var(--shadow-sm)]'
+                      : 'bg-[var(--gm-surface-primary)] hover:bg-[var(--gm-surface-hover)] border-[var(--gm-border-primary)] hover:border-[var(--gm-border-primary)]/80'
                       }`}
                   >
-                    <div className={`w-4 h-4 rounded-full border flex items-center justify-center transition-colors ${selectedContact === contact.id ? 'border-primary bg-primary' : 'border-muted-foreground'}`}>
-                      {selectedContact === contact.id && <div className="w-1.5 h-1.5 rounded-full bg-primary-foreground" />}
+                    <div className={`w-4 h-4 rounded-full border flex items-center justify-center transition-colors ${selectedContact === contact.id ? 'border-[var(--gm-accent-primary)] bg-[var(--gm-interactive-primary)]' : 'border-[var(--gm-text-tertiary)]'}`}>
+                      {selectedContact === contact.id && <div className="w-1.5 h-1.5 rounded-full bg-[var(--gm-text-on-brand)]" />}
                     </div>
 
-                    {contact.avatarUrl || contact.avatar ? (
+                    {resolveAvatarUrl(contact as any) ? (
                       <img
-                        src={contact.avatarUrl || contact.avatar}
+                        src={resolveAvatarUrl(contact as any)!}
                         alt={contact.name}
-                        className="w-10 h-10 rounded-full object-cover bg-secondary"
+                        className="w-10 h-10 rounded-full object-cover bg-[var(--gm-bg-tertiary)]"
                       />
                     ) : (
-                      <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm">
-                        {(contact.name || '?').substring(0, 2).toUpperCase()}
+                      <div className="w-10 h-10 rounded-full bg-[var(--gm-interactive-primary)]/10 flex items-center justify-center text-[var(--gm-accent-primary)] font-bold text-sm">
+                        {getInitials(contact.name)}
                       </div>
                     )}
 
                     <div className="min-w-0 flex-1">
-                      <p className={`text-sm font-medium ${selectedContact === contact.id ? 'text-primary' : 'text-foreground'}`}>
-                        {contact.name}
+                      <p className={`text-sm font-medium ${selectedContact === contact.id ? 'text-[var(--gm-accent-primary)]' : 'text-[var(--gm-text-primary)]'}`}>
+                        {contact.name || '(unnamed)'}
                       </p>
                       <div className="flex flex-col gap-0.5">
                         {contact.organization && (
-                          <p className="text-[10px] text-muted-foreground font-medium">
+                          <p className="text-[10px] text-[var(--gm-text-tertiary)] font-medium">
                             {contact.organization}
                           </p>
                         )}
-                        <p className="text-[10px] text-muted-foreground truncate">
+                        <p className="text-[10px] text-[var(--gm-text-tertiary)] truncate">
                           {contact.email || 'No email'}
                         </p>
                       </div>
                     </div>
 
                     {contact.role && (
-                      <div className="text-[10px] px-2 py-0.5 rounded-full bg-secondary text-secondary-foreground">
+                      <div className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--gm-bg-tertiary)] text-[var(--gm-text-primary)]">
                         {contact.role}
                       </div>
                     )}
@@ -1251,23 +1401,23 @@ function InviteMemberModal({
             )}
 
             <div>
-              <label className="text-xs font-medium text-foreground mb-1 block">Access Level</label>
-              <p className="text-sm text-foreground">Member - Can view and edit data</p>
+              <label className="text-xs font-medium text-[var(--gm-text-primary)] mb-1 block">Access Level</label>
+              <p className="text-sm text-[var(--gm-text-primary)]">Member - Can view and edit data</p>
             </div>
 
             <div className="flex gap-2">
               <button
                 onClick={handleAddContact}
                 disabled={!selectedContact || adding}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className={cn(BTN_PRIMARY, 'disabled:cursor-not-allowed')}
               >
                 {adding ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Users className="w-4 h-4" />}
                 Add to Team
               </button>
             </div>
 
-            <div className="text-[10px] text-muted-foreground space-y-0.5">
-              <p><span className="font-medium text-primary">Add to Team:</span> Adds contact as team member directly.</p>
+            <div className="text-[10px] text-[var(--gm-text-tertiary)] space-y-0.5">
+              <p><span className="font-medium text-[var(--gm-accent-primary)]">Add to Team:</span> Adds contact as team member directly.</p>
             </div>
           </div>
         )}
@@ -1357,44 +1507,44 @@ function RolesTab({ project, onUpdate }: { project: Project; onUpdate: () => voi
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
-      <div className="bg-card border border-border rounded-xl p-5">
+      <div className={cn(CARD, 'p-5')}>
         <div className="flex items-center justify-between mb-2">
-          <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-[var(--gm-text-primary)] flex items-center gap-2">
             <ShieldCheck className="w-4 h-4" /> PROJECT ROLES
           </h3>
           <button
             onClick={() => setShowAddRole(true)}
-            className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors flex items-center gap-1.5"
+            className={BTN_PRIMARY}
           >
             <Plus className="w-4 h-4" /> Add Role
           </button>
         </div>
-        <p className="text-xs text-muted-foreground mb-4">Define roles and responsibilities for this project.</p>
+        <p className="text-xs text-[var(--gm-text-tertiary)] mb-4">Define roles and responsibilities for this project.</p>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {mergedRoles.map(role => (
             <div
               key={role.id}
-              className={`p-4 rounded-xl border transition-colors ${role.active === true ? 'border-primary/30 bg-primary/5' : 'border-border'
+              className={`p-4 rounded-xl border transition-colors ${role.active === true ? 'border-[var(--gm-accent-primary)]/30 bg-[var(--gm-interactive-primary)]/5' : 'border-[var(--gm-border-primary)]'
                 }`}
             >
               <div className="flex items-center gap-3 mb-2">
-                <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${role.active === true ? 'bg-primary/10' : 'bg-secondary'}`}>
-                  <User className={`w-4 h-4 ${role.active === true ? 'text-primary' : 'text-muted-foreground'}`} />
+                <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${role.active === true ? 'bg-[var(--gm-interactive-primary)]/10' : 'bg-[var(--gm-bg-tertiary)]'}`}>
+                  <User className={`w-4 h-4 ${role.active === true ? 'text-[var(--gm-accent-primary)]' : 'text-[var(--gm-text-tertiary)]'}`} />
                 </div>
-                <h4 className="text-sm font-semibold text-foreground">{role.name}</h4>
+                <h4 className="text-sm font-semibold text-[var(--gm-text-primary)]">{role.name || '(unnamed role)'}</h4>
               </div>
-              <p className="text-xs text-muted-foreground mb-3">{role.description}</p>
-              <div className="mt-3 pt-3 border-t border-border flex items-center justify-between">
+              <p className="text-xs text-[var(--gm-text-tertiary)] mb-3">{role.description || '—'}</p>
+              <div className="mt-3 pt-3 border-t border-[var(--gm-border-primary)] flex items-center justify-between">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={role.active === true}
                     onChange={() => toggleRole(role)}
                     disabled={!!processing}
-                    className="accent-primary w-4 h-4"
+                    className="accent-[var(--gm-accent-primary)] w-4 h-4"
                   />
-                  <span className="text-xs text-foreground">
+                  <span className="text-xs text-[var(--gm-text-primary)]">
                     {processing === role.id
                       ? 'Updating...'
                       : role.active === true
@@ -1405,7 +1555,7 @@ function RolesTab({ project, onUpdate }: { project: Project; onUpdate: () => voi
 
                 {role.active && (
                   <select
-                    className="max-w-[120px] text-[10px] bg-secondary/50 border-none rounded px-2 py-1 text-foreground focus:ring-0"
+                    className="max-w-[120px] text-[10px] bg-[var(--gm-bg-tertiary)]/50 border-none rounded px-2 py-1 text-[var(--gm-text-primary)] focus:ring-0"
                     value={role.category || ''}
                     onChange={async (e) => {
                       const newCategory = e.target.value;
@@ -1506,23 +1656,23 @@ function AddRoleModal({ open, onClose, projectId, onRoleAdded }: { open: boolean
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[450px] bg-card border-border">
+      <DialogContent className="sm:max-w-[450px] bg-[var(--gm-surface-primary)] border-[var(--gm-border-primary)]">
         <DialogHeader>
-          <DialogTitle className="text-foreground">Add New Role</DialogTitle>
+          <DialogTitle className="text-[var(--gm-text-primary)]">Add New Role</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
           <div>
-            <label className="text-xs font-medium text-foreground mb-1 block">Role Name *</label>
-            <Input value={roleName} onChange={e => setRoleName(e.target.value)} placeholder="e.g., Senior Developer, Tech Lead" className="bg-background border-border text-sm" />
+            <label className={LABEL}>Role Name *</label>
+            <Input value={roleName} onChange={e => setRoleName(e.target.value)} placeholder="e.g., Senior Developer, Tech Lead" className="bg-[var(--gm-bg-tertiary)] border-[var(--gm-border-primary)] text-sm" />
           </div>
           <div>
-            <label className="text-xs font-medium text-foreground mb-1 block">Category</label>
+            <label className={LABEL}>Category</label>
             <select
               value={category}
               onChange={(e) => setCategory(e.target.value)}
               disabled={loadingCategories}
-              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              className={INPUT}
             >
               {loadingCategories ? (
                 <option>Loading categories...</option>
@@ -1536,35 +1686,35 @@ function AddRoleModal({ open, onClose, projectId, onRoleAdded }: { open: boolean
             </select>
           </div>
           <div>
-            <label className="text-xs font-medium text-foreground mb-1 block">Description</label>
-            <Input value={description} onChange={e => setDescription(e.target.value)} placeholder="Brief description of this role" className="bg-background border-border text-sm" />
+            <label className={LABEL}>Description</label>
+            <Input value={description} onChange={e => setDescription(e.target.value)} placeholder="Brief description of this role" className="bg-[var(--gm-bg-tertiary)] border-[var(--gm-border-primary)] text-sm" />
           </div>
           <div>
-            <label className="text-xs font-medium text-foreground mb-1 block">Role Context (for AI)</label>
+            <label className={LABEL}>Role Context (for AI)</label>
             <textarea
               value={context}
               onChange={e => setContext(e.target.value)}
               placeholder="Describe this role's responsibilities, priorities, and how the AI should adapt responses..."
               rows={4}
-              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-y"
+              className={cn(INPUT, 'resize-y')}
             />
           </div>
           <button
             onClick={() => toast.info('AI enhancement will use the project context to suggest role descriptions')}
-            className="flex items-center gap-2 text-sm text-accent font-medium hover:text-accent/80 transition-colors"
+            className="flex items-center gap-2 text-sm text-[var(--gm-accent-primary)] font-medium hover:text-[var(--gm-accent-primary)]/80 transition-colors"
           >
             <Sparkles className="w-4 h-4" /> Enhance with AI
           </button>
         </div>
 
         <div className="flex justify-end gap-2 pt-2">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:bg-secondary transition-colors">
+          <button onClick={onClose} className={BTN_SECONDARY}>
             Cancel
           </button>
           <button
             onClick={handleCreateRole}
             disabled={loading || !roleName.trim()}
-            className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
+            className={BTN_PRIMARY}
           >
             {loading ? 'Creating...' : 'Create Role'}
           </button>
@@ -1647,14 +1797,14 @@ function CategoriesTab({
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
-      <div className="bg-card border border-border rounded-xl p-5">
+      <div className={cn(CARD, 'p-5')}>
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-[var(--gm-text-primary)] flex items-center gap-2">
             <SlidersHorizontal className="w-4 h-4" /> PROJECT CATEGORIES
           </h3>
           <button
             onClick={() => { setEditingCategory(null); setShowAddModal(true); }}
-            className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors flex items-center gap-1.5"
+            className={BTN_PRIMARY}
           >
             <Plus className="w-4 h-4" /> Add Category
           </button>
@@ -1662,34 +1812,34 @@ function CategoriesTab({
 
         {loading ? (
           <div className="flex justify-center py-8">
-            <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            <div className="w-6 h-6 border-2 border-[var(--gm-accent-primary)] border-t-transparent rounded-full animate-spin" />
           </div>
         ) : categories.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground text-sm">
+          <div className="text-center py-8 text-[var(--gm-text-tertiary)] text-sm">
             No categories found.
           </div>
         ) : (
           <div className="grid gap-3">
             {categories.map((cat) => (
-              <div key={cat.id} className="flex items-center justify-between p-3 rounded-lg border border-border bg-secondary/20 hover:bg-secondary/40 transition-colors">
+              <div key={cat.id} className="flex items-center justify-between p-3 rounded-lg border border-[var(--gm-border-primary)] bg-[var(--gm-bg-tertiary)]/20 hover:bg-[var(--gm-bg-tertiary)]/40 transition-colors">
                 <div className="flex items-center gap-3">
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold bg-${cat.color || 'blue'}-500/10 text-${cat.color || 'blue'}-500`}>
-                    {cat.display_name.substring(0, 2).toUpperCase()}
+                    {getInitials(cat.display_name)}
                   </div>
                   <div>
-                    <h4 className="text-sm font-medium text-foreground">{cat.display_name}</h4>
-                    <p className="text-xs text-muted-foreground">{cat.description || 'No description'}</p>
+                    <h4 className="text-sm font-medium text-[var(--gm-text-primary)]">{cat.display_name}</h4>
+                    <p className="text-xs text-[var(--gm-text-tertiary)]">{cat.description || 'No description'}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-4">
                   {/* Lead Selector */}
                   <div className="flex flex-col items-end">
-                    <span className="text-[10px] text-muted-foreground mb-0.5">Team Lead</span>
+                    <span className="text-[10px] text-[var(--gm-text-tertiary)] mb-0.5">Team Lead</span>
                     <Select
                       value={project.settings?.category_leads?.[cat.id] || ''}
                       onValueChange={(value) => handleSetLead(cat.id, value)}
                     >
-                      <SelectTrigger className="h-6 text-[10px] bg-background border-border w-[140px]">
+                      <SelectTrigger className="h-6 text-[10px] bg-[var(--gm-bg-primary)] border-[var(--gm-border-primary)] w-[140px]">
                         <SelectValue placeholder="No Lead" />
                       </SelectTrigger>
                       <SelectContent>
@@ -1701,7 +1851,7 @@ function CategoriesTab({
                     </Select>
                   </div>
 
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full ${!(cat as any).project_id ? 'bg-secondary text-secondary-foreground' : 'bg-primary/10 text-primary'}`}>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full ${!(cat as any).project_id ? 'bg-[var(--gm-bg-tertiary)] text-[var(--gm-text-primary)]' : 'bg-[var(--gm-interactive-primary)]/10 text-[var(--gm-accent-primary)]'}`}>
                     {!(cat as any).project_id ? 'Global' : 'Project'}
                   </span>
                   {/* Only allow editing/deleting project-specific categories */}
@@ -1709,13 +1859,13 @@ function CategoriesTab({
                     <div className="flex items-center gap-1">
                       <button
                         onClick={() => { setEditingCategory(cat); setShowAddModal(true); }}
-                        className="p-1.5 text-muted-foreground hover:text-foreground transition-colors"
+                        className="p-1.5 text-[var(--gm-text-tertiary)] hover:text-[var(--gm-text-primary)] transition-colors"
                       >
                         <Edit2 className="w-3.5 h-3.5" />
                       </button>
                       <button
                         onClick={() => handleDeleteClick(cat)}
-                        className="p-1.5 text-muted-foreground hover:text-destructive transition-colors"
+                        className="p-1.5 text-[var(--gm-text-tertiary)] hover:text-[var(--color-danger-500)] transition-colors"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -1749,7 +1899,7 @@ function CategoriesTab({
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDeleteConfirm}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="bg-[var(--color-danger-500)] text-white hover:bg-[var(--color-danger-600)]"
             >
               Delete
             </AlertDialogAction>
@@ -1809,45 +1959,44 @@ function AddCategoryModal({ open, onClose, projectId, onSuccess, initialData }: 
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[450px] bg-card border-border">
+      <DialogContent className="sm:max-w-[450px] bg-[var(--gm-surface-primary)] border-[var(--gm-border-primary)]">
         <DialogHeader>
-          <DialogTitle className="text-foreground">{initialData ? 'Edit Category' : 'Add New Category'}</DialogTitle>
+          <DialogTitle className="text-[var(--gm-text-primary)]">{initialData ? 'Edit Category' : 'Add New Category'}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
           <div>
-            <label className="text-xs font-medium text-foreground mb-1 block">Display Name *</label>
+            <label className={LABEL}>Display Name *</label>
             <Input
               value={displayName}
               onChange={e => {
                 setDisplayName(e.target.value);
-                // Auto-generate slug if adding new and slug is empty or matches previous slug
                 if (!initialData && (!name || name === displayName.toLowerCase().replace(/\s+/g, '_').slice(0, -1))) {
                   setName(e.target.value.toLowerCase().replace(/\s+/g, '_'));
                 }
               }}
               placeholder="e.g. Frontend Team"
-              className="bg-background border-border text-sm"
+              className="bg-[var(--gm-bg-tertiary)] border-[var(--gm-border-primary)] text-sm"
             />
           </div>
           <div>
-            <label className="text-xs font-medium text-foreground mb-1 block">Internal Name (Slug) *</label>
-            <Input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. frontend_team" className="bg-background border-border text-sm font-mono" />
-            <p className="text-[10px] text-muted-foreground mt-1">Unique identifier used in system.</p>
+            <label className={LABEL}>Internal Name (Slug) *</label>
+            <Input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. frontend_team" className="bg-[var(--gm-bg-tertiary)] border-[var(--gm-border-primary)] text-sm font-mono" />
+            <p className="text-[10px] text-[var(--gm-text-tertiary)] mt-1">Unique identifier used in system.</p>
           </div>
           <div>
-            <label className="text-xs font-medium text-foreground mb-1 block">Description</label>
-            <Input value={description} onChange={e => setDescription(e.target.value)} placeholder="Description..." className="bg-background border-border text-sm" />
+            <label className={LABEL}>Description</label>
+            <Input value={description} onChange={e => setDescription(e.target.value)} placeholder="Description..." className="bg-[var(--gm-bg-tertiary)] border-[var(--gm-border-primary)] text-sm" />
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
-            <button onClick={onClose} className="px-4 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:bg-secondary transition-colors">
+            <button onClick={onClose} className={BTN_SECONDARY}>
               Cancel
             </button>
             <button
               onClick={handleSubmit}
               disabled={loading}
-              className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
+              className={BTN_PRIMARY}
             >
               {loading ? 'Saving...' : (initialData ? 'Update' : 'Create')}
             </button>
@@ -1859,5 +2008,534 @@ function AddCategoryModal({ open, onClose, projectId, onSuccess, initialData }: 
 }
 
 
+
+// ==================== INVITES TAB ====================
+
+function InvitesTab({ projectId }: { projectId: string }) {
+  const [email, setEmail] = useState('');
+  const [role, setRole] = useState('member');
+  const [acceptToken, setAcceptToken] = useState('');
+
+  const { data, isLoading } = useProjectInvites(projectId);
+  const createMut = useCreateInvite();
+  const linkMut = useGenerateInviteLink();
+  const revokeMut = useRevokeInvite();
+  const acceptMut = useAcceptInvite();
+
+  const invites = data?.invites ?? [];
+
+  const handleInvite = async () => {
+    if (!email.trim()) { toast.error('Email is required'); return; }
+    try {
+      const result = await createMut.mutateAsync({ projectId, email: email.trim(), role });
+      if (result.invite_url) {
+        await navigator.clipboard.writeText(result.invite_url);
+        toast.success(`Invite sent! Link copied to clipboard.${result.email_sent ? ' Email sent.' : ''}`);
+      } else {
+        toast.success('Invite created');
+      }
+      setEmail('');
+    } catch {
+      toast.error('Failed to create invite');
+    }
+  };
+
+  const handleGenerateLink = async () => {
+    try {
+      const result = await linkMut.mutateAsync(projectId);
+      if (result.link) {
+        await navigator.clipboard.writeText(result.link);
+        toast.success('Invite link copied to clipboard');
+      }
+    } catch {
+      toast.error('Failed to generate link');
+    }
+  };
+
+  const handleAcceptInvite = async () => {
+    if (!acceptToken.trim()) { toast.error('Token is required'); return; }
+    try {
+      await acceptMut.mutateAsync(acceptToken.trim());
+      toast.success('Invite accepted! You have joined the project.');
+      setAcceptToken('');
+    } catch {
+      toast.error('Failed to accept invite — token may be invalid or expired');
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className={cn(CARD, 'p-5 space-y-4')}>
+        <h3 className={SECTION_TITLE}>Invite Members</h3>
+        <div className="flex gap-2">
+          <Input value={email} onChange={e => setEmail(e.target.value)} placeholder="Email address..." className="flex-1" onKeyDown={e => e.key === 'Enter' && handleInvite()} />
+          <select value={role} onChange={e => setRole(e.target.value)} className={INPUT}>
+            <option value="member">Member</option>
+            <option value="admin">Admin</option>
+            <option value="read">Read Only</option>
+          </select>
+          <button onClick={handleInvite} disabled={createMut.isPending} className={BTN_PRIMARY}>
+            {createMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />} Invite
+          </button>
+        </div>
+        <button onClick={handleGenerateLink} disabled={linkMut.isPending} className={cn(BTN_SECONDARY, 'disabled:opacity-50')}>
+          {linkMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />} Generate Shareable Link
+        </button>
+      </div>
+
+      {/* Accept Invite */}
+      <div className={cn(CARD, 'p-5 space-y-3')}>
+        <h3 className={SECTION_TITLE}>Accept an Invite</h3>
+        <p className="text-xs text-[var(--gm-text-tertiary)]">Paste an invite token to join a project you've been invited to.</p>
+        <div className="flex gap-2">
+          <Input
+            value={acceptToken}
+            onChange={e => setAcceptToken(e.target.value)}
+            placeholder="Paste invite token..."
+            className="flex-1"
+            onKeyDown={e => e.key === 'Enter' && handleAcceptInvite()}
+          />
+          <button onClick={handleAcceptInvite} disabled={acceptMut.isPending || !acceptToken.trim()}
+            className={BTN_PRIMARY}>
+            {acceptMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckSquare className="w-4 h-4" />} Accept
+          </button>
+        </div>
+      </div>
+
+      <div className={cn(CARD, 'p-5')}>
+        <h3 className={cn(SECTION_TITLE, 'mb-3')}>Pending Invites</h3>
+        {isLoading ? (
+          <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-[var(--gm-accent-primary)]" /></div>
+        ) : invites.length === 0 ? (
+          <p className="text-sm text-[var(--gm-text-tertiary)] text-center py-6">No pending invites</p>
+        ) : (
+          <div className="space-y-2">
+            {invites.map(inv => (
+              <div key={inv.id} className="flex items-center justify-between p-3 rounded-lg border border-[var(--gm-border-primary)] hover:bg-[var(--gm-surface-hover)] transition-colors">
+                <div className="flex items-center gap-3">
+                  <UserPlus className="w-4 h-4 text-[var(--gm-accent-primary)]" />
+                  <div>
+                    <p className="text-sm text-[var(--gm-text-primary)]">{inv.email || 'Link invite'}</p>
+                    <div className="flex items-center gap-2 text-[10px] text-[var(--gm-text-tertiary)]">
+                      <span className="capitalize">{inv.role}</span>
+                      {inv.expires_at && (
+                        <span className="flex items-center gap-0.5"><Clock className="w-3 h-3" /> Expires {new Date(inv.expires_at).toLocaleDateString()}</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <button onClick={() => revokeMut.mutate(inv.id)} disabled={revokeMut.isPending} className="p-1.5 rounded-lg text-[var(--gm-text-tertiary)] hover:text-red-400 hover:bg-red-500/10 transition-colors">
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ==================== TEAMS TAB ====================
+
+function TeamsTab() {
+  const [creating, setCreating] = useState(false);
+  const [teamName, setTeamName] = useState('');
+  const [teamColor, setTeamColor] = useState('#3b82f6');
+  const [editingTeamId, setEditingTeamId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [addingMemberTeamId, setAddingMemberTeamId] = useState<string | null>(null);
+  const [newMemberContactId, setNewMemberContactId] = useState('');
+
+  const { data, isLoading } = useTeams();
+  const createMut = useCreateTeam();
+  const deleteMut = useDeleteTeam();
+  const updateMut = useUpdateTeam();
+  const addMemberMut = useAddTeamMember();
+  const removeMemberMut = useRemoveTeamMember();
+
+  const teams = data?.teams ?? [];
+
+  const handleCreate = async () => {
+    if (!teamName.trim()) { toast.error('Team name is required'); return; }
+    try {
+      await createMut.mutateAsync({ name: teamName.trim(), color: teamColor });
+      toast.success('Team created');
+      setTeamName('');
+      setCreating(false);
+    } catch {
+      toast.error('Failed to create team');
+    }
+  };
+
+  const handleRename = async (teamId: string) => {
+    if (!editName.trim()) { toast.error('Team name is required'); return; }
+    try {
+      await updateMut.mutateAsync({ id: teamId, name: editName.trim() });
+      toast.success('Team renamed');
+      setEditingTeamId(null);
+    } catch {
+      toast.error('Failed to rename team');
+    }
+  };
+
+  const handleAddMember = async (teamId: string) => {
+    if (!newMemberContactId.trim()) { toast.error('Contact ID is required'); return; }
+    try {
+      await addMemberMut.mutateAsync({ teamId, contactId: newMemberContactId.trim() });
+      toast.success('Member added');
+      setNewMemberContactId('');
+      setAddingMemberTeamId(null);
+    } catch {
+      toast.error('Failed to add member');
+    }
+  };
+
+  const handleRemoveMember = async (teamId: string, contactId: string) => {
+    try {
+      await removeMemberMut.mutateAsync({ teamId, contactId });
+      toast.success('Member removed');
+    } catch {
+      toast.error('Failed to remove member');
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className={SECTION_TITLE}>Teams ({teams.length})</h3>
+        <button onClick={() => setCreating(!creating)} className={BTN_PRIMARY}>
+          <Plus className="w-3.5 h-3.5" /> New Team
+        </button>
+      </div>
+
+      <AnimatePresence>
+        {creating && (
+          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+            <div className={cn(CARD, 'p-4 space-y-3')}>
+              <div className="flex gap-2">
+                <Input value={teamName} onChange={e => setTeamName(e.target.value)} placeholder="Team name..." className="flex-1" onKeyDown={e => e.key === 'Enter' && handleCreate()} />
+                <input type="color" value={teamColor} onChange={e => setTeamColor(e.target.value)} className="w-10 h-10 rounded-lg border border-[var(--gm-border-primary)] cursor-pointer" />
+              </div>
+              <div className="flex gap-2">
+                <button onClick={handleCreate} disabled={createMut.isPending} className={BTN_PRIMARY}>
+                  {createMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Create
+                </button>
+                <button onClick={() => setCreating(false)} className={BTN_SECONDARY}>Cancel</button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {isLoading ? (
+        <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-[var(--gm-accent-primary)]" /></div>
+      ) : teams.length === 0 ? (
+        <div className="text-center py-8 text-sm text-[var(--gm-text-tertiary)]">No teams yet. Create one to get started.</div>
+      ) : (
+        <div className="space-y-2">
+          {teams.map(team => (
+            <motion.div key={team.id} initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }}
+              className={cn(CARD, 'p-4 hover:border-[var(--gm-accent-primary)]/20')}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: team.color || '#3b82f6' }} />
+                  {editingTeamId === team.id ? (
+                    <div className="flex items-center gap-2">
+                      <Input
+                        value={editName}
+                        onChange={e => setEditName(e.target.value)}
+                        className="h-7 text-sm w-48"
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') handleRename(team.id);
+                          if (e.key === 'Escape') setEditingTeamId(null);
+                        }}
+                        autoFocus
+                      />
+                      <button onClick={() => handleRename(team.id)} disabled={updateMut.isPending}
+                        className="p-1 rounded text-[var(--gm-accent-primary)] hover:bg-[var(--gm-interactive-primary)]/10 transition-colors">
+                        {updateMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                      </button>
+                      <button onClick={() => setEditingTeamId(null)} className="p-1 rounded text-[var(--gm-text-tertiary)] hover:bg-[var(--gm-surface-hover)] transition-colors">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <div>
+                        <h4 className="text-sm font-medium text-[var(--gm-text-primary)]">{team.name}</h4>
+                        {team.description && <p className="text-xs text-[var(--gm-text-tertiary)]">{team.description}</p>}
+                      </div>
+                      <button
+                        onClick={() => { setEditingTeamId(team.id); setEditName(team.name); }}
+                        className="p-1 rounded text-[var(--gm-text-tertiary)] hover:text-[var(--gm-text-primary)] hover:bg-[var(--gm-surface-hover)] transition-colors"
+                        title="Rename team"
+                      >
+                        <Edit2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
+                  <Badge variant="secondary" className="text-[10px]">
+                    {team.memberCount ?? 0} members
+                  </Badge>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setAddingMemberTeamId(addingMemberTeamId === team.id ? null : team.id)}
+                    className="p-1.5 rounded-lg text-[var(--gm-text-tertiary)] hover:text-[var(--gm-accent-primary)] hover:bg-[var(--gm-interactive-primary)]/10 transition-colors"
+                    title="Add member"
+                  >
+                    <UserPlus className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => deleteMut.mutate(team.id)} disabled={deleteMut.isPending}
+                    className="p-1.5 rounded-lg text-[var(--gm-text-tertiary)] hover:text-red-400 hover:bg-red-500/10 transition-colors">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Add member input */}
+              <AnimatePresence>
+                {addingMemberTeamId === team.id && (
+                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+                    <div className="flex items-center gap-2 mt-3 pt-3 border-t border-[var(--gm-border-primary)]">
+                      <Input
+                        value={newMemberContactId}
+                        onChange={e => setNewMemberContactId(e.target.value)}
+                        placeholder="Contact ID..."
+                        className="flex-1 h-8 text-sm"
+                        onKeyDown={e => e.key === 'Enter' && handleAddMember(team.id)}
+                      />
+                      <button onClick={() => handleAddMember(team.id)} disabled={addMemberMut.isPending || !newMemberContactId.trim()}
+                        className={BTN_PRIMARY}>
+                        {addMemberMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserPlus className="w-3.5 h-3.5" />} Add
+                      </button>
+                      <button onClick={() => setAddingMemberTeamId(null)} className="p-1.5 rounded-lg text-[var(--gm-text-tertiary)] hover:bg-[var(--gm-surface-hover)]">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Member list with remove buttons */}
+              {team.memberDetails && team.memberDetails.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {team.memberDetails.map((m, i) => (
+                    <span key={i} className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--gm-bg-tertiary)] text-[10px] text-[var(--gm-text-primary)] group/member">
+                      <User className="w-3 h-3" /> {m.name || m.contactId}
+                      {m.isLead && <span className="text-amber-400">★</span>}
+                      {m.role && <span className="text-[var(--gm-text-tertiary)]">({m.role})</span>}
+                      <button
+                        onClick={() => handleRemoveMember(team.id, m.contactId)}
+                        disabled={removeMemberMut.isPending}
+                        className="ml-0.5 p-0.5 rounded-full text-[var(--gm-text-tertiary)] hover:text-red-400 hover:bg-red-500/10 opacity-0 group-hover/member:opacity-100 transition-all"
+                        title="Remove member"
+                      >
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </motion.div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ==================== PROVIDERS TAB (BYOK) ====================
+
+function ProvidersTab({ projectId }: { projectId: string }) {
+  const { data, isLoading, refetch } = useProjectProviders(projectId);
+  const setKey = useSetProjectProviderKey();
+  const deleteKey = useDeleteProjectProviderKey();
+  const validateKey = useValidateProjectProviderKey();
+  const [editProvider, setEditProvider] = useState<string | null>(null);
+  const [apiKeyInput, setApiKeyInput] = useState('');
+
+  const providers = data?.providers ?? [];
+
+  const handleSaveKey = (provider: string) => {
+    if (!apiKeyInput.trim()) return;
+    setKey.mutate({ projectId, provider, apiKey: apiKeyInput.trim() }, {
+      onSuccess: () => { toast.success(`${provider} key saved`); setEditProvider(null); setApiKeyInput(''); refetch(); },
+      onError: () => toast.error('Failed to save key'),
+    });
+  };
+
+  const handleDeleteKey = (provider: string) => {
+    deleteKey.mutate({ projectId, provider }, {
+      onSuccess: () => { toast.success(`${provider} key removed`); refetch(); },
+      onError: () => toast.error('Failed to remove key'),
+    });
+  };
+
+  const handleValidate = (provider: string) => {
+    validateKey.mutate({ projectId, provider }, {
+      onSuccess: () => toast.success(`${provider} key is valid`),
+      onError: () => toast.error(`${provider} key validation failed`),
+    });
+  };
+
+  const knownProviders = ['openai', 'anthropic', 'google', 'groq', 'deepseek', 'ollama'];
+  const displayProviders = knownProviders.map(name => {
+    const existing = providers.find((p: Record<string, unknown>) => p.provider === name || p.name === name);
+    return { name, hasKey: !!(existing as Record<string, unknown>)?.has_key, ...((existing || {}) as Record<string, unknown>) };
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className={SECTION_TITLE}>AI Provider Keys (BYOK)</h3>
+        <p className="text-[10px] text-[var(--gm-text-tertiary)]">Bring your own API keys for each provider</p>
+      </div>
+
+      {isLoading ? (
+        <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-[var(--gm-accent-primary)]" /></div>
+      ) : (
+        <div className="space-y-2">
+          {displayProviders.map(p => (
+            <div key={p.name} className={cn(CARD, 'p-4')}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center',
+                    p.hasKey ? 'bg-green-500/10' : 'bg-[var(--gm-bg-tertiary)]')}>
+                    <Key className={cn('w-4 h-4', p.hasKey ? 'text-green-500' : 'text-[var(--gm-text-tertiary)]')} />
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-[var(--gm-text-primary)] capitalize">{p.name}</p>
+                    <p className="text-[10px] text-[var(--gm-text-tertiary)]">
+                      {p.hasKey ? 'Key configured' : 'No key set — uses system default'}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {p.hasKey && (
+                    <>
+                      <button onClick={() => handleValidate(p.name)} disabled={validateKey.isPending} className={BTN_SECONDARY}>
+                        <TestTube className="w-3 h-3" /> Test
+                      </button>
+                      <button onClick={() => handleDeleteKey(p.name)} disabled={deleteKey.isPending}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] text-[var(--gm-text-tertiary)] hover:text-[var(--color-danger-500)] transition-colors">
+                        <Trash2 className="w-3 h-3" /> Remove
+                      </button>
+                    </>
+                  )}
+                  <button onClick={() => { setEditProvider(editProvider === p.name ? null : p.name); setApiKeyInput(''); }}
+                    className={BTN_SECONDARY}>
+                    {editProvider === p.name ? 'Cancel' : p.hasKey ? 'Update' : 'Set Key'}
+                  </button>
+                </div>
+              </div>
+              {editProvider === p.name && (
+                <div className="mt-3 flex gap-2">
+                  <input value={apiKeyInput} onChange={e => setApiKeyInput(e.target.value)}
+                    type="password" placeholder={`Enter ${p.name} API key...`} className={INPUT} />
+                  <button onClick={() => handleSaveKey(p.name)} disabled={setKey.isPending || !apiKeyInput.trim()} className={BTN_PRIMARY}>
+                    {setKey.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Save
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ==================== ACTIVITY TAB ====================
+
+function ActivityTab({ projectId }: { projectId: string }) {
+  const [activeSubTab, setActiveSubTab] = useState<'activity' | 'audit'>('activity');
+  const { data, isLoading } = useProjectActivity(projectId, { limit: 50 });
+  const { data: auditData, isLoading: auditLoading } = useAuditLog(projectId, { limit: 50 });
+  const activities = data?.activities ?? [];
+  const auditEntries = auditData?.entries ?? [];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className={SECTION_TITLE}>
+          {activeSubTab === 'activity' ? `Recent Activity (${data?.total ?? 0})` : `Audit Log (${auditData?.total ?? 0})`}
+        </h3>
+        <div className="flex bg-[var(--gm-bg-tertiary)] rounded-lg p-0.5">
+          <button onClick={() => setActiveSubTab('activity')}
+            className={cn('px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
+              activeSubTab === 'activity' ? 'bg-[var(--gm-surface-primary)] text-[var(--gm-text-primary)] shadow-[var(--shadow-sm)]' : 'text-[var(--gm-text-tertiary)] hover:text-[var(--gm-text-primary)]')}>
+            Activity
+          </button>
+          <button onClick={() => setActiveSubTab('audit')}
+            className={cn('px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
+              activeSubTab === 'audit' ? 'bg-[var(--gm-surface-primary)] text-[var(--gm-text-primary)] shadow-[var(--shadow-sm)]' : 'text-[var(--gm-text-tertiary)] hover:text-[var(--gm-text-primary)]')}>
+            Audit Log
+          </button>
+        </div>
+      </div>
+
+      {activeSubTab === 'activity' ? (
+        <>
+          {isLoading ? (
+            <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-[var(--gm-accent-primary)]" /></div>
+          ) : activities.length === 0 ? (
+            <div className="text-center py-8 text-xs text-[var(--gm-text-tertiary)]">No activity recorded yet.</div>
+          ) : (
+            <div className="space-y-1">
+              {activities.map((entry, i) => (
+                <div key={entry.id || i} className="flex items-center gap-3 p-3 rounded-lg hover:bg-[var(--gm-surface-hover)] transition-colors">
+                  <Activity className="w-3.5 h-3.5 text-[var(--gm-accent-primary)] flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-[var(--gm-text-primary)]">
+                      {entry.actor_name && <span className="font-medium">{entry.actor_name} </span>}
+                      {entry.action?.replace(/[._]/g, ' ')}
+                      {entry.target_type && <span className="text-[var(--gm-text-tertiary)]"> on {entry.target_type}</span>}
+                    </p>
+                  </div>
+                  <span className="text-[10px] text-[var(--gm-text-tertiary)] flex-shrink-0">
+                    {new Date(entry.created_at).toLocaleString()}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          {auditLoading ? (
+            <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-[var(--gm-accent-primary)]" /></div>
+          ) : auditEntries.length === 0 ? (
+            <div className="text-center py-8 text-xs text-[var(--gm-text-tertiary)]">No audit entries yet.</div>
+          ) : (
+            <div className="space-y-1">
+              {auditEntries.map((entry: Record<string, unknown>, i: number) => (
+                <div key={(entry.id as string) || i} className={cn(CARD, 'flex items-center gap-3 p-3')}>
+                  <ShieldCheck className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-[var(--gm-text-primary)]">
+                      {entry.actor_name && <span className="font-medium">{entry.actor_name as string} </span>}
+                      <span>{((entry.action as string) || '').replace(/[._]/g, ' ')}</span>
+                      {entry.target_type && <span className="text-[var(--gm-text-tertiary)]"> on {entry.target_type as string}</span>}
+                    </p>
+                    {entry.details && (
+                      <p className="text-[10px] text-[var(--gm-text-tertiary)] mt-0.5 truncate max-w-md">
+                        {typeof entry.details === 'string' ? entry.details : JSON.stringify(entry.details)}
+                      </p>
+                    )}
+                  </div>
+                  <span className="text-[10px] text-[var(--gm-text-tertiary)] flex-shrink-0">
+                    {entry.created_at ? new Date(entry.created_at as string).toLocaleString() : '—'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
 
 export default ProjectsPage;

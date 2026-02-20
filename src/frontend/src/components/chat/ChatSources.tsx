@@ -54,7 +54,7 @@ const ChatSources = ({ sources }: ChatSourcesProps) => {
               title={source.excerpt}
             >
               <Icon className="w-3 h-3 text-muted-foreground group-hover/src:text-primary flex-shrink-0" />
-              <span className="text-[11px] text-foreground truncate">{source.title}</span>
+              <span className="text-[11px] text-foreground truncate">{source.title || '(untitled)'}</span>
               <span className="text-[9px] text-muted-foreground flex-shrink-0">
                 {Math.round(source.relevance * 100)}%
               </span>

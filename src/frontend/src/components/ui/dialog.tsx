@@ -29,7 +29,7 @@ export function Dialog({ open, onClose, onOpenChange, children }: DialogProps) {
   return (
     <div
       ref={overlayRef}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
       onClick={(e) => {
         if (e.target === overlayRef.current) handleClose();
       }}
@@ -43,11 +43,15 @@ export function DialogContent({ children, className }: { children: ReactNode; cl
   return (
     <div
       className={cn(
-        'bg-card text-card-foreground',
+        'bg-gm-surface-primary text-gm-text-primary border-gm-border-primary',
         'rounded-lg border shadow-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto',
-        'animate-in fade-in-0 zoom-in-95',
         className
       )}
+      style={{
+        backgroundColor: 'var(--gm-surface-primary, #1a1a2e)',
+        color: 'var(--gm-text-primary, #e2e8f0)',
+        borderColor: 'var(--gm-border-primary, #2d2d44)',
+      }}
     >
       {children}
     </div>
@@ -59,11 +63,18 @@ export function DialogHeader({ children, className }: { children: ReactNode; cla
 }
 
 export function DialogTitle({ children, className }: { children: ReactNode; className?: string }) {
-  return <h2 className={cn('text-lg font-semibold', className)}>{children}</h2>;
+  return <h2 className={cn('text-lg font-semibold text-white', className)}>{children}</h2>;
 }
 
 export function DialogDescription({ children, className }: { children: ReactNode; className?: string }) {
-  return <p className={cn('text-sm text-muted-foreground mt-1', className)}>{children}</p>;
+  return (
+    <p
+      className={cn('text-sm text-gm-text-tertiary mt-1', className)}
+      style={{ color: 'var(--gm-text-tertiary, #94a3b8)' }}
+    >
+      {children}
+    </p>
+  );
 }
 
 export function DialogFooter({ children, className }: { children: ReactNode; className?: string }) {

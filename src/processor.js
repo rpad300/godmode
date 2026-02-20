@@ -237,19 +237,27 @@ class DocumentProcessor {
     async processFile(filePath, textModel, visionModel = null, isTranscript = false) {
         const filename = path.basename(filePath);
 
-        // 1. idempotency check
-        // ... (implementation detail: check DB for content hash)
-        // For simplicity in this refactor, we assume caller handles file selection or we reprocess. 
-        // But to be robust, let's do a quick hash check if possible.
-        // We'll skip for now to match strict logic of "processing" requested files.
-
         try {
-            // 2. Extract content
+            // 1. Extract content (readFileContent returns a raw string)
             const extractResult = await this.extractor.readFileContent(filePath);
-            const content = extractResult.content;
+            const content = typeof extractResult === 'string' ? extractResult : extractResult?.content;
 
             if (!content || content.length < 50) {
                 return { success: false, error: 'Empty or too short content' };
+            }
+
+            // 2. Content deduplication: skip if identical content already processed
+            const contentHash = this.synthesizer._getContentHash(content);
+            if (this.storage.findDocumentByHash) {
+                try {
+                    const existing = await this.storage.findDocumentByHash(contentHash);
+                    if (existing) {
+                        log.debug({ event: 'processor_dedup_skip', filename, hash: contentHash, existingDoc: existing.id }, 'Skipping duplicate content');
+                        return { success: true, skipped: true, documentId: existing.id, stats: { facts: 0, decisions: 0, questions: 0, risks: 0, actions: 0, people: 0 } };
+                    }
+                } catch (e) {
+                    log.debug({ event: 'processor_dedup_check_failed', reason: e.message }, 'Dedup check failed, continuing');
+                }
             }
 
             // 3. Build prompts
@@ -265,13 +273,11 @@ class DocumentProcessor {
             const extracted = this.analyzer.parseAIResponse(llmResult.response);
 
             // 6. Store extracted data
-            // We need a document ID first.
             let docId = null;
             if (this.storage.addDocument) {
-                // Create document record
                 docId = await this.storage.addDocument({
                     filename: filename,
-                    content_hash: this.synthesizer._getContentHash(content),
+                    content_hash: contentHash,
                     metadata: {
                         extracted_at: new Date().toISOString(),
                         model: textModel
@@ -358,7 +364,12 @@ class DocumentProcessor {
             }
 
             // 7. Post-processing (Resolution & Completion)
-            const resolvedCount = await this.analyzer.checkAndResolveQuestions(this.storage, extracted);
+            let resolvedCount = 0;
+            try {
+                resolvedCount = await this.analyzer.detectAndResolveQuestionsWithAI(this.storage, this.config) || 0;
+            } catch (qErr) {
+                log.debug({ event: 'processor_resolve_questions_error', reason: qErr.message }, 'Question resolution skipped');
+            }
             const completedActions = this.analyzer.checkAndCompleteActions(this.storage, extracted);
 
             // 8. Generate Summary
@@ -399,8 +410,8 @@ class DocumentProcessor {
             // We need a storage method for this, or simple getDocuments
             let docId = null;
             if (this.storage.getDocuments) {
-                const docs = this.storage.getDocuments();
-                const doc = docs.find(d => d.filename === filename || d.name === filename);
+                const docs = await Promise.resolve(this.storage.getDocuments());
+                const doc = (docs || []).find(d => d.filename === filename || d.name === filename);
                 if (doc) docId = doc.id;
             }
 

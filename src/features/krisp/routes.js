@@ -55,6 +55,13 @@
  *   GET  /api/krisp/available/stats            - Available meetings statistics
  *   POST /api/krisp/available/summary          - Generate AI summary for a meeting
  *   GET  /api/krisp/available/summary          - Available meetings summary stats
+ *
+ *   GET  /api/krisp/oauth/status               - OAuth connection status
+ *   GET  /api/krisp/oauth/authorize            - Start PKCE OAuth flow (returns redirect URL)
+ *   GET  /api/krisp/oauth/callback             - OAuth callback (browser redirect, no auth)
+ *   POST /api/krisp/oauth/disconnect           - Disconnect OAuth
+ *   GET  /api/krisp/oauth/meetings             - List available meetings via MCP OAuth
+ *   POST /api/krisp/oauth/meetings/import      - Import meetings via MCP OAuth
  */
 
 const { parseBody, parseUrl } = require('../../server/request');
@@ -797,6 +804,235 @@ async function handleKrispApi(ctx) {
         } catch (error) {
             log.warn({ event: 'krisp_available_summary_error', reason: error?.message }, 'Summary error');
             jsonResponse(res, { error: error.message }, 500);
+        }
+        return true;
+    }
+
+    // ==================== Krisp OAuth / MCP Routes ====================
+
+    // GET /api/krisp/oauth/status - Check OAuth connection status
+    if (pathname === '/api/krisp/oauth/status' && req.method === 'GET') {
+        if (!supabase || !supabase.isConfigured()) {
+            jsonResponse(res, { error: 'Not configured' }, 503);
+            return true;
+        }
+
+        const token = supabase.auth.extractToken(req);
+        const userResult = await supabase.auth.getUser(token);
+
+        if (!userResult.success) {
+            jsonResponse(res, { error: 'Authentication required' }, 401);
+            return true;
+        }
+
+        try {
+            const oauthModule = require('../../integrations/krisp/oauth');
+            const status = await oauthModule.getConnectionStatus(userResult.user.id);
+            jsonResponse(res, status);
+        } catch (error) {
+            log.warn({ event: 'krisp_oauth_status_error', reason: error?.message }, 'OAuth status error');
+            jsonResponse(res, { error: error.message }, 500);
+        }
+        return true;
+    }
+
+    // GET /api/krisp/oauth/authorize - Start OAuth PKCE flow
+    if (pathname === '/api/krisp/oauth/authorize' && req.method === 'GET') {
+        if (!supabase || !supabase.isConfigured()) {
+            jsonResponse(res, { error: 'Not configured' }, 503);
+            return true;
+        }
+
+        const token = supabase.auth.extractToken(req);
+        const userResult = await supabase.auth.getUser(token);
+
+        if (!userResult.success) {
+            jsonResponse(res, { error: 'Authentication required' }, 401);
+            return true;
+        }
+
+        try {
+            const oauthModule = require('../../integrations/krisp/oauth');
+            const appUrl = process.env.APP_URL || `http://localhost:${config.port}`;
+            const callbackUrl = `${appUrl}/api/krisp/oauth/callback`;
+
+            const { url, state } = await oauthModule.getAuthorizationUrl(
+                userResult.user.id, callbackUrl
+            );
+
+            jsonResponse(res, { url, state });
+        } catch (error) {
+            log.warn({ event: 'krisp_oauth_authorize_error', reason: error?.message }, 'OAuth authorize error');
+            jsonResponse(res, { error: error.message }, 500);
+        }
+        return true;
+    }
+
+    // GET /api/krisp/oauth/callback - OAuth callback (browser redirect, userId from PKCE state)
+    if (pathname === '/api/krisp/oauth/callback' && req.method === 'GET') {
+        try {
+            const code = parsedUrl.query.code;
+            const state = parsedUrl.query.state;
+            const errorParam = parsedUrl.query.error;
+
+            const appUrl = process.env.APP_URL || `http://localhost:${config.port}`;
+
+            if (errorParam) {
+                const errDesc = parsedUrl.query.error_description || errorParam;
+                res.writeHead(302, { 'Location': `${appUrl}/profile?krisp_error=${encodeURIComponent(errDesc)}` });
+                res.end();
+                return true;
+            }
+
+            if (!code || !state) {
+                res.writeHead(302, { 'Location': `${appUrl}/profile?krisp_error=missing_params` });
+                res.end();
+                return true;
+            }
+
+            const oauthModule = require('../../integrations/krisp/oauth');
+            const result = await oauthModule.handleCallback(code, state);
+
+            if (result.success) {
+                res.writeHead(302, { 'Location': `${appUrl}/profile?krisp_connected=true` });
+            } else {
+                res.writeHead(302, { 'Location': `${appUrl}/profile?krisp_error=${encodeURIComponent(result.error)}` });
+            }
+            res.end();
+        } catch (error) {
+            log.warn({ event: 'krisp_oauth_callback_error', reason: error?.message }, 'OAuth callback error');
+            const appUrl = process.env.APP_URL || `http://localhost:${config.port}`;
+            res.writeHead(302, { 'Location': `${appUrl}/profile?krisp_error=${encodeURIComponent(error.message)}` });
+            res.end();
+        }
+        return true;
+    }
+
+    // POST /api/krisp/oauth/disconnect - Disconnect OAuth
+    if (pathname === '/api/krisp/oauth/disconnect' && req.method === 'POST') {
+        if (!supabase || !supabase.isConfigured()) {
+            jsonResponse(res, { error: 'Not configured' }, 503);
+            return true;
+        }
+
+        const token = supabase.auth.extractToken(req);
+        const userResult = await supabase.auth.getUser(token);
+
+        if (!userResult.success) {
+            jsonResponse(res, { error: 'Authentication required' }, 401);
+            return true;
+        }
+
+        try {
+            const oauthModule = require('../../integrations/krisp/oauth');
+            await oauthModule.disconnect(userResult.user.id);
+            jsonResponse(res, { success: true });
+        } catch (error) {
+            log.warn({ event: 'krisp_oauth_disconnect_error', reason: error?.message }, 'OAuth disconnect error');
+            jsonResponse(res, { error: error.message }, 500);
+        }
+        return true;
+    }
+
+    // GET /api/krisp/oauth/meetings - List available meetings via MCP OAuth
+    if (pathname === '/api/krisp/oauth/meetings' && req.method === 'GET') {
+        if (!supabase || !supabase.isConfigured()) {
+            jsonResponse(res, { error: 'Not configured' }, 503);
+            return true;
+        }
+
+        const token = supabase.auth.extractToken(req);
+        const userResult = await supabase.auth.getUser(token);
+
+        if (!userResult.success) {
+            jsonResponse(res, { error: 'Authentication required' }, 401);
+            return true;
+        }
+
+        try {
+            const meetingImport = require('../../integrations/krisp/meetingImport');
+            const result = await meetingImport.getAvailableMeetings(userResult.user.id, {
+                search: parsedUrl.query.search || null,
+                after: parsedUrl.query.after || null,
+                before: parsedUrl.query.before || null,
+                limit: parseInt(parsedUrl.query.limit) || 20,
+                offset: parseInt(parsedUrl.query.offset) || 0
+            });
+            jsonResponse(res, result);
+        } catch (error) {
+            log.warn({ event: 'krisp_oauth_meetings_error', reason: error?.message }, 'OAuth meetings list error');
+            const status = error.message?.includes('not connected') ? 401 : 500;
+            jsonResponse(res, { error: error.message }, status);
+        }
+        return true;
+    }
+
+    // GET /api/krisp/oauth/meetings/:id/preview - Fetch transcript + audio preview
+    const meetingPreviewMatch = pathname.match(/^\/api\/krisp\/oauth\/meetings\/([a-f0-9]{32})\/preview$/);
+    if (meetingPreviewMatch && req.method === 'GET') {
+        if (!supabase || !supabase.isConfigured()) {
+            jsonResponse(res, { error: 'Not configured' }, 503);
+            return true;
+        }
+
+        const token = supabase.auth.extractToken(req);
+        const userResult = await supabase.auth.getUser(token);
+
+        if (!userResult.success) {
+            jsonResponse(res, { error: 'Authentication required' }, 401);
+            return true;
+        }
+
+        try {
+            const meetingImport = require('../../integrations/krisp/meetingImport');
+            const preview = await meetingImport.getMeetingPreview(
+                userResult.user.id, meetingPreviewMatch[1]
+            );
+            jsonResponse(res, preview);
+        } catch (error) {
+            log.warn({ event: 'krisp_oauth_preview_error', reason: error?.message }, 'Preview error');
+            jsonResponse(res, { error: error.message }, 500);
+        }
+        return true;
+    }
+
+    // POST /api/krisp/oauth/meetings/import - Import meetings via MCP OAuth
+    if (pathname === '/api/krisp/oauth/meetings/import' && req.method === 'POST') {
+        if (!supabase || !supabase.isConfigured()) {
+            jsonResponse(res, { error: 'Not configured' }, 503);
+            return true;
+        }
+
+        const token = supabase.auth.extractToken(req);
+        const userResult = await supabase.auth.getUser(token);
+
+        if (!userResult.success) {
+            jsonResponse(res, { error: 'Authentication required' }, 401);
+            return true;
+        }
+
+        try {
+            const body = await parseBody(req);
+            const { meetingIds, projectId, importOptions } = body;
+
+            if (!meetingIds || !Array.isArray(meetingIds) || meetingIds.length === 0) {
+                jsonResponse(res, { error: 'meetingIds array required' }, 400);
+                return true;
+            }
+            if (!projectId) {
+                jsonResponse(res, { error: 'projectId required' }, 400);
+                return true;
+            }
+
+            const meetingImport = require('../../integrations/krisp/meetingImport');
+            const result = await meetingImport.importMeetingsBatch(
+                userResult.user.id, meetingIds, projectId, importOptions || {}
+            );
+            jsonResponse(res, result);
+        } catch (error) {
+            log.warn({ event: 'krisp_oauth_import_error', reason: error?.message }, 'OAuth import error');
+            const status = error.message?.includes('not connected') ? 401 : 500;
+            jsonResponse(res, { error: error.message }, status);
         }
         return true;
     }

@@ -53,7 +53,7 @@ const { jsonResponse } = require('../../server/response');
  * @returns {Promise<boolean>} - true if route was handled, false otherwise
  */
 async function handleContacts(ctx) {
-    const { req, res, pathname, storage, llm, supabase } = ctx;
+    const { req, res, pathname, storage, llm, supabase, config } = ctx;
     const log = getLogger().child({ module: 'contacts' });
 
     // Quick check - if not a contacts route, return false immediately
@@ -78,7 +78,19 @@ async function handleContacts(ctx) {
     // POST /api/contacts/roles - Add a new role
     if (pathname === '/api/contacts/roles' && req.method === 'POST') {
         const body = await parseBody(req);
-        jsonResponse(res, { ok: true, role: { id: body.name, name: body.name } });
+        const projectId = body?.project_id || req.headers['x-project-id'];
+        if (projectId && storage._supabase) storage._supabase.setProject(projectId);
+
+        try {
+            if (storage._supabase && typeof storage._supabase.addRole === 'function') {
+                const role = await storage._supabase.addRole(body.name);
+                jsonResponse(res, { ok: true, role: role || { id: body.name, name: body.name } });
+            } else {
+                jsonResponse(res, { ok: true, role: { id: body.name, name: body.name } });
+            }
+        } catch (error) {
+            jsonResponse(res, { ok: true, role: { id: body.name, name: body.name } });
+        }
         return true;
     }
 
@@ -534,8 +546,8 @@ async function handleContacts(ctx) {
             const projectId = req.headers['x-project-id'];
             if (projectId && storage._supabase) storage._supabase.setProject(projectId);
 
-            const result = storage.syncPeopleToContacts();
-            log.debug({ event: 'contacts_synced_people', added: result.added }, 'Synced people to contacts');
+            const result = await storage.syncPeopleToContacts();
+            log.debug({ event: 'contacts_synced_people', added: result?.added }, 'Synced people to contacts');
             jsonResponse(res, { ok: true, ...result });
         } catch (error) {
             jsonResponse(res, { ok: false, error: error.message }, 500);
@@ -613,7 +625,7 @@ async function handleContacts(ctx) {
         if (projectId && storage._supabase) storage._supabase.setProject(projectId);
 
         try {
-            const result = storage.importContactsJSON(body);
+            const result = await storage.importContactsJSON(body);
             jsonResponse(res, { ok: true, ...result });
         } catch (error) {
             jsonResponse(res, { ok: false, error: error.message }, 500);
@@ -633,7 +645,7 @@ async function handleContacts(ctx) {
         }
 
         try {
-            const result = storage.importContactsCSV(body.csv);
+            const result = await storage.importContactsCSV(body.csv);
             jsonResponse(res, { ok: true, ...result });
         } catch (error) {
             jsonResponse(res, { ok: false, error: error.message }, 500);
@@ -832,29 +844,13 @@ async function handleContacts(ctx) {
         if (projectId && storage._supabase) storage._supabase.setProject(projectId);
 
         try {
-            const { data: contactProjects, error } = await storage.supabase
-                .from('contact_projects')
-                .select(`
-                    project_id,
-                    role,
-                    is_primary,
-                    projects:project_id(id, name)
-                `)
-                .eq('contact_id', contactId);
-
-            if (error) {
-                log.warn({ event: 'contacts_projects_fetch_error', reason: error.message }, 'Error fetching projects');
-                jsonResponse(res, { ok: true, projects: [] });
-                return true;
-            }
-
-            const projects = (contactProjects || []).map(cp => ({
-                id: cp.projects?.id || cp.project_id,
-                name: cp.projects?.name || 'Unknown',
+            const rawProjects = await storage.getContactProjects(contactId);
+            const projects = (rawProjects || []).map(cp => ({
+                id: cp.project_id || cp.id,
+                name: cp.projects?.name || cp.name || 'Unknown',
                 role: cp.role,
                 is_primary: cp.is_primary
             }));
-
             jsonResponse(res, { ok: true, projects });
         } catch (error) {
             log.warn({ event: 'contacts_get_projects_error', reason: error?.message }, 'Get projects error');
@@ -871,19 +867,7 @@ async function handleContacts(ctx) {
         if (projectId && storage._supabase) storage._supabase.setProject(projectId);
 
         try {
-            const { data: activities, error } = await storage.supabase
-                .from('contact_activity')
-                .select('*')
-                .eq('contact_id', contactId)
-                .order('occurred_at', { ascending: false })
-                .limit(50);
-
-            if (error) {
-                log.warn({ event: 'contacts_activity_fetch_error', reason: error.message }, 'Error fetching activity');
-                jsonResponse(res, { ok: true, activities: [] });
-                return true;
-            }
-
+            const activities = await storage.getContactActivity(contactId);
             jsonResponse(res, { ok: true, activities: activities || [] });
         } catch (error) {
             log.warn({ event: 'contacts_get_activity_error', reason: error?.message }, 'Get activity error');
@@ -903,52 +887,22 @@ async function handleContacts(ctx) {
         const projectIds = body.projectIds || [];
 
         try {
-            // Get current project associations
-            const { data: currentProjects, error: fetchError } = await storage.supabase
-                .from('contact_projects')
-                .select('project_id')
-                .eq('contact_id', contactId);
-
-            if (fetchError) {
-                log.warn({ event: 'contacts_current_projects_error', reason: fetchError.message }, 'Error fetching current projects');
-            }
-
-            const currentIds = new Set((currentProjects || []).map(p => p.project_id));
+            const currentProjects = await storage.getContactProjects(contactId);
+            const currentIds = new Set((currentProjects || []).map(p => p.project_id || p.id));
             const newIds = new Set(projectIds);
 
-            // Find projects to remove
             const toRemove = [...currentIds].filter(id => !newIds.has(id));
-
-            // Find projects to add
             const toAdd = [...newIds].filter(id => !currentIds.has(id));
 
-            // Remove old associations
-            if (toRemove.length > 0) {
-                const { error: deleteError } = await storage.supabase
-                    .from('contact_projects')
-                    .delete()
-                    .eq('contact_id', contactId)
-                    .in('project_id', toRemove);
-
-                if (deleteError) {
-                    log.warn({ event: 'contacts_remove_projects_error', reason: deleteError.message }, 'Error removing projects');
+            for (const rid of toRemove) {
+                try { await storage.removeContactFromProject(contactId, rid); } catch (e) {
+                    log.warn({ event: 'contacts_remove_project_error', reason: e?.message }, 'Error removing project');
                 }
             }
 
-            // Add new associations
-            if (toAdd.length > 0) {
-                const inserts = toAdd.map(projectId => ({
-                    contact_id: contactId,
-                    project_id: projectId,
-                    is_primary: toAdd.indexOf(projectId) === 0 && currentIds.size === 0
-                }));
-
-                const { error: insertError } = await storage.supabase
-                    .from('contact_projects')
-                    .insert(inserts);
-
-                if (insertError) {
-                    log.warn({ event: 'contacts_add_projects_error', reason: insertError.message }, 'Error adding projects');
+            for (const aid of toAdd) {
+                try { await storage.addContactToProject(contactId, aid, { isPrimary: toAdd.indexOf(aid) === 0 && currentIds.size === 0 }); } catch (e) {
+                    log.warn({ event: 'contacts_add_project_error', reason: e?.message }, 'Error adding project');
                 }
             }
 
@@ -1072,6 +1026,143 @@ NOTES_SUGGESTION: <additional notes to add>`;
             jsonResponse(res, { ok: true, suggestions, rawResponse: aiResponse });
         } catch (error) {
             jsonResponse(res, { ok: false, error: error.message }, 500);
+        }
+        return true;
+    }
+
+    // POST /api/contacts/:id/avatar - Upload contact avatar (Google Drive > Supabase Storage)
+    const avatarUploadMatch = pathname.match(/^\/api\/contacts\/([^/]+)\/avatar$/);
+    if (avatarUploadMatch && req.method === 'POST') {
+        const contactId = avatarUploadMatch[1];
+        if (!supabase || !supabase.isConfigured()) {
+            jsonResponse(res, { error: 'Storage not configured' }, 503);
+            return true;
+        }
+
+        const authResult = await supabase.auth.verifyRequest(req);
+        if (!authResult.authenticated) {
+            jsonResponse(res, { error: 'Not authenticated' }, 401);
+            return true;
+        }
+
+        try {
+            const boundary = req.headers['content-type']?.split('boundary=')[1];
+            if (!boundary) {
+                jsonResponse(res, { error: 'Invalid content type' }, 400);
+                return true;
+            }
+
+            const chunks = [];
+            for await (const chunk of req) chunks.push(chunk);
+            const buffer = Buffer.concat(chunks);
+            const data = buffer.toString('binary');
+            const parts = data.split('--' + boundary);
+
+            let fileBuffer = null;
+            let fileName = 'avatar.jpg';
+            let contentType = 'image/jpeg';
+
+            for (const part of parts) {
+                if (part.includes('filename=')) {
+                    const match = part.match(/filename="([^"]+)"/);
+                    if (match) fileName = match[1];
+                    const typeMatch = part.match(/Content-Type:\s*([^\r\n]+)/i);
+                    if (typeMatch) contentType = typeMatch[1].trim();
+                    const contentStart = part.indexOf('\r\n\r\n') + 4;
+                    const contentEnd = part.lastIndexOf('\r\n');
+                    if (contentStart > 3 && contentEnd > contentStart) {
+                        fileBuffer = Buffer.from(part.substring(contentStart, contentEnd), 'binary');
+                    }
+                }
+            }
+
+            if (!fileBuffer) {
+                jsonResponse(res, { error: 'No file uploaded' }, 400);
+                return true;
+            }
+
+            const ext = fileName.split('.').pop() || 'jpg';
+            let avatarUrl;
+
+            // Try Google Drive first, fallback to Supabase Storage
+            const driveModule = require('../../integrations/googleDrive/drive');
+            const driveAvailable = await driveModule.isDriveAvailable();
+
+            if (driveAvailable) {
+                log.info({ event: 'contact_avatar_upload_drive', contactId }, 'Uploading contact avatar to Google Drive');
+                const result = await driveModule.uploadAvatar(fileBuffer, contentType, `contact-${contactId}`, ext);
+                avatarUrl = result.url;
+            } else {
+                const storagePath = `contacts/${contactId}.${ext}`;
+                const client = supabase.getAdminClient();
+                const { error: uploadError } = await client.storage
+                    .from('avatars')
+                    .upload(storagePath, fileBuffer, { contentType, upsert: true });
+
+                if (uploadError) {
+                    if (uploadError.message.includes('not found')) {
+                        await client.storage.createBucket('avatars', { public: true });
+                        const { error: retryError } = await client.storage
+                            .from('avatars')
+                            .upload(storagePath, fileBuffer, { contentType, upsert: true });
+                        if (retryError) throw retryError;
+                    } else {
+                        throw uploadError;
+                    }
+                }
+
+                const { data: urlData } = client.storage.from('avatars').getPublicUrl(storagePath);
+                avatarUrl = urlData.publicUrl;
+            }
+
+            const projectId = req.headers['x-project-id'];
+            if (projectId && storage._supabase) storage._supabase.setProject(projectId);
+            await storage.updateContact(contactId, { photo_url: avatarUrl, avatar_url: avatarUrl });
+
+            jsonResponse(res, { ok: true, avatar_url: avatarUrl, storage: driveAvailable ? 'google_drive' : 'supabase' });
+        } catch (error) {
+            log.warn({ event: 'contact_avatar_upload_error', contactId, reason: error.message });
+            jsonResponse(res, { error: 'Avatar upload failed: ' + error.message }, 500);
+        }
+        return true;
+    }
+
+    // DELETE /api/contacts/:id/avatar - Remove contact avatar
+    const avatarDeleteMatch = pathname.match(/^\/api\/contacts\/([^/]+)\/avatar$/);
+    if (avatarDeleteMatch && req.method === 'DELETE') {
+        const contactId = avatarDeleteMatch[1];
+        if (!supabase || !supabase.isConfigured()) {
+            jsonResponse(res, { error: 'Storage not configured' }, 503);
+            return true;
+        }
+
+        const authResult = await supabase.auth.verifyRequest(req);
+        if (!authResult.authenticated) {
+            jsonResponse(res, { error: 'Not authenticated' }, 401);
+            return true;
+        }
+
+        try {
+            // Delete from Google Drive (if configured)
+            try {
+                const driveModule = require('../../integrations/googleDrive/drive');
+                await driveModule.deleteAvatar(`contact-${contactId}`);
+            } catch {}
+
+            // Delete from Supabase Storage
+            const client = supabase.getAdminClient();
+            for (const ext of ['jpg', 'jpeg', 'png', 'gif', 'webp']) {
+                try { await client.storage.from('avatars').remove([`contacts/${contactId}.${ext}`]); } catch {}
+            }
+
+            const projectId = req.headers['x-project-id'];
+            if (projectId && storage._supabase) storage._supabase.setProject(projectId);
+            await storage.updateContact(contactId, { photo_url: null, avatar_url: null });
+
+            jsonResponse(res, { ok: true });
+        } catch (error) {
+            log.warn({ event: 'contact_avatar_delete_error', contactId, reason: error.message });
+            jsonResponse(res, { error: 'Failed to remove avatar' }, 500);
         }
         return true;
     }

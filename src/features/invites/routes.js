@@ -86,7 +86,7 @@ async function handleInvites(ctx) {
             const inviteUrl = `${baseUrl}/join?token=${result.token}`;
 
             let emailSent = false;
-            if (emailService && emailService.isConfigured() && body.email) {
+            if (emailService && (await emailService.isConfigured()) && body.email) {
                 try {
                     const adminClient = supabase.getAdminClient();
                     const [inviterRes, projectRes] = await Promise.all([

@@ -67,12 +67,12 @@ const AddEmailModal = ({ open, onClose, onImport }: Props) => {
     <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
       <DialogContent className="max-w-md p-0 gap-0 max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader className="p-5 pb-0 shrink-0">
-          <DialogTitle className="text-lg">Add Email</DialogTitle>
+          <DialogTitle className="text-lg text-white">Add Email</DialogTitle>
         </DialogHeader>
 
-        <div className="flex gap-4 px-5 pt-3 border-b border-border shrink-0">
+        <div className="flex gap-4 px-5 pt-3 border-b border-white/10 shrink-0">
           {tabs.map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)} className={`pb-2 text-sm font-medium border-b-2 transition-colors ${tab === t.id ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>
+            <button key={t.id} onClick={() => setTab(t.id)} className={`pb-2 text-sm font-medium border-b-2 transition-colors ${tab === t.id ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
               {t.label}
             </button>
           ))}
@@ -81,23 +81,24 @@ const AddEmailModal = ({ open, onClose, onImport }: Props) => {
         <div className="p-5 space-y-4 overflow-y-auto flex-1">
           {tab === 'paste' && (
             <div>
-              <p className="text-sm font-medium text-foreground mb-2">Paste email content:</p>
+              <p className="text-sm font-medium text-white mb-2">Paste email content:</p>
               <textarea
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
                 placeholder={`Paste the full email content here...\n\nInclude headers if available:\nFrom: sender@example.com\nTo: recipient@example.com\nSubject: Meeting notes\nDate: Jan 31, 2026\n\nEmail body text...`}
-                className="w-full min-h-[180px] bg-secondary border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-ring resize-y"
+                className="w-full min-h-[180px] rounded-lg px-3 py-2 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 resize-y"
+                style={{ backgroundColor: 'var(--gm-surface-secondary, #252540)', border: '1px solid var(--gm-border-primary, #2d2d44)' }}
               />
-              <p className="text-xs text-muted-foreground mt-1">Include headers (From, To, Subject, Date) for better parsing.</p>
+              <p className="text-xs text-gray-400 mt-1">Include headers (From, To, Subject, Date) for better parsing.</p>
             </div>
           )}
 
           {tab === 'upload' && (
-            <div className="border-2 border-dashed border-border rounded-xl p-8 text-center hover:border-primary/30 transition-colors">
-              <Mail className="w-10 h-10 mx-auto mb-3 text-muted-foreground/50" />
+            <div className="border-2 border-dashed rounded-xl p-8 text-center transition-colors" style={{ borderColor: 'var(--gm-border-primary, #2d2d44)' }}>
+              <Mail className="w-10 h-10 mx-auto mb-3 text-gray-500" />
               <label className="cursor-pointer">
-                <p className="text-sm font-medium text-primary">Drop email file here</p>
-                <p className="text-xs text-muted-foreground mt-1">or click to browse • .eml, .msg</p>
+                <p className="text-sm font-medium text-blue-400">Drop email file here</p>
+                <p className="text-xs text-gray-400 mt-1">or click to browse • .eml, .msg</p>
                 <input type="file" className="hidden" accept=".eml,.msg" onChange={(e) => {
                   if (e.target.files?.[0]) {
                     setFileName(e.target.files[0].name);
@@ -105,7 +106,7 @@ const AddEmailModal = ({ open, onClose, onImport }: Props) => {
                   }
                 }} />
               </label>
-              {fileName && <p className="text-sm text-foreground mt-3 font-medium">{fileName}</p>}
+              {fileName && <p className="text-sm text-white mt-3 font-medium">{fileName}</p>}
             </div>
           )}
 
@@ -113,29 +114,29 @@ const AddEmailModal = ({ open, onClose, onImport }: Props) => {
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-medium text-muted-foreground">From *</label>
-                  <input value={manual.from} onChange={(e) => setManual({ ...manual, from: e.target.value })} placeholder="sender@example.com" className="mt-1 w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring" />
+                  <label className="text-xs font-medium text-gray-400">From *</label>
+                  <input value={manual.from} onChange={(e) => setManual({ ...manual, from: e.target.value })} placeholder="sender@example.com" className="mt-1 w-full rounded-lg px-3 py-2 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50" style={{ backgroundColor: 'var(--gm-surface-secondary, #252540)', border: '1px solid var(--gm-border-primary, #2d2d44)' }} />
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-muted-foreground">Date</label>
-                  <input type="datetime-local" value={manual.date} onChange={(e) => setManual({ ...manual, date: e.target.value })} className="mt-1 w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring" />
+                  <label className="text-xs font-medium text-gray-400">Date</label>
+                  <input type="datetime-local" value={manual.date} onChange={(e) => setManual({ ...manual, date: e.target.value })} className="mt-1 w-full rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50" style={{ backgroundColor: 'var(--gm-surface-secondary, #252540)', border: '1px solid var(--gm-border-primary, #2d2d44)' }} />
                 </div>
               </div>
               <div>
-                <label className="text-xs font-medium text-muted-foreground">To *</label>
-                <input value={manual.to} onChange={(e) => setManual({ ...manual, to: e.target.value })} placeholder="recipient@example.com (comma-separated)" className="mt-1 w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring" />
+                <label className="text-xs font-medium text-gray-400">To *</label>
+                <input value={manual.to} onChange={(e) => setManual({ ...manual, to: e.target.value })} placeholder="recipient@example.com (comma-separated)" className="mt-1 w-full rounded-lg px-3 py-2 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50" style={{ backgroundColor: 'var(--gm-surface-secondary, #252540)', border: '1px solid var(--gm-border-primary, #2d2d44)' }} />
               </div>
               <div>
-                <label className="text-xs font-medium text-muted-foreground">CC</label>
-                <input value={manual.cc} onChange={(e) => setManual({ ...manual, cc: e.target.value })} placeholder="cc@example.com (comma-separated)" className="mt-1 w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring" />
+                <label className="text-xs font-medium text-gray-400">CC</label>
+                <input value={manual.cc} onChange={(e) => setManual({ ...manual, cc: e.target.value })} placeholder="cc@example.com (comma-separated)" className="mt-1 w-full rounded-lg px-3 py-2 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50" style={{ backgroundColor: 'var(--gm-surface-secondary, #252540)', border: '1px solid var(--gm-border-primary, #2d2d44)' }} />
               </div>
               <div>
-                <label className="text-xs font-medium text-muted-foreground">Subject</label>
-                <input value={manual.subject} onChange={(e) => setManual({ ...manual, subject: e.target.value })} placeholder="Email subject" className="mt-1 w-full bg-secondary border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring" />
+                <label className="text-xs font-medium text-gray-400">Subject</label>
+                <input value={manual.subject} onChange={(e) => setManual({ ...manual, subject: e.target.value })} placeholder="Email subject" className="mt-1 w-full rounded-lg px-3 py-2 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50" style={{ backgroundColor: 'var(--gm-surface-secondary, #252540)', border: '1px solid var(--gm-border-primary, #2d2d44)' }} />
               </div>
               <div>
-                <label className="text-xs font-medium text-muted-foreground">Body *</label>
-                <textarea value={manual.body} onChange={(e) => setManual({ ...manual, body: e.target.value })} placeholder="Email content..." className="mt-1 w-full min-h-[80px] bg-secondary border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-y" />
+                <label className="text-xs font-medium text-gray-400">Body *</label>
+                <textarea value={manual.body} onChange={(e) => setManual({ ...manual, body: e.target.value })} placeholder="Email content..." className="mt-1 w-full min-h-[80px] rounded-lg px-3 py-2 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 resize-y" style={{ backgroundColor: 'var(--gm-surface-secondary, #252540)', border: '1px solid var(--gm-border-primary, #2d2d44)' }} />
               </div>
             </div>
           )}
@@ -143,10 +144,10 @@ const AddEmailModal = ({ open, onClose, onImport }: Props) => {
           <SprintTaskAssociation sprintId={sprintId} taskId={taskId} onSprintChange={setSprintId} onTaskChange={setTaskId} />
 
           <div className="flex gap-2 pt-2">
-            <button onClick={handleClose} className="flex-1 px-4 py-2 rounded-lg bg-secondary text-secondary-foreground text-sm font-medium hover:bg-muted transition-colors">
+            <button onClick={handleClose} className="flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors text-gray-300 hover:text-white" style={{ backgroundColor: 'var(--gm-surface-secondary, #252540)' }}>
               Cancel
             </button>
-            <button onClick={handleSubmit} className="flex-1 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors">
+            <button onClick={handleSubmit} className="flex-1 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors">
               Add Email
             </button>
           </div>

@@ -23,7 +23,8 @@
  *   - The context shape includes both the resolved currentProject object and the raw ID
  */
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { apiClient } from '@/lib/api-client';
+import { useQueryClient } from '@tanstack/react-query';
+import { apiClient, setCurrentProjectId as setApiProjectId } from '@/lib/api-client';
 import { toast } from 'sonner';
 
 interface Project {
@@ -53,18 +54,24 @@ const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
  * is stale or missing.
  */
 export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    const queryClient = useQueryClient();
     const [projects, setProjects] = useState<Project[]>([]);
     const [currentProjectId, setCurrentProjectId] = useState<string>(() => {
-        return localStorage.getItem('godmode_current_project') || 'default';
+        return localStorage.getItem('godmode_current_project') || localStorage.getItem('godmode-project-id') || 'default';
     });
     const [isLoading, setIsLoading] = useState(true);
+
+    const syncProjectId = (id: string) => {
+        setApiProjectId(id === 'default' ? null : id);
+        try {
+            localStorage.setItem('godmode_current_project', id);
+            localStorage.setItem('godmode-project-id', id);
+        } catch { /* */ }
+    };
 
     const refreshProjects = async () => {
         try {
             setIsLoading(true);
-            // Fetch all projects
-            // We try /api/projects first (authenticated)
-            // If that fails or returns empty, we might be in demo mode or initial setup
             const response = await apiClient.get('/api/projects') as { projects: Project[] };
 
             let fetchedProjects: Project[] = [];
@@ -72,30 +79,26 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
             if (response && response.projects) {
                 fetchedProjects = response.projects;
             } else {
-                // Fallback or handle empty state
                 console.warn("No projects found or API error");
             }
 
             setProjects(fetchedProjects);
 
-            // Validate currentProjectId
             if (currentProjectId !== 'default') {
                 const exists = fetchedProjects.find(p => p.id === currentProjectId);
                 if (!exists && fetchedProjects.length > 0) {
-                    // If current project doesn't exist anymore, switch to the first one or default
-                    // Prefer one marked as isDefault if available
                     const defaultProj = fetchedProjects.find(p => p.isDefault) || fetchedProjects[0];
                     setCurrentProjectId(defaultProj.id);
+                    syncProjectId(defaultProj.id);
                 }
             } else if (fetchedProjects.length > 0) {
-                // If we are on 'default' but we have real projects, switch to the default real project
                 const defaultProj = fetchedProjects.find(p => p.isDefault) || fetchedProjects[0];
                 setCurrentProjectId(defaultProj.id);
+                syncProjectId(defaultProj.id);
             }
 
         } catch (error) {
             console.error('Failed to fetch projects:', error);
-            // Don't show toast on initial load to avoid annoyance if it's just auth check
         } finally {
             setIsLoading(false);
         }
@@ -106,16 +109,17 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }, []);
 
     useEffect(() => {
-        if (currentProjectId) {
-            localStorage.setItem('godmode_current_project', currentProjectId);
-        }
+        syncProjectId(currentProjectId);
     }, [currentProjectId]);
 
     const handleSetProject = (id: string) => {
+        const prev = currentProjectId;
         setCurrentProjectId(id);
-        toast.success('Project switched');
-        // Force a reload might be needed if components don't react to context changes effectively
-        // But ideally we just let the context propagate
+        syncProjectId(id);
+        if (id !== prev) {
+            queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== 'projects' });
+            toast.success('Project switched');
+        }
     };
 
     const currentProject = projects.find(p => p.id === currentProjectId) || null;

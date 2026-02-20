@@ -1,7 +1,82 @@
 @import "tailwindcss";
 
-/* Custom design tokens */
+/* ═══════════════════════════════════════════════════════
+   GodMode Design System — Base Color Palette
+   ═══════════════════════════════════════════════════════ */
 :root {
+  /* Neutral Scale */
+  --color-neutral-0: #ffffff;
+  --color-neutral-50: #f8fafc;
+  --color-neutral-100: #f1f5f9;
+  --color-neutral-200: #e2e8f0;
+  --color-neutral-300: #cbd5e1;
+  --color-neutral-400: #94a3b8;
+  --color-neutral-500: #64748b;
+  --color-neutral-600: #475569;
+  --color-neutral-700: #334155;
+  --color-neutral-800: #1e293b;
+  --color-neutral-900: #0f172a;
+  --color-neutral-950: #020617;
+
+  /* Brand / Primary */
+  --color-brand-50: #eff6ff;
+  --color-brand-100: #dbeafe;
+  --color-brand-200: #bfdbfe;
+  --color-brand-300: #93c5fd;
+  --color-brand-400: #60a5fa;
+  --color-brand-500: #3b82f6;
+  --color-brand-600: #2563eb;
+  --color-brand-700: #1d4ed8;
+  --color-brand-800: #1e40af;
+  --color-brand-900: #1e3a8a;
+
+  /* Success */
+  --color-success-50: #f0fdf4;
+  --color-success-500: #22c55e;
+  --color-success-600: #16a34a;
+
+  /* Warning */
+  --color-warning-50: #fffbeb;
+  --color-warning-500: #f59e0b;
+  --color-warning-600: #d97706;
+
+  /* Danger */
+  --color-danger-50: #fef2f2;
+  --color-danger-500: #ef4444;
+  --color-danger-600: #dc2626;
+
+  /* Info */
+  --color-info-50: #eff6ff;
+  --color-info-500: #3b82f6;
+  --color-info-600: #2563eb;
+
+  /* Shadows */
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --shadow-base: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-md: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+  --shadow-glow: 0 0 20px rgba(59, 130, 246, 0.4);
+  --shadow-focus: 0 0 0 3px rgba(59, 130, 246, 0.3);
+  --shadow-glass: 0 8px 32px 0 rgba(31, 38, 135, 0.15);
+
+  /* Motion */
+  --duration-fast: 150ms;
+  --duration-base: 200ms;
+  --duration-slow: 300ms;
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Typography */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* ═══════════════════════════════════════════════════════
+   Semantic Tokens — Light (default)
+   ═══════════════════════════════════════════════════════ */
+:root {
+  /* shadcn/ui compat tokens (HSL) */
   --background: 0 0% 100%;
   --foreground: 222.2 84% 4.9%;
   --card: 0 0% 100%;
@@ -23,9 +98,53 @@
   --ring: 222.2 84% 4.9%;
   --radius: 0.5rem;
   --sidebar-width: 16rem;
+
+  /* GodMode semantic tokens */
+  --gm-bg-primary: var(--color-neutral-0);
+  --gm-bg-secondary: var(--color-neutral-50);
+  --gm-bg-tertiary: var(--color-neutral-100);
+  --gm-bg-elevated: var(--color-neutral-0);
+  --gm-bg-overlay: rgba(0, 0, 0, 0.5);
+  --gm-bg-glass: rgba(255, 255, 255, 0.7);
+
+  --gm-surface-primary: var(--color-neutral-0);
+  --gm-surface-secondary: var(--color-neutral-50);
+  --gm-surface-hover: var(--color-neutral-100);
+  --gm-surface-active: var(--color-neutral-200);
+
+  --gm-border-primary: var(--color-neutral-200);
+  --gm-border-secondary: var(--color-neutral-300);
+  --gm-border-focus: var(--color-brand-500);
+
+  --gm-text-primary: var(--color-neutral-900);
+  --gm-text-secondary: var(--color-neutral-700);
+  --gm-text-tertiary: var(--color-neutral-500);
+  --gm-text-placeholder: var(--color-neutral-400);
+  --gm-text-on-brand: var(--color-neutral-0);
+
+  --gm-interactive-primary: var(--color-brand-600);
+  --gm-interactive-primary-hover: var(--color-brand-700);
+  --gm-interactive-secondary: var(--color-neutral-100);
+  --gm-interactive-secondary-hover: var(--color-neutral-200);
+
+  --gm-status-success: var(--color-success-500);
+  --gm-status-success-bg: var(--color-success-50);
+  --gm-status-warning: var(--color-warning-500);
+  --gm-status-warning-bg: var(--color-warning-50);
+  --gm-status-danger: var(--color-danger-500);
+  --gm-status-danger-bg: var(--color-danger-50);
+  --gm-status-info: var(--color-info-500);
+  --gm-status-info-bg: var(--color-info-50);
+
+  --gm-accent-primary: var(--color-brand-500);
+  --gm-accent-glow: 0 0 20px rgba(59, 130, 246, 0.4);
 }
 
+/* ═══════════════════════════════════════════════════════
+   Semantic Tokens — Dark
+   ═══════════════════════════════════════════════════════ */
 .dark {
+  /* shadcn/ui compat tokens (HSL) */
   --background: 222.2 84% 4.9%;
   --foreground: 210 40% 98%;
   --card: 222.2 84% 4.9%;
@@ -45,13 +164,112 @@
   --border: 217.2 32.6% 17.5%;
   --input: 217.2 32.6% 17.5%;
   --ring: 212.7 26.8% 83.9%;
+
+  /* GodMode semantic tokens — dark overrides */
+  --gm-bg-primary: var(--color-neutral-950);
+  --gm-bg-secondary: var(--color-neutral-900);
+  --gm-bg-tertiary: var(--color-neutral-800);
+  --gm-bg-elevated: var(--color-neutral-900);
+  --gm-bg-overlay: rgba(0, 0, 0, 0.7);
+  --gm-bg-glass: rgba(15, 23, 42, 0.7);
+
+  --gm-surface-primary: var(--color-neutral-900);
+  --gm-surface-secondary: var(--color-neutral-800);
+  --gm-surface-hover: var(--color-neutral-700);
+  --gm-surface-active: var(--color-neutral-600);
+
+  --gm-border-primary: var(--color-neutral-800);
+  --gm-border-secondary: var(--color-neutral-700);
+  --gm-border-focus: var(--color-brand-400);
+
+  --gm-text-primary: var(--color-neutral-50);
+  --gm-text-secondary: var(--color-neutral-300);
+  --gm-text-tertiary: var(--color-neutral-500);
+  --gm-text-placeholder: var(--color-neutral-600);
+  --gm-text-on-brand: var(--color-neutral-0);
+
+  --gm-interactive-primary: var(--color-brand-500);
+  --gm-interactive-primary-hover: var(--color-brand-400);
+  --gm-interactive-secondary: var(--color-neutral-800);
+  --gm-interactive-secondary-hover: var(--color-neutral-700);
+
+  --gm-status-success: var(--color-success-500);
+  --gm-status-success-bg: rgba(34, 197, 94, 0.15);
+  --gm-status-warning: var(--color-warning-500);
+  --gm-status-warning-bg: rgba(245, 158, 11, 0.15);
+  --gm-status-danger: var(--color-danger-500);
+  --gm-status-danger-bg: rgba(239, 68, 68, 0.15);
+  --gm-status-info: var(--color-info-500);
+  --gm-status-info-bg: rgba(59, 130, 246, 0.15);
+
+  --gm-accent-primary: var(--color-brand-400);
+  --gm-accent-glow: 0 0 20px rgba(96, 165, 250, 0.5);
+
+  --shadow-glass: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
 }
 
+/* ═══════════════════════════════════════════════════════
+   Base Styles
+   ═══════════════════════════════════════════════════════ */
 body {
   @apply bg-[hsl(var(--background))] text-[hsl(var(--foreground))];
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 * {
   @apply border-[hsl(var(--border))];
+}
+
+.dark {
+  color-scheme: dark;
+}
+
+select,
+select option {
+  background-color: hsl(var(--card));
+  color: hsl(var(--foreground));
+}
+
+select {
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.375rem;
+  padding: 0.375rem 0.5rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  appearance: auto;
+}
+
+select:focus {
+  outline: none;
+  border-color: hsl(var(--ring));
+  box-shadow: 0 0 0 2px hsl(var(--ring) / 0.2);
+}
+
+::selection {
+  background: var(--gm-interactive-primary);
+  color: var(--gm-text-on-brand);
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--gm-bg-secondary);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--gm-border-secondary);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--gm-text-tertiary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

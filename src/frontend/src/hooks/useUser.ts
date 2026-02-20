@@ -30,12 +30,13 @@ export interface UserProfile {
     id: string;
     email: string;
     display_name?: string;
-    avatar_url?: string; // Optional, might be null
+    avatar_url?: string;
     sidebar_collapsed?: boolean;
     theme?: string;
     timezone?: string;
     created_at?: string;
     username?: string;
+    role?: string;
 }
 
 interface UserResponse {
@@ -70,11 +71,38 @@ export function useUser() {
         },
     });
 
+    const uploadAvatar = useMutation({
+        mutationFn: async (file: File) => {
+            const fd = new FormData();
+            fd.append('file', file);
+            const res = await apiClient.upload<{ avatar_url: string }>('/api/profile/avatar', fd);
+            return res.avatar_url;
+        },
+        onSuccess: (avatarUrl) => {
+            queryClient.setQueryData(['user'], (old: UserProfile | null | undefined) =>
+                old ? { ...old, avatar_url: avatarUrl } : old
+            );
+        },
+    });
+
+    const deleteAvatar = useMutation({
+        mutationFn: async () => {
+            await apiClient.delete('/api/profile/avatar');
+        },
+        onSuccess: () => {
+            queryClient.setQueryData(['user'], (old: UserProfile | null | undefined) =>
+                old ? { ...old, avatar_url: null } : old
+            );
+        },
+    });
+
     return {
         user,
         isLoading,
         error,
         updateProfile,
+        uploadAvatar,
+        deleteAvatar,
         isAuthenticated: !!user,
     };
 }

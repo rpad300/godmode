@@ -104,10 +104,23 @@ async function handleLlm(ctx) {
     if (pathname === '/api/llm/providers' && req.method === 'GET') {
         const raw = llm.getProviders();
         const providerConfigs = config?.llm?.providers || {};
+
+        // Check Supabase secrets for which providers have keys configured
+        let secretStatus = {};
+        try {
+            const secrets = require('../../supabase/secrets');
+            for (const p of raw) {
+                if (p.id !== 'ollama') {
+                    const result = await secrets.getProviderApiKey(p.id, null);
+                    secretStatus[p.id] = result.success;
+                }
+            }
+        } catch (_) { /* Supabase not available */ }
+
         const providers = raw.map(p => ({
             id: p.id,
             name: p.label || p.name || p.id,
-            enabled: p.id === 'ollama' ? !!(providerConfigs.ollama?.host || config?.ollama?.host) : !!(providerConfigs[p.id]?.apiKey),
+            enabled: p.id === 'ollama' ? !!(providerConfigs.ollama?.host || config?.ollama?.host) : !!(secretStatus[p.id]),
             models: Array.isArray(p.models) ? p.models : [],
             capabilities: p.capabilities || {}
         }));
@@ -315,20 +328,20 @@ async function handleLlm(ctx) {
         const savedProviderConfig = config.llm?.providers?.[providerId] || {};
         const testConfig = { ...savedProviderConfig };
         
-        // Allow overriding with test values
+        // Allow overriding with test values (e.g. user testing a new key before saving)
         if (body.apiKey) testConfig.apiKey = body.apiKey;
         if (body.baseUrl) testConfig.baseUrl = body.baseUrl;
         if (body.host) testConfig.host = body.host;
         if (body.port) testConfig.port = body.port;
         
-        // Load API key from Supabase secrets if not available
+        // Resolve API key from Supabase secrets (the ONLY source for production keys)
         if (!testConfig.apiKey && supabase && supabase.isConfigured()) {
             testConfig.apiKey = await loadApiKeyFromSupabase(supabase, providerId);
         }
-        
-        // Fallback to environment variables
-        if (!testConfig.apiKey) {
-            testConfig.apiKey = getApiKeyFromEnv(providerId);
+
+        if (!testConfig.apiKey && providerId !== 'ollama') {
+            jsonResponse(res, { ok: false, error: { message: `No API key configured for ${providerId}. Add it in Admin > LLM Providers.` } }, 400);
+            return true;
         }
 
         const result = await llm.testConnection(providerId, testConfig);
@@ -355,16 +368,134 @@ async function handleLlm(ctx) {
         if (body.host) testConfig.host = body.host;
         if (body.port) testConfig.port = body.port;
         
+        // Resolve API key from Supabase secrets (the ONLY source for production keys)
         if (!testConfig.apiKey && supabase && supabase.isConfigured()) {
             testConfig.apiKey = await loadApiKeyFromSupabase(supabase, providerId);
         }
-        
-        if (!testConfig.apiKey) {
-            testConfig.apiKey = getApiKeyFromEnv(providerId);
+
+        if (!testConfig.apiKey && providerId !== 'ollama') {
+            jsonResponse(res, { ok: false, error: { message: `No API key configured for ${providerId}. Add it in Admin > LLM Providers.` } }, 400);
+            return true;
         }
 
         const result = await llm.testConnection(providerId, testConfig);
         jsonResponse(res, result);
+        return true;
+    }
+
+    // ==================== LLM Model Metadata Sync API ====================
+
+    // GET /api/llm/metadata/models - Get all models from Supabase DB (all providers)
+    if (pathname === '/api/llm/metadata/models' && req.method === 'GET') {
+        try {
+            const llmMetadataDb = require('../../supabase/llm-metadata');
+            const admin = require('../../supabase/client').getAdminClient();
+            if (!admin) {
+                jsonResponse(res, { ok: false, error: 'Supabase not configured' }, 500);
+                return true;
+            }
+
+            const queryParams = new URLSearchParams(parseUrl(req.url).search);
+            const providerFilter = queryParams.get('provider');
+
+            let query = admin.from('llm_model_metadata').select('*').eq('is_active', true).order('provider').order('model_id');
+            if (providerFilter) query = query.eq('provider', providerFilter);
+            const { data: models, error: dbErr } = await query;
+
+            if (dbErr) throw dbErr;
+
+            jsonResponse(res, { ok: true, models: models || [], total: (models || []).length });
+        } catch (error) {
+            jsonResponse(res, { ok: false, error: error.message }, 500);
+        }
+        return true;
+    }
+
+    // GET /api/llm/metadata/status - Get per-provider sync status from Supabase view
+    if (pathname === '/api/llm/metadata/status' && req.method === 'GET') {
+        try {
+            const llmMetadataDb = require('../../supabase/llm-metadata');
+            const syncStatus = await llmMetadataDb.getSyncStatus();
+            jsonResponse(res, { ok: true, providers: syncStatus });
+        } catch (error) {
+            jsonResponse(res, { ok: false, error: error.message }, 500);
+        }
+        return true;
+    }
+
+    // POST /api/llm/metadata/sync - Sync models from all enabled providers to Supabase
+    if (pathname === '/api/llm/metadata/sync' && req.method === 'POST') {
+        try {
+            const llmMetadataDb = require('../../supabase/llm-metadata');
+            const raw = llm.getProviders();
+            const providerConfigs = config?.llm?.providers || {};
+            const userOverrides = config.llm?.tokenPolicy?.perModel || {};
+            const results = {};
+            let totalSynced = 0;
+            let totalFailed = 0;
+
+            for (const p of raw) {
+                const providerId = p.id;
+                let provConfig = { ...(providerConfigs[providerId] || {}) };
+
+                if (!provConfig.apiKey && providerId !== 'ollama' && supabase && supabase.isConfigured()) {
+                    provConfig.apiKey = await loadApiKeyFromSupabase(supabase, providerId);
+                }
+                if (providerId === 'ollama') {
+                    provConfig.host = provConfig.host || config?.ollama?.host || 'http://localhost';
+                    provConfig.port = provConfig.port || config?.ollama?.port || 11434;
+                }
+
+                if (!provConfig.apiKey && providerId !== 'ollama') {
+                    results[providerId] = { status: 'skipped', reason: 'No API key' };
+                    continue;
+                }
+
+                try {
+                    const models = await llm.listModels(providerId, provConfig);
+                    const enrichedText = modelMetadata.enrichModelList(providerId, models.textModels || [], userOverrides);
+                    const enrichedVision = modelMetadata.enrichModelList(providerId, models.visionModels || [], userOverrides);
+                    const enrichedEmbed = modelMetadata.enrichModelList(providerId, models.embeddingModels || [], userOverrides);
+
+                    await llmMetadataDb.markProviderModelsInactive(providerId);
+
+                    const allEnriched = [
+                        ...enrichedText.map(m => ({ ...m, modelType: 'text', source: 'api' })),
+                        ...enrichedVision.map(m => ({ ...m, modelType: 'text', supportsVision: true, source: 'api' })),
+                        ...enrichedEmbed.map(m => ({ ...m, modelType: 'embedding', supportsEmbeddings: true, source: 'api' })),
+                    ].map(m => ({
+                        provider: providerId,
+                        modelId: m.id || m.modelId || m.name,
+                        displayName: m.displayName || m.label || m.name || m.id,
+                        contextTokens: m.contextTokens || m.maxTokens || m.contextWindow || null,
+                        maxOutputTokens: m.maxOutputTokens || null,
+                        supportsVision: m.supportsVision || false,
+                        supportsJsonMode: m.supportsJsonMode || false,
+                        supportsFunctionCalling: m.supportsFunctionCalling || false,
+                        supportsEmbeddings: m.supportsEmbeddings || false,
+                        priceInput: m.priceInput || 0,
+                        priceOutput: m.priceOutput || 0,
+                        modelType: m.modelType || 'text',
+                        tier: m.tier || 'standard',
+                        description: m.description || null,
+                        rawMetadata: m,
+                    }));
+
+                    const bulkResult = await llmMetadataDb.bulkUpsertModels(allEnriched);
+                    modelMetadata.clearCache(providerId);
+
+                    results[providerId] = { status: 'success', synced: bulkResult.success, failed: bulkResult.failed, total: allEnriched.length };
+                    totalSynced += bulkResult.success;
+                    totalFailed += bulkResult.failed;
+                } catch (err) {
+                    results[providerId] = { status: 'error', error: err.message };
+                }
+            }
+
+            jsonResponse(res, { ok: true, results, totalSynced, totalFailed });
+        } catch (error) {
+            jsonResponse(res, { ok: false, error: error.message }, 500);
+        }
         return true;
     }
 
@@ -374,17 +505,12 @@ async function handleLlm(ctx) {
         const modelsTextCfg = llmConfig.getTextConfig(config);
         const providerId = queryParams.get('provider') || modelsTextCfg.provider;
         
-        // Get provider config from local config
+        // Get provider config from local config (non-secret fields: baseUrl, org, etc.)
         let providerConfig = { ...(config.llm?.providers?.[providerId] || {}) };
         
-        // Try to load API key from Supabase secrets
+        // Resolve API key from Supabase secrets (the ONLY source for production keys)
         if (!providerConfig.apiKey && supabase && supabase.isConfigured()) {
             providerConfig.apiKey = await loadApiKeyFromSupabase(supabase, providerId);
-        }
-        
-        // Fallback to environment variables
-        if (!providerConfig.apiKey) {
-            providerConfig.apiKey = getApiKeyFromEnv(providerId);
         }
         
         // Get user overrides for model metadata
@@ -696,20 +822,29 @@ async function handleLlm(ctx) {
 }
 
 // Helper: Load API key from Supabase secrets
+// Uses getProviderApiKey which follows the naming convention: {provider}_api_key (lowercase)
+// This matches the queue's key resolution in secrets.js
 async function loadApiKeyFromSupabase(supabase, providerId) {
     try {
         const secrets = require('../../supabase/secrets');
-        const secretNames = {
+        // Use the canonical getProviderApiKey function (system scope only for admin routes)
+        const result = await secrets.getProviderApiKey(providerId, null);
+        if (result.success && result.value) {
+            moduleLog.debug({ event: 'llm_apikey_loaded', providerId, source: result.source }, 'Loaded API key from Supabase');
+            return result.value;
+        }
+        // Legacy fallback: try UPPERCASE env-var-style names for backwards compatibility
+        const legacyNames = {
             openai: 'OPENAI_API_KEY', anthropic: 'CLAUDE_API_KEY', claude: 'CLAUDE_API_KEY',
             google: 'GOOGLE_API_KEY', gemini: 'GOOGLE_API_KEY', grok: 'XAI_API_KEY', xai: 'XAI_API_KEY',
             deepseek: 'DEEPSEEK_API_KEY', kimi: 'KIMI_API_KEY', minimax: 'MINIMAX_API_KEY'
         };
-        const secretName = secretNames[providerId];
-        if (secretName) {
-            const apiKeyResult = await secrets.getSecret('system', secretName);
-            if (apiKeyResult.success && apiKeyResult.value) {
-                moduleLog.debug({ event: 'llm_apikey_loaded', providerId }, 'Loaded API key from Supabase');
-                return apiKeyResult.value;
+        const legacyName = legacyNames[providerId];
+        if (legacyName) {
+            const legacyResult = await secrets.getSecret('system', legacyName);
+            if (legacyResult.success && legacyResult.value) {
+                moduleLog.debug({ event: 'llm_apikey_loaded_legacy', providerId }, 'Loaded API key from Supabase (legacy name)');
+                return legacyResult.value;
             }
         }
     } catch (e) {
@@ -718,26 +853,7 @@ async function loadApiKeyFromSupabase(supabase, providerId) {
     return null;
 }
 
-// Helper: Get API key from environment variables
-function getApiKeyFromEnv(providerId) {
-    const envKeys = {
-        openai: process.env.OPENAI_API_KEY,
-        anthropic: process.env.CLAUDE_API_KEY,
-        claude: process.env.CLAUDE_API_KEY,
-        google: process.env.GOOGLE_API_KEY,
-        gemini: process.env.GOOGLE_API_KEY,
-        grok: process.env.XAI_API_KEY,
-        xai: process.env.XAI_API_KEY,
-        deepseek: process.env.DEEPSEEK_API_KEY,
-        kimi: process.env.KIMI_API_KEY,
-        minimax: process.env.MINIMAX_API_KEY
-    };
-    const key = envKeys[providerId];
-    if (key) {
-        moduleLog.debug({ event: 'llm_apikey_env', providerId }, 'Using API key from environment');
-    }
-    return key || null;
-}
+// getApiKeyFromEnv was removed — all LLM provider API keys come exclusively from Supabase secrets.
 
 module.exports = {
     handleLlm

@@ -225,17 +225,8 @@ function validateConfig(appConfig, taskType = 'text') {
         };
     }
     
-    // Check if provider has API key (except for ollama which doesn't need one)
-    if (provider !== 'ollama') {
-        const providerConfig = cfg.getProviderConfig(provider);
-        if (!providerConfig.apiKey) {
-            return {
-                valid: false,
-                error: `No API key configured for ${provider}. Please add the API key in the Admin Panel.`
-            };
-        }
-    }
-    
+    // API keys are resolved at runtime from Supabase vault by the queue.
+    // We only validate that a provider and model are configured here.
     return { valid: true };
 }
 

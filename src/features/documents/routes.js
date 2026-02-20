@@ -344,8 +344,9 @@ async function handleDocuments(ctx) {
     }
 
     // POST /api/documents/:id/restore - Restore a soft-deleted document
-    if (pathname.match(/^\/api\/documents\/\d+\/restore$/) && req.method === 'POST') {
-        const docId = parseInt(pathname.split('/')[3]);
+    const restoreMatch = pathname.match(/^\/api\/documents\/([a-f0-9\-]+)\/restore$/i);
+    if (restoreMatch && req.method === 'POST') {
+        const docId = restoreMatch[1];
         const doc = storage.getDocumentById(docId);
         
         if (!doc) {
@@ -389,6 +390,26 @@ async function handleDocuments(ctx) {
         } catch (err) {
             log.warn({ event: 'doc_analysis_history_error', reason: err.message }, 'Failed to load analysis history');
             jsonResponse(res, { analyses: [] });
+        }
+        return true;
+    }
+
+    // GET /api/documents/:id/summary - Get AI summary for a document
+    const summaryMatch = pathname.match(/^\/api\/documents\/([a-f0-9\-]+)\/summary$/i);
+    if (summaryMatch && req.method === 'GET') {
+        const docId = summaryMatch[1];
+        try {
+            const { data, error } = await storage._supabase.supabase
+                .from('documents')
+                .select('ai_summary, content_preview')
+                .eq('id', docId)
+                .single();
+
+            if (error) throw error;
+            jsonResponse(res, { summary: data?.ai_summary || data?.content_preview || null });
+        } catch (err) {
+            log.warn({ event: 'doc_summary_error', reason: err.message }, 'Failed to load document summary');
+            jsonResponse(res, { summary: null });
         }
         return true;
     }

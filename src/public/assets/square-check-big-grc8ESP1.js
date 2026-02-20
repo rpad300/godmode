@@ -1,0 +1,2 @@
+import{c as a}from"./main-DPJZnN-g.js";const c=[["path",{d:"M21 10.656V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h12.344",key:"2acyp4"}],["path",{d:"m9 11 3 3L22 4",key:"1pflzl"}]],o=a("square-check-big",c);export{o as S};
+//# sourceMappingURL=square-check-big-grc8ESP1.js.map

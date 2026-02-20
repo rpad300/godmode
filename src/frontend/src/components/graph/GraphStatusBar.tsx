@@ -38,7 +38,7 @@ export function GraphStatusBar() {
         if (isSyncing) return { label: 'Syncing', color: 'text-blue-500', icon: RefreshCw, animate: true };
         if (error) return { label: 'Error', color: 'text-red-500', icon: AlertCircle, animate: false };
         if (status?.is_connected) return { label: 'Connected', color: 'text-green-500', icon: Wifi, animate: false };
-        return { label: 'Disconnected', color: 'text-muted-foreground', icon: WifiOff, animate: false };
+        return { label: 'Disconnected', color: 'text-slate-400', icon: WifiOff, animate: false };
     }, [isSyncing, error, status]);
 
     const lastSyncTime = useMemo(() => {
@@ -49,7 +49,7 @@ export function GraphStatusBar() {
     return (
         <div className="absolute bottom-4 left-4 z-10 flex flex-col gap-2 w-[340px]">
             {/* Main Status Card */}
-            <div className="bg-background/90 backdrop-blur-sm border rounded-lg shadow-sm p-3 text-xs flex flex-col gap-3">
+            <div className="bg-[var(--gm-bg-primary)] backdrop-blur-sm border rounded-lg shadow-sm p-3 text-xs flex flex-col gap-3">
 
                 {/* Header: Connection Status */}
                 <div className="flex items-center justify-between">
@@ -62,7 +62,7 @@ export function GraphStatusBar() {
                         </span>
                     </div>
                     {status?.avg_sync_time_ms && (
-                        <span className="text-muted-foreground flex items-center gap-1">
+                        <span className="text-slate-400 flex items-center gap-1">
                             <Clock className="h-3 w-3" />
                             {status.avg_sync_time_ms}ms
                         </span>
@@ -72,7 +72,7 @@ export function GraphStatusBar() {
                 {/* Progress Bar (if syncing) */}
                 {isSyncing && (
                     <div className="space-y-1">
-                        <div className="flex justify-between text-[10px] text-muted-foreground uppercase tracking-wider">
+                        <div className="flex justify-between text-[10px] text-slate-400 uppercase tracking-wider">
                             <span>Synchronizing...</span>
                         </div>
                         <Progress value={undefined} className="h-1" />
@@ -81,26 +81,26 @@ export function GraphStatusBar() {
 
                 {/* Metrics Grid */}
                 <div className="grid grid-cols-3 gap-2 py-1">
-                    <div className="flex flex-col items-center p-2 bg-muted/30 rounded border border-border/50">
-                        <Database className="h-3 w-3 text-muted-foreground mb-1" />
-                        <span className="text-lg font-bold text-foreground">{status?.node_count || 0}</span>
-                        <span className="text-[10px] text-muted-foreground uppercase">Nodes</span>
+                    <div className="flex flex-col items-center p-2 bg-white/5 rounded border border-white/5">
+                        <Database className="h-3 w-3 text-slate-400 mb-1" />
+                        <span className="text-lg font-bold text-white">{status?.node_count || 0}</span>
+                        <span className="text-[10px] text-slate-400 uppercase">Nodes</span>
                     </div>
-                    <div className="flex flex-col items-center p-2 bg-muted/30 rounded border border-border/50">
-                        <Activity className="h-3 w-3 text-muted-foreground mb-1" />
-                        <span className="text-lg font-bold text-foreground">{status?.edge_count || 0}</span>
-                        <span className="text-[10px] text-muted-foreground uppercase">Edges</span>
+                    <div className="flex flex-col items-center p-2 bg-white/5 rounded border border-white/5">
+                        <Activity className="h-3 w-3 text-slate-400 mb-1" />
+                        <span className="text-lg font-bold text-white">{status?.edge_count || 0}</span>
+                        <span className="text-[10px] text-slate-400 uppercase">Edges</span>
                     </div>
-                    <div className="flex flex-col items-center p-2 bg-muted/30 rounded border border-border/50">
-                        <Server className="h-3 w-3 text-muted-foreground mb-1" />
-                        <span className="text-lg font-bold text-foreground">{status?.pending_count || 0}</span>
-                        <span className="text-[10px] text-muted-foreground uppercase">Pending</span>
+                    <div className="flex flex-col items-center p-2 bg-white/5 rounded border border-white/5">
+                        <Server className="h-3 w-3 text-slate-400 mb-1" />
+                        <span className="text-lg font-bold text-white">{status?.pending_count || 0}</span>
+                        <span className="text-[10px] text-slate-400 uppercase">Pending</span>
                     </div>
                 </div>
 
                 {/* Footer: Last Sync + Actions */}
-                <div className="flex items-center justify-between pt-1 border-t border-border/50">
-                    <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                <div className="flex items-center justify-between pt-1 border-t border-white/5">
+                    <span className="text-[10px] text-slate-400 flex items-center gap-1">
                         <CheckCircle className="h-3 w-3" />
                         Last Synced: {lastSyncTime}
                     </span>

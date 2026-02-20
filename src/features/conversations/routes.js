@@ -387,7 +387,6 @@ ANSWERED: no`;
                                     maxTokens: 400,
                                     temperature: 0.2,
                                     context: 'question',
-                                    providerConfig: config.llm?.providers?.[config.llm?.provider] || {}
                                 });
 
                                 if (checkResult.success) {
@@ -623,10 +622,64 @@ ANSWERED: no`;
         return true;
     }
 
+    // POST /api/conversations/:id/summarize - AI summarize a conversation
+    const convSummarizeMatch = pathname.match(/^\/api\/conversations\/([a-f0-9\-]+)\/summarize$/);
+    if (convSummarizeMatch && req.method === 'POST') {
+        const convId = convSummarizeMatch[1];
+        try {
+            const conversation = storage.getConversationById(convId);
+            if (!conversation) {
+                jsonResponse(res, { ok: false, error: 'Conversation not found' }, 404);
+                return true;
+            }
+
+            const textCfg = llmConfig.getTextConfig(config);
+            const llmProvider = textCfg.provider;
+            const model = textCfg.model;
+            const providerConfig = textCfg.providerConfig;
+
+            if (!llmProvider || !model) {
+                jsonResponse(res, { ok: false, error: 'No LLM configured' }, 400);
+                return true;
+            }
+
+            const messages = (conversation.messages || []).slice(0, 40);
+            const excerpt = messages.map(m => {
+                const speaker = m.speaker || m.sender || 'Unknown';
+                const text = (m.text || '').substring(0, 200);
+                return `${speaker}: ${text}`;
+            }).join('\n');
+
+            const prompt = `/no_think
+Summarize this conversation in 3-5 sentences. Output only the summary text, no JSON.
+
+Title: ${conversation.title || 'Untitled'}
+Participants: ${(conversation.participants || []).join(', ')}
+Messages (${conversation.messageCount || messages.length} total):
+${excerpt}`;
+
+            const result = await llm.generateText({
+                provider: llmProvider, providerConfig, model, prompt,
+                temperature: 0.3, maxTokens: 400, context: 'conversation_summarize',
+            });
+
+            if (result.success) {
+                const summary = (result.text || '').trim();
+                storage.updateConversation(convId, { summary });
+                jsonResponse(res, { ok: true, summary });
+            } else {
+                jsonResponse(res, { ok: false, error: 'Failed to summarize' }, 500);
+            }
+        } catch (error) {
+            jsonResponse(res, { ok: false, error: error.message }, 500);
+        }
+        return true;
+    }
+
     // GET /api/conversations/stats - Get conversation statistics
     if (pathname === '/api/conversations/stats' && req.method === 'GET') {
         try {
-            const stats = storage.getConversationStats();
+            const stats = await storage.getConversationStats();
             jsonResponse(res, { ok: true, ...stats });
         } catch (error) {
             jsonResponse(res, { ok: false, error: error.message }, 500);

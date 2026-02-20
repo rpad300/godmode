@@ -545,6 +545,13 @@ async function handleProjects({ req, res, pathname, supabase, storage, config, s
                 if (authResult.authenticated) {
                     const userId = authResult.user.id;
                     const client = supabase.getAdminClient();
+                    if (!client) {
+                        const errorMsg = 'Supabase admin client is null (check SUPABASE_SERVICE_KEY)';
+                        console.error('CRITICAL:', errorMsg);
+                        require('fs').appendFileSync('debug_error.log', new Date().toISOString() + ' ' + errorMsg + '\n');
+                        jsonResponse(res, { error: errorMsg }, 500);
+                        return true;
+                    }
                     const isSuperAdmin = await supabase.auth.isSuperAdmin(userId);
                     if (isSuperAdmin) {
                         console.log('DEBUG: Handling GET /api/projects for SUPERADMIN');
@@ -567,28 +574,61 @@ async function handleProjects({ req, res, pathname, supabase, storage, config, s
                             } else {
                                 console.log('DEBUG: Specific project NOT FOUND in list', allProjects.map(p => p.id));
                             }
+
                         } else {
                             console.log('DEBUG: No projects found for SuperAdmin');
                         }
 
-                        jsonResponse(res, { projects: allProjects || [] });
+                        // Safe response with fallback
+                        try {
+                            const body = JSON.stringify({ projects: allProjects || [] });
+                            res.writeHead(200, {
+                                'Content-Type': 'application/json',
+                                'Access-Control-Allow-Origin': '*'
+                            });
+                            res.end(body);
+                        } catch (serializationErr) {
+                            log.error({ event: 'projects_admin_serialization_error', err: serializationErr.message }, 'Failed to serialize admin projects list');
+                            // Fallback: map to minimal safe objects
+                            const safeProjects = (allProjects || []).map(p => ({
+                                id: p.id,
+                                name: p.name,
+                                description: p.description,
+                                status: p.status,
+                                created_at: p.created_at,
+                                updated_at: p.updated_at,
+                                company_id: p.company_id
+                            }));
+                            jsonResponse(res, { projects: safeProjects });
+                        }
                         return true;
                     }
 
+
                     console.log('DEBUG: Handling GET /api/projects for Regular Member');
+                    if (!client) {
+                        const errorMsg = 'Supabase admin client is null despite being configured';
+                        console.error('CRITICAL:', errorMsg);
+                        require('fs').appendFileSync('debug_error.log', new Date().toISOString() + ' ' + errorMsg + '\n');
+                        jsonResponse(res, { error: errorMsg }, 500);
+                        return true;
+                    }
+
                     const { data: memberProjects, error } = await client
                         .from('project_members')
                         .select('project_id, role, user_role, projects:project_id (id, name, description, status, created_at, updated_at, company_id, settings, company:companies(id, name, logo_url, brand_assets))')
                         .eq('user_id', userId);
                     if (error) {
                         log.warn({ event: 'projects_list_user_error', reason: error.message }, 'Error listing user projects');
+                        require('fs').appendFileSync('debug_error.log', new Date().toISOString() + ' DB Error: ' + error.message + '\n');
                         jsonResponse(res, { projects: [] });
                         return true;
                     }
+
                     const projects = (memberProjects || [])
                         .filter(m => m.projects)
                         .map(m => ({ ...m.projects, member_role: m.role, user_role: m.user_role }))
-                        .sort((a, b) => a.name.localeCompare(b.name));
+                        .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
                     // DEBUG LOGGING
                     if (projects.length > 0) {
@@ -604,7 +644,35 @@ async function handleProjects({ req, res, pathname, supabase, storage, config, s
                         }
                     }
 
-                    jsonResponse(res, { projects });
+                    // Safe response with fallback
+                    try {
+                        const body = JSON.stringify({ projects });
+                        res.writeHead(200, {
+                            'Content-Type': 'application/json',
+                            'Access-Control-Allow-Origin': '*'
+                        });
+                        res.end(body);
+                    } catch (serializationErr) {
+                        const fs = require('fs');
+                        const logMsg = 'Serialization Error: ' + serializationErr.message + '\nStack: ' + serializationErr.stack + '\n';
+                        fs.appendFileSync('debug_error.log', new Date().toISOString() + ' ' + logMsg);
+
+                        log.error({ event: 'projects_serialization_error', err: serializationErr.message }, 'Failed to serialize projects list');
+                        // Fallback: map to minimal safe objects
+                        const safeProjects = projects.map(p => ({
+                            id: p.id,
+                            name: p.name,
+                            description: p.description,
+                            status: p.status,
+                            created_at: p.created_at,
+                            updated_at: p.updated_at,
+                            company_id: p.company_id,
+                            member_role: p.member_role,
+                            user_role: p.user_role
+                            // Exclude potential problem fields like settings or company if deep
+                        }));
+                        jsonResponse(res, { projects: safeProjects });
+                    }
                     return true;
                 }
             }
@@ -613,6 +681,10 @@ async function handleProjects({ req, res, pathname, supabase, storage, config, s
             console.log('DEBUG: storage.listProjects returned count:', projects?.length);
             jsonResponse(res, { projects: projects || [] });
         } catch (e) {
+            const fs = require('fs');
+            const logMsg = 'Top Level Route Error: ' + e.message + '\nStack: ' + e.stack + '\n';
+            fs.appendFileSync('debug_error.log', new Date().toISOString() + ' ' + logMsg);
+
             log.warn({ event: 'projects_list_error', reason: e.message }, 'Error listing projects');
             jsonResponse(res, { projects: [] });
         }

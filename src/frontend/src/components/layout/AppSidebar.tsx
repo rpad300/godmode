@@ -61,7 +61,9 @@ import {
   Briefcase,
   User,
   Building2,
-  SlidersHorizontal,
+  FileBarChart,
+  Search,
+  Activity,
 } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
@@ -94,31 +96,53 @@ interface AppSidebarProps {
   onClose: () => void;
 }
 
-const navItems = [
-  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/chat', label: 'Chat', icon: MessageSquare },
-  { to: '/sot', label: 'Source of Truth', icon: FileText },
-  { to: '/timeline', label: 'Timeline', icon: Calendar },
-  { to: '/contacts', label: 'Contacts', icon: Users },
-  { to: '/team-analysis', label: 'Team Analysis', icon: Network },
-  { to: '/files', label: 'Files', icon: FolderOpen },
-  { to: '/emails', label: 'Emails', icon: Mail },
-  { to: '/graph', label: 'Graph', icon: Share2 },
-  { to: '/costs', label: 'Costs', icon: DollarSign },
-  { to: '/history', label: 'History', icon: Clock },
-  { to: '/companies', label: 'Companies', icon: Building2 },
-  { to: '/projects', label: 'Projects', icon: Briefcase },
-  { to: '/profile', label: 'Profile', icon: User },
-  { to: '/settings', label: 'Settings', icon: Settings },
-  { to: '/user-settings', label: 'User Settings', icon: SlidersHorizontal },
-  { to: '/admin', label: 'Admin', icon: Shield },
+interface NavItem { to: string; label: string; icon: typeof LayoutDashboard }
+interface NavSection { title: string; items: NavItem[] }
+
+const navSections: NavSection[] = [
+  {
+    title: 'Project',
+    items: [
+      { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+      { to: '/chat', label: 'Chat', icon: MessageSquare },
+      { to: '/sot', label: 'Source of Truth', icon: FileText },
+      { to: '/timeline', label: 'Timeline', icon: Calendar },
+      { to: '/contacts', label: 'Contacts', icon: Users },
+      { to: '/team-analysis', label: 'Team Analysis', icon: Network },
+      { to: '/files', label: 'Files', icon: FolderOpen },
+      { to: '/emails', label: 'Emails', icon: Mail },
+      { to: '/conversations', label: 'Conversations', icon: MessageCircle },
+      { to: '/graph', label: 'Graph', icon: Share2 },
+      { to: '/costs', label: 'Costs', icon: DollarSign },
+      { to: '/history', label: 'History', icon: Clock },
+      { to: '/sprints', label: 'Sprints', icon: Calendar },
+      { to: '/companies', label: 'Companies', icon: Building2 },
+      { to: '/reports', label: 'Reports', icon: FileBarChart },
+      { to: '/search', label: 'Search', icon: Search },
+      { to: '/optimizations', label: 'Optimizations', icon: Activity },
+      { to: '/projects', label: 'Projects', icon: Briefcase },
+      { to: '/settings', label: 'Project Settings', icon: Settings },
+    ],
+  },
+  {
+    title: 'User',
+    items: [
+      { to: '/profile', label: 'Profile', icon: User },
+    ],
+  },
+  {
+    title: 'Admin',
+    items: [
+      { to: '/admin', label: 'Admin', icon: Shield },
+    ],
+  },
 ];
 
 const dropZones = [
-  { type: 'documents', label: 'Documents', hint: 'PDF, DOCX, TXT, MD', icon: File },
-  { type: 'transcripts', label: 'Transcripts', hint: 'TXT, MD (Krisp, Otter)', icon: Mic },
-  { type: 'emails', label: 'Email', hint: 'Paste or upload .eml', icon: Mail },
-  { type: 'conversations', label: 'Conversation', hint: 'WhatsApp, Slack, Teams', icon: MessageCircle },
+  { type: 'documents', label: 'Documents', hint: 'PDF, DOCX, TXT, MD', icon: File, accept: '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.rtf,.odt,.csv,.json,.xml,.yaml,.yml,.html,.htm' },
+  { type: 'transcripts', label: 'Transcripts', hint: 'TXT, MD (Krisp, Otter)', icon: Mic, accept: '.txt,.md,.srt,.vtt' },
+  { type: 'emails', label: 'Email', hint: 'Paste or upload .eml', icon: Mail, accept: '.eml,.msg' },
+  { type: 'conversations', label: 'Conversation', hint: 'WhatsApp, Slack, Teams', icon: MessageCircle, accept: '.txt,.json' },
 ];
 
 function formatFileSize(bytes: number): string {
@@ -153,7 +177,11 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
   // ── Process Files ────────────────────────────────────────────────────────
   const handleProcessFiles = useCallback(() => {
     if (pendingFiles.length === 0) return;
-    processFiles.mutate(undefined);
+    processFiles.mutate(undefined, {
+      onError: (err: Error) => {
+        toast.error(`Processing failed: ${err.message || 'Unknown error'}`);
+      },
+    });
   }, [pendingFiles.length, processFiles]);
 
   // ── Export Knowledge (file download) ──────────────────────────────────────
@@ -230,7 +258,10 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
       setDragOverType(null);
       const files = Array.from(e.dataTransfer.files);
       if (files.length > 0) {
-        uploadFiles.mutate({ files, type });
+        uploadFiles.mutate({ files, type }, {
+          onSuccess: () => toast.success(`${files.length} file(s) uploaded`),
+          onError: (err: Error) => toast.error(`Upload failed: ${err.message}`),
+        });
       }
     },
     [uploadFiles]
@@ -247,6 +278,10 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
 
   const handleDropZoneClick = useCallback((type: string) => {
     activeDropZoneRef.current = type;
+    const zone = dropZones.find(z => z.type === type);
+    if (fileInputRef.current) {
+      fileInputRef.current.accept = zone?.accept || '';
+    }
     fileInputRef.current?.click();
   }, []);
 
@@ -254,7 +289,10 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(e.target.files || []);
       if (files.length > 0) {
-        uploadFiles.mutate({ files, type: activeDropZoneRef.current });
+        uploadFiles.mutate({ files, type: activeDropZoneRef.current }, {
+          onSuccess: () => toast.success(`${files.length} file(s) uploaded`),
+          onError: (err: Error) => toast.error(`Upload failed: ${err.message}`),
+        });
       }
       e.target.value = '';
     },
@@ -273,15 +311,15 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
   const overdueCount = useMemo(() => {
     const now = new Date();
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const a = (actions ?? []).filter((item) => {
+    const a = Array.isArray(actions) ? actions.filter((item) => {
       if (item.status === 'completed') return false;
       return item.dueDate ? new Date(item.dueDate) < now : false;
-    }).length;
-    const q = (questions ?? []).filter((item) => {
+    }).length : 0;
+    const q = Array.isArray(questions) ? questions.filter((item) => {
       if (item.status === 'resolved' || item.status === 'answered') return false;
       const createdAt = item.created_at ?? item.createdAt;
       return createdAt ? new Date(createdAt) < sevenDaysAgo : false;
-    }).length;
+    }).length : 0;
     return a + q;
   }, [actions, questions]);
 
@@ -364,6 +402,7 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
                     </div>
                     <button
                       onClick={() => handleDeleteFile(file)}
+                      aria-label={`Delete ${file.filename}`}
                       className="shrink-0 ml-1 text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--destructive))]"
                     >
                       <X className="h-3 w-3" />
@@ -376,31 +415,35 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto p-2">
-          <div className="text-xs font-semibold text-[hsl(var(--muted-foreground))] uppercase tracking-wider px-2 mb-1">
-            Menu
-          </div>
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            return (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                onClick={onClose}
-                className={({ isActive }) =>
-                  cn(
-                    'flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors',
-                    isActive
-                      ? 'bg-[hsl(var(--accent))] text-[hsl(var(--accent-foreground))] font-medium'
-                      : 'text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--accent))] hover:text-[hsl(var(--accent-foreground))]'
-                  )
-                }
-              >
-                <Icon className="h-4 w-4" />
-                <span>{item.label}</span>
-              </NavLink>
-            );
-          })}
+        <nav className="flex-1 overflow-y-auto p-2 space-y-3">
+          {navSections.map((section) => (
+            <div key={section.title}>
+              <div className="text-[10px] font-bold text-[hsl(var(--primary))] uppercase tracking-widest px-2 mb-1">
+                {section.title}
+              </div>
+              {section.items.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    onClick={onClose}
+                    className={({ isActive }) =>
+                      cn(
+                        'flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors',
+                        isActive
+                          ? 'bg-[hsl(var(--accent))] text-[hsl(var(--accent-foreground))] font-medium'
+                          : 'text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--accent))] hover:text-[hsl(var(--accent-foreground))]'
+                      )
+                    }
+                  >
+                    <Icon className="h-4 w-4" />
+                    <span>{item.label}</span>
+                  </NavLink>
+                );
+              })}
+            </div>
+          ))}
         </nav>
 
         {/* Action Buttons */}
@@ -430,6 +473,7 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
               size="icon"
               onClick={handleCopyKnowledge}
               title="Copy knowledge to clipboard"
+              aria-label="Copy knowledge to clipboard"
             >
               <Clipboard className="h-4 w-4" />
             </Button>

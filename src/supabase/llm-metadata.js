@@ -244,7 +244,7 @@ async function markProviderModelsInactive(provider) {
             .eq('provider', provider)
             .eq('source', 'api'); // Only mark API-synced models
     } catch (error) {
-        log.warn({ event: 'llm_metadata_ Error marking models inactive:', error.message);
+        log.warn({ event: 'llm_metadata_mark_inactive_error', reason: error.message }, 'Error marking models inactive');
     }
 }
 

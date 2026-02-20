@@ -159,7 +159,7 @@ export function SystemPromptsSection() {
                                             ))}
                                         </div>
                                         <div className="text-[10px] text-muted-foreground text-right border-t pt-2 mt-1">
-                                            Modified: {new Date(p.lastModified).toLocaleDateString()}
+                                            Modified: {p.lastModified ? new Date(p.lastModified).toLocaleDateString() : '—'}
                                         </div>
                                     </div>
                                 ))}
@@ -172,7 +172,7 @@ export function SystemPromptsSection() {
             <Dialog open={!!editingPrompt} onOpenChange={(open) => !open && setEditingPrompt(null)}>
                 <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
                     <DialogHeader>
-                        <DialogTitle>Edit Prompt: {editingPrompt?.name}</DialogTitle>
+                        <DialogTitle>Edit Prompt: {editingPrompt?.name || '(unnamed)'}</DialogTitle>
                         <DialogDescription>
                             Variables detected. Click to insert:
                         </DialogDescription>

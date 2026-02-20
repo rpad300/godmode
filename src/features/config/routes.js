@@ -99,13 +99,28 @@ async function handleConfig(ctx) {
                 config.llm.perTask = { ...config.llm.perTask, ...body.llm.perTask };
                 log.debug({ event: 'config_saved_per_task', perTask: config.llm.perTask }, 'Saved perTask');
             }
-            // Update provider-specific configs (API keys, base URLs, etc.)
+            // Update provider-specific configs (non-secret fields saved to config.json, API keys go to Supabase only)
             if (body.llm.providers) {
                 for (const [pid, providerConfig] of Object.entries(body.llm.providers)) {
                     if (config.llm.providers[pid]) {
-                        // Only update apiKey if a new one is provided (non-empty)
+                        // API keys go ONLY to Supabase secrets (encrypted) — never to config.json
                         if (providerConfig.apiKey !== undefined && providerConfig.apiKey !== '') {
-                            config.llm.providers[pid].apiKey = providerConfig.apiKey;
+                            try {
+                                const secrets = require('../../supabase/secrets');
+                                const userId = req.user?.id || null;
+                                await secrets.setProviderApiKey(pid, providerConfig.apiKey, 'system', null, userId);
+                                log.info({ event: 'config_apikey_supabase', provider: pid }, 'API key saved to Supabase secrets (encrypted)');
+                                // Invalidate BYOK cache so the queue picks up the new key immediately
+                                try {
+                                    const { getQueueManager } = require('../../llm/queue');
+                                    const queue = getQueueManager();
+                                    if (queue) queue.invalidateByokCache(null);
+                                } catch (_) { /* queue not initialized yet */ }
+                            } catch (secretsErr) {
+                                log.error({ event: 'config_apikey_supabase_fail', provider: pid, error: secretsErr.message }, 'FAILED to save API key to Supabase — key NOT persisted anywhere');
+                                jsonResponse(res, { error: `Failed to save ${pid} API key: Supabase unavailable` }, 503);
+                                return true;
+                            }
                         }
                         // Update other fields
                         if (providerConfig.baseUrl !== undefined) {
