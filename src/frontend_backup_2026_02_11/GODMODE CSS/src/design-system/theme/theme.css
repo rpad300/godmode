@@ -1,0 +1,205 @@
+/**
+ * Theme System
+ * Light and dark mode theming using semantic color tokens
+ * Import all token files and apply theme-specific mappings
+ */
+
+@import './tokens/colors.css';
+@import './tokens/typography.css';
+@import './tokens/spacing.css';
+@import './tokens/radius.css';
+@import './tokens/shadows.css';
+@import './tokens/motion.css';
+
+/* Light Theme (default) */
+:root,
+[data-theme="light"] {
+  /* Backgrounds */
+  --bg-primary: var(--color-neutral-0);
+  --bg-secondary: var(--color-neutral-50);
+  --bg-tertiary: var(--color-neutral-100);
+  --bg-elevated: var(--color-neutral-0);
+  --bg-overlay: rgba(0, 0, 0, 0.5);
+  --bg-glass: rgba(255, 255, 255, 0.7);
+  
+  /* Surfaces */
+  --surface-primary: var(--color-neutral-0);
+  --surface-secondary: var(--color-neutral-50);
+  --surface-hover: var(--color-neutral-100);
+  --surface-active: var(--color-neutral-200);
+  
+  /* Borders */
+  --border-primary: var(--color-neutral-200);
+  --border-secondary: var(--color-neutral-300);
+  --border-focus: var(--color-brand-500);
+  
+  /* Text */
+  --text-primary: var(--color-neutral-900);
+  --text-secondary: var(--color-neutral-700);
+  --text-tertiary: var(--color-neutral-500);
+  --text-placeholder: var(--color-neutral-400);
+  --text-disabled: var(--color-neutral-400);
+  --text-on-brand: var(--color-neutral-0);
+  
+  /* Interactive */
+  --interactive-primary: var(--color-brand-600);
+  --interactive-primary-hover: var(--color-brand-700);
+  --interactive-primary-active: var(--color-brand-800);
+  --interactive-secondary: var(--color-neutral-100);
+  --interactive-secondary-hover: var(--color-neutral-200);
+  
+  /* Status */
+  --status-success: var(--color-success-500);
+  --status-success-bg: var(--color-success-50);
+  --status-warning: var(--color-warning-500);
+  --status-warning-bg: var(--color-warning-50);
+  --status-danger: var(--color-danger-500);
+  --status-danger-bg: var(--color-danger-50);
+  --status-info: var(--color-info-500);
+  --status-info-bg: var(--color-info-50);
+  
+  /* Focus Ring */
+  --color-focus-ring: rgba(59, 130, 246, 0.3);
+  
+  /* Accent (Neon) */
+  --accent-primary: var(--color-brand-500);
+  --accent-glow: 0 0 20px rgba(59, 130, 246, 0.4);
+  
+  /* Sidebar */
+  --sidebar-bg: var(--surface-primary);
+  --sidebar-border: var(--border-primary);
+  
+  /* Header */
+  --header-bg: var(--surface-primary);
+  --header-border: var(--border-primary);
+}
+
+/* Dark Theme */
+[data-theme="dark"] {
+  /* Backgrounds */
+  --bg-primary: var(--color-neutral-950);
+  --bg-secondary: var(--color-neutral-900);
+  --bg-tertiary: var(--color-neutral-800);
+  --bg-elevated: var(--color-neutral-900);
+  --bg-overlay: rgba(0, 0, 0, 0.7);
+  --bg-glass: rgba(15, 23, 42, 0.7);
+  
+  /* Surfaces */
+  --surface-primary: var(--color-neutral-900);
+  --surface-secondary: var(--color-neutral-800);
+  --surface-hover: var(--color-neutral-700);
+  --surface-active: var(--color-neutral-600);
+  
+  /* Borders */
+  --border-primary: var(--color-neutral-800);
+  --border-secondary: var(--color-neutral-700);
+  --border-focus: var(--color-brand-400);
+  
+  /* Text */
+  --text-primary: var(--color-neutral-50);
+  --text-secondary: var(--color-neutral-300);
+  --text-tertiary: var(--color-neutral-500);
+  --text-placeholder: var(--color-neutral-600);
+  --text-disabled: var(--color-neutral-600);
+  --text-on-brand: var(--color-neutral-0);
+  
+  /* Interactive */
+  --interactive-primary: var(--color-brand-500);
+  --interactive-primary-hover: var(--color-brand-400);
+  --interactive-primary-active: var(--color-brand-300);
+  --interactive-secondary: var(--color-neutral-800);
+  --interactive-secondary-hover: var(--color-neutral-700);
+  
+  /* Status */
+  --status-success: var(--color-success-500);
+  --status-success-bg: rgba(34, 197, 94, 0.15);
+  --status-warning: var(--color-warning-500);
+  --status-warning-bg: rgba(245, 158, 11, 0.15);
+  --status-danger: var(--color-danger-500);
+  --status-danger-bg: rgba(239, 68, 68, 0.15);
+  --status-info: var(--color-info-500);
+  --status-info-bg: rgba(59, 130, 246, 0.15);
+  
+  /* Focus Ring */
+  --color-focus-ring: rgba(96, 165, 250, 0.4);
+  
+  /* Accent (Neon) */
+  --accent-primary: var(--color-brand-400);
+  --accent-glow: 0 0 20px rgba(96, 165, 250, 0.5);
+  
+  /* Sidebar */
+  --sidebar-bg: var(--surface-primary);
+  --sidebar-border: var(--border-primary);
+  
+  /* Header */
+  --header-bg: var(--surface-primary);
+  --header-border: var(--border-primary);
+  
+  /* Enhanced shadows for dark mode */
+  --shadow-glass: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+}
+
+/* Base styles */
+* {
+  box-sizing: border-box;
+}
+
+html {
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: var(--leading-normal);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  transition: background-color var(--duration-200) var(--ease-in-out),
+              color var(--duration-200) var(--ease-in-out);
+}
+
+/* Focus visible styles */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+  border-radius: var(--radius-sm);
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-secondary);
+  border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+}
+
+/* Selection */
+::selection {
+  background: var(--interactive-primary);
+  color: var(--text-on-brand);
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
