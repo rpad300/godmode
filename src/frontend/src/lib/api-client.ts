@@ -284,6 +284,82 @@ export const apiClient = {
             })
         });
     },
+    getOntologyJobs: async (): Promise<{ ok: boolean; jobs: any[] }> => {
+        return request<{ ok: boolean; jobs: any[] }>("/api/ontology/jobs");
+    },
+    toggleOntologyJob: async (id: string): Promise<{ ok: boolean }> => {
+        return request<{ ok: boolean }>(`/api/ontology/jobs/${id}/toggle`, { method: "POST" });
+    },
+    extractOntologyFromGraph: async (): Promise<{ ok: boolean; extracted: any }> => {
+        return request<{ ok: boolean; extracted: any }>("/api/ontology/extract-from-graph");
+    },
+    mergeOntology: async (data: { source: any; strategy?: string }): Promise<{ ok: boolean; result: any }> => {
+        return request<{ ok: boolean; result: any }>("/api/ontology/merge", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(data)
+        });
+    },
+    getOntologyWorkerLog: async (): Promise<{ ok: boolean; log: any[] }> => {
+        return request<{ ok: boolean; log: any[] }>("/api/ontology/worker/log");
+    },
+    getInferenceRules: async (): Promise<{ ok: boolean; rules: any[]; cyphers: any[] }> => {
+        return request<{ ok: boolean; rules: any[]; cyphers: any[] }>("/api/ontology/inference/rules");
+    },
+    getInferenceStats: async (): Promise<{ ok: boolean; stats: any; availableRules: any[] }> => {
+        return request<{ ok: boolean; stats: any; availableRules: any[] }>("/api/ontology/inference/stats");
+    },
+    runInferenceRule: async (ruleName?: string): Promise<{ ok: boolean }> => {
+        return request<{ ok: boolean }>("/api/ontology/inference/run", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ruleName })
+        });
+    },
+    getEmbeddingsDashboard: async (): Promise<{ ok: boolean; summary: any; coverageByType: any }> => {
+        return request<{ ok: boolean; summary: any; coverageByType: any }>("/api/ontology/embeddings/dashboard");
+    },
+    regenerateEmbeddings: async (entityType?: string): Promise<{ ok: boolean }> => {
+        return request<{ ok: boolean }>("/api/ontology/embeddings/regenerate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ entityType })
+        });
+    },
+    getSharedOntology: async (): Promise<{ ok: boolean; sharedEntities: any[]; crossGraphRelations: any[]; crossProjectPatterns: any[] }> => {
+        return request<{ ok: boolean; sharedEntities: any[]; crossGraphRelations: any[]; crossProjectPatterns: any[] }>("/api/ontology/shared");
+    },
+    toggleEntityShared: async (name: string, shared: boolean): Promise<{ ok: boolean }> => {
+        return request<{ ok: boolean }>(`/api/ontology/entity-type/${encodeURIComponent(name)}/share`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ shared })
+        });
+    },
+    getOntologyVersions: async (): Promise<{ ok: boolean; currentVersion: string; history: any[]; totalChanges: number }> => {
+        return request<{ ok: boolean; currentVersion: string; history: any[]; totalChanges: number }>("/api/ontology/versions");
+    },
+    validateEntity: async (type: string, entity: Record<string, unknown>): Promise<{ ok: boolean; valid: boolean; errors?: string[] }> => {
+        return request<{ ok: boolean; valid: boolean; errors?: string[] }>("/api/ontology/validate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type, entity })
+        });
+    },
+    extractFromText: async (text: string, existingEntities?: string[]): Promise<{ ok: boolean; entities?: any[]; relationships?: any[] }> => {
+        return request<{ ok: boolean; entities?: any[]; relationships?: any[] }>("/api/ontology/extract", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text, existingEntities })
+        });
+    },
+    enrichEntity: async (type: string, entity: Record<string, unknown>, context?: Record<string, unknown>): Promise<{ ok: boolean; enrichedText?: string }> => {
+        return request<{ ok: boolean; enrichedText?: string }>("/api/ontology/enrich", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type, entity, context })
+        });
+    },
 
     // System Stats
     getSystemStats: async (): Promise<any> => {

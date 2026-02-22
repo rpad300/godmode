@@ -54,9 +54,10 @@ const { parseBody, parseUrl } = require('../../server/request');
 const { getLogger } = require('../../server/requestContext');
 const { logError } = require('../../logger');
 const { jsonResponse } = require('../../server/response');
+const llmRouter = require('../../llm/router');
 
 async function handleConversations(ctx) {
-    const { req, res, pathname, storage, config, llm } = ctx;
+    const { req, res, pathname, storage, config } = ctx;
     const log = getLogger().child({ module: 'conversations' });
     const llmConfig = require('../../llm/config');
 
@@ -136,11 +137,6 @@ async function handleConversations(ctx) {
             // AI Processing: Generate title and summary if not skipped
             if (!skipAI && parseResult.messages.length > 0) {
                 try {
-                    const textCfg = llmConfig.getTextConfig(config);
-                    const llmProvider = textCfg.provider;
-                    const providerConfig = textCfg.providerConfig;
-                    const model = textCfg.model;
-
                     const maxMessages = Math.min(30, parseResult.messages.length);
                     const excerpt = parseResult.messages.slice(0, maxMessages).map(m => {
                         const speaker = m.speaker || 'Unknown';
@@ -168,19 +164,16 @@ SUMMARY: <summary here>`;
 
                     log.debug({ event: 'conversations_ai_title_start' }, 'Generating AI title and summary');
 
-                    const aiResult = await llm.generateText({
-                        provider: llmProvider,
-                        providerConfig,
-                        model,
+                    const aiRouterResult = await llmRouter.routeAndExecute('processing', 'generateText', {
                         prompt: aiPrompt,
                         temperature: 0.3,
-                        context: 'conversation',
+                        context: 'conversation-title',
                         maxTokens: 300
-                    });
+                    }, config);
 
-                    if (aiResult.success && aiResult.text) {
-                        const titleMatch = aiResult.text.match(/TITLE:\s*(.+?)(?:\n|SUMMARY:|$)/i);
-                        const summaryMatch = aiResult.text.match(/SUMMARY:\s*(.+?)$/is);
+                    if (aiRouterResult.success && aiRouterResult.result?.text) {
+                        const titleMatch = aiRouterResult.result.text.match(/TITLE:\s*(.+?)(?:\n|SUMMARY:|$)/i);
+                        const summaryMatch = aiRouterResult.result.text.match(/SUMMARY:\s*(.+?)$/is);
 
                         if (titleMatch && !meta?.title) {
                             conversation.title = titleMatch[1].trim().replace(/^["']|["']$/g, '').substring(0, 100);
@@ -189,7 +182,7 @@ SUMMARY: <summary here>`;
                             conversation.summary = summaryMatch[1].trim().substring(0, 500);
                         }
 
-                        log.debug({ event: 'conversations_ai_generated', title: conversation.title, summaryPreview: conversation.summary?.substring(0, 50) }, 'AI generated title/summary');
+                        log.debug({ event: 'conversations_ai_generated', title: conversation.title }, 'AI generated title/summary');
                     }
                 } catch (aiError) {
                     log.warn({ event: 'conversations_ai_failed', reason: aiError.message }, 'AI processing failed');
@@ -308,7 +301,7 @@ SUMMARY: <summary here>`;
 
                     for (const action of aiResult.actionItems || []) {
                         if (action.task && action.task.length > 5) {
-                            storage.addActionItem({
+                            await storage.addActionItem({
                                 task: action.task,
                                 owner: action.owner || action.assignee || null,
                                 deadline: action.deadline || null,
@@ -340,7 +333,8 @@ SUMMARY: <summary here>`;
                             const { getGraphSync } = require('../../sync');
                             const graphSync = getGraphSync({ graphProvider, storage });
 
-                            const recentQuestions = storage.getQuestions().slice(-questionsAdded);
+                            const allQs = await storage.getQuestions();
+                            const recentQuestions = (allQs || []).slice(-questionsAdded);
                             for (const q of recentQuestions) {
                                 await graphSync.syncQuestion(q);
                             }
@@ -352,7 +346,7 @@ SUMMARY: <summary here>`;
 
                     // Auto-detect answers in conversation
                     try {
-                        const pendingQuestions = storage.getQuestions({ status: 'pending' });
+                        const pendingQuestions = await storage.getQuestions('pending');
                         const conversationContent = conversation.messages?.map(m => m.text).join(' ') || '';
                         let answersFound = 0;
 
@@ -378,19 +372,15 @@ CONFIDENCE: high|medium|low
 If not answered, respond:
 ANSWERED: no`;
 
-                                const checkTextCfg = llmConfig.getTextConfig(config);
-                                const checkResult = await llm.generateText({
-                                    provider: checkTextCfg.provider,
-                                    providerConfig: checkTextCfg.providerConfig,
-                                    model: checkTextCfg.model,
+                                const checkRouterResult = await llmRouter.routeAndExecute('processing', 'generateText', {
                                     prompt: checkPrompt,
                                     maxTokens: 400,
                                     temperature: 0.2,
-                                    context: 'question',
-                                });
+                                    context: 'conversation-answer-check',
+                                }, config);
 
-                                if (checkResult.success) {
-                                    const checkResponse = checkResult.text || '';
+                                if (checkRouterResult.success) {
+                                    const checkResponse = checkRouterResult.result?.text || '';
                                     const isAnswered = checkResponse.match(/ANSWERED:\s*yes/i);
                                     const answerMatch = checkResponse.match(/ANSWER:\s*(.+?)(?=CONFIDENCE:|$)/is);
                                     const confidenceMatch = checkResponse.match(/CONFIDENCE:\s*(high|medium|low)/i);
@@ -578,24 +568,18 @@ ANSWERED: no`;
                 return true;
             }
 
-            const docEmbedCfg = llmConfig.getEmbeddingsConfig(config);
-            const embedProvider = docEmbedCfg.provider;
-            const embedProviderConfig = docEmbedCfg.providerConfig;
-            const embedModel = docEmbedCfg.model;
-
             const texts = chunks.map(c => c.text);
-            const embedResult = await llm.embed({
-                provider: embedProvider,
-                providerConfig: embedProviderConfig,
-                model: embedModel,
-                texts
-            });
+            const embedRouterResult = await llmRouter.routeAndExecute('embeddings', 'embed', {
+                texts,
+                context: 'conversation-reembed'
+            }, config);
 
-            if (!embedResult.success) {
-                jsonResponse(res, { ok: false, error: embedResult.error || 'Embedding failed' }, 500);
+            if (!embedRouterResult.success) {
+                jsonResponse(res, { ok: false, error: embedRouterResult.error || 'Embedding failed' }, 500);
                 return true;
             }
 
+            const embedResult = embedRouterResult.result;
             const existingEmbeddings = storage.loadEmbeddings();
             const allEmbeddings = existingEmbeddings?.embeddings || [];
 
@@ -633,16 +617,6 @@ ANSWERED: no`;
                 return true;
             }
 
-            const textCfg = llmConfig.getTextConfig(config);
-            const llmProvider = textCfg.provider;
-            const model = textCfg.model;
-            const providerConfig = textCfg.providerConfig;
-
-            if (!llmProvider || !model) {
-                jsonResponse(res, { ok: false, error: 'No LLM configured' }, 400);
-                return true;
-            }
-
             const messages = (conversation.messages || []).slice(0, 40);
             const excerpt = messages.map(m => {
                 const speaker = m.speaker || m.sender || 'Unknown';
@@ -658,17 +632,17 @@ Participants: ${(conversation.participants || []).join(', ')}
 Messages (${conversation.messageCount || messages.length} total):
 ${excerpt}`;
 
-            const result = await llm.generateText({
-                provider: llmProvider, providerConfig, model, prompt,
-                temperature: 0.3, maxTokens: 400, context: 'conversation_summarize',
-            });
+            const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
+                prompt,
+                temperature: 0.3, maxTokens: 400, context: 'conversation-summarize',
+            }, config);
 
-            if (result.success) {
-                const summary = (result.text || '').trim();
+            if (routerResult.success) {
+                const summary = (routerResult.result?.text || '').trim();
                 storage.updateConversation(convId, { summary });
                 jsonResponse(res, { ok: true, summary });
             } else {
-                jsonResponse(res, { ok: false, error: 'Failed to summarize' }, 500);
+                jsonResponse(res, { ok: false, error: routerResult.error || 'Failed to summarize' }, 500);
             }
         } catch (error) {
             jsonResponse(res, { ok: false, error: error.message }, 500);

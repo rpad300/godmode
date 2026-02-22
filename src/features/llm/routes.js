@@ -546,18 +546,23 @@ async function handleLlm(ctx) {
         return true;
     }
 
-    // GET /api/llm/capabilities - Get capabilities for a specific provider
+    // GET /api/llm/capabilities - Get capabilities for a specific provider or all
     if (pathname === '/api/llm/capabilities' && req.method === 'GET') {
         const queryParams = new URLSearchParams(parseUrl(req.url).search);
         const providerId = queryParams.get('provider');
-        
-        if (!providerId) {
-            jsonResponse(res, { error: 'Provider parameter is required' }, 400);
+
+        if (providerId) {
+            const capabilities = llm.getProviderCapabilities(providerId);
+            jsonResponse(res, { provider: providerId, capabilities });
             return true;
         }
 
-        const capabilities = llm.getProviderCapabilities(providerId);
-        jsonResponse(res, { provider: providerId, capabilities });
+        const allCapabilities = {};
+        const providerIds = Object.keys(llm.PROVIDERS);
+        for (const pid of providerIds) {
+            allCapabilities[pid] = llm.getProviderCapabilities(pid);
+        }
+        jsonResponse(res, allCapabilities);
         return true;
     }
 

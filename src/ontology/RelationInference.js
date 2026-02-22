@@ -39,7 +39,7 @@
 
 const { logger } = require('../logger');
 const { getOntologyManager } = require('./OntologyManager');
-const llm = require('../llm');
+const llmRouter = require('../llm/router');
 
 const log = logger.child({ module: 'relation-inference' });
 
@@ -67,6 +67,7 @@ class RelationInference {
         this.ontology = options.ontology || getOntologyManager();
         this.llmProvider = options.llmProvider; // Legacy - kept for compatibility
         this.llmConfig = options.llmConfig || {};
+        this._resolvedConfig = options.appConfig || options.config || { llm: this.llmConfig };
         this.minConfidence = options.minConfidence || 0.5;
         this.enableLLMExtraction = options.enableLLMExtraction !== false;
     }
@@ -230,35 +231,22 @@ Respond with this JSON structure:
 }`;
 
         try {
-            // Use LLM module to go through the global queue
-            // Provider and model should come from admin config
-            const provider = this.llmConfig.perTask?.text?.provider || this.llmConfig.provider;
-            const providerConfig = this.llmConfig.providers?.[provider] || {};
-            const model = this.llmConfig.perTask?.text?.model || this.llmConfig.models?.text || this.llmConfig.model;
-            
-            if (!provider || !model) {
-                log.warn({ event: 'relation_inference_no_llm' }, 'No LLM provider/model configured');
-                return { entities: [], relationships: [] };
-            }
-            
-            const response = await llm.generateText({
-                provider,
-                providerConfig,
-                model,
+            const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
                 system: systemPrompt,
                 prompt: userPrompt,
                 temperature: 0.1,
                 jsonMode: true,
                 context: 'relation_inference',
-                priority: 'low' // Background extraction
-            });
+                priority: 'low'
+            }, this._resolvedConfig);
 
-            if (!response.success) {
-                log.error({ event: 'relation_inference_llm_call_failed', reason: response.error }, 'LLM call failed');
+            if (!routerResult.success) {
+                log.error({ event: 'relation_inference_llm_call_failed', reason: routerResult.error?.message || routerResult.error }, 'LLM call failed');
                 return { entities: [], relationships: [] };
             }
 
-            const result = JSON.parse(response.text || '{}');
+            const rText = routerResult.result?.text || routerResult.result?.response || '{}';
+            const result = JSON.parse(rText);
             
             // Add source marker
             const entities = (result.entities || []).map(e => ({ ...e, source: 'llm' }));
@@ -622,6 +610,8 @@ let instance = null;
 function getRelationInference(options = {}) {
     if (!instance) {
         instance = new RelationInference(options);
+    } else if (options.appConfig || options.config) {
+        instance._resolvedConfig = options.appConfig || options.config || instance._resolvedConfig;
     }
     return instance;
 }

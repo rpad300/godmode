@@ -1,46 +1,29 @@
-/**
- * Purpose:
- *   Modal dialog for importing email content into the system via three
- *   input methods: paste text, upload .eml/.msg file, or manual entry.
- *
- * Responsibilities:
- *   - Tab-based UI with paste, upload, and manual entry modes
- *   - Paste tab: freeform textarea for pasted email content with headers
- *   - Upload tab: drag-and-drop / click-to-browse file input (.eml, .msg)
- *   - Manual tab: structured fields for from, to, cc, subject, body, date
- *   - SprintTaskAssociation selector for linking the email to a sprint/task
- *   - Resets all form state on close or submission
- *
- * Key dependencies:
- *   - Dialog (shadcn/ui): modal container
- *   - SprintTaskAssociation: sprint/task selector sub-component
- *
- * Side effects:
- *   - None (delegates import action to parent via onImport callback)
- *
- * Notes:
- *   - The onImport payload includes the raw tab value so the parent
- *     can decide how to parse based on input method.
- */
 import { useState } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Mail } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Mail, Loader2 } from 'lucide-react';
 import SprintTaskAssociation from './SprintTaskAssociation';
 
 interface Props {
   open: boolean;
   onClose: () => void;
-  onImport: (data: any) => void;
+  onImport: (data: {
+    tab: string;
+    content: string;
+    manual: { from: string; date: string; to: string; cc: string; subject: string; body: string };
+    sprintId: string;
+    taskId: string;
+    file?: File | null;
+  }) => void;
+  loading?: boolean;
 }
 
-const AddEmailModal = ({ open, onClose, onImport }: Props) => {
+const AddEmailModal = ({ open, onClose, onImport, loading }: Props) => {
   const [tab, setTab] = useState<'paste' | 'upload' | 'manual'>('paste');
   const [content, setContent] = useState('');
   const [sprintId, setSprintId] = useState('none');
   const [taskId, setTaskId] = useState('none');
   const [fileName, setFileName] = useState('');
   const [manual, setManual] = useState({ from: '', date: '', to: '', cc: '', subject: '', body: '' });
-
   const [file, setFile] = useState<File | null>(null);
 
   const reset = () => {
@@ -48,10 +31,15 @@ const AddEmailModal = ({ open, onClose, onImport }: Props) => {
     setManual({ from: '', date: '', to: '', cc: '', subject: '', body: '' });
     setFile(null);
   };
-
   const handleClose = () => { reset(); onClose(); };
 
+  const canSubmit =
+    (tab === 'paste' && content.trim().length > 0) ||
+    (tab === 'upload' && !!file) ||
+    (tab === 'manual' && manual.from.trim().length > 0 && manual.to.trim().length > 0 && manual.body.trim().length > 0);
+
   const handleSubmit = () => {
+    if (!canSubmit) return;
     onImport({ tab, content, manual, sprintId, taskId, file });
     reset();
     onClose();
@@ -68,6 +56,9 @@ const AddEmailModal = ({ open, onClose, onImport }: Props) => {
       <DialogContent className="max-w-md p-0 gap-0 max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader className="p-5 pb-0 shrink-0">
           <DialogTitle className="text-lg text-white">Add Email</DialogTitle>
+          <DialogDescription className="text-sm text-gray-400">
+            Import an email by pasting, uploading, or entering details manually.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="flex gap-4 px-5 pt-3 border-b border-white/10 shrink-0">
@@ -98,7 +89,7 @@ const AddEmailModal = ({ open, onClose, onImport }: Props) => {
               <Mail className="w-10 h-10 mx-auto mb-3 text-gray-500" />
               <label className="cursor-pointer">
                 <p className="text-sm font-medium text-blue-400">Drop email file here</p>
-                <p className="text-xs text-gray-400 mt-1">or click to browse • .eml, .msg</p>
+                <p className="text-xs text-gray-400 mt-1">or click to browse &bull; .eml, .msg</p>
                 <input type="file" className="hidden" accept=".eml,.msg" onChange={(e) => {
                   if (e.target.files?.[0]) {
                     setFileName(e.target.files[0].name);
@@ -147,8 +138,13 @@ const AddEmailModal = ({ open, onClose, onImport }: Props) => {
             <button onClick={handleClose} className="flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors text-gray-300 hover:text-white" style={{ backgroundColor: 'var(--gm-surface-secondary, #252540)' }}>
               Cancel
             </button>
-            <button onClick={handleSubmit} className="flex-1 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors">
-              Add Email
+            <button
+              onClick={handleSubmit}
+              disabled={!canSubmit || loading}
+              className="flex-1 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+              {loading ? 'Adding...' : 'Add Email'}
             </button>
           </div>
         </div>

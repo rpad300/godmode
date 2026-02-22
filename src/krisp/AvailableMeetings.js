@@ -661,59 +661,53 @@ async function generateMeetingSummary(meetingId, appConfig = null) {
 
     // Use centralized LLM when appConfig is provided and has a text provider/model
     if (appConfig) {
-        const llmConfig = require('../llm/config');
-        const llm = require('../llm');
-        const { provider, providerConfig, model } = llmConfig.getTextConfig(appConfig);
-        if (provider && model) {
-            try {
-                const systemPrompt = `You are a helpful assistant that summarizes meeting information. Provide a concise summary in JSON format with:
+        const llmRouter = require('../llm/router');
+        try {
+            const systemPrompt = `You are a helpful assistant that summarizes meeting information. Provide a concise summary in JSON format with:
 - key_points (array of strings): Main discussion points
 - action_items (array of strings): Tasks or follow-ups mentioned
 - excerpt (string): A 2-3 sentence summary
 - mentioned_people (array of strings): Names of people mentioned in the discussion who may be relevant stakeholders, even if not present in the meeting
 
 Respond ONLY with valid JSON.`;
-                const result = await llm.generateText({
-                    provider,
-                    model,
-                    providerConfig: providerConfig || {},
-                    system: systemPrompt,
-                    prompt: `Summarize this meeting:\n\n${context.join('\n\n')}`,
-                    temperature: 0.3,
-                    maxTokens: 600,
-                    jsonMode: true,
-                    context: 'krisp_summary'
-                });
+            const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
+                system: systemPrompt,
+                prompt: `Summarize this meeting:\n\n${context.join('\n\n')}`,
+                temperature: 0.3,
+                maxTokens: 600,
+                jsonMode: true,
+                context: 'krisp_summary'
+            }, appConfig);
 
-                if (result.success && result.text) {
-                    try {
-                        const summary = JSON.parse(result.text);
-                        await supabase
-                            .from('krisp_available_meetings')
-                            .update({
-                                key_points: summary.key_points || keyPoints,
-                                action_items: summary.action_items || actionItems,
-                                summary: summary.excerpt || existingSummary,
-                                updated_at: new Date().toISOString()
-                            })
-                            .eq('krisp_meeting_id', meetingId);
+            const rText = routerResult.result?.text || routerResult.result?.response;
+            if (routerResult.success && rText) {
+                try {
+                    const summary = JSON.parse(rText);
+                    await supabase
+                        .from('krisp_available_meetings')
+                        .update({
+                            key_points: summary.key_points || keyPoints,
+                            action_items: summary.action_items || actionItems,
+                            summary: summary.excerpt || existingSummary,
+                            updated_at: new Date().toISOString()
+                        })
+                        .eq('krisp_meeting_id', meetingId);
 
-                        return {
-                            success: true,
-                            summary: {
-                                ...summary,
-                                speakers: speakers,
-                                attendees: attendees,
-                                meeting_date: meeting.meeting_date
-                            }
-                        };
-                    } catch (parseError) {
-                        log.error({ event: 'available_meetings_ai_parse_error', reason: parseError?.message }, 'AI response parse error');
-                    }
+                    return {
+                        success: true,
+                        summary: {
+                            ...summary,
+                            speakers: speakers,
+                            attendees: attendees,
+                            meeting_date: meeting.meeting_date
+                        }
+                    };
+                } catch (parseError) {
+                    log.error({ event: 'available_meetings_ai_parse_error', reason: parseError?.message }, 'AI response parse error');
                 }
-            } catch (aiError) {
-                log.error({ event: 'available_meetings_ai_summary_error', reason: aiError?.message }, 'AI summary error');
             }
+        } catch (aiError) {
+            log.error({ event: 'available_meetings_ai_summary_error', reason: aiError?.message }, 'AI summary error');
         }
     }
 

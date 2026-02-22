@@ -43,8 +43,7 @@
  */
 
 const { logger } = require('../logger');
-const llm = require('../llm');
-const llmConfig = require('../llm/config');
+const llmRouter = require('../llm/router');
 const { getOntologyManager } = require('../ontology');
 
 const log = logger.child({ module: 'content-processor' });
@@ -98,6 +97,7 @@ class AIContentProcessor {
         this.llmModel = options.llmModel || null;
         this.llmConfig = options.llmConfig || {};
         this.config = options.config || null;
+        this._resolvedConfig = this.config || { llm: this.llmConfig };
         this.ontology = options.ontology || getOntologyManager();
         this.storage = options.storage || null; // For contacts context
         
@@ -483,28 +483,19 @@ class AIContentProcessor {
             
             log.debug({ event: 'ai_processor_using_max_tokens', maxTokens, model: this.llmModel }, 'Using maxTokens');
             
-            const textCfg = this.config ? llmConfig.getTextConfig(this.config) : null;
-            const provider = textCfg?.provider ?? this.llmProvider;
-            const model = textCfg?.model ?? this.llmModel;
-            const providerConfig = textCfg?.providerConfig ?? this.llmConfig?.providers?.[provider] ?? {};
-            if (!provider || !model) {
-                log.warn({ event: 'ai_processor_no_llm' }, 'No LLM configured');
-                return this.fallbackTranscriptExtraction(transcript);
-            }
-            const result = await llm.generateText({
-                provider,
-                providerConfig,
-                model,
+            const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
                 prompt,
                 temperature: 0.2,
-                maxTokens
-            });
+                maxTokens,
+                context: 'ai-transcript-extraction'
+            }, this._resolvedConfig);
 
-            if (!result.success) {
-                log.warn({ event: 'ai_processor_llm_failed', error: result.error }, 'LLM call failed');
+            if (!routerResult.success) {
+                log.warn({ event: 'ai_processor_llm_failed', error: routerResult.error?.message || routerResult.error }, 'LLM call failed');
                 return this.fallbackTranscriptExtraction(transcript);
             }
 
+            const result = { success: true, text: routerResult.result?.text || routerResult.result?.response || '' };
             log.debug({ event: 'ai_processor_response_length', length: result.text?.length || 0 }, 'LLM response');
             if (result.text && result.text.length < 500) {
                 log.debug({ event: 'ai_processor_response_short', text: result.text }, 'Full response (short)');
@@ -574,28 +565,19 @@ class AIContentProcessor {
         const prompt = this.buildConversationPrompt(conversationText, conversation);
         
         try {
-            const textCfgConv = this.config ? llmConfig.getTextConfig(this.config) : null;
-            const providerConv = textCfgConv?.provider ?? this.llmProvider;
-            const modelConv = textCfgConv?.model ?? this.llmModel;
-            const providerConfigConv = textCfgConv?.providerConfig ?? this.llmConfig?.providers?.[providerConv] ?? {};
-            if (!providerConv || !modelConv) {
-                log.warn({ event: 'ai_processor_no_llm' }, 'No LLM configured');
-                return this.fallbackConversationExtraction(conversation);
-            }
-            const result = await llm.generateText({
-                provider: providerConv,
-                providerConfig: providerConfigConv,
-                model: modelConv,
+            const routerResultConv = await llmRouter.routeAndExecute('processing', 'generateText', {
                 prompt,
                 temperature: 0.2,
-                maxTokens: 1500
-            });
+                maxTokens: 1500,
+                context: 'ai-conversation-extraction'
+            }, this._resolvedConfig);
 
-            if (!result.success) {
-                log.warn({ event: 'ai_processor_llm_failed', error: result.error }, 'LLM call failed');
+            if (!routerResultConv.success) {
+                log.warn({ event: 'ai_processor_llm_failed', error: routerResultConv.error?.message || routerResultConv.error }, 'LLM call failed');
                 return this.fallbackConversationExtraction(conversation);
             }
 
+            const result = { success: true, text: routerResultConv.result?.text || routerResultConv.result?.response || '' };
             const parsed = this.parseConversationResponse(result.text);
             
             // Generate Cypher queries
@@ -681,25 +663,19 @@ IMPORTANT:
 - Be precise with entity names (use full names when available)`;
 
         try {
-            const textCfg = this.config ? llmConfig.getTextConfig(this.config) : null;
-            const provider = textCfg?.provider ?? this.llmProvider;
-            const model = textCfg?.model ?? this.llmModel;
-            const providerConfig = textCfg?.providerConfig ?? this.llmConfig?.providers?.[provider] ?? {};
-            if (!provider || !model) return { entities: [], relationships: [], insights: [] };
-            const result = await llm.generateText({
-                provider,
-                providerConfig,
-                model,
+            const routerResultChunk = await llmRouter.routeAndExecute('processing', 'generateText', {
                 prompt,
                 temperature: 0.1,
-                maxTokens: 1500
-            });
+                maxTokens: 1500,
+                context: 'ai-chunk-extraction'
+            }, this._resolvedConfig);
 
-            if (!result.success) {
+            if (!routerResultChunk.success) {
                 return { entities: [], relationships: [], insights: [] };
             }
 
-            return this.parseExtractionResponse(result.text);
+            const rText = routerResultChunk.result?.text || routerResultChunk.result?.response || '';
+            return this.parseExtractionResponse(rText);
         } catch (error) {
             log.error({ event: 'ai_processor_chunk_extraction_error', message: error.message }, 'Chunk extraction error');
             return { entities: [], relationships: [], insights: [] };

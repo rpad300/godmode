@@ -31,8 +31,7 @@
  */
 
 const { logger } = require('../logger');
-const llm = require('../llm');
-const llmConfig = require('../llm/config');
+const llmRouter = require('../llm/router');
 
 const log = logger.child({ module: 'context-optimizer' });
 
@@ -49,7 +48,8 @@ class ContextOptimizer {
         this.maxTokens = options.maxTokens || 4000;
         this.llmConfig = options.llmConfig || {};
         this.appConfig = options.appConfig || null;
-        
+        this._resolvedConfig = this.appConfig || { llm: this.llmConfig };
+
         // Approximate tokens per character (for estimation)
         this.tokensPerChar = 0.25;
         
@@ -162,22 +162,16 @@ class ContextOptimizer {
         if (extractive.length <= maxChars) return extractive;
 
         try {
-            const textCfg = this.appConfig ? llmConfig.getTextConfig(this.appConfig) : null;
-            const provider = textCfg?.provider ?? this.llmConfig?.perTask?.text?.provider ?? this.llmConfig?.provider;
-            const model = textCfg?.model ?? this.llmConfig?.perTask?.text?.model ?? this.llmConfig?.models?.text;
-            const providerConfig = textCfg?.providerConfig ?? this.llmConfig?.providers?.[provider] ?? {};
-            if (!provider || !model) return text.substring(0, maxChars - 3) + '...';
-            const result = await llm.generateText({
-                provider,
-                providerConfig,
-                model,
+            const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
                 prompt: `Summarize the following text in under ${Math.floor(maxChars * 0.8)} characters, preserving key facts:\n\n${text.substring(0, 3000)}`,
                 temperature: 0.3,
-                maxTokens: Math.ceil(maxChars * this.tokensPerChar)
-            });
+                maxTokens: Math.ceil(maxChars * this.tokensPerChar),
+                context: 'context-optimizer-compress'
+            }, this._resolvedConfig);
 
-            if (result.success && result.text.length <= maxChars) {
-                return result.text;
+            const rText = routerResult.result?.text || routerResult.result?.response || '';
+            if (routerResult.success && rText.length <= maxChars) {
+                return rText;
             }
         } catch (e) {
             log.warn({ event: 'context_optimizer_compression_failed', reason: e.message }, 'LLM compression failed');

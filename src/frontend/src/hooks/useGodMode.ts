@@ -221,6 +221,11 @@ export interface ChatRAGInfo {
   graphResults: number;
   fusedResults?: number;
   usedHyDE?: boolean;
+  tokenBudget?: {
+    estimated?: number;
+    limit?: number | null;
+    truncated?: boolean;
+  };
 }
 
 export interface ChatResponse {
@@ -235,6 +240,7 @@ export interface ChatResponse {
   model?: string;
   provider?: string;
   sessionId?: string;
+  suggestedFollowups?: string[];
 }
 
 export interface ChatSession {
@@ -422,10 +428,19 @@ export function useUploadFiles() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ files, type }: { files: File[]; type: string }) => {
+    mutationFn: ({ files, type, sprintId, taskId, source }: {
+      files: File[];
+      type: string;
+      sprintId?: string;
+      taskId?: string;
+      source?: string;
+    }) => {
       const formData = new FormData();
       files.forEach((file) => formData.append('files', file));
       formData.append('type', type);
+      if (sprintId && sprintId !== 'none') formData.append('sprintId', sprintId);
+      if (taskId && taskId !== 'none') formData.append('actionId', taskId);
+      if (source) formData.append('source', source);
       return apiClient.upload<{ success: boolean; files: string[] }>('/api/upload', formData);
     },
     onSuccess: () => {
@@ -1372,20 +1387,33 @@ export function useSendChatMessage() {
       message,
       history,
       sessionId,
+      deepReasoning,
+      context,
     }: {
       message: string;
       history?: Array<{ role: string; content: string }>;
       sessionId?: string | null;
+      deepReasoning?: boolean;
+      context?: Record<string, unknown>;
     }) =>
       apiClient.post<ChatResponse>('/api/chat', {
         message,
         history: history ?? [],
         semantic: true,
         sessionId: sessionId ?? undefined,
+        deepReasoning: deepReasoning || undefined,
+        context: context ?? undefined,
       }),
     onError: (error: Error) => {
       console.error('Chat message failed:', error.message);
     },
+  });
+}
+
+export function useChatMessageFeedback() {
+  return useMutation({
+    mutationFn: ({ sessionId, messageId, feedback }: { sessionId: string; messageId: string; feedback: 'up' | 'down' | null }) =>
+      apiClient.post<{ ok: boolean }>(`/api/chat/sessions/${sessionId}/messages/${messageId}/feedback`, { feedback }),
   });
 }
 
@@ -1413,6 +1441,15 @@ export function useUpdateChatSession() {
   return useMutation({
     mutationFn: ({ sessionId, ...data }: { sessionId: string; title?: string; contextContactId?: string | null }) =>
       apiClient.put<{ ok: boolean }>(`/api/chat/sessions/${sessionId}`, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.chatSessions }),
+  });
+}
+
+export function useDeleteChatSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (sessionId: string) =>
+      apiClient.delete<{ ok: boolean }>(`/api/chat/sessions/${sessionId}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.chatSessions }),
   });
 }
@@ -1566,6 +1603,58 @@ export function useDeleteApiKey() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['apiKeys'] });
     },
+  });
+}
+
+// ── Project LLM Provider Keys ────────────────────────────────────────────────
+
+export interface ProjectProviderStatus {
+  id: string;
+  aliases?: string[];
+  name: string;
+  configured: boolean;
+  hasProjectKey: boolean;
+  hasSystemKey: boolean;
+  source: 'project' | 'system' | null;
+  masked: string | null;
+}
+
+export function useProjectProviders(projectId: string | null) {
+  return useQuery({
+    queryKey: ['projectProviders', projectId],
+    queryFn: () => apiClient.get<{ ok: boolean; providers: ProjectProviderStatus[] }>(`/api/projects/${projectId}/providers`),
+    enabled: !!projectId,
+  });
+}
+
+export function useSaveProjectProviderKey() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ projectId, provider, apiKey }: { projectId: string; provider: string; apiKey: string }) =>
+      apiClient.post<{ ok: boolean; provider: string }>(`/api/projects/${projectId}/providers`, { provider, apiKey }),
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['projectProviders', vars.projectId] });
+    },
+  });
+}
+
+export function useDeleteProjectProviderKey() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ projectId, provider }: { projectId: string; provider: string }) =>
+      apiClient.delete<{ ok: boolean }>(`/api/projects/${projectId}/providers/${provider}`),
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['projectProviders', vars.projectId] });
+    },
+  });
+}
+
+export const useSetProjectProviderKey = useSaveProjectProviderKey;
+
+export function useValidateProjectProviderKey() {
+  return useMutation({
+    mutationFn: ({ projectId, provider }: { projectId: string; provider: string }) =>
+      apiClient.post<{ ok: boolean }>(`/api/projects/${projectId}/providers/validate`, { provider }),
   });
 }
 
@@ -1759,6 +1848,13 @@ export function useImportEmail() {
       apiClient.post<{ ok: boolean; email?: Record<string, unknown> }>('/api/emails', data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.emails });
+      queryClient.invalidateQueries({ queryKey: queryKeys.contacts });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+      queryClient.invalidateQueries({ queryKey: queryKeys.facts });
+      queryClient.invalidateQueries({ queryKey: queryKeys.decisions });
+      queryClient.invalidateQueries({ queryKey: queryKeys.questions });
+      queryClient.invalidateQueries({ queryKey: queryKeys.actions });
+      queryClient.invalidateQueries({ queryKey: queryKeys.risks });
     },
   });
 }
@@ -1938,39 +2034,6 @@ export function useSetDefaultProject() {
 export function useImportProject() {
   return useMutation({
     mutationFn: (body: { data: unknown; name?: string }) => apiClient.post<unknown>('/api/projects/import', body),
-  });
-}
-
-export function useProjectProviders(projectId: string) {
-  return useQuery({
-    queryKey: ['projectProviders', projectId],
-    queryFn: () => apiClient.get<{ providers: Array<Record<string, unknown>> }>(`/api/projects/${projectId}/providers`),
-    enabled: !!projectId,
-  });
-}
-
-export function useSetProjectProviderKey() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ projectId, provider, apiKey }: { projectId: string; provider: string; apiKey: string }) =>
-      apiClient.put<unknown>(`/api/projects/${projectId}/providers/${provider}/key`, { apiKey }),
-    onSuccess: (_d, v) => qc.invalidateQueries({ queryKey: ['projectProviders', v.projectId] }),
-  });
-}
-
-export function useDeleteProjectProviderKey() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ projectId, provider }: { projectId: string; provider: string }) =>
-      apiClient.delete<unknown>(`/api/projects/${projectId}/providers/${provider}/key`),
-    onSuccess: (_d, v) => qc.invalidateQueries({ queryKey: ['projectProviders', v.projectId] }),
-  });
-}
-
-export function useValidateProjectProviderKey() {
-  return useMutation({
-    mutationFn: ({ projectId, provider }: { projectId: string; provider: string }) =>
-      apiClient.get<unknown>(`/api/projects/${projectId}/providers/${provider}/validate`),
   });
 }
 

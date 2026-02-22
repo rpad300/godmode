@@ -193,7 +193,7 @@ const ProjectsPage = () => {
   }
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-lg font-bold text-[var(--gm-text-primary)]">Projects</h1>
         <div className="flex items-center gap-2">
@@ -369,7 +369,7 @@ function ProjectDetail({ project, onBack, onUpdate }: { project: Project; onBack
   }, [project.id]);
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="space-y-4">
       <button onClick={onBack} className="flex items-center gap-1.5 text-xs text-[var(--gm-text-tertiary)] hover:text-[var(--gm-text-primary)] transition-colors mb-2">
         <ArrowLeft className="w-3.5 h-3.5" /> Back to Projects
       </button>
@@ -465,15 +465,19 @@ function GeneralTab({ project, onUpdate, onBack }: { project: any; onUpdate: () 
   const [description, setDescription] = useState(project.description);
   const [role, setRole] = useState(project.role || '');
   const [rolePrompt, setRolePrompt] = useState(project.rolePrompt || '');
-  const [company, setCompany] = useState(project.company_id || project.company || '');
+  const [company, setCompany] = useState(project.company_id || project.company?.id || '');
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [roleTemplates, setRoleTemplates] = useState<{ id: string; name: string; display_name?: string }[]>([]);
+  const [companies, setCompanies] = useState<{ id: string; name: string; logo_url?: string }[]>([]);
 
   useEffect(() => {
     apiClient.get<{ roles: any[] }>('/api/role-templates')
       .then(data => setRoleTemplates(data.roles || []))
+      .catch(() => {});
+    apiClient.get<{ companies: { id: string; name: string; logo_url?: string }[] }>('/api/companies')
+      .then(data => { if (data.companies) setCompanies(data.companies); })
       .catch(() => {});
   }, []);
 
@@ -567,12 +571,17 @@ function GeneralTab({ project, onUpdate, onBack }: { project: any; onUpdate: () 
           <label className={LABEL}>
             <FolderOpen className="w-3.5 h-3.5 text-[var(--gm-text-tertiary)]" /> Company
           </label>
-          <Input
-            value={company}
-            onChange={e => setCompany(e.target.value)}
-            placeholder="Company this project belongs to..."
-            className={INPUT}
-          />
+          <Select value={company} onValueChange={setCompany}>
+            <SelectTrigger className="bg-[var(--gm-bg-tertiary)] border-[var(--gm-border-primary)] text-sm">
+              <SelectValue placeholder="Select company..." />
+            </SelectTrigger>
+            <SelectContent>
+              {companies.map(c => (
+                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-[10px] text-[var(--gm-text-tertiary)] mt-1">Templates and branding from this company will be used in reports</p>
         </div>
 
         <div className="flex justify-end pt-2">

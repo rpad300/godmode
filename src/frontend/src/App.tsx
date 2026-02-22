@@ -48,14 +48,13 @@ const CostsPage = lazy(() => import('./pages/CostsPage'));
 const HistoryPage = lazy(() => import('./pages/HistoryPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
-const ProjectsPage = lazy(() => import('./pages/ProjectsPage'));
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
 const SprintsPage = lazy(() => import('./pages/SprintsPage'));
-const CompaniesPage = lazy(() => import('./pages/CompaniesPage'));
 const ReportsPage = lazy(() => import('./pages/ReportsPage'));
 const UserSettingsPage = lazy(() => import('./pages/UserSettingsPage'));
 const OptimizationsPage = lazy(() => import('./pages/OptimizationsPage'));
 const SearchPage = lazy(() => import('./pages/SearchPage'));
+const ProjectsPage = lazy(() => import('./pages/ProjectsPage'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 const LoginPage = lazy(() => import('./pages/LoginPage'));
 
@@ -170,11 +169,10 @@ export default function App() {
                         <Route path="/optimizations" element={<OptimizationsPage />} />
                         <Route path="/search" element={<SearchPage />} />
                       </Route>
+                      <Route path="/projects" element={<ProjectsPage />} />
                       <Route path="/settings" element={<SettingsPage />} />
                       <Route path="/user-settings" element={<UserSettingsPage />} />
-                      <Route path="/projects" element={<ProjectsPage />} />
                       <Route path="/profile" element={<ProfilePage />} />
-                      <Route path="/companies" element={<CompaniesPage />} />
                       <Route element={<AdminGuard />}>
                         <Route path="/admin" element={<AdminPage />} />
                       </Route>

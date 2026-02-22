@@ -26,10 +26,9 @@
  */
 
 const { logger } = require('../logger');
-const llm = require('../llm');
+const llmRouter = require('../llm/router');
 
 const log = logger.child({ module: 'decision-suggest' });
-const llmConfig = require('../llm/config');
 const promptsService = require('../supabase/prompts');
 
 /**
@@ -48,11 +47,6 @@ async function runDecisionSuggest(config, options = {}) {
         return { error: 'Content is required' };
     }
 
-    const llmCfg = llmConfig.getTextConfigForReasoning(config);
-    if (!llmCfg?.provider || !llmCfg?.model) {
-        return { error: 'No AI/LLM configured' };
-    }
-
     const promptRecord = await promptsService.getPrompt('decision_suggest');
     const template = promptRecord?.prompt_template || null;
     const prompt = template
@@ -62,26 +56,23 @@ async function runDecisionSuggest(config, options = {}) {
         })
         : `You are a decision-documentation assistant. Given this decision, suggest: 1) a brief rationale (1-3 sentences), 2) impact level (high/medium/low), 3) short impact_summary (1-2 sentences), 4) one-line summary (max 80 chars). Decision: ${content}\n\nRespond with a single JSON object: {"rationale": "...", "impact": "high|medium|low", "impact_summary": "...", "summary": "..."}`;
 
-    let result;
+    let routerResult;
     try {
-        result = await llm.generateText({
-            provider: llmCfg.provider,
-            providerConfig: llmCfg.providerConfig,
-            model: llmCfg.model,
+        routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
             prompt,
             temperature: 0.3,
             maxTokens: 1024,
             context: 'decision-suggest'
-        });
+        }, config);
     } catch (e) {
         log.warn({ event: 'decision_suggest_llm_error', reason: e.message }, 'LLM error');
         return { error: e.message || 'AI request failed' };
     }
 
-    const raw = (result.text || result.response || '').trim();
-    if (!result.success) {
-        return { error: result.error || 'AI request failed' };
+    if (!routerResult.success) {
+        return { error: routerResult.error?.message || routerResult.error || 'AI request failed' };
     }
+    const raw = (routerResult.result?.text || '').trim();
 
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {

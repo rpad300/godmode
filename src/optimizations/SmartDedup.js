@@ -32,8 +32,7 @@
  */
 
 const { logger } = require('../logger');
-const llm = require('../llm');
-const llmConfig = require('../llm/config');
+const llmRouter = require('../llm/router');
 
 const log = logger.child({ module: 'smart-dedup' });
 
@@ -54,6 +53,7 @@ class SmartDedup {
         this.llmModel = options.llmModel || null;
         this.llmConfig = options.llmConfig || {};
         this.appConfig = options.appConfig || null;
+        this._resolvedConfig = this.appConfig || { llm: this.llmConfig };
         this.storage = options.storage;
         
         // Similarity thresholds
@@ -127,25 +127,16 @@ class SmartDedup {
         const texts = items.map(i => i[textField]);
         
         try {
-            const embedCfg = this.appConfig ? llmConfig.getEmbeddingsConfig(this.appConfig) : null;
-            const provider = embedCfg?.provider || this.llmConfig?.embeddingsProvider;
-            const providerConfig = embedCfg?.providerConfig || this.llmConfig?.providers?.[provider] || {};
-            const model = embedCfg?.model || this.llmConfig?.models?.embeddings;
-            if (!provider || !model) {
-                log.debug({ event: 'smart_dedup_no_embed_config' }, 'No embeddings config, falling back to text similarity');
-                return this.findTextDuplicates(items, textField);
-            }
-            const embedResult = await llm.embed({
-                provider,
-                providerConfig,
-                model,
-                texts
-            });
+            const routerResult = await llmRouter.routeAndExecute('embeddings', 'embed', {
+                texts,
+                context: 'smart-dedup'
+            }, this._resolvedConfig);
 
-            if (!embedResult.success) {
+            if (!routerResult.success || !routerResult.result?.embeddings?.length) {
                 log.debug({ event: 'smart_dedup_embed_fallback' }, 'Embedding failed, falling back to text similarity');
                 return this.findTextDuplicates(items, textField);
             }
+            const embedResult = { success: true, embeddings: routerResult.result.embeddings };
 
             embeddings.push(...embedResult.embeddings);
         } catch (e) {

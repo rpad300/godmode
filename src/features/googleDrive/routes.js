@@ -265,12 +265,6 @@ async function handleGoogleDrive(ctx) {
         return true;
     }
 
-    const sync = require('../../integrations/googleDrive/sync');
-
-    // ... (existing imports)
-
-    // ... (existing code)
-
     // POST /api/google-drive/sync – Manual sync trigger
     if (pathname === '/api/google-drive/sync' && req.method === 'POST') {
         const body = await parseBody(req);

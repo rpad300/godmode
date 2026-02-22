@@ -29,8 +29,7 @@
  *   - Temperature is set low (0.3) for deterministic assignee suggestions.
  */
 
-const llm = require('../llm');
-const llmConfig = require('../llm/config');
+const llmRouter = require('../llm/router');
 const promptsService = require('../supabase/prompts');
 
 /**
@@ -67,11 +66,6 @@ async function runActionSuggest(config, options = {}) {
         return { error: 'Content is required' };
     }
 
-    const llmCfg = llmConfig.getTextConfigForReasoning(config);
-    if (!llmCfg?.provider || !llmCfg?.model) {
-        return { error: 'No AI/LLM configured' };
-    }
-
     const contactsListStr = buildContactsList(contacts);
     const promptRecord = await promptsService.getPrompt('action_suggest_assignee');
     const template = promptRecord?.prompt_template || null;
@@ -90,26 +84,23 @@ ACTION: ${content}
 Respond with JSON: {"suggested_assignees": [{"name": "<exact name from list>", "reason": "...", "score": 0-100}, ...]}
 suggested_assignees: 3-5 items.`;
 
-    let result;
+    let routerResult;
     try {
-        result = await llm.generateText({
-            provider: llmCfg.provider,
-            providerConfig: llmCfg.providerConfig,
-            model: llmCfg.model,
+        routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
             prompt,
             temperature: 0.3,
             maxTokens: 512,
             context: 'action-suggest'
-        });
+        }, config);
     } catch (e) {
         log.warn({ event: 'action_suggest_llm_error', reason: e.message }, 'LLM error');
         return { error: e.message || 'AI request failed' };
     }
 
-    const raw = (result.text || result.response || '').trim();
-    if (!result.success) {
-        return { error: result.error || 'AI request failed' };
+    if (!routerResult.success) {
+        return { error: routerResult.error?.message || routerResult.error || 'AI request failed' };
     }
+    const raw = (routerResult.result?.text || '').trim();
 
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {

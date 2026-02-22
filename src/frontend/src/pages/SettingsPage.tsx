@@ -1,8 +1,8 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   Settings, Sun, Moon, Monitor, Database, Trash2, User, Cpu, Save,
   Loader2, Key, Webhook, Plus, Copy, X, TestTube, Zap, Download, RefreshCw, CheckCircle,
-  Globe, Shield, Eye, BarChart3, Bot, ChevronRight, Check, Languages,
+  Globe, Shield, Eye, BarChart3, Bot, ChevronRight, Check, Languages, AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '../lib/utils';
@@ -13,8 +13,12 @@ import {
   useLLMCapabilities, useLLMRoutingStatus, useUpdateLLMRouting,
   useTestLLMProvider, useOllamaModels, useOllamaTest,
   useOllamaRecommended, useOllamaPull, useModelUnload,
+  useProjectProviders, useSaveProjectProviderKey, useDeleteProjectProviderKey,
 } from '../hooks/useGodMode';
+import type { ProjectProviderStatus } from '../hooks/useGodMode';
+import { useLLMModelsByProvider } from '../hooks/useAdmin';
 import { useUser } from '../hooks/useUser';
+import { useProject } from '../hooks/useProject';
 
 type SettingsTab = 'profile' | 'project' | 'apikeys' | 'webhooks' | 'data';
 
@@ -252,28 +256,29 @@ function ProfileSection() {
 // ── Project Section ──────────────────────────────────────────────────────────
 
 function ProjectSection() {
+  const { currentProject } = useProject();
   const config = useProjectConfig();
   const updateConfig = useUpdateProjectConfig();
   const [projectName, setProjectName] = useState('');
-  const [llmProvider, setLlmProvider] = useState('');
 
   useEffect(() => {
-    if (config.data) {
-      setProjectName(config.data.projectName || '');
-      setLlmProvider(config.data.llm?.provider || '');
+    if (currentProject?.name) {
+      setProjectName(currentProject.name);
+    } else if (config.data?.projectName) {
+      setProjectName(config.data.projectName);
     }
-  }, [config.data]);
+  }, [currentProject, config.data]);
 
   const handleSaveProject = () => {
     updateConfig.mutate(
-      { projectName, llm: { ...config.data?.llm, provider: llmProvider } },
+      { projectName },
       { onSuccess: () => toast.success('Project settings saved') },
     );
   };
 
   return (
     <div className="space-y-5">
-      <SectionHeader title="Project" subtitle="LLM configuration, diagnostics, and local model management" />
+      <SectionHeader title="Project" subtitle="Project name, API keys, AI configuration, and diagnostics" />
 
       <div className={cn(CARD, 'p-5 space-y-5')}>
         <h3 className={SECTION_TITLE}>Project Configuration</h3>
@@ -287,31 +292,6 @@ function ProjectSection() {
               <label className={LABEL}>Project Name</label>
               <input value={projectName} onChange={e => setProjectName(e.target.value)} className={INPUT} placeholder="My Project" />
             </div>
-            <div>
-              <label className={LABEL}>LLM Provider</label>
-              <select value={llmProvider} onChange={e => setLlmProvider(e.target.value)} className={INPUT}>
-                <option value="">Select provider</option>
-                <option value="openai">OpenAI</option>
-                <option value="anthropic">Anthropic</option>
-                <option value="google">Google</option>
-                <option value="ollama">Ollama (local)</option>
-                <option value="groq">Groq</option>
-                <option value="deepseek">DeepSeek</option>
-              </select>
-            </div>
-            {config.data?.llm?.models && (
-              <div>
-                <label className={LABEL}>Configured Models</label>
-                <div className="space-y-1">
-                  {Object.entries(config.data.llm.models).map(([task, model]) => (
-                    <div key={task} className="flex items-center justify-between text-xs bg-[var(--gm-bg-tertiary)] rounded-lg px-3 py-1.5">
-                      <span className="text-[var(--gm-text-tertiary)] capitalize">{task.replace(/_/g, ' ')}</span>
-                      <span className="text-[var(--gm-text-primary)] font-medium">{model as string}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
             <div className="flex justify-end pt-2">
               <button onClick={handleSaveProject} disabled={updateConfig.isPending} className={BTN_PRIMARY}>
                 {updateConfig.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
@@ -328,7 +308,283 @@ function ProjectSection() {
   );
 }
 
+// ── Project LLM Provider Keys + Task Config ──────────────────────────────────
+
+function ProjectTaskModelSelector({ task, taskLabel, currentProvider, currentModel, providerList, onProviderChange, onModelChange }: {
+  task: string;
+  taskLabel: string;
+  currentProvider: string;
+  currentModel: string;
+  providerList: Array<{ id: string; name: string }>;
+  onProviderChange: (provider: string) => void;
+  onModelChange: (model: string) => void;
+}) {
+  const { data: modelsData, isLoading: modelsLoading, isError: modelsError } = useLLMModelsByProvider(currentProvider || null);
+  const [manualMode, setManualMode] = useState(false);
+
+  const modelOptions = useMemo(() => {
+    if (!modelsData) return [];
+    const resp = modelsData as Record<string, unknown>;
+    const text = (resp.textModels ?? []) as Array<{ id: string; name?: string; contextTokens?: number }>;
+    const vision = (resp.visionModels ?? []) as Array<{ id: string; name?: string }>;
+    const embedding = (resp.embeddingModels ?? []) as Array<{ id: string; name?: string }>;
+    if (task === 'vision') return vision;
+    if (task === 'embeddings') return embedding;
+    return text;
+  }, [modelsData, task]);
+
+  const hasModels = modelOptions.length > 0;
+
+  return (
+    <div className="space-y-2">
+      <span className="text-sm font-medium text-[var(--gm-text-primary)] capitalize">{taskLabel}</span>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className={LABEL}>PROVIDER</label>
+          <select
+            value={currentProvider}
+            onChange={e => { onProviderChange(e.target.value); setManualMode(false); }}
+            className={cn(INPUT, 'w-full text-xs')}
+          >
+            <option value="">Select...</option>
+            {providerList.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <span className="text-[10px] text-[var(--gm-accent-primary)] mt-0.5 block">{providerList.length} provider(s) with project keys</span>
+        </div>
+        <div>
+          <label className={LABEL}>MODEL</label>
+          {modelsLoading && currentProvider ? (
+            <div className={cn(INPUT, 'w-full text-xs flex items-center gap-2')}>
+              <Loader2 className="w-3 h-3 animate-spin text-blue-400" />
+              <span className="text-[var(--gm-text-tertiary)]">Loading models...</span>
+            </div>
+          ) : hasModels && !manualMode ? (
+            <>
+              <select
+                value={currentModel}
+                onChange={e => onModelChange(e.target.value)}
+                className={cn(INPUT, 'w-full text-xs')}
+              >
+                <option value="">Select model...</option>
+                {modelOptions.map(m => (
+                  <option key={m.id} value={m.id}>
+                    {m.name || m.id}
+                    {(m as Record<string, unknown>).contextTokens ? ` (${Math.round(Number((m as Record<string, unknown>).contextTokens) / 1000)}K ctx)` : ''}
+                  </option>
+                ))}
+              </select>
+              <button onClick={() => setManualMode(true)} className="text-[10px] text-blue-400 hover:text-blue-300 mt-0.5 block">
+                or type manually
+              </button>
+            </>
+          ) : (
+            <>
+              <input
+                value={currentModel}
+                onChange={e => onModelChange(e.target.value)}
+                className={cn(INPUT, 'w-full text-xs')}
+                placeholder={currentProvider ? 'e.g. gpt-4o' : 'Select a provider first'}
+              />
+              {hasModels && manualMode && (
+                <button onClick={() => setManualMode(false)} className="text-[10px] text-blue-400 hover:text-blue-300 mt-0.5 block">
+                  back to dropdown
+                </button>
+              )}
+              {modelsError && currentProvider && (
+                <span className="text-[10px] text-amber-400 mt-0.5 block">Could not load models — type manually</span>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProjectProvidersSection({ projectId }: { projectId: string }) {
+  const { data, isLoading, isError } = useProjectProviders(projectId);
+  const saveKey = useSaveProjectProviderKey();
+  const deleteKey = useDeleteProjectProviderKey();
+  const updateConfig = useUpdateProjectConfig();
+  const config = useProjectConfig();
+  const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
+  const [keyEdits, setKeyEdits] = useState<Record<string, string>>({});
+  const [taskEdits, setTaskEdits] = useState<Record<string, { provider: string; model: string }>>({});
+
+  const providers: ProjectProviderStatus[] = Array.isArray(data?.providers) ? data.providers : [];
+
+  const llmConfig = config.data?.llm;
+  const perTask = ((llmConfig as Record<string, unknown>)?.perTask ?? { text: {}, vision: {}, embeddings: {} }) as Record<string, Record<string, string>>;
+
+  const configuredProviders = useMemo(() =>
+    providers.filter(p => p.hasProjectKey).map(p => ({ id: p.id, name: p.name })),
+  [providers]);
+
+  const handleSaveKeys = useCallback(() => {
+    const edits = Object.entries(keyEdits).filter(([, v]) => v.trim().length > 0);
+    if (edits.length === 0) { toast.info('No changes to save'); return; }
+    let savedCount = 0;
+    const total = edits.length;
+    for (const [id, key] of edits) {
+      saveKey.mutate({ projectId, provider: id, apiKey: key }, {
+        onSuccess: () => {
+          savedCount++;
+          if (savedCount === total) {
+            toast.success(`${total} API key${total > 1 ? 's' : ''} saved to encrypted vault`);
+            setKeyEdits({});
+          }
+        },
+        onError: (e: Error) => toast.error(`Failed to save ${id}: ${e.message}`),
+      });
+    }
+  }, [keyEdits, saveKey, projectId]);
+
+  const handleDeleteKey = useCallback((providerId: string) => {
+    deleteKey.mutate({ projectId, provider: providerId }, {
+      onSuccess: () => toast.success(`${providerId} project key removed — will use system key`),
+      onError: () => toast.error('Failed to remove key'),
+    });
+  }, [deleteKey, projectId]);
+
+  const handleSaveTaskConfig = useCallback(() => {
+    if (Object.keys(taskEdits).length === 0) { toast.info('No changes to save'); return; }
+    updateConfig.mutate({ llm: { perTask: taskEdits } }, {
+      onSuccess: () => { toast.success('Project AI configuration saved'); setTaskEdits({}); },
+      onError: (e: Error) => toast.error(e.message),
+    });
+  }, [taskEdits, updateConfig]);
+
+  const hasKeyEdits = Object.values(keyEdits).some(v => v.trim().length > 0);
+
+  return (
+    <div className="space-y-5">
+      {/* Info box */}
+      <div className={cn(CARD, 'p-4 border-l-2 border-[var(--gm-accent-primary)]')}>
+        <h4 className="text-xs font-semibold text-[var(--gm-accent-primary)] mb-2">Project BYOK (Bring Your Own Key)</h4>
+        <div className="text-[11px] text-[var(--gm-text-secondary)] space-y-1">
+          <p>Set your own API keys per provider for this project. <strong>Project keys</strong> take priority over system keys — billing goes directly to your provider account.</p>
+          <p>When no project key is set, the <span className="text-blue-400 font-medium">system key</span> is used and your project balance is debited.</p>
+        </div>
+      </div>
+
+      {/* Provider API Keys */}
+      <div className={cn(CARD, 'p-5 space-y-4')}>
+        <div className="flex items-center justify-between">
+          <h3 className={SECTION_TITLE}><Key className="w-3 h-3 inline mr-1" /> Project LLM API Keys</h3>
+          {!isLoading && (
+            <span className="text-[10px] text-[var(--gm-text-tertiary)]">
+              {providers.filter(p => p.hasProjectKey).length}/{providers.length} with project keys
+            </span>
+          )}
+        </div>
+
+        {isLoading ? (
+          <div className="flex items-center gap-2 py-4 text-[var(--gm-text-tertiary)] text-sm">
+            <Loader2 className="w-4 h-4 animate-spin" /> Loading providers...
+          </div>
+        ) : isError ? (
+          <p className="text-xs text-red-400">Failed to load provider status.</p>
+        ) : (
+          <>
+            {providers.map(p => (
+              <div key={p.id} className="space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-[var(--gm-accent-primary)]">{p.name}</span>
+                  {p.hasProjectKey ? (
+                    <span className="text-[10px] text-green-400 flex items-center gap-1"><CheckCircle className="w-3 h-3" /> Project Key</span>
+                  ) : p.hasSystemKey ? (
+                    <span className="text-[10px] text-blue-400 flex items-center gap-1"><CheckCircle className="w-3 h-3" /> System Key</span>
+                  ) : (
+                    <span className="text-[10px] text-amber-400">Not configured</span>
+                  )}
+                  {p.hasProjectKey && (
+                    <button
+                      onClick={() => handleDeleteKey(p.id)}
+                      disabled={deleteKey.isPending}
+                      className="text-[10px] text-red-400 hover:text-red-300 ml-1"
+                      title="Remove project key"
+                    >
+                      <Trash2 className="w-3 h-3 inline" /> Remove
+                    </button>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type={showKeys[p.id] ? 'text' : 'password'}
+                    value={keyEdits[p.id] ?? ''}
+                    onChange={e => setKeyEdits(prev => ({ ...prev, [p.id]: e.target.value }))}
+                    placeholder={p.masked || `Enter ${p.name} API key...`}
+                    className={cn(INPUT, 'flex-1 font-mono text-xs')}
+                  />
+                  <button onClick={() => setShowKeys(prev => ({ ...prev, [p.id]: !prev[p.id] }))} className={BTN_SECONDARY}>
+                    {showKeys[p.id] ? 'Hide' : 'Show'}
+                  </button>
+                </div>
+                {p.masked && p.hasProjectKey && !keyEdits[p.id] && (
+                  <p className="text-[10px] text-[var(--gm-text-tertiary)] font-mono pl-1">Current: {p.masked}</p>
+                )}
+              </div>
+            ))}
+            <button onClick={handleSaveKeys} disabled={saveKey.isPending || !hasKeyEdits} className={BTN_PRIMARY}>
+              {saveKey.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />} Save to Encrypted Vault
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* Task-Specific AI Config (only providers with project keys) */}
+      {configuredProviders.length > 0 && (
+        <div className={cn(CARD, 'p-5 space-y-5')}>
+          <div>
+            <h3 className={SECTION_TITLE}>Task-Specific AI Configuration</h3>
+            <p className="text-xs text-[var(--gm-text-tertiary)] mt-1">
+              Override which provider and model to use for each AI task in this project. Only providers with project keys are available.
+            </p>
+          </div>
+          {Object.entries(perTask).map(([task, cfg]) => {
+            const taskLabel = task.replace(/_/g, ' ').replace(/([A-Z])/g, ' $1');
+            const currentProvider = taskEdits[task]?.provider ?? cfg?.provider ?? '';
+            const currentModel = taskEdits[task]?.model ?? cfg?.model ?? '';
+            return (
+              <ProjectTaskModelSelector
+                key={task}
+                task={task}
+                taskLabel={taskLabel}
+                currentProvider={currentProvider}
+                currentModel={currentModel}
+                providerList={configuredProviders}
+                onProviderChange={(provider) => setTaskEdits(prev => ({ ...prev, [task]: { provider, model: '' } }))}
+                onModelChange={(model) => setTaskEdits(prev => ({ ...prev, [task]: { provider: prev[task]?.provider ?? cfg?.provider ?? '', model } }))}
+              />
+            );
+          })}
+          <div className="flex items-center gap-3">
+            <button onClick={handleSaveTaskConfig} disabled={updateConfig.isPending || Object.keys(taskEdits).length === 0} className={BTN_PRIMARY}>
+              {updateConfig.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />} Save AI Configuration
+            </button>
+            <span className="text-[10px] text-amber-400 flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> Overrides system config for this project</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── LLM Diagnostics ──────────────────────────────────────────────────────────
+
+function formatValue(v: unknown): string {
+  if (v == null) return '—';
+  if (typeof v === 'boolean') return v ? 'Yes' : 'No';
+  if (typeof v === 'string') return v || '—';
+  if (typeof v === 'number') return String(v);
+  if (Array.isArray(v)) return v.length > 0 ? v.join(', ') : '—';
+  if (typeof v === 'object') {
+    const entries = Object.entries(v as Record<string, unknown>);
+    if (entries.length === 0) return '—';
+    return entries.map(([k, val]) => `${k}: ${typeof val === 'object' ? JSON.stringify(val) : String(val ?? '—')}`).join(' · ');
+  }
+  return String(v);
+}
 
 function LLMDiagnosticsSection() {
   const capabilities = useLLMCapabilities();
@@ -339,20 +595,36 @@ function LLMDiagnosticsSection() {
   const caps = (capabilities.data || {}) as Record<string, unknown>;
   const routingData = (routing.data || {}) as Record<string, unknown>;
 
+  const providerNames: Record<string, string> = {
+    ollama: 'Ollama', openai: 'OpenAI', google: 'Google Gemini', gemini: 'Google Gemini',
+    grok: 'Grok / xAI', xai: 'Grok / xAI', deepseek: 'DeepSeek',
+    anthropic: 'Claude / Anthropic', claude: 'Claude', kimi: 'Kimi', minimax: 'MiniMax',
+  };
+
   return (
     <div className={cn(CARD, 'p-5 space-y-4')}>
       <h3 className={SECTION_TITLE}><Zap className="w-3 h-3 inline mr-1" /> LLM Diagnostics</h3>
 
       <div>
-        <label className={LABEL}>Capabilities</label>
+        <label className={LABEL}>Provider Capabilities</label>
         {capabilities.isLoading ? <Loader2 className="w-4 h-4 animate-spin text-[var(--gm-accent-primary)]" /> : Object.keys(caps).length > 0 ? (
-          <div className="grid grid-cols-2 gap-2">
-            {Object.entries(caps).filter(([, v]) => v != null).slice(0, 12).map(([k, v]) => (
-              <div key={k} className="flex items-center justify-between text-xs bg-[var(--gm-bg-tertiary)] rounded-lg px-3 py-1.5">
-                <span className="text-[var(--gm-text-tertiary)] capitalize">{k.replace(/_/g, ' ')}</span>
-                <span className="text-[var(--gm-text-primary)] font-medium">{typeof v === 'boolean' ? (v ? <CheckCircle className="w-3 h-3 text-green-500 inline" /> : '—') : String(v)}</span>
-              </div>
-            ))}
+          <div className="space-y-2">
+            {Object.entries(caps).filter(([, v]) => v != null && typeof v === 'object' && !Array.isArray(v)).map(([providerId, capObj]) => {
+              const capMap = capObj as Record<string, boolean>;
+              return (
+                <div key={providerId} className="bg-[var(--gm-bg-tertiary)] rounded-lg px-3 py-2">
+                  <div className="text-xs font-medium text-[var(--gm-text-primary)] mb-1">{providerNames[providerId] || providerId}</div>
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(capMap).map(([cap, supported]) => (
+                      <span key={cap} className={cn('text-[10px] px-2 py-0.5 rounded-full', supported ? 'bg-green-500/10 text-green-400' : 'bg-white/5 text-[var(--gm-text-tertiary)]')}>
+                        {supported ? <CheckCircle className="w-2.5 h-2.5 inline mr-0.5" /> : null}
+                        {cap.replace(/_/g, ' ')}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         ) : <p className="text-[10px] text-[var(--gm-text-tertiary)]">No capabilities data</p>}
       </div>
@@ -361,10 +633,10 @@ function LLMDiagnosticsSection() {
         <label className={LABEL}>Routing Status</label>
         {routing.isLoading ? <Loader2 className="w-4 h-4 animate-spin text-[var(--gm-accent-primary)]" /> : Object.keys(routingData).length > 0 ? (
           <div className="space-y-1">
-            {Object.entries(routingData).filter(([, v]) => v != null).slice(0, 8).map(([k, v]) => (
-              <div key={k} className="flex items-center justify-between text-xs">
-                <span className="text-[var(--gm-text-tertiary)] capitalize">{k.replace(/_/g, ' ')}</span>
-                <span className="text-[var(--gm-text-primary)] font-medium">{String(v)}</span>
+            {Object.entries(routingData).filter(([, v]) => v != null).slice(0, 10).map(([k, v]) => (
+              <div key={k} className="flex items-center justify-between text-xs bg-[var(--gm-bg-tertiary)] rounded-lg px-3 py-1.5">
+                <span className="text-[var(--gm-text-tertiary)] capitalize">{k.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ')}</span>
+                <span className="text-[var(--gm-text-primary)] font-medium text-right max-w-[60%] truncate">{formatValue(v)}</span>
               </div>
             ))}
           </div>
@@ -374,12 +646,9 @@ function LLMDiagnosticsSection() {
       <div className="flex items-center gap-2">
         <select value={testTarget} onChange={e => setTestTarget(e.target.value)} className={cn(INPUT, 'w-auto')}>
           <option value="">Select provider to test</option>
-          <option value="openai">OpenAI</option>
-          <option value="anthropic">Anthropic</option>
-          <option value="google">Google</option>
-          <option value="ollama">Ollama</option>
-          <option value="groq">Groq</option>
-          <option value="deepseek">DeepSeek</option>
+          {Object.entries(providerNames).filter(([k]) => !['gemini', 'xai', 'claude'].includes(k)).map(([id, name]) => (
+            <option key={id} value={id}>{name}</option>
+          ))}
         </select>
         <button onClick={() => testProvider.mutate(testTarget, { onSuccess: () => toast.success(`${testTarget} connection OK`), onError: () => toast.error(`${testTarget} test failed`) })}
           disabled={testProvider.isPending || !testTarget} className={BTN_SECONDARY}>
@@ -464,112 +733,13 @@ function OllamaSection() {
 // ── API Keys Section ─────────────────────────────────────────────────────────
 
 function ApiKeysSection({ projectId }: { projectId: string }) {
-  const apiKeys = useApiKeys(projectId);
-  const createKey = useCreateApiKey();
-  const deleteKey = useDeleteApiKey();
-  const [showCreate, setShowCreate] = useState(false);
-  const [keyName, setKeyName] = useState('');
-  const [expiresInDays, setExpiresInDays] = useState('90');
-  const [newRawKey, setNewRawKey] = useState<string | null>(null);
-
-  const keys = apiKeys.data?.keys ?? [];
-
-  const handleCreate = () => {
-    if (!keyName.trim()) return;
-    createKey.mutate(
-      { projectId, name: keyName.trim(), expires_in_days: Number(expiresInDays) || undefined },
-      {
-        onSuccess: (data: any) => {
-          setNewRawKey(data.raw_key || null);
-          setKeyName('');
-          setShowCreate(false);
-          toast.success('API key created');
-        },
-        onError: () => toast.error('Failed to create API key'),
-      },
-    );
-  };
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    toast.success('Copied to clipboard');
-  };
+  const { currentProject } = useProject();
+  const resolvedProjectId = currentProject?.id || projectId;
 
   return (
     <div className="space-y-5">
-      <SectionHeader title="API Keys" subtitle="Create and manage API keys for programmatic access" />
-
-      <div className="flex items-center justify-between">
-        <h3 className={SECTION_TITLE}>Your Keys</h3>
-        <button onClick={() => setShowCreate(!showCreate)} className={BTN_PRIMARY}>
-          <Plus className="w-3.5 h-3.5" /> Create Key
-        </button>
-      </div>
-
-      {newRawKey && (
-        <div className={cn(CARD, 'p-4 space-y-2 border-amber-500/30')}>
-          <p className="text-xs font-medium text-amber-500">Copy your new API key now — it won't be shown again.</p>
-          <div className="flex gap-2">
-            <code className="flex-1 bg-[var(--gm-bg-tertiary)] rounded-lg px-3 py-2 text-xs font-mono text-[var(--gm-text-primary)] break-all">{newRawKey}</code>
-            <button onClick={() => copyToClipboard(newRawKey)} className={BTN_SECONDARY}>
-              <Copy className="w-3.5 h-3.5" />
-            </button>
-          </div>
-          <button onClick={() => setNewRawKey(null)} className="text-xs text-[var(--gm-text-tertiary)] hover:text-[var(--gm-text-primary)]">Dismiss</button>
-        </div>
-      )}
-
-      {showCreate && (
-        <div className={cn(CARD, 'p-4 space-y-3')}>
-          <div>
-            <label className={LABEL}>Key Name</label>
-            <input value={keyName} onChange={e => setKeyName(e.target.value)} className={INPUT} placeholder="e.g. Production API" />
-          </div>
-          <div>
-            <label className={LABEL}>Expires In</label>
-            <select value={expiresInDays} onChange={e => setExpiresInDays(e.target.value)} className={INPUT}>
-              <option value="30">30 days</option>
-              <option value="90">90 days</option>
-              <option value="365">1 year</option>
-              <option value="">Never</option>
-            </select>
-          </div>
-          <div className="flex gap-2 justify-end">
-            <button onClick={() => setShowCreate(false)} className={BTN_SECONDARY}>Cancel</button>
-            <button onClick={handleCreate} disabled={createKey.isPending || !keyName.trim()} className={BTN_PRIMARY}>
-              {createKey.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Create
-            </button>
-          </div>
-        </div>
-      )}
-
-      {apiKeys.isLoading ? (
-        <div className="flex items-center justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-[var(--gm-accent-primary)]" /></div>
-      ) : keys.length === 0 ? (
-        <div className={cn(CARD, 'p-6 text-center')}>
-          <Key className="w-8 h-8 mx-auto mb-2 opacity-40 text-[var(--gm-text-tertiary)]" />
-          <p className="text-xs text-[var(--gm-text-tertiary)]">No API keys yet. Create one to access the API programmatically.</p>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {keys.map(key => (
-            <div key={key.id} className={cn(CARD, 'p-4 flex items-center justify-between')}>
-              <div>
-                <p className="text-sm font-medium text-[var(--gm-text-primary)]">{key.name}</p>
-                <div className="flex items-center gap-3 mt-0.5">
-                  {key.key_prefix && <span className="text-[10px] font-mono text-[var(--gm-text-tertiary)]">{key.key_prefix}...</span>}
-                  <span className="text-[10px] text-[var(--gm-text-tertiary)]">Created {key.created_at ? new Date(key.created_at).toLocaleDateString() : '—'}</span>
-                  {key.expires_at && <span className="text-[10px] text-[var(--gm-text-tertiary)]">Expires {new Date(key.expires_at).toLocaleDateString()}</span>}
-                </div>
-              </div>
-              <button onClick={() => deleteKey.mutate(key.id, { onSuccess: () => toast.success('Key revoked') })}
-                className="p-2 text-[var(--gm-text-tertiary)] hover:text-[var(--color-danger-500)] transition-colors">
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
+      <SectionHeader title="API Keys" subtitle="Manage LLM provider API keys and AI configuration for this project" />
+      <ProjectProvidersSection projectId={resolvedProjectId} />
     </div>
   );
 }

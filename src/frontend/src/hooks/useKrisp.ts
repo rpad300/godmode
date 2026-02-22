@@ -374,11 +374,13 @@ export function useSotTrace(type: string, id: string | null) {
 // SPRINT MANAGEMENT (full CRUD + AI generation + reports)
 // ═══════════════════════════════════════════════════════════════════════════════
 
+import type { Sprint, SprintReport, SprintGenerateResult, ProposedTask } from '../types/godmode';
+
 export function useCreateSprint() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { name: string; start_date: string; end_date: string; context?: string; goals?: string[] }) =>
-      apiClient.post<{ ok: boolean; sprint: Record<string, unknown> }>('/api/sprints', data),
+    mutationFn: (data: { name: string; start_date: string; end_date: string; context?: string; goals?: string[]; analysis_start_date?: string; analysis_end_date?: string }) =>
+      apiClient.post<{ sprint: Sprint }>('/api/sprints', data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.sprints });
       qc.invalidateQueries({ queryKey: queryKeys.dashboard });
@@ -389,26 +391,64 @@ export function useCreateSprint() {
 export function useSprint(id: string | null) {
   return useQuery({
     queryKey: ['sprint', id],
-    queryFn: () => apiClient.get<{ ok: boolean; sprint: Record<string, unknown> }>(`/api/sprints/${id}`),
+    queryFn: () => apiClient.get<{ sprint: Sprint }>(`/api/sprints/${id}`),
     enabled: !!id,
+  });
+}
+
+export function useUpdateSprint() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...data }: Partial<Sprint> & { id: string }) =>
+      apiClient.put<{ ok: boolean; sprint: Sprint }>(`/api/sprints/${id}`, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.sprints });
+      qc.invalidateQueries({ queryKey: ['sprint'] });
+      qc.invalidateQueries({ queryKey: queryKeys.dashboard });
+    },
+  });
+}
+
+export function useDeleteSprint() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete(`/api/sprints/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.sprints });
+      qc.invalidateQueries({ queryKey: queryKeys.dashboard });
+    },
+  });
+}
+
+export function useSprintStatusTransition() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sprintId, status }: { sprintId: string; status: 'planning' | 'active' | 'completed' }) =>
+      apiClient.patch<{ ok: boolean; sprint: Sprint }>(`/api/sprints/${sprintId}/status`, { status }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.sprints });
+      qc.invalidateQueries({ queryKey: ['sprint'] });
+      qc.invalidateQueries({ queryKey: queryKeys.dashboard });
+    },
   });
 }
 
 export function useSprintGenerateTasks() {
   return useMutation({
     mutationFn: (sprintId: string) =>
-      apiClient.post<{ ok: boolean; tasks?: Array<Record<string, unknown>> }>(`/api/sprints/${sprintId}/generate`),
+      apiClient.post<SprintGenerateResult>(`/api/sprints/${sprintId}/generate`),
   });
 }
 
 export function useSprintApplyTasks() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ sprintId, tasks, existingActionIds }: { sprintId: string; tasks: Array<Record<string, unknown>>; existingActionIds?: string[] }) =>
-      apiClient.post(`/api/sprints/${sprintId}/apply`, { tasks, existingActionIds }),
+    mutationFn: ({ sprintId, new_tasks, existing_action_ids }: { sprintId: string; new_tasks: ProposedTask[]; existing_action_ids?: string[] }) =>
+      apiClient.post<{ ok: boolean; created: number; linked: number }>(`/api/sprints/${sprintId}/apply`, { new_tasks, existing_action_ids }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.sprints });
       qc.invalidateQueries({ queryKey: queryKeys.actions });
+      qc.invalidateQueries({ queryKey: ['sprintReport'] });
     },
   });
 }
@@ -416,7 +456,7 @@ export function useSprintApplyTasks() {
 export function useSprintReport(sprintId: string | null) {
   return useQuery({
     queryKey: ['sprintReport', sprintId],
-    queryFn: () => apiClient.get<Record<string, unknown>>(`/api/sprints/${sprintId}/report`),
+    queryFn: () => apiClient.get<SprintReport>(`/api/sprints/${sprintId}/report`),
     enabled: !!sprintId,
   });
 }
@@ -424,21 +464,90 @@ export function useSprintReport(sprintId: string | null) {
 export function useSprintReportAnalyze() {
   return useMutation({
     mutationFn: (sprintId: string) =>
-      apiClient.post<{ ok: boolean; analysis: string }>(`/api/sprints/${sprintId}/report/analyze`),
+      apiClient.post<{ analysis: string; ai_analysis: string | null }>(`/api/sprints/${sprintId}/report/analyze`),
+  });
+}
+
+export function useSprintBusinessReport() {
+  return useMutation({
+    mutationFn: (sprintId: string) =>
+      apiClient.post<{ summary: string; business_report: string | null }>(`/api/sprints/${sprintId}/report/business`),
   });
 }
 
 export function useSprintReportDocument() {
   return useMutation({
-    mutationFn: ({ sprintId, style }: { sprintId: string; style?: string }) =>
-      apiClient.post<{ html: string }>(`/api/sprints/${sprintId}/report/document`, { style }),
+    mutationFn: ({ sprintId, style, include_analysis, include_business }: { sprintId: string; style?: string; include_analysis?: boolean; include_business?: boolean }) =>
+      apiClient.post<{ html: string }>(`/api/sprints/${sprintId}/report/document`, { style, include_analysis, include_business }),
   });
 }
 
 export function useSprintReportPresentation() {
   return useMutation({
+    mutationFn: ({ sprintId, include_analysis, include_business }: { sprintId: string; include_analysis?: boolean; include_business?: boolean }) =>
+      apiClient.post<{ html: string }>(`/api/sprints/${sprintId}/report/presentation`, { include_analysis, include_business }),
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SPRINT ADVANCED FEATURES (velocity, health, retro, standup, capacity, etc.)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+import type { SprintVelocity, SprintHealthScore, SprintRetrospective, SprintStandup, SprintCapacity } from '../types/godmode';
+
+export function useSprintVelocity(sprintId: string | null) {
+  return useQuery({
+    queryKey: ['sprintVelocity', sprintId],
+    queryFn: () => apiClient.get<SprintVelocity & { velocity_history: SprintVelocity[] }>(`/api/sprints/${sprintId}/velocity`),
+    enabled: !!sprintId,
+  });
+}
+
+export function useSprintHealth(sprintId: string | null) {
+  return useQuery({
+    queryKey: ['sprintHealth', sprintId],
+    queryFn: () => apiClient.get<SprintHealthScore>(`/api/sprints/${sprintId}/health`),
+    enabled: !!sprintId,
+    refetchInterval: 60_000,
+  });
+}
+
+export function useSprintRetrospective() {
+  return useMutation({
+    mutationFn: ({ sprintId, went_well, went_wrong, action_items }: { sprintId: string; went_well?: string[]; went_wrong?: string[]; action_items?: string[] }) =>
+      apiClient.post<SprintRetrospective>(`/api/sprints/${sprintId}/retrospective`, { went_well, went_wrong, action_items }),
+  });
+}
+
+export function useSprintClone() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sprintId, name, offset_days, clone_tasks, context }: { sprintId: string; name?: string; offset_days?: number; clone_tasks?: boolean; context?: string }) =>
+      apiClient.post<{ ok: boolean; sprint: Sprint; tasks_cloned: number }>(`/api/sprints/${sprintId}/clone`, { name, offset_days, clone_tasks, context }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.sprints });
+    },
+  });
+}
+
+export function useSprintStandup() {
+  return useMutation({
     mutationFn: (sprintId: string) =>
-      apiClient.post<{ html: string }>(`/api/sprints/${sprintId}/report/presentation`),
+      apiClient.post<SprintStandup>(`/api/sprints/${sprintId}/standup`),
+  });
+}
+
+export function useSprintEstimatePoints() {
+  return useMutation({
+    mutationFn: ({ sprintId, task, description }: { sprintId: string; task?: string; description?: string }) =>
+      apiClient.post<{ points: number; confidence: string; reasoning: string }>(`/api/sprints/${sprintId}/estimate-points`, { task, description }),
+  });
+}
+
+export function useSprintCapacity() {
+  return useMutation({
+    mutationFn: ({ sprintId, capacities }: { sprintId: string; capacities: Record<string, number> }) =>
+      apiClient.post<{ capacity: SprintCapacity[]; ai_recommendation: string | null }>(`/api/sprints/${sprintId}/capacity`, { capacities }),
   });
 }
 

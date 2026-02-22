@@ -65,7 +65,7 @@ const { parseBody, parseUrl } = require('../../server/request');
 const { getLogger } = require('../../server/requestContext');
 const { logError } = require('../../logger');
 const { jsonResponse } = require('../../server/response');
-const llmConfig = require('../../llm/config');
+const llmRouter = require('../../llm/router');
 
 function convertMarkdownToHTML(md) {
     return md
@@ -149,8 +149,7 @@ function generateStandaloneHTML(markdown, health, insights) {
 }
 
 async function handleSot(ctx) {
-    const { req, res, pathname, storage, processor, config, llm } = ctx;
-    const llmConfig = require('../../llm/config');
+    const { req, res, pathname, storage, processor, config } = ctx;
     const log = getLogger().child({ module: 'sot' });
     const { SourceOfTruthEngine } = require('../../advanced/SourceOfTruthEngine');
 
@@ -173,17 +172,13 @@ async function handleSot(ctx) {
             const parsedUrl = parseUrl(req.url);
             const includeGraph = parsedUrl.query.graph === 'true';
             const includeAI = parsedUrl.query.ai === 'true';
-            const textCfg = llmConfig.getTextConfig(config);
-            const llmProviderAdapter = includeAI && textCfg.provider && textCfg.model ? {
+            const llmProviderAdapter = includeAI ? {
                 generateText: async (prompt) => {
-                    const r = await llm.generateText({
-                        provider: textCfg.provider,
-                        model: textCfg.model,
-                        providerConfig: textCfg.providerConfig || {},
+                    const r = await llmRouter.routeAndExecute('processing', 'generateText', {
                         prompt,
-                        context: 'sot_summary'
-                    });
-                    return (r && r.text) ? r.text : '';
+                        context: 'sot-summary'
+                    }, config);
+                    return (r && r.success && r.result?.text) ? r.result.text : '';
                 }
             } : null;
             const enhanced = await sotEngine.generateEnhancedSOT({
@@ -390,21 +385,18 @@ async function handleSot(ctx) {
             const facts = await storage.getFacts();
             const decisions = await storage.getDecisions();
             const risks = storage.getRisks ? await storage.getRisks() : [];
-            const actions = await storage.getActionItems();
+            const actions = await storage.getActions();
 
             // Vector-search for relevance-ranked context (if embeddings available)
             let semanticContext = '';
             try {
-                const embedCfg = llmConfig.getEmbeddingsConfig(config);
-                if (embedCfg?.provider && embedCfg?.model && typeof storage.searchBySimilarity === 'function') {
-                    const queryResult = await llm.embed({
-                        provider: embedCfg.provider,
-                        providerConfig: embedCfg.providerConfig,
-                        model: embedCfg.model,
-                        texts: [message]
-                    });
-                    if (queryResult.success && queryResult.embeddings?.[0]) {
-                        const similar = await storage.searchBySimilarity(queryResult.embeddings[0], null, 15, 0.6);
+                if (typeof storage.searchBySimilarity === 'function') {
+                    const embedRouterResult = await llmRouter.routeAndExecute('embeddings', 'embed', {
+                        texts: [message],
+                        context: 'sot-chat-embed'
+                    }, config);
+                    if (embedRouterResult.success && embedRouterResult.result?.embeddings?.[0]) {
+                        const similar = await storage.searchBySimilarity(embedRouterResult.result.embeddings[0], null, 15, 0.6);
                         if (similar && similar.length > 0) {
                             semanticContext = '\nRELEVANT KNOWLEDGE (ranked by relevance to question):\n' +
                                 similar.map((s, i) => `${i + 1}. [${s.entity_type}] ${s.content}`).join('\n');
@@ -437,27 +429,23 @@ ${insights.slice(0, 5).map(i => `- ${i.title}: ${i.message}`).join('\n')}
 
 Answer questions about this project based on the knowledge above. Be specific, reference facts by content when possible, and cite data to support your answers.`;
 
-            const sotTextCfg = llmConfig.getTextConfig(config, { model });
-            const result = await llm.generateText({
-                provider: sotTextCfg.provider,
-                providerConfig: sotTextCfg.providerConfig,
-                model: sotTextCfg.model,
+            const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
                 system: sotContext,
                 prompt: message,
                 temperature: 0.7,
                 maxTokens: 2048,
-                context: 'sot_chat',
+                context: 'sot-chat',
                 priority: 'high'
-            });
+            }, config);
 
-            if (!result.success) {
-                jsonResponse(res, { error: result.error || 'Failed to generate response' }, 500);
+            if (!routerResult.success) {
+                jsonResponse(res, { error: routerResult.error || 'Failed to generate response' }, 500);
                 return true;
             }
 
             jsonResponse(res, {
-                response: result.text,
-                model: sotTextCfg.model,
+                response: routerResult.result?.text,
+                model: routerResult.routing?.model,
                 healthScore: health.score,
                 sources: semanticContext ? 'vector+sot' : 'sot'
             });

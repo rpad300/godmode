@@ -58,14 +58,15 @@ async function pathExists(p) {
     try { await fsp.access(p); return true; } catch { return false; }
 }
 const { jsonResponse } = require('../../server/response');
+const llmRouter = require('../../llm/router');
 
 async function handleCore(ctx) {
-    const { req, res, pathname, storage, config, llm, dataDir } = ctx;
+    const { req, res, pathname, storage, config, dataDir } = ctx;
     const log = getLogger().child({ module: 'core' });
 
     // GET /api/stats
     if (pathname === '/api/stats' && req.method === 'GET') {
-        const stats = storage.getStats();
+        const stats = await storage.getProjectStats();
         jsonResponse(res, stats);
         return true;
     }
@@ -134,7 +135,7 @@ async function handleCore(ctx) {
     // POST /api/cleanup-orphans - Clean orphan data
     if (pathname === '/api/cleanup-orphans' && req.method === 'POST') {
         try {
-            const stats = storage.cleanOrphanData();
+            const stats = await storage.cleanOrphanData();
             let graphCleaned = false;
             try {
                 const graphProvider = storage.getGraphProvider?.();
@@ -162,14 +163,14 @@ async function handleCore(ctx) {
 
     // GET /api/relationships
     if (pathname === '/api/relationships' && req.method === 'GET') {
-        const relationships = storage.getRelationships();
+        const relationships = await storage.getRelationships();
         jsonResponse(res, { relationships });
         return true;
     }
 
     // GET /api/org-chart
     if (pathname === '/api/org-chart' && req.method === 'GET') {
-        const chartData = storage.getOrgChartData();
+        const chartData = await storage.getOrgChartData();
         jsonResponse(res, chartData);
         return true;
     }
@@ -204,8 +205,8 @@ async function handleCore(ctx) {
 
         log.debug({ event: 'core_ask_provider', askProvider, model }, 'Using provider and model');
 
-        const knowledge = storage.getAllKnowledge();
-        const currentProject = storage.getCurrentProject();
+        const knowledge = await storage.getAllKnowledge();
+        const currentProject = await storage.getCurrentProject();
         const userRole = currentProject?.userRole || '';
         const userRolePrompt = currentProject?.userRolePrompt || '';
 
@@ -328,20 +329,17 @@ ${userRolePrompt ? `- Consider the user's specific responsibilities: ${userRoleP
             (knowledge.questions?.length || 0);
 
         try {
-            const result = await llm.generateText({
-                provider: askProvider,
-                providerConfig: askProviderConfig,
-                model: model,
+            const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
                 prompt: context,
                 temperature: 0.7,
                 maxTokens: 2048,
-                context: 'question'
-            });
+                context: 'core-ask'
+            }, config);
 
-            if (result.success) {
+            if (routerResult.success) {
                 jsonResponse(res, {
                     question,
-                    answer: result.text || result.response,
+                    answer: routerResult.result?.text || routerResult.result?.response,
                     sources: {
                         facts: searchResults.facts?.length || 0,
                         questions: searchResults.questions?.length || 0,
@@ -350,7 +348,7 @@ ${userRolePrompt ? `- Consider the user's specific responsibilities: ${userRoleP
                     }
                 });
             } else {
-                jsonResponse(res, { error: result.error || 'Failed to generate answer' }, 500);
+                jsonResponse(res, { error: routerResult.error || 'Failed to generate answer' }, 500);
             }
         } catch (error) {
             jsonResponse(res, { error: 'Failed to generate answer: ' + error.message }, 500);

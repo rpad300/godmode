@@ -31,7 +31,7 @@
  */
 
 const { logger } = require('../logger');
-const llm = require('../llm');
+const llmRouter = require('../llm/router');
 const { getOntologyManager } = require('../ontology');
 
 const log = logger.child({ module: 'cypher-generator' });
@@ -42,6 +42,7 @@ class CypherGenerator {
         this.llmProvider = options.llmProvider || null;
         this.llmModel = options.llmModel || null;
         this.llmConfig = options.llmConfig || {};
+        this._resolvedConfig = options.config || { llm: this.llmConfig };
         this.ontology = options.ontology || getOntologyManager();
         
         if (!this.llmProvider) {
@@ -103,25 +104,19 @@ class CypherGenerator {
         const prompt = this.buildPrompt(question, schemaContext, hints);
         
         try {
-            const provider = options.provider || this.llmProvider;
-            const providerConfig = this.llmConfig?.providers?.[provider] || {};
-            
-            const result = await llm.generateText({
-                provider,
-                providerConfig,
-                model: options.model || this.llmModel,
+            const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
                 prompt,
-                temperature: 0.1, // Low temperature for deterministic queries
-                maxTokens: 500
-            });
+                temperature: 0.1,
+                maxTokens: 500,
+                context: 'cypher-generation'
+            }, this._resolvedConfig);
 
-            if (!result.success) {
-                log.warn({ event: 'cypher_gen_llm_failed', reason: result.error }, 'LLM generation failed');
+            if (!routerResult.success) {
+                log.warn({ event: 'cypher_gen_llm_failed', reason: routerResult.error?.message || routerResult.error }, 'LLM generation failed');
                 return this.getFallbackQuery(question, hints);
             }
 
-            // Parse the LLM response
-            const parsed = this.parseResponse(result.text);
+            const parsed = this.parseResponse(routerResult.result?.text || routerResult.result?.response);
             
             const latencyMs = Date.now() - startTime;
             log.debug({ event: 'cypher_gen_generated', latencyMs, confidence: parsed.confidence }, 'Generated query');

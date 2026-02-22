@@ -2,47 +2,49 @@
  * Purpose:
  *   Chat API routes providing session management and a sophisticated RAG-powered
  *   conversational Q&A endpoint over project knowledge. Combines GraphRAG, vector
- *   search, HyDE (Hypothetical Document Embeddings), and Reciprocal Rank Fusion
- *   for state-of-the-art retrieval.
+ *   search, HyDE (Hypothetical Document Embeddings), MultiHop reasoning, and
+ *   Reciprocal Rank Fusion for state-of-the-art retrieval.
  *
  * Responsibilities:
- *   - Chat session CRUD: create, update (title, contact context), list, get messages
+ *   - Chat session CRUD: create, update (title, contact context), list, delete, get messages
+ *   - SSE streaming endpoint (POST /api/chat/stream) for real-time token delivery
  *   - Main chat endpoint (POST /api/chat) with multi-stage retrieval pipeline:
- *     1. Non-English query detection and translation
+ *     1. Non-English query detection (inline language instruction, no translation roundtrip)
  *     2. Query preprocessing and classification
- *     3. GraphRAG: AI-generated Cypher queries + hybrid graph search
+ *     3. GraphRAG: AI-generated Cypher queries + hybrid graph search + MultiHop reasoning
  *     4. Supabase vector search (or local embeddings fallback)
  *     5. HyDE expansion when initial results are sparse (<5 hits)
  *     6. RRF fusion of graph + vector results, then query-dependent reranking
  *     7. Context assembly with contact enrichment for person entities
- *     8. LLM generation with optional deep reasoning mode
+ *     8. Token budget enforcement (auto-truncation of RAG context and history)
+ *     9. LLM generation with optional deep reasoning mode
  *   - Session persistence: auto-creates sessions, loads history from DB, persists messages
  *   - User role and contact-context-aware system prompts
  *   - Failover routing support (routes through llmRouter when configured)
  *
  * Key dependencies:
- *   - ../../graphrag: GraphRAGEngine, CypherGenerator, Reranker, HyDE
+ *   - ../../graphrag: GraphRAGEngine, CypherGenerator, Reranker, HyDE, MultiHopReasoning
  *   - ../../utils/vectorSimilarity: Local vector cosine similarity search
  *   - ../../llm/config: LLM and embeddings provider resolution
+ *   - ../../llm/tokenBudget: Context window management and auto-truncation
+ *   - ../../llm/streaming: SSE streaming for real-time chat responses
+ *   - ../../llm/modelMetadata: Model capabilities for token budget limits
  *   - ../../server/embeddingCache: Query embedding cache to avoid redundant API calls
  *   - storage: Knowledge base access (hybridSearch, searchWithEmbedding, embeddings, etc.)
  *
  * Side effects:
- *   - Database: creates chat sessions and messages in Supabase
- *   - Global state: creates/reuses global.graphRAGEngine singleton
- *   - LLM API calls: translation, HyDE generation, Cypher generation, main chat completion
+ *   - Database: creates/deletes chat sessions and messages in Supabase
+ *   - Global state: creates/reuses global.graphRAGEngine singleton (reinitializes on config change)
+ *   - LLM API calls: HyDE generation, Cypher generation, main chat completion
  *   - Embedding API calls: query embedding for vector search
  *
  * Notes:
- *   - The GraphRAG engine is stored as a global singleton to persist across requests;
- *     this means its config is only updated on graphProvider changes
- *   - Non-English queries are translated to English for retrieval, then the LLM
- *     is instructed to respond in the original language
- *   - Confidence is derived from context quality and source count, with override
- *     for uncertain-sounding LLM responses
+ *   - The GraphRAG engine singleton reinitializes when provider, model, or embedding config changes
+ *   - Non-English queries use inline language instructions (no extra translation LLM call)
+ *   - Cypher queries use parameterized $variables to prevent injection
+ *   - Token budget auto-truncates RAG context first, then history, to fit model context window
+ *   - Context quality thresholds are calibrated for RRF score distributions
  *   - <think> tags from reasoning models are stripped from the final response
- *   - The "context" field in the request body provides fallback context (source of truth,
- *     facts, questions, decisions) when retrieval yields few results
  */
 
 const { parseBody } = require('../../server/request');
@@ -53,9 +55,13 @@ const { getCachedQueryEmbedding, setCachedQueryEmbedding } = require('../../serv
 
 const vectorSimilarity = require('../../utils/vectorSimilarity');
 const llmConfig = require('../../llm/config');
+const llmRouter = require('../../llm/router');
+const tokenBudget = require('../../llm/tokenBudget');
+const { getModelMetadata } = require('../../llm/modelMetadata');
+const { createSSEWriter, generateTextStream } = require('../../llm/streaming');
 
 async function handleChat(ctx) {
-    const { req, res, pathname, storage, config, llm, supabase, llmRouter } = ctx;
+    const { req, res, pathname, storage, config, supabase } = ctx;
     const log = getLogger().child({ module: 'chat' });
 
     // POST /api/chat/sessions - Create new chat session
@@ -117,6 +123,100 @@ async function handleChat(ctx) {
         return true;
     }
 
+    // POST /api/chat/sessions/:sessionId/messages/:msgId/feedback - Save message feedback
+    const feedbackMatch = pathname.match(/^\/api\/chat\/sessions\/([^/]+)\/messages\/([^/]+)\/feedback$/);
+    if (feedbackMatch && req.method === 'POST') {
+        const [, , msgId] = feedbackMatch;
+        const body = await parseBody(req);
+        const feedback = body.feedback; // 'up' | 'down' | null
+        try {
+            if (storage.supabase) {
+                const { data: existing } = await storage.supabase
+                    .from('chat_messages')
+                    .select('metadata')
+                    .eq('id', msgId)
+                    .single();
+                const meta = existing?.metadata || {};
+                meta.feedback = feedback;
+                await storage.supabase
+                    .from('chat_messages')
+                    .update({ metadata: meta })
+                    .eq('id', msgId);
+            }
+            jsonResponse(res, { ok: true, feedback });
+        } catch (e) {
+            log.warn({ event: 'chat_feedback_error', reason: e.message }, 'Feedback save error');
+            jsonResponse(res, { ok: false, error: e.message }, 500);
+        }
+        return true;
+    }
+
+    // DELETE /api/chat/sessions/:id - Delete a chat session and its messages
+    const chatSessionDeleteMatch = pathname.match(/^\/api\/chat\/sessions\/([^/]+)$/);
+    if (chatSessionDeleteMatch && req.method === 'DELETE') {
+        const sessionId = chatSessionDeleteMatch[1];
+        try {
+            if (storage.deleteChatSession) {
+                await storage.deleteChatSession(sessionId);
+            } else if (storage.supabase) {
+                await storage.supabase.from('chat_messages').delete().eq('session_id', sessionId);
+                await storage.supabase.from('chat_sessions').delete().eq('id', sessionId);
+            }
+            jsonResponse(res, { ok: true });
+        } catch (e) {
+            log.warn({ event: 'chat_session_delete_error', reason: e.message }, 'Delete session error');
+            jsonResponse(res, { ok: false, error: e.message }, 500);
+        }
+        return true;
+    }
+
+    // POST /api/chat/stream - SSE streaming chat endpoint
+    if (pathname === '/api/chat/stream' && req.method === 'POST') {
+        const body = await parseBody(req);
+        const message = body.message;
+        if (!message) {
+            jsonResponse(res, { error: 'Message is required' }, 400);
+            return true;
+        }
+
+        const textResolved = llmRouter.routeResolve('chat', 'generateText', config);
+        if (!textResolved) {
+            jsonResponse(res, { error: 'No LLM configured.' }, 400);
+            return true;
+        }
+
+        const writer = createSSEWriter(res);
+        try {
+            writer.write('step', { step: 'start', message: 'Processing...' });
+
+            const streamGen = generateTextStream({
+                provider: textResolved.provider,
+                model: textResolved.model,
+                prompt: `User: ${message}\n\nAssistant:`,
+                system: 'You are a helpful Q&A assistant for a document processing project. Be concise but thorough.',
+                temperature: 0.7,
+                maxTokens: 2048,
+                providerConfig: textResolved.providerConfig,
+                config,
+                taskType: 'chat'
+            });
+
+            for await (const chunk of streamGen) {
+                if (chunk.type === 'chunk') {
+                    writer.write('chunk', { content: chunk.content });
+                } else if (chunk.type === 'done') {
+                    writer.write('complete', { fullText: chunk.fullText, latencyMs: chunk.latencyMs });
+                } else if (chunk.type === 'error') {
+                    writer.error(chunk.error);
+                }
+            }
+            writer.close();
+        } catch (e) {
+            writer.error(e.message);
+        }
+        return true;
+    }
+
     // POST /api/chat - Chat with reasoning model using project context
     if (pathname === '/api/chat' && req.method === 'POST') {
         const body = await parseBody(req);
@@ -162,29 +262,27 @@ async function handleChat(ctx) {
             try { chatSession = await storage.getChatSession(sessionId); } catch (e) { /* ignore */ }
         }
 
-        const textCfg = llmConfig.getTextConfig(config);
-        const provider = textCfg?.provider;
-        const providerConfig = textCfg?.providerConfig || {};
-        const model = textCfg?.model;
-        if (!provider || !model) {
+        const textResolved = llmRouter.routeResolve('chat', 'generateText', config);
+        if (!textResolved) {
             jsonResponse(res, { error: 'No LLM configured. Set Text provider and model in Settings > LLM.' }, 400);
             return true;
         }
+        const { provider, model, providerConfig } = textResolved;
 
-        const embedCfg = llmConfig.getEmbeddingsConfig(config);
-        const embedProvider = embedCfg?.provider;
-        const embedProviderConfig = embedCfg?.providerConfig || {};
-        const embedModel = embedCfg?.model || '';
+        const embedResolved = llmRouter.routeResolve('embeddings', 'embed', config);
+        const embedProvider = embedResolved?.provider || null;
+        const embedProviderConfig = embedResolved?.providerConfig || {};
+        const embedModel = embedResolved?.model || '';
 
         log.debug({ event: 'chat_provider', provider, model, embedProvider, embedModel }, 'Using LLM and embeddings config');
 
-        const currentProject = storage.getCurrentProject();
+        const currentProject = await storage.getCurrentProject();
         let userRole = currentProject?.userRole || '';
         let userRolePrompt = currentProject?.userRolePrompt || '';
         let roleContext = '';
         const contextContactIdFromSession = chatSession?.context_contact_id || null;
         if (contextContactIdFromSession && storage.getContactById) {
-            const contact = await Promise.resolve(storage.getContactById(contextContactIdFromSession));
+            const contact = await storage.getContactById(contextContactIdFromSession);
             if (contact) {
                 const name = contact.name || 'Contact';
                 const role = contact.role || '';
@@ -243,32 +341,15 @@ IMPORTANT RULES:
         let sources = [];
         let contextQuality = 'none';
 
-        let translatedQuery = null;
+        let detectedNonEnglish = false;
         const nonEnglishPattern = /[àáâãäåæçèéêëìíîïñòóôõöùúûüýÿ]|^(o que|como|quando|onde|quem|qual|porque|por que|porquê|será|está|são|foi|eram|quais|esto|esta|estos|estas|qué|cómo|cuándo|dónde|quién|cuál|porqué|será|está|son|fue|eran|cuáles|was ist|wie|wann|wo|wer|welche|warum|qu'est|comment|quand|où|qui|quel|pourquoi)/i;
 
         if (nonEnglishPattern.test(message)) {
-            log.debug({ event: 'chat_translate_start' }, 'Detected non-English query, translating');
-            try {
-                const translateResult = await llm.generateText({
-                    provider,
-                    providerConfig,
-                    model,
-                    prompt: `Translate this question to English. Only output the translation, nothing else:\n\n"${message}"`,
-                    temperature: 0.1,
-                    maxTokens: 200,
-                    context: 'chat'
-                });
-
-                if (translateResult.success && translateResult.text) {
-                    translatedQuery = translateResult.text.replace(/^["']|["']$/g, '').trim();
-                    log.debug({ event: 'chat_translate_ok', translatedQuery }, 'Translated query');
-                }
-            } catch (e) {
-                log.debug({ event: 'chat_translate_failed', reason: e.message }, 'Translation failed');
-            }
+            detectedNonEnglish = true;
+            log.debug({ event: 'chat_non_english_detected' }, 'Non-English query detected, will instruct LLM to respond in same language');
         }
 
-        const searchQuery = translatedQuery || message;
+        const searchQuery = message;
         const processedQuery = storage.preprocessQuery(searchQuery);
         const queryType = storage.classifyQuery(searchQuery);
         log.debug({ event: 'chat_query_classified', queryType, terms: processedQuery.terms }, 'Query type');
@@ -283,7 +364,14 @@ IMPORTANT RULES:
                 const { GraphRAGEngine } = require('../../graphrag');
                 const { getCypherGenerator } = require('../../graphrag');
 
-                if (!global.graphRAGEngine) {
+                const engineNeedsReinit = !global.graphRAGEngine
+                    || global.graphRAGEngine.graphProvider !== graphProvider
+                    || global.graphRAGEngine.embeddingProvider !== embedProvider
+                    || global.graphRAGEngine.embeddingModel !== embedModel
+                    || global.graphRAGEngine.llmProvider !== provider
+                    || global.graphRAGEngine.llmModel !== model;
+
+                if (engineNeedsReinit) {
                     global.graphRAGEngine = new GraphRAGEngine({
                         graphProvider: graphProvider,
                         storage: storage,
@@ -296,8 +384,9 @@ IMPORTANT RULES:
                         enableCache: true,
                         useOntology: true
                     });
-                } else if (global.graphRAGEngine.graphProvider !== graphProvider) {
-                    global.graphRAGEngine.graphProvider = graphProvider;
+                    if (!global.graphRAGEngine.__isNew) {
+                        log.debug({ event: 'chat_graphrag_reinit' }, 'GraphRAG engine reinitialized due to config change');
+                    }
                 }
 
                 log.debug({ event: 'chat_graphrag_use' }, 'Using GraphRAG for enhanced retrieval');
@@ -371,6 +460,34 @@ IMPORTANT RULES:
                     }
                 }
 
+                // MultiHop for complex queries (comparison, analytical, multi-entity)
+                const isComplexQuery = queryType === 'comparison' || queryType === 'analytical'
+                    || (graphQuery.entityHints?.length >= 2) || (graphQuery.relationHints?.length >= 2);
+                if (isComplexQuery && graphSearchResults.length < 8) {
+                    try {
+                        const { getMultiHopReasoning } = require('../../graphrag');
+                        const multiHop = getMultiHopReasoning({
+                            llmProvider: provider, llmModel: model, llmConfig: config.llm,
+                            graphProvider: graphProvider, config
+                        });
+                        log.debug({ event: 'chat_multihop_start' }, 'Using multi-hop reasoning for complex query');
+                        const multiHopResult = await multiHop.execute(
+                            searchQuery,
+                            async (subQuery) => global.graphRAGEngine.hybridSearch(subQuery, {})
+                        );
+                        if (multiHopResult.results?.length > 0) {
+                            for (const r of multiHopResult.results) {
+                                if (!graphSearchResults.find(g => g.name === r.name)) {
+                                    graphSearchResults.push(r);
+                                }
+                            }
+                            log.debug({ event: 'chat_multihop_done', added: multiHopResult.results.length }, 'Multi-hop results added');
+                        }
+                    } catch (mhErr) {
+                        log.debug({ event: 'chat_multihop_failed', reason: mhErr.message }, 'Multi-hop reasoning skipped');
+                    }
+                }
+
                 if (graphSearchResults.length > 0) {
                     graphRAGResults = graphSearchResults;
                     log.debug({ event: 'chat_graph_results', count: graphSearchResults.length }, 'Graph-based results');
@@ -416,8 +533,8 @@ IMPORTANT RULES:
                         const h0 = graphQuery.entityHints[0];
                         const entityName = typeof h0 === 'string' ? h0 : (h0?.keyword || h0?.type || h0?.value || '');
                         if (!entityName) throw new Error('No entity name');
-                        const relatedQuery = `MATCH (n)-[r]-(m) WHERE toLower(n.name) CONTAINS toLower('${String(entityName).replace(/'/g, "\\'")}') RETURN n, type(r) as rel, m LIMIT 5`;
-                        const relatedResult = await graphProvider.query(relatedQuery);
+                        const relatedCypher = `MATCH (n)-[r]-(m) WHERE toLower(n.name) CONTAINS toLower($entityName) RETURN n, type(r) as rel, m LIMIT 5`;
+                        const relatedResult = await graphProvider.query(relatedCypher, { entityName: String(entityName) });
 
                         if (relatedResult.ok && relatedResult.results?.length > 0) {
                             graphContext += '\n--- Related Entities ---\n';
@@ -477,13 +594,12 @@ IMPORTANT RULES:
                 if (queryEmbedding) {
                     log.debug({ event: 'chat_cached_embedding' }, 'Using cached query embedding');
                 } else {
-                    const queryResult = await llm.embed({
-                        provider: embedProvider,
-                        providerConfig: embedProviderConfig,
-                        model: embedModel,
-                        texts: [queryText]
-                    });
+                    const embedResult = await llmRouter.routeAndExecute('embeddings', 'embed', {
+                        texts: [queryText],
+                        context: 'chat-query-embed'
+                    }, config);
 
+                    const queryResult = embedResult.result || embedResult;
                     if (queryResult.success && queryResult.embeddings?.[0]) {
                         queryEmbedding = queryResult.embeddings[0];
                         setCachedQueryEmbedding(queryText, embedModel, queryEmbedding);
@@ -547,13 +663,13 @@ IMPORTANT RULES:
             }
         } else if (useSemantic && embeddingsData && embeddingsData.embeddings?.length > 0 && embedProvider && embedModel) {
             const localEmbedModel = embeddingsData.model || embedModel;
-            const queryResult = await llm.embed({
-                provider: embedProvider,
-                providerConfig: embedProviderConfig,
+            const localEmbedResult = await llmRouter.routeAndExecute('embeddings', 'embed', {
                 model: localEmbedModel,
-                texts: [processedQuery.expanded || message]
-            });
+                texts: [processedQuery.expanded || message],
+                context: 'chat-local-embed'
+            }, config);
 
+            const queryResult = localEmbedResult.result || localEmbedResult;
             if (queryResult.success && queryResult.embeddings?.[0]) {
                 const semanticResults = vectorSimilarity.findSimilar(queryResult.embeddings[0], embeddingsData.embeddings, 20);
 
@@ -611,8 +727,9 @@ IMPORTANT RULES:
             const avgScore = finalResults.reduce((sum, r) => sum + (r.rrfScore || r.score || 0), 0) / finalResults.length;
             const topScore = finalResults[0].rrfScore || finalResults[0].score || 0;
 
-            if (topScore > 0.03 && avgScore > 0.02) contextQuality = 'high';
-            else if (topScore > 0.02 && avgScore > 0.01) contextQuality = 'medium';
+            const scoreCount = finalResults.length;
+            if (topScore > 0.06 && avgScore > 0.03 && scoreCount >= 3) contextQuality = 'high';
+            else if (topScore > 0.04 && avgScore > 0.02) contextQuality = 'medium';
             else contextQuality = 'low';
 
             const searchMethod = useHyDE ? 'HyDE + RRF Fusion' : (graphRAGResults?.length > 0 ? 'Graph + Vector RRF Fusion' : 'Hybrid Search');
@@ -621,7 +738,7 @@ IMPORTANT RULES:
             const itemIds = finalResults.map(r => r.id).filter(Boolean);
             const itemsWithMeta = storage.getItemsWithMetadata ? storage.getItemsWithMetadata(itemIds) : [];
 
-            finalResults.forEach((result) => {
+            for (const result of finalResults) {
                 const meta = itemsWithMeta.find(i => i.id === result.id) || result;
                 const score = result.rrfScore || result.relevanceScore || result.score || 0;
 
@@ -630,13 +747,13 @@ IMPORTANT RULES:
                     const entityIdMatch = String(result.id).match(/^person_(.+)$/);
                     const entityId = entityIdMatch ? entityIdMatch[1] : result.id;
                     try {
-                        const contact = storage.getContactById ? storage.getContactById(entityId) : null;
+                        const contact = storage.getContactById ? await storage.getContactById(entityId) : null;
                         if (contact) {
                             contactName = contact.name;
                             contactRole = contact.role || contact.organization || '';
                             avatarUrl = contact.avatar_url || contact.photo_url || null;
                         } else {
-                            const people = storage.getPeople ? storage.getPeople() : [];
+                            const people = storage.getPeople ? await storage.getPeople() : [];
                             const person = Array.isArray(people) ? people.find(p => p.id === entityId || `person_${p.id}` === result.id) : null;
                             if (person) {
                                 contactName = person.name;
@@ -676,7 +793,7 @@ IMPORTANT RULES:
                     contactRole: contactRole || undefined,
                     avatarUrl: avatarUrl || undefined
                 });
-            });
+            }
 
             systemPrompt += `\n=== END RELEVANT CONTEXT ===\n`;
             log.debug({ event: 'chat_context_found', count: finalResults.length, contextQuality, topScore }, 'Found items');
@@ -752,57 +869,94 @@ IMPORTANT RULES:
             systemPrompt += `\n=== END ADDITIONAL CONTEXT ===\n`;
         }
 
-        let conversationPrompt = systemPrompt + '\n\n';
-
-        if (history.length > 0) {
-            conversationPrompt += '=== CONVERSATION HISTORY ===\n';
-            history.forEach(h => {
-                if (h.role === 'user') {
-                    conversationPrompt += `User: ${h.content}\n`;
-                } else if (h.role === 'assistant') {
-                    conversationPrompt += `Assistant: ${h.content}\n`;
-                }
-            });
-            conversationPrompt += '=== END HISTORY ===\n\n';
+        if (detectedNonEnglish) {
+            systemPrompt += `\n\nIMPORTANT: The user is writing in a non-English language. You MUST respond in the SAME LANGUAGE as the user's message.`;
         }
 
-        if (translatedQuery) {
-            conversationPrompt += `\nIMPORTANT: The user asked in a non-English language. Respond in the SAME LANGUAGE as the user's original question.\n`;
-            conversationPrompt += `Original question: "${message}"\n`;
+        // ==================== STRUCTURED MESSAGES + TOKEN BUDGET ====================
+        let ragContext = '';
+        const ragMarkerStart = '=== RELEVANT CONTEXT';
+        const ragMarkerEnd = '=== END RELEVANT CONTEXT ===';
+        const ragStartIdx = systemPrompt.indexOf(ragMarkerStart);
+        const ragEndIdx = systemPrompt.indexOf(ragMarkerEnd);
+        if (ragStartIdx !== -1 && ragEndIdx !== -1) {
+            ragContext = systemPrompt.substring(ragStartIdx, ragEndIdx + ragMarkerEnd.length);
+            systemPrompt = systemPrompt.substring(0, ragStartIdx) + systemPrompt.substring(ragEndIdx + ragMarkerEnd.length + 1);
         }
 
-        conversationPrompt += `User: ${message}\n\nAssistant:`;
+        let messages = [];
+        messages.push({ role: 'system', content: systemPrompt });
+        if (ragContext) {
+            messages.push({ role: 'system', content: ragContext });
+        }
+        for (const h of history) {
+            if (h.role === 'user' || h.role === 'assistant') {
+                messages.push({ role: h.role, content: h.content });
+            }
+        }
+        messages.push({ role: 'user', content: message });
+
+        const modelInfo = getModelMetadata(provider, model);
+        const budgetResult = tokenBudget.applyBudget({
+            provider, modelId: model, messages, ragContext,
+            systemPrompt, tokenPolicy: config?.llm?.tokenPolicy || {},
+            modelInfo, task: 'chat'
+        });
+
+        let maxTokens = 2048;
+        if (budgetResult.success) {
+            if (budgetResult.ragContext !== ragContext) {
+                ragContext = budgetResult.ragContext;
+                messages = messages.map(m => {
+                    if (m.role === 'system' && m.content.includes(ragMarkerStart)) {
+                        return { role: 'system', content: ragContext };
+                    }
+                    return m;
+                });
+                log.debug({ event: 'chat_rag_truncated' }, 'RAG context truncated by token budget');
+            }
+            if (budgetResult.messages) {
+                messages = budgetResult.messages;
+            }
+            maxTokens = budgetResult.maxOutputTokens || 2048;
+        } else if (budgetResult.budget?.decision?.blocked) {
+            log.warn({ event: 'chat_budget_blocked', reason: budgetResult.error }, 'Request blocked by token budget');
+        }
+
+        if (budgetResult.budget?.decision?.warnings?.length > 0) {
+            log.debug({ event: 'chat_budget_warnings', warnings: budgetResult.budget.decision.warnings }, 'Token budget warnings');
+        }
+
+        // Build final prompt from structured messages (flat-prompt fallback for broad compatibility)
+        let conversationPrompt = '';
+        for (const m of messages) {
+            if (m.role === 'system') {
+                conversationPrompt += m.content + '\n\n';
+            } else if (m.role === 'user') {
+                conversationPrompt += `User: ${m.content}\n`;
+            } else if (m.role === 'assistant') {
+                conversationPrompt += `Assistant: ${m.content}\n`;
+            }
+        }
+        conversationPrompt += '\nAssistant:';
 
         try {
-            log.debug({ event: 'chat_request', provider, model, sourcesCount: sources.length, contextQuality }, 'Chat request');
+            log.debug({ event: 'chat_request', provider, model, sourcesCount: sources.length, contextQuality, estimatedTokens: budgetResult.budget?.estimatedInputTokens }, 'Chat request');
 
-            const routingMode = config.llm?.routing?.mode || 'single';
-            let result;
             let routingInfo = null;
 
-            if (routingMode === 'failover') {
-                const routeResult = await llmRouter.routeAndExecute('chat', 'generateText', {
-                    prompt: conversationPrompt,
-                    temperature: 0.7,
-                    maxTokens: 2048
-                }, config);
+            const routeResult = await llmRouter.routeAndExecute('chat', 'generateText', {
+                prompt: conversationPrompt,
+                temperature: 0.7,
+                maxTokens,
+                context: 'chat'
+            }, config);
 
-                result = routeResult.result || routeResult;
-                routingInfo = routeResult.routing;
+            const result = routeResult.result || routeResult;
+            routingInfo = routeResult.routing;
 
-                if (!routeResult.success) {
-                    throw new Error(routeResult.error?.message || 'All providers failed');
-                }
-            } else {
-                result = await llm.generateText({
-                    provider,
-                    providerConfig,
-                    model,
-                    prompt: conversationPrompt,
-                    temperature: 0.7,
-                    maxTokens: 2048,
-                    context: 'chat'
-                });
+            if (!routeResult.success) {
+                throw new Error(routeResult.error?.message || 'All providers failed');
             }
 
             const success = result.success;
@@ -842,6 +996,22 @@ IMPORTANT RULES:
                     }
                 }
 
+                // Generate follow-up question suggestions (lightweight, non-blocking)
+                let suggestedFollowups = [];
+                try {
+                    const followupResult = await llmRouter.routeAndExecute('processing', 'generateText', {
+                        prompt: `Based on this Q&A exchange, suggest exactly 3 short follow-up questions the user might want to ask next. Each question should be max 8 words. Return ONLY a JSON array of strings, nothing else.\n\nQuestion: "${message}"\nAnswer summary: "${cleanedResponse.substring(0, 300)}"`,
+                        temperature: 0.6,
+                        maxTokens: 150,
+                        context: 'chat-followups'
+                    }, config);
+                    const fText = followupResult.result?.text || followupResult.result?.response || '';
+                    const parsed = JSON.parse(fText.replace(/```json?\s*/g, '').replace(/```/g, '').trim());
+                    if (Array.isArray(parsed)) suggestedFollowups = parsed.slice(0, 3).map(s => String(s).trim());
+                } catch (e) {
+                    log.debug({ event: 'chat_followups_failed', reason: e.message }, 'Follow-up generation skipped');
+                }
+
                 jsonResponse(res, {
                     success: true,
                     response: cleanedResponse,
@@ -852,13 +1022,19 @@ IMPORTANT RULES:
                     contextQuality: contextQuality,
                     queryType: queryType,
                     sources: sources.length > 0 ? sources : undefined,
+                    suggestedFollowups: suggestedFollowups.length > 0 ? suggestedFollowups : undefined,
                     rag: {
                         method: useHyDE ? 'hyde+rrf' : (graphRAGResults?.length > 0 ? 'graph+vector+rrf' : 'hybrid'),
                         vectorResults: vectorResults?.length || 0,
                         graphResults: graphRAGResults?.length || 0,
                         fusedResults: finalResults?.length || 0,
                         usedHyDE: useHyDE,
-                        entityFilter: entityTypeFilter
+                        entityFilter: entityTypeFilter,
+                        tokenBudget: budgetResult.budget ? {
+                            estimated: budgetResult.budget.estimatedInputTokens,
+                            limit: budgetResult.budget.modelContextTokens,
+                            truncated: budgetResult.budget.decision?.truncateRag || budgetResult.budget.decision?.truncateHistory || false
+                        } : undefined
                     },
                     routing: routingInfo ? {
                         mode: routingInfo.mode,

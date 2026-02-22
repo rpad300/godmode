@@ -729,7 +729,7 @@ async function handleProjects({ req, res, pathname, supabase, storage, config, s
             const project = await storage.getCurrentProjectWithRole();
             jsonResponse(res, { project });
         } catch (e) {
-            const project = storage.getCurrentProject();
+            const project = await storage.getCurrentProject();
             jsonResponse(res, { project });
         }
         return true;
@@ -751,7 +751,7 @@ async function handleProjects({ req, res, pathname, supabase, storage, config, s
     if (pathname === '/api/projects/current/role' && req.method === 'PUT') {
         try {
             const body = await parseBody(req);
-            const project = storage.getCurrentProject();
+            const project = await storage.getCurrentProject();
             if (!project) {
                 jsonResponse(res, { error: 'No current project' }, 400);
                 return true;
@@ -870,8 +870,8 @@ async function handleProjects({ req, res, pathname, supabase, storage, config, s
         const projectId = activateMatch[1];
         const success = storage.switchProject(projectId);
         if (success) {
-            const project = storage.getCurrentProject();
-            const newDataDir = storage.getProjectDataDir();
+            const project = await storage.getCurrentProject();
+            const newDataDir = await storage.getProjectDataDir();
             processor.updateDataDir(newDataDir);
             config.dataDir = newDataDir;
             saveConfig(config);
@@ -945,7 +945,7 @@ async function handleProjects({ req, res, pathname, supabase, storage, config, s
             }
             const project = await storage.updateProject(projectId, updates);
             if (project) {
-                const isDefault = storage.getDefaultProjectId() === projectId;
+                const isDefault = (await storage.getDefaultProjectId()) === projectId;
                 jsonResponse(res, { success: true, project: { ...project, isDefault } });
             } else {
                 jsonResponse(res, { error: 'Project not found' }, 404);
@@ -1006,7 +1006,7 @@ async function handleProjects({ req, res, pathname, supabase, storage, config, s
             return true;
         }
         try {
-            const projectDir = storage.getProjectDir(projectId);
+            const projectDir = await storage.getProjectDir(projectId);
             const exportData = {
                 version: '1.0',
                 exportedAt: new Date().toISOString(),
@@ -1073,8 +1073,8 @@ async function handleProjects({ req, res, pathname, supabase, storage, config, s
                 return true;
             }
             const projectName = importData.project.name + ' (Imported)';
-            const newProject = storage.createProject(projectName, importData.project.userRole || '');
-            const projectDir = storage.getProjectDir(newProject.id);
+            const newProject = await storage.createProject(projectName, importData.project.userRole || '');
+            const projectDir = await storage.getProjectDir(newProject.id);
             if (importData.data) {
                 for (const [key, value] of Object.entries(importData.data)) {
                     await fsp.writeFile(path.join(projectDir, `${key}.json`), JSON.stringify(value, null, 2));
@@ -1093,162 +1093,131 @@ async function handleProjects({ req, res, pathname, supabase, storage, config, s
     // BYOK (Bring Your Own Key) Routes
     // ==========================================
 
-    // GET /api/projects/:id/providers - List providers with BYOK status
-    const byokListMatch = pathname.match(/^\/api\/projects\/([^/]+)\/providers$/);
-    if (byokListMatch && req.method === 'GET') {
-        const projectId = byokListMatch[1];
-        if (!isValidUUID(projectId)) {
-            jsonResponse(res, { error: 'Invalid project ID: must be a UUID' }, 400);
-            return true;
-        }
-        if (!supabase || !supabase.isConfigured()) {
-            jsonResponse(res, { error: 'Not configured' }, 503);
-            return true;
-        }
+    // ── Project-Level LLM Provider Keys ────────────────────────────────────
+
+    const CANONICAL_PROVIDERS = ['openai', 'anthropic', 'google', 'grok', 'deepseek', 'kimi', 'minimax'];
+    const PROVIDER_NAMES = { openai: 'OpenAI', anthropic: 'Claude / Anthropic', google: 'Google / Gemini', grok: 'Grok / xAI', deepseek: 'DeepSeek', kimi: 'Kimi', minimax: 'MiniMax' };
+    const PROVIDER_ALIASES = { anthropic: ['claude', 'anthropic'], google: ['gemini', 'google'], grok: ['xai', 'grok'] };
+
+    // GET /api/projects/:id/providers — list provider key status for this project
+    const projectProvidersGetMatch = pathname.match(/^\/api\/projects\/([^/]+)\/providers$/);
+    if (projectProvidersGetMatch && req.method === 'GET') {
+        const projId = projectProvidersGetMatch[1];
         try {
             const secrets = require('../../supabase/secrets');
-            const result = await secrets.getConfiguredProviders(projectId);
-            if (result.success) {
-                jsonResponse(res, { providers: result.providers });
-            } else {
-                jsonResponse(res, { error: result.error }, 500);
-            }
-        } catch (e) {
-            log.warn({ event: 'byok_list_error', reason: e.message }, 'Error listing BYOK providers');
-            jsonResponse(res, { error: e.message }, 500);
-        }
-        return true;
-    }
+            const providerStatus = [];
+            for (const p of CANONICAL_PROVIDERS) {
+                const projectInfo = await secrets.getSecretInfo('project', `${p}_api_key`, projId);
+                const hasProjectKey = projectInfo.success && !!projectInfo.secret;
 
-    // PUT /api/projects/:id/providers/:provider/key - Set provider API key for project
-    const byokSetMatch = pathname.match(/^\/api\/projects\/([^/]+)\/providers\/([^/]+)\/key$/);
-    if (byokSetMatch && req.method === 'PUT') {
-        const projectId = byokSetMatch[1];
-        const provider = byokSetMatch[2];
-        if (!isValidUUID(projectId)) {
-            jsonResponse(res, { error: 'Invalid project ID: must be a UUID' }, 400);
-            return true;
-        }
-        if (!supabase || !supabase.isConfigured()) {
-            jsonResponse(res, { error: 'Not configured' }, 503);
-            return true;
-        }
+                const systemInfo = await secrets.getSecretInfo('system', `${p}_api_key`);
+                const hasSystemKey = systemInfo.success && !!systemInfo.secret;
 
-        // Authenticate user
-        const token = supabase.auth.extractToken(req);
-        const userResult = await supabase.auth.getUser(token);
-        if (!userResult.success) {
-            jsonResponse(res, { error: 'Authentication required' }, 401);
-            return true;
-        }
+                let masked = null;
+                let source = null;
+                if (hasProjectKey) {
+                    masked = projectInfo.secret.masked_value || '****';
+                    source = 'project';
+                } else if (hasSystemKey) {
+                    source = 'system';
+                }
 
-        const body = await parseBody(req);
-        if (!body.apiKey || typeof body.apiKey !== 'string' || body.apiKey.trim().length === 0) {
-            jsonResponse(res, { error: 'apiKey is required' }, 400);
-            return true;
-        }
-
-        try {
-            const secrets = require('../../supabase/secrets');
-            const result = await secrets.setProviderApiKey(
-                provider,
-                body.apiKey.trim(),
-                'project',
-                projectId,
-                userResult.user.id
-            );
-
-            if (result.success) {
-                // Invalidate BYOK cache in the queue manager
-                try {
-                    const { getQueueManager } = require('../../llm/queue');
-                    const queue = getQueueManager();
-                    if (queue) queue.invalidateByokCache(projectId);
-                } catch (_) { /* queue not available */ }
-
-                jsonResponse(res, {
-                    success: true,
-                    secret: result.secret
+                providerStatus.push({
+                    id: p,
+                    aliases: PROVIDER_ALIASES[p] || [p],
+                    name: PROVIDER_NAMES[p] || p,
+                    configured: hasProjectKey || hasSystemKey,
+                    hasProjectKey,
+                    hasSystemKey,
+                    source,
+                    masked,
                 });
-            } else {
-                jsonResponse(res, { error: result.error }, 500);
             }
+            jsonResponse(res, { ok: true, providers: providerStatus });
         } catch (e) {
-            log.warn({ event: 'byok_set_error', reason: e.message, provider, projectId }, 'Error setting BYOK key');
+            log.warn({ event: 'project_providers_list_error', reason: e.message, projectId: projId }, 'Error listing project providers');
             jsonResponse(res, { error: e.message }, 500);
         }
         return true;
     }
 
-    // DELETE /api/projects/:id/providers/:provider/key - Remove provider API key from project
-    const byokDeleteMatch = pathname.match(/^\/api\/projects\/([^/]+)\/providers\/([^/]+)\/key$/);
-    if (byokDeleteMatch && req.method === 'DELETE') {
-        const projectId = byokDeleteMatch[1];
-        const provider = byokDeleteMatch[2];
-        if (!isValidUUID(projectId)) {
-            jsonResponse(res, { error: 'Invalid project ID: must be a UUID' }, 400);
-            return true;
-        }
-        if (!supabase || !supabase.isConfigured()) {
-            jsonResponse(res, { error: 'Not configured' }, 503);
-            return true;
-        }
-
-        // Authenticate user
-        const token = supabase.auth.extractToken(req);
-        const userResult = await supabase.auth.getUser(token);
-        if (!userResult.success) {
-            jsonResponse(res, { error: 'Authentication required' }, 401);
-            return true;
-        }
-
+    // POST /api/projects/:id/providers — save a project-level provider key
+    const projectProvidersSaveMatch = pathname.match(/^\/api\/projects\/([^/]+)\/providers$/);
+    if (projectProvidersSaveMatch && req.method === 'POST') {
+        const projId = projectProvidersSaveMatch[1];
         try {
+            const body = await parseBody(req);
+            const { provider, apiKey } = body;
+            if (!provider || !apiKey) {
+                jsonResponse(res, { error: 'provider and apiKey are required' }, 400);
+                return true;
+            }
             const secrets = require('../../supabase/secrets');
-            const secretName = `${provider}_api_key`;
-            const result = await secrets.deleteSecret('project', secretName, projectId);
-
+            const userId = req.user?.id || null;
+            const result = await secrets.setProviderApiKey(provider, apiKey, 'project', projId, userId);
             if (result.success) {
-                // Invalidate BYOK cache
                 try {
                     const { getQueueManager } = require('../../llm/queue');
                     const queue = getQueueManager();
-                    if (queue) queue.invalidateByokCache(projectId);
-                } catch (_) { /* queue not available */ }
-
-                jsonResponse(res, { success: true });
+                    if (queue) queue.invalidateByokCache(projId);
+                } catch (_) {}
+                jsonResponse(res, { ok: true, provider });
             } else {
-                jsonResponse(res, { error: result.error }, 500);
+                jsonResponse(res, { error: result.error || 'Failed to save key' }, 500);
             }
         } catch (e) {
-            log.warn({ event: 'byok_delete_error', reason: e.message, provider, projectId }, 'Error deleting BYOK key');
+            log.warn({ event: 'project_provider_save_error', reason: e.message, projectId: projId }, 'Error saving project provider key');
             jsonResponse(res, { error: e.message }, 500);
         }
         return true;
     }
 
-    // GET /api/projects/:id/providers/:provider/validate - Validate a project's API key
-    const byokValidateMatch = pathname.match(/^\/api\/projects\/([^/]+)\/providers\/([^/]+)\/validate$/);
-    if (byokValidateMatch && req.method === 'GET') {
-        const projectId = byokValidateMatch[1];
-        const provider = byokValidateMatch[2];
-        if (!isValidUUID(projectId)) {
-            jsonResponse(res, { error: 'Invalid project ID: must be a UUID' }, 400);
-            return true;
+    // POST /api/projects/:id/providers/validate — validate a project provider key
+    const projectProviderValidateMatch = pathname.match(/^\/api\/projects\/([^/]+)\/providers\/validate$/);
+    if (projectProviderValidateMatch && req.method === 'POST') {
+        const projId = projectProviderValidateMatch[1];
+        try {
+            const body = await parseBody(req);
+            const { provider } = body;
+            if (!provider) {
+                jsonResponse(res, { error: 'provider is required' }, 400);
+                return true;
+            }
+            const secrets = require('../../supabase/secrets');
+            const canonical = { claude: 'anthropic', gemini: 'google', xai: 'grok' }[provider] || provider;
+            const result = await secrets.getSecret('project', `${canonical}_api_key`, projId);
+            if (!result.success || !result.value) {
+                jsonResponse(res, { error: `No project key found for ${provider}` }, 404);
+                return true;
+            }
+            jsonResponse(res, { ok: true, provider: canonical, valid: true });
+        } catch (e) {
+            jsonResponse(res, { error: e.message }, 500);
         }
-        if (!supabase || !supabase.isConfigured()) {
-            jsonResponse(res, { error: 'Not configured' }, 503);
-            return true;
-        }
+        return true;
+    }
+
+    // DELETE /api/projects/:id/providers/:provider — remove project-level key (fall back to system)
+    const projectProviderDeleteMatch = pathname.match(/^\/api\/projects\/([^/]+)\/providers\/([^/]+)$/);
+    if (projectProviderDeleteMatch && req.method === 'DELETE') {
+        const projId = projectProviderDeleteMatch[1];
+        const providerId = projectProviderDeleteMatch[2];
         try {
             const secrets = require('../../supabase/secrets');
-            const result = await secrets.getProviderApiKey(provider, projectId);
-            jsonResponse(res, {
-                provider,
-                hasKey: result.success && !!result.value,
-                source: result.success ? result.source : null
-            });
+            const canonical = { claude: 'anthropic', gemini: 'google', xai: 'grok' }[providerId] || providerId;
+            const result = await secrets.deleteSecret('project', `${canonical}_api_key`, projId);
+            if (result.success) {
+                try {
+                    const { getQueueManager } = require('../../llm/queue');
+                    const queue = getQueueManager();
+                    if (queue) queue.invalidateByokCache(projId);
+                } catch (_) {}
+                jsonResponse(res, { ok: true, provider: canonical });
+            } else {
+                jsonResponse(res, { error: result.error || 'Failed to delete key' }, 500);
+            }
         } catch (e) {
-            log.warn({ event: 'byok_validate_error', reason: e.message, provider, projectId }, 'Error validating BYOK key');
+            log.warn({ event: 'project_provider_delete_error', reason: e.message, projectId: projId, provider: providerId }, 'Error deleting project provider key');
             jsonResponse(res, { error: e.message }, 500);
         }
         return true;

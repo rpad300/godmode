@@ -46,6 +46,7 @@ const { parseUrl, parseBody } = require('../../server/request');
 const { getLogger } = require('../../server/requestContext');
 const { logError } = require('../../logger');
 const { jsonResponse } = require('../../server/response');
+const llmRouter = require('../../llm/router');
 
 /**
  * Handle all contacts-related routes
@@ -53,7 +54,7 @@ const { jsonResponse } = require('../../server/response');
  * @returns {Promise<boolean>} - true if route was handled, false otherwise
  */
 async function handleContacts(ctx) {
-    const { req, res, pathname, storage, llm, supabase, config } = ctx;
+    const { req, res, pathname, storage, supabase, config } = ctx;
     const log = getLogger().child({ module: 'contacts' });
 
     // Quick check - if not a contacts route, return false immediately
@@ -994,22 +995,13 @@ DEPARTMENT_SUGGESTION: <suggested department if unknown>
 TAGS_SUGGESTION: <comma-separated suggested tags>
 NOTES_SUGGESTION: <additional notes to add>`;
 
-            const llmConfig = require('../../llm/config');
-            const textCfg = llmConfig.getTextConfig(config);
-            if (!textCfg?.provider || !textCfg?.model) {
-                jsonResponse(res, { ok: false, error: 'No LLM configured. Set Text provider and model in Settings > LLM.' }, 400);
-                return true;
-            }
-            const result = await llm.generateText({
-                provider: textCfg.provider,
-                providerConfig: textCfg.providerConfig || {},
-                model: textCfg.model,
+            const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
                 prompt,
                 temperature: 0.3,
                 maxTokens: 1024,
-                context: 'contacts'
-            });
-            const aiResponse = result.success ? (result.text || '') : '';
+                context: 'contacts-enrich'
+            }, config);
+            const aiResponse = routerResult.success ? (routerResult.result?.text || '') : '';
 
             // Parse suggestions
             const suggestions = {};

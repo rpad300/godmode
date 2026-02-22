@@ -19,22 +19,16 @@ import { cn } from '../lib/utils';
 import { toast } from 'sonner';
 import {
   useAdminStats, useSystemConfig, useUpdateSystemConfig, useApplyPreset,
-  useAdminAuditLog, useSystemPrompts, useSavePrompt, usePromptVersions, usePromptVersionContent, useRestorePromptVersion, usePromptPreview, useOntologyContext,
+  useAdminAuditLog, useSystemPrompts, useSavePrompt, usePromptVersions, usePromptVersionContent, useRestorePromptVersion, usePromptPreview,
   useSystemUsers, useCreateSystemUser, useUpdateSystemUser, useDeleteSystemUser,
   useProjectConfig, useUpdateProjectConfig,
-  useLLMProviders, useLLMModels, useLLMMetadataModels, useLLMMetadataStatus, useLLMMetadataSync,
+  useLLMProviders, useLLMModels, useLLMModelsByProvider, useLLMMetadataModels, useLLMMetadataStatus, useLLMMetadataSync,
   useSystemProviderKeys, useSaveSystemProviderKey,
   useLLMQueueStatus, useLLMQueuePending, useLLMQueueRetryable, useLLMQueueHistory, useLLMQueueAction,
   useGraphConfig, useGraphStatus, useGraphInsights, useGraphList, useGraphMultiStats, useGraphSyncStatus,
   useGraphProviders, useGraphConnect, useGraphTest, useGraphSync, useGraphFullSync,
   useGraphCreateIndexes, useGraphCleanupOrphans, useGraphCleanupDuplicates, useGraphSyncCleanup,
   useGraphDeleteGraph, useGraphQuery, useGraphSyncProjects,
-  useOntologySchema, useOntologyStats, useOntologyEntities, useOntologyRelations,
-  useOntologySuggestions, useOntologyWorkerStatus, useOntologySyncStatus, useOntologyChanges,
-  useOntologyCompliance, useOntologyDiff, useOntologyUnused,
-  useOntologyAnalyzeGraph, useOntologyForceSync, useOntologyApproveSuggestion, useOntologyRejectSuggestion,
-  useOntologyAutoApprove, useOntologyWorkerTrigger, useOntologyCleanup, useOntologyInferRelationships,
-  useOntologyAddEntityType, useOntologyAddRelationType,
   useTeamAnalysisConfig, useUpdateTeamAnalysisConfig,
   useTeamProfiles, useTeamDynamics, useTeamRelationships,
   useRunTeamAnalysis, useAnalyzeProfile, useSyncTeamGraph, useTeamAdminProjects, useAdminRunProjectAnalysis,
@@ -78,6 +72,7 @@ import {
   CARD, INPUT, BTN_PRIMARY, BTN_SECONDARY, BTN_DANGER, SECTION_TITLE, TABLE_HEAD,
   Loading, ErrorBox, EmptyState, SectionHeader, StatCard, Toggle, r,
 } from './admin/shared';
+import GraphOntology from '../components/graph/GraphOntology';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // SECTION: Alert Banners — real data from /api/system/stats
@@ -390,6 +385,102 @@ function SystemSection() {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// Sub-component: Task-specific provider + model selector with dynamic model list
+// ══════════════════════════════════════════════════════════════════════════════
+
+function TaskModelSelector({ task, taskLabel, currentProvider, currentModel, providerList, onProviderChange, onModelChange }: {
+  task: string;
+  taskLabel: string;
+  currentProvider: string;
+  currentModel: string;
+  providerList: Array<{ id: string; name: string }>;
+  onProviderChange: (provider: string) => void;
+  onModelChange: (model: string) => void;
+}) {
+  const { data: modelsData, isLoading: modelsLoading, isError: modelsError } = useLLMModelsByProvider(currentProvider || null);
+  const [manualMode, setManualMode] = useState(false);
+
+  const modelOptions = useMemo(() => {
+    if (!modelsData) return [];
+    const resp = modelsData as Record<string, unknown>;
+    const text = (resp.textModels ?? []) as Array<{ id: string; name?: string; contextTokens?: number }>;
+    const vision = (resp.visionModels ?? []) as Array<{ id: string; name?: string }>;
+    const embedding = (resp.embeddingModels ?? []) as Array<{ id: string; name?: string }>;
+
+    if (task === 'vision') return vision;
+    if (task === 'embeddings') return embedding;
+    return text;
+  }, [modelsData, task]);
+
+  const hasModels = modelOptions.length > 0;
+
+  return (
+    <div className="space-y-2">
+      <span className="text-sm font-medium text-[var(--gm-text-primary)] capitalize">{taskLabel}</span>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className={cn(TABLE_HEAD, 'block mb-1')}>PROVIDER</label>
+          <select
+            value={currentProvider}
+            onChange={e => { onProviderChange(e.target.value); setManualMode(false); }}
+            className={cn(INPUT, 'w-full text-xs')}
+          >
+            <option value="">Select...</option>
+            {providerList.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <span className="text-[10px] text-[var(--gm-accent-primary)] mt-0.5 block">{providerList.length} provider(s) available</span>
+        </div>
+        <div>
+          <label className={cn(TABLE_HEAD, 'block mb-1')}>MODEL</label>
+          {modelsLoading && currentProvider ? (
+            <div className={cn(INPUT, 'w-full text-xs flex items-center gap-2')}>
+              <Loader2 className="w-3 h-3 animate-spin text-blue-400" />
+              <span className="text-[var(--gm-text-tertiary)]">Loading models...</span>
+            </div>
+          ) : hasModels && !manualMode ? (
+            <>
+              <select
+                value={currentModel}
+                onChange={e => onModelChange(e.target.value)}
+                className={cn(INPUT, 'w-full text-xs')}
+              >
+                <option value="">Select model...</option>
+                {modelOptions.map(m => (
+                  <option key={m.id} value={m.id}>
+                    {m.name || m.id}
+                    {(m as Record<string, unknown>).contextTokens ? ` (${Math.round(Number((m as Record<string, unknown>).contextTokens) / 1000)}K ctx)` : ''}
+                  </option>
+                ))}
+              </select>
+              <button onClick={() => setManualMode(true)} className="text-[10px] text-blue-400 hover:text-blue-300 mt-0.5 block">
+                or type manually
+              </button>
+            </>
+          ) : (
+            <>
+              <input
+                value={currentModel}
+                onChange={e => onModelChange(e.target.value)}
+                className={cn(INPUT, 'w-full text-xs')}
+                placeholder={currentProvider ? 'e.g. gpt-4o' : 'Select a provider first'}
+              />
+              {hasModels && manualMode && (
+                <button onClick={() => setManualMode(false)} className="text-[10px] text-blue-400 hover:text-blue-300 mt-0.5 block">
+                  back to dropdown
+                </button>
+              )}
+              {modelsError && currentProvider && (
+                <span className="text-[10px] text-amber-400 mt-0.5 block">Could not load models — type manually</span>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // SECTION: LLM Providers — /api/config (GET+POST) for keys + task config
 // GET returns MASKED keys: providers[id] has { apiKeyMasked, isConfigured, name }
 //   apiKey is DELETED from the response — never sent to frontend
@@ -644,24 +735,19 @@ function LLMProvidersSection() {
         </div>
         {Object.entries(perTask).map(([task, cfg]) => {
           const taskLabel = task.replace(/_/g, ' ').replace(/([A-Z])/g, ' $1');
+          const currentProvider = taskEdits[task]?.provider ?? cfg?.provider ?? '';
+          const currentModel = taskEdits[task]?.model ?? cfg?.model ?? '';
           return (
-            <div key={task} className="space-y-2">
-              <span className="text-sm font-medium text-[var(--gm-text-primary)] capitalize">{taskLabel}</span>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className={cn(TABLE_HEAD, 'block mb-1')}>PROVIDER</label>
-                  <select value={taskEdits[task]?.provider ?? cfg?.provider ?? ''} onChange={e => setTaskEdits(prev => ({ ...prev, [task]: { provider: e.target.value, model: prev[task]?.model ?? cfg?.model ?? '' } }))} className={cn(INPUT, 'w-full text-xs')}>
-                    <option value="">Select...</option>
-                    {providerList.filter(p => p.isConfigured).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
-                  <span className="text-[10px] text-[var(--gm-accent-primary)] mt-0.5 block">{providerList.filter(p => p.isConfigured).length} provider(s) available</span>
-                </div>
-                <div>
-                  <label className={cn(TABLE_HEAD, 'block mb-1')}>MODEL</label>
-                  <input value={taskEdits[task]?.model ?? cfg?.model ?? ''} onChange={e => setTaskEdits(prev => ({ ...prev, [task]: { provider: prev[task]?.provider ?? cfg?.provider ?? '', model: e.target.value } }))} className={cn(INPUT, 'w-full text-xs')} placeholder="e.g. gpt-4o" />
-                </div>
-              </div>
-            </div>
+            <TaskModelSelector
+              key={task}
+              task={task}
+              taskLabel={taskLabel}
+              currentProvider={currentProvider}
+              currentModel={currentModel}
+              providerList={providerList.filter(p => p.isConfigured)}
+              onProviderChange={(provider) => setTaskEdits(prev => ({ ...prev, [task]: { provider, model: '' } }))}
+              onModelChange={(model) => setTaskEdits(prev => ({ ...prev, [task]: { provider: prev[task]?.provider ?? cfg?.provider ?? '', model } }))}
+            />
           );
         })}
         <div className="flex items-center gap-3">
@@ -1585,381 +1671,16 @@ function GraphSection() {
 // ══════════════════════════════════════════════════════════════════════════════
 
 function OntologySection() {
-  const { data, isLoading } = useOntologySchema();
-  const { data: statsData } = useOntologyStats();
-  const { data: sugData } = useOntologySuggestions();
-  const { data: workerData } = useOntologyWorkerStatus();
-  const { data: syncData } = useOntologySyncStatus();
-  const { data: changesData } = useOntologyChanges();
-  const complianceQ = useOntologyCompliance();
-  const diffQ = useOntologyDiff();
-  const unusedQ = useOntologyUnused();
-  const analyzeGraph = useOntologyAnalyzeGraph();
-  const forceSync = useOntologyForceSync();
-  const approveSug = useOntologyApproveSuggestion();
-  const rejectSug = useOntologyRejectSuggestion();
-  const autoApprove = useOntologyAutoApprove();
-  const workerTrigger = useOntologyWorkerTrigger();
-  const cleanup = useOntologyCleanup();
-  const inferRels = useOntologyInferRelationships();
-  const addEntity = useOntologyAddEntityType();
-  const addRelation = useOntologyAddRelationType();
-
-  const [tab, setTab] = useState<'schema' | 'analysis' | 'maintenance'>('schema');
-  const [newEntity, setNewEntity] = useState('');
-  const [newRelation, setNewRelation] = useState('');
-
-  if (isLoading) return <Loading />;
-
-  const resp = r(data);
-  const entities = (resp.entityTypes ?? resp.entities ?? []) as Array<Record<string, unknown>>;
-  const relations = (resp.relationTypes ?? resp.relations ?? []) as Array<Record<string, unknown>>;
-  const statsResp = r(statsData);
-  const stats = r(statsResp.stats);
-  const totalInstances = Object.values(stats).reduce((sum: number, v) => sum + (typeof v === 'number' ? v : 0), 0);
-  const typeColors = ['#38bdf8', '#34d399', '#fbbf24', '#818cf8', '#f472b6', '#94a3b8', '#fb923c', '#a78bfa'];
-
-  const suggestions = (r(sugData).suggestions ?? []) as Array<Record<string, unknown>>;
-  const workerStatus = r(workerData);
-  const syncStatus = r(syncData);
-  const changes = (r(changesData).changes ?? []) as Array<Record<string, unknown>>;
-  const compliance = r(complianceQ.data);
-  const diff = r(diffQ.data);
-  const unused = r(unusedQ.data);
-  const pendingSugs = suggestions.filter(s => s.status === 'pending' || !s.status);
-
   return (
     <div className="space-y-5">
-      <SectionHeader title="Ontology" subtitle={`${entities.length} entity types · ${relations.length} relation types · ${totalInstances} instances`} />
-
-      {/* Tabs */}
-      <div className={cn(CARD, 'p-1 flex gap-1')}>
-        {(['schema', 'analysis', 'maintenance'] as const).map(t => (
-          <button key={t} onClick={() => setTab(t)}
-            className={cn('flex-1 px-3 py-2 text-[11px] font-medium rounded-lg capitalize transition-colors',
-              tab === t ? 'bg-[var(--gm-accent-primary)]/15 text-[var(--gm-accent-primary)]' : 'text-[var(--gm-text-tertiary)] hover:text-[var(--gm-text-secondary)]')}>
-            {t === 'schema' ? `Schema (${entities.length + relations.length})` : t === 'analysis' ? `Analysis (${pendingSugs.length} pending)` : 'Maintenance'}
-          </button>
-        ))}
+      <SectionHeader title="Ontology" subtitle="Full ontology management — entities, relations, AI, tools, inference, embeddings, and more" />
+      <div className={cn(CARD, 'overflow-hidden')} style={{ height: 'calc(100vh - 220px)', minHeight: 500 }}>
+        <GraphOntology />
       </div>
-
-      {/* ── Schema Tab ── */}
-      {tab === 'schema' && (
-        <div className="space-y-5">
-          {/* Entity Types */}
-          <div className={cn(CARD, 'overflow-hidden')}>
-            <div className="px-5 py-3 border-b border-[var(--gm-border-primary)] flex items-center justify-between">
-              <h3 className={SECTION_TITLE}>Entity Types</h3>
-              <div className="flex items-center gap-2">
-                <input value={newEntity} onChange={e => setNewEntity(e.target.value)} placeholder="New entity type..." className={cn(INPUT, 'w-40 py-1 text-xs')} />
-                <button disabled={!newEntity.trim() || addEntity.isPending} onClick={() => addEntity.mutate({ name: newEntity.trim() }, { onSuccess: () => { toast.success(`Entity type "${newEntity}" added`); setNewEntity(''); }, onError: (e: Error) => toast.error(e.message) })} className={BTN_PRIMARY}>
-                  {addEntity.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />} Add
-                </button>
-              </div>
-            </div>
-            {entities.map((e, i) => {
-              const name = (e.name || e.label || e.type || 'Unknown') as string;
-              const count = (stats[name] ?? e.count ?? 0) as number;
-              const props = Array.isArray(e.properties) ? e.properties : [];
-              const relsCount = Array.isArray(e.allowedRelations) ? e.allowedRelations.length : (e.relationCount ?? 0) as number;
-              return (
-                <div key={i} className="px-5 py-3 border-b border-[var(--gm-border-primary)] last:border-0 hover:bg-[var(--gm-surface-hover)] transition-colors">
-                  <div className="flex items-center">
-                    <span className="w-2.5 h-2.5 rounded-full shrink-0 mr-3" style={{ backgroundColor: (e.color as string) || typeColors[i % typeColors.length] }} />
-                    <span className="text-xs font-semibold text-[var(--gm-text-primary)] flex-1">{name}</span>
-                    <span className="text-[10px] text-[var(--gm-text-tertiary)] tabular-nums px-2 py-0.5 rounded bg-[var(--gm-bg-tertiary)] mx-1">{count} instances</span>
-                    <span className="text-[10px] text-[var(--gm-text-tertiary)] tabular-nums mx-1">{props.length} props</span>
-                    <span className="text-[10px] text-[var(--gm-text-tertiary)] tabular-nums mx-1">{relsCount} rels</span>
-                  </div>
-                  {props.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-1.5 ml-[22px]">
-                      {props.map((p: Record<string, unknown>, j: number) => (
-                        <span key={j} className="text-[9px] px-1.5 py-0.5 rounded bg-[var(--gm-bg-tertiary)] text-[var(--gm-text-tertiary)] border border-[var(--gm-border-primary)]">
-                          {(p.name || p) as string}{p.type ? `: ${p.type}` : ''}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-            {entities.length === 0 && <EmptyState msg="No entity types defined." />}
-          </div>
-
-          {/* Relation Types */}
-          <div className={cn(CARD, 'overflow-hidden')}>
-            <div className="px-5 py-3 border-b border-[var(--gm-border-primary)] flex items-center justify-between">
-              <h3 className={SECTION_TITLE}>Relation Types</h3>
-              <div className="flex items-center gap-2">
-                <input value={newRelation} onChange={e => setNewRelation(e.target.value)} placeholder="New relation type..." className={cn(INPUT, 'w-40 py-1 text-xs')} />
-                <button disabled={!newRelation.trim() || addRelation.isPending} onClick={() => addRelation.mutate({ name: newRelation.trim() }, { onSuccess: () => { toast.success(`Relation type "${newRelation}" added`); setNewRelation(''); }, onError: (e: Error) => toast.error(e.message) })} className={BTN_PRIMARY}>
-                  {addRelation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />} Add
-                </button>
-              </div>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead><tr className="border-b border-[var(--gm-border-primary)]">
-                  {['Relation', 'From', 'To', 'Instances'].map(h => <th key={h} className={cn(TABLE_HEAD, 'px-4 py-2 text-left')}>{h}</th>)}
-                </tr></thead>
-                <tbody>
-                  {relations.map((rel, i) => {
-                    const name = (rel.name || rel.type || '—') as string;
-                    return (
-                      <tr key={i} className="border-b border-[var(--gm-border-primary)] last:border-0 hover:bg-[var(--gm-surface-hover)]">
-                        <td className="px-4 py-2 text-xs font-medium text-[var(--gm-text-primary)]">{name}</td>
-                        <td className="px-4 py-2 text-[10px] text-[var(--gm-text-tertiary)]">{(rel.from || rel.source || '*') as string}</td>
-                        <td className="px-4 py-2 text-[10px] text-[var(--gm-text-tertiary)]">{(rel.to || rel.target || '*') as string}</td>
-                        <td className="px-4 py-2 text-[10px] text-[var(--gm-text-tertiary)] tabular-nums">{(stats[name] ?? rel.count ?? 0) as number}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-            {relations.length === 0 && <EmptyState msg="No relation types defined." />}
-          </div>
-        </div>
-      )}
-
-      {/* ── Analysis Tab ── */}
-      {tab === 'analysis' && (
-        <div className="space-y-5">
-          {/* Controls */}
-          <div className={cn(CARD, 'p-4 flex items-center gap-3 flex-wrap')}>
-            <button onClick={() => analyzeGraph.mutate(undefined, { onSuccess: () => toast.success('Graph analysis complete'), onError: (e: Error) => toast.error(e.message) })} disabled={analyzeGraph.isPending} className={BTN_PRIMARY}>
-              {analyzeGraph.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
-              Analyze Graph
-            </button>
-            <button onClick={() => forceSync.mutate(undefined, { onSuccess: () => toast.success('Sync complete'), onError: (e: Error) => toast.error(e.message) })} disabled={forceSync.isPending} className={BTN_SECONDARY}>
-              {forceSync.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-              Force Sync
-            </button>
-            <button onClick={() => inferRels.mutate(undefined, { onSuccess: () => toast.success('Relationship inference complete'), onError: (e: Error) => toast.error(e.message) })} disabled={inferRels.isPending} className={BTN_SECONDARY}>
-              {inferRels.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Network className="w-3.5 h-3.5" />}
-              Infer Relationships
-            </button>
-            {pendingSugs.length > 0 && (
-              <button onClick={() => autoApprove.mutate({ minConfidence: 0.8 }, { onSuccess: (d) => toast.success(`Auto-approved ${(d as Record<string, unknown>)?.approved ?? '?'} suggestions`), onError: (e: Error) => toast.error(e.message) })} disabled={autoApprove.isPending} className={BTN_SECONDARY}>
-                {autoApprove.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />}
-                Auto-Approve ({pendingSugs.length})
-              </button>
-            )}
-          </div>
-
-          {/* Worker & Sync Status */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className={cn(CARD, 'p-4 space-y-2')}>
-              <h3 className={SECTION_TITLE}>Worker Status</h3>
-              {[
-                ['Running', workerStatus.isRunning ? 'Yes' : 'No'],
-                ['Last Run', workerStatus.lastRun ? new Date(workerStatus.lastRun as string).toLocaleString() : '—'],
-                ['Total Runs', String(workerStatus.totalRuns ?? '—')],
-                ['Last Result', String(workerStatus.lastResult ?? '—')],
-              ].map(([k, v]) => (
-                <div key={k} className="flex justify-between">
-                  <span className="text-[10px] text-[var(--gm-text-tertiary)] uppercase">{k}</span>
-                  <span className="text-xs text-[var(--gm-text-primary)]">{v}</span>
-                </div>
-              ))}
-              <div className="flex gap-2 pt-1">
-                {['full_analysis', 'entity_extraction', 'relation_inference'].map(t => (
-                  <button key={t} onClick={() => workerTrigger.mutate({ type: t }, { onSuccess: () => toast.success(`Worker triggered: ${t}`), onError: (e: Error) => toast.error(e.message) })}
-                    disabled={workerTrigger.isPending} className="text-[9px] px-2 py-1 rounded bg-[var(--gm-bg-tertiary)] text-[var(--gm-text-tertiary)] hover:text-[var(--gm-text-secondary)] border border-[var(--gm-border-primary)]">
-                    {t.replace(/_/g, ' ')}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className={cn(CARD, 'p-4 space-y-2')}>
-              <h3 className={SECTION_TITLE}>Sync Status</h3>
-              {[
-                ['Status', String(syncStatus.status ?? syncStatus.syncStatus ?? '—')],
-                ['Last Sync', syncStatus.lastSyncAt ? new Date(syncStatus.lastSyncAt as string).toLocaleString() : '—'],
-                ['Entity Count', String(syncStatus.entityCount ?? '—')],
-                ['Relation Count', String(syncStatus.relationCount ?? '—')],
-              ].map(([k, v]) => (
-                <div key={k} className="flex justify-between">
-                  <span className="text-[10px] text-[var(--gm-text-tertiary)] uppercase">{k}</span>
-                  <span className="text-xs text-[var(--gm-text-primary)]">{v}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Suggestions */}
-          {suggestions.length > 0 && (
-            <div className={cn(CARD, 'overflow-hidden')}>
-              <div className="px-5 py-3 border-b border-[var(--gm-border-primary)]">
-                <h3 className={SECTION_TITLE}>AI Suggestions ({pendingSugs.length} pending)</h3>
-              </div>
-              <div className="max-h-72 overflow-y-auto">
-                {suggestions.slice(0, 30).map((s, i) => {
-                  const isPending = s.status === 'pending' || !s.status;
-                  return (
-                    <div key={i} className="flex items-center px-5 py-3 border-b border-[var(--gm-border-primary)] last:border-0 hover:bg-[var(--gm-surface-hover)]">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className={cn('text-[9px] px-1.5 py-0.5 rounded-full font-medium border capitalize',
-                            s.type === 'entity' ? 'bg-blue-500/10 border-blue-500/30 text-blue-400' : 'bg-purple-500/10 border-purple-500/30 text-purple-400')}>
-                            {(s.type || 'unknown') as string}
-                          </span>
-                          <span className="text-xs font-medium text-[var(--gm-text-primary)] truncate">{(s.name || s.label || s.suggestion || '—') as string}</span>
-                          <span className={cn('text-[9px] px-1.5 py-0.5 rounded-full capitalize',
-                            isPending ? 'bg-amber-500/10 text-amber-400' : s.status === 'approved' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400')}>
-                            {(s.status || 'pending') as string}
-                          </span>
-                          {s.confidence && <span className="text-[9px] text-[var(--gm-text-tertiary)] tabular-nums">{(Number(s.confidence) * 100).toFixed(0)}%</span>}
-                        </div>
-                        {s.reason && <p className="text-[10px] text-[var(--gm-text-tertiary)] mt-0.5 truncate">{s.reason as string}</p>}
-                      </div>
-                      {isPending && (
-                        <div className="flex gap-1.5 ml-3 shrink-0">
-                          <button onClick={() => approveSug.mutate({ id: s.id as string }, { onSuccess: () => toast.success('Approved'), onError: (e: Error) => toast.error(e.message) })} className="text-[9px] px-2 py-1 rounded bg-green-500/10 text-green-400 hover:bg-green-500/20 border border-green-500/30">Approve</button>
-                          <button onClick={() => rejectSug.mutate({ id: s.id as string }, { onSuccess: () => toast.success('Rejected'), onError: (e: Error) => toast.error(e.message) })} className="text-[9px] px-2 py-1 rounded bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/30">Reject</button>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-          {suggestions.length === 0 && <EmptyState msg="No suggestions. Run 'Analyze Graph' to generate AI suggestions." />}
-
-          {/* Change History */}
-          {changes.length > 0 && (
-            <div className={cn(CARD, 'overflow-hidden')}>
-              <div className="px-5 py-3 border-b border-[var(--gm-border-primary)]">
-                <h3 className={SECTION_TITLE}>Change History</h3>
-              </div>
-              <div className="max-h-48 overflow-y-auto">
-                {changes.slice(0, 20).map((ch, i) => (
-                  <div key={i} className="flex items-center px-5 py-2 border-b border-[var(--gm-border-primary)] last:border-0 text-[10px]">
-                    <span className="text-[var(--gm-text-tertiary)] w-36 shrink-0 tabular-nums">{ch.timestamp ? new Date(ch.timestamp as string).toLocaleString() : '—'}</span>
-                    <span className={cn('px-1.5 py-0.5 rounded-full mr-2 capitalize font-medium border',
-                      ch.action === 'add' ? 'bg-green-500/10 border-green-500/30 text-green-400' :
-                      ch.action === 'remove' ? 'bg-red-500/10 border-red-500/30 text-red-400' :
-                      'bg-blue-500/10 border-blue-500/30 text-blue-400')}>{(ch.action || '—') as string}</span>
-                    <span className="text-[var(--gm-text-primary)] flex-1 truncate">{(ch.description || ch.detail || `${ch.type}: ${ch.name}`) as string}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── Maintenance Tab ── */}
-      {tab === 'maintenance' && (
-        <div className="space-y-5">
-          {/* Actions */}
-          <div className={cn(CARD, 'p-4 flex items-center gap-3 flex-wrap')}>
-            <button onClick={() => complianceQ.refetch()} disabled={complianceQ.isFetching} className={BTN_SECONDARY}>
-              {complianceQ.isFetching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Shield className="w-3.5 h-3.5" />}
-              Validate Compliance
-            </button>
-            <button onClick={() => diffQ.refetch()} disabled={diffQ.isFetching} className={BTN_SECONDARY}>
-              {diffQ.isFetching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Gauge className="w-3.5 h-3.5" />}
-              Diff Schema vs Graph
-            </button>
-            <button onClick={() => unusedQ.refetch()} disabled={unusedQ.isFetching} className={BTN_SECONDARY}>
-              {unusedQ.isFetching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
-              Find Unused Types
-            </button>
-          </div>
-
-          {/* Compliance Results */}
-          {compliance.ok && (
-            <div className={cn(CARD, 'p-5 space-y-3')}>
-              <div className="flex items-center gap-3">
-                <h3 className={SECTION_TITLE}>Compliance</h3>
-                <span className={cn('text-xs font-bold tabular-nums', Number(compliance.score) >= 80 ? 'text-green-400' : Number(compliance.score) >= 50 ? 'text-amber-400' : 'text-red-400')}>
-                  {compliance.score as number}%
-                </span>
-                <span className={cn('text-[9px] px-2 py-0.5 rounded-full',
-                  compliance.valid ? 'bg-green-500/10 text-green-400' : 'bg-amber-500/10 text-amber-400')}>
-                  {compliance.valid ? 'Compliant' : 'Issues Found'}
-                </span>
-              </div>
-              {Array.isArray(compliance.issues) && (compliance.issues as Array<Record<string, unknown>>).length > 0 && (
-                <div className="space-y-1 max-h-40 overflow-y-auto">
-                  {(compliance.issues as Array<Record<string, unknown>>).map((issue, i) => (
-                    <div key={i} className="flex items-start gap-2 text-[10px]">
-                      <span className={cn('shrink-0 mt-0.5',
-                        issue.type === 'error' ? 'text-red-400' : 'text-amber-400')}>
-                        {issue.type === 'error' ? '●' : '▲'}
-                      </span>
-                      <span className="text-[var(--gm-text-secondary)]">{issue.message as string}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Diff Results */}
-          {diff.ok && (
-            <div className={cn(CARD, 'p-5 space-y-3')}>
-              <h3 className={SECTION_TITLE}>Schema vs Graph Diff</h3>
-              {diff.diff && (() => {
-                const d = diff.diff as Record<string, unknown[]>;
-                const sections = [
-                  { key: 'missingInSchema', label: 'In graph but not in schema', color: 'text-amber-400' },
-                  { key: 'missingInGraph', label: 'In schema but not in graph', color: 'text-blue-400' },
-                  { key: 'matching', label: 'Matching', color: 'text-green-400' },
-                ];
-                return sections.map(({ key, label, color }) => {
-                  const items = d[key];
-                  if (!Array.isArray(items) || items.length === 0) return null;
-                  return (
-                    <div key={key}>
-                      <span className={cn('text-[10px] font-medium', color)}>{label} ({items.length})</span>
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {items.map((item, i) => (
-                          <span key={i} className="text-[9px] px-1.5 py-0.5 rounded bg-[var(--gm-bg-tertiary)] text-[var(--gm-text-tertiary)] border border-[var(--gm-border-primary)]">
-                            {typeof item === 'string' ? item : (item as Record<string, unknown>).name as string || '?'}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                });
-              })()}
-            </div>
-          )}
-
-          {/* Unused Types */}
-          {unused.ok && (
-            <div className={cn(CARD, 'p-5 space-y-3')}>
-              <h3 className={SECTION_TITLE}>Unused Types</h3>
-              {(() => {
-                const ue = (unused.entities ?? []) as string[];
-                const ur = (unused.relations ?? []) as string[];
-                if (ue.length === 0 && ur.length === 0) return <p className="text-[10px] text-green-400">All types are in use.</p>;
-                return (
-                  <>
-                    {ue.length > 0 && <div><span className="text-[10px] text-amber-400 font-medium">Unused entity types ({ue.length})</span><div className="flex flex-wrap gap-1 mt-1">{ue.map(n => <span key={n} className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30">{n}</span>)}</div></div>}
-                    {ur.length > 0 && <div className="mt-2"><span className="text-[10px] text-amber-400 font-medium">Unused relation types ({ur.length})</span><div className="flex flex-wrap gap-1 mt-1">{ur.map(n => <span key={n} className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30">{n}</span>)}</div></div>}
-                    <button onClick={() => cleanup.mutate({ entities: ue, relations: ur }, { onSuccess: () => toast.success('Cleanup complete'), onError: (e: Error) => toast.error(e.message) })} disabled={cleanup.isPending} className={BTN_PRIMARY}>
-                      {cleanup.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />} Cleanup Unused
-                    </button>
-                  </>
-                );
-              })()}
-            </div>
-          )}
-
-          {!compliance.ok && !diff.ok && !unused.ok && (
-            <EmptyState msg="Run a check above to see results." />
-          )}
-        </div>
-      )}
-
-      {statsResp.message && <p className="text-xs text-[var(--gm-text-tertiary)]">{statsResp.message as string}</p>}
     </div>
   );
 }
+
 
 // ══════════════════════════════════════════════════════════════════════════════
 // SECTION: Prompts — /api/system/prompts CRUD with versioning

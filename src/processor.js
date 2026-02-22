@@ -77,6 +77,17 @@ class DocumentProcessor {
     }
 
     /**
+     * Hot-reload config without restarting the processor.
+     * Propagates to sub-components so they pick up new LLM settings.
+     */
+    updateConfig(newConfig) {
+        this.config = newConfig;
+        if (this.extractor) this.extractor.config = newConfig;
+        if (this.analyzer) this.analyzer.config = newConfig;
+        if (this.synthesizer) this.synthesizer.config = newConfig;
+    }
+
+    /**
      * Initialize processor (load prompts, check tools)
      */
     async initialize() {

@@ -30,7 +30,7 @@
  */
 
 const { logger } = require('../logger');
-const llm = require('../llm');
+const llmRouter = require('../llm/router');
 
 const log = logger.child({ module: 'multi-language-ner' });
 
@@ -49,7 +49,8 @@ class MultiLanguageNER {
         this.llmProvider = options.llmProvider || null;
         this.llmModel = options.llmModel || null;
         this.llmConfig = options.llmConfig || {};
-        
+        this._resolvedConfig = options.appConfig || options.config || { llm: this.llmConfig };
+
         // Entity types to extract
         this.entityTypes = [
             'PERSON',       // People names
@@ -237,17 +238,16 @@ Entity types: PERSON, ORGANIZATION, LOCATION, DATE, PROJECT, TECHNOLOGY, PRODUCT
 Be precise and extract only clearly mentioned entities.`;
 
         try {
-            const result = await llm.generateText({
-                provider: this.llmProvider,
-                providerConfig: this.llmConfig?.providers?.[this.llmProvider] || {},
-                model: this.llmModel,
+            const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
                 prompt,
                 temperature: 0.1,
-                maxTokens: 1000
-            });
+                maxTokens: 1000,
+                context: 'multi-language-ner'
+            }, this._resolvedConfig);
 
-            if (result.success) {
-                return this.parseLLMResponse(result.text);
+            if (routerResult.success) {
+                const rText = routerResult.result?.text || routerResult.result?.response || '';
+                return this.parseLLMResponse(rText);
             }
         } catch (e) {
             log.warn({ event: 'multi_language_ner_llm_failed', message: e.message }, 'LLM extraction failed');

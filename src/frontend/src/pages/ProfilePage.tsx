@@ -26,14 +26,13 @@
  *   - The auth token in IntegrationsSection is hardcoded as a placeholder.
  *   - Account deletion is not implemented; it shows a toast directing the user to an admin.
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   User, Lock, Monitor, Link2, Mail, AtSign, Type, AlignLeft, Image,
   Globe, Languages, Key, AlertTriangle, Trash2, LogOut, Mic,
-  Check, Loader2, ChevronRight, Building2, Plus, Eye, Edit2,
-  Zap, ArrowLeft, RefreshCw, Code2, Palette, Sparkles, Info,
-  UserCog, Clock, Shield,
+  Check, Loader2, ChevronRight, Building2, Briefcase, Sparkles, Info,
+  Clock,
   ExternalLink, CheckCircle2, XCircle, Download, Calendar,
   ChevronDown, ChevronUp, FileText, ListChecks, Lightbulb, Headphones
 } from 'lucide-react';
@@ -44,10 +43,6 @@ import { useProject } from '@/contexts/ProjectContext';
 import { cn, getInitials, isValidAvatarUrl } from '@/lib/utils';
 import { apiClient } from '@/lib/api-client';
 import { AvatarUpload } from '@/components/shared/AvatarUpload';
-import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 import {
   useKrispOAuthStatus,
   useKrispOAuthAuthorize,
@@ -62,7 +57,7 @@ import {
 
 // ── Style tokens (aligned with AdminPage) ────────────────────────────────────
 
-type ProfileSection = 'general' | 'security' | 'sessions' | 'integrations' | 'companies' | 'settings';
+type ProfileSection = 'general' | 'security' | 'sessions' | 'integrations' | 'companies' | 'projects' | 'settings';
 
 const CARD = 'rounded-xl border border-[var(--gm-border-primary)] bg-[var(--gm-surface-primary)] shadow-[var(--shadow-sm)] transition-all duration-200';
 const INPUT = 'w-full bg-[var(--gm-bg-tertiary)] border border-[var(--gm-border-primary)] rounded-lg px-3 py-2 text-sm text-[var(--gm-text-primary)] placeholder:text-[var(--gm-text-placeholder)] focus:outline-none focus:border-[var(--gm-border-focus)] focus:shadow-[var(--shadow-focus)] transition-all duration-150';
@@ -78,6 +73,7 @@ const NAV_ITEMS = [
   { id: 'sessions' as const, label: 'Sessions', icon: Monitor },
   { id: 'settings' as const, label: 'User Settings', icon: Sparkles },
   { id: 'companies' as const, label: 'Companies', icon: Building2 },
+  { id: 'projects' as const, label: 'Projects', icon: Briefcase },
   { id: 'integrations' as const, label: 'Integrations', icon: Link2 },
 ];
 
@@ -92,7 +88,11 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }
 
 const ProfilePage = () => {
   const { user, isLoading } = useUser();
-  const [activeSection, setActiveSection] = useState<ProfileSection>('general');
+  const [searchParams] = useSearchParams();
+  const tabFromUrl = searchParams.get('tab') as ProfileSection | null;
+  const [activeSection, setActiveSection] = useState<ProfileSection>(
+    tabFromUrl && ['general', 'security', 'sessions', 'integrations', 'companies', 'projects', 'settings'].includes(tabFromUrl) ? tabFromUrl : 'general'
+  );
 
   if (isLoading) {
     return <div className="flex items-center justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-[var(--gm-accent-primary)]" /></div>;
@@ -141,6 +141,7 @@ const ProfilePage = () => {
         {activeSection === 'sessions' && <SessionsSection />}
         {activeSection === 'settings' && <UserSettingsSection />}
         {activeSection === 'companies' && <CompaniesSection />}
+        {activeSection === 'projects' && <ProjectsSection />}
         {activeSection === 'integrations' && <IntegrationsSection />}
       </div>
     </div>
@@ -881,7 +882,7 @@ function UserSettingsSection() {
 
   useEffect(() => {
     if (user?.timezone) setSelectedTimezone(user.timezone);
-    if (currentProject?.role) setSelectedRole(currentProject.role);
+    if (currentProject?.user_role) setSelectedRole(currentProject.user_role);
 
     apiClient.get<any>('/api/role-templates')
       .then(res => { if (res.roles) setAvailableRoles(res.roles); })
@@ -910,8 +911,8 @@ function UserSettingsSection() {
       if (selectedTimezone !== user?.timezone) {
         await updateProfile.mutateAsync({ timezone: selectedTimezone });
       }
-      if (currentProjectId && selectedRole !== currentProject?.role) {
-        await apiClient.put(`/api/projects/${currentProjectId}/members/${user?.id}`, { role: selectedRole });
+      if (currentProjectId && selectedRole !== (currentProject?.user_role || '')) {
+        await apiClient.put(`/api/projects/${currentProjectId}/members/${user?.id}`, { user_role: selectedRole });
       }
       toast.success('Settings saved');
     } catch (e: any) {
@@ -1024,485 +1025,26 @@ function UserSettingsSection() {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// COMPANIES SECTION
+// COMPANIES SECTION (delegates to CompaniesPage)
 // ══════════════════════════════════════════════════════════════════════════════
 
-interface Company {
-  id: string;
-  name: string;
-  logo_url?: string;
-  website?: string;
-  linkedin?: string;
-  description?: string;
-  status?: 'analyzed' | 'not_analyzed';
-  colors?: string[];
-  report?: Record<string, string>;
-}
-
-const REPORT_SECTIONS = [
-  'Ficha de Identidade', 'Visão Geral e Posicionamento', 'Produtos e Serviços',
-  'Público-Alvo e Clientes', 'Equipa e Liderança', 'Presença Digital e Marketing',
-  'Análise Competitiva', 'Indicadores de Crescimento', 'Análise SWOT', 'Conclusões e Insights',
-];
-
-type CompanyPageView = 'list' | 'view' | 'edit' | 'templates';
+const CompaniesPageLazy = lazy(() => import('./CompaniesPage'));
 
 function CompaniesSection() {
-  const [pageView, setPageView] = useState<CompanyPageView>('list');
-  const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
-  const [companies, setCompanies] = useState<Company[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const fetchCompanies = async () => {
-    try {
-      setLoading(true);
-      const data = await apiClient.get<{ companies: Company[] }>('/api/companies');
-      setCompanies(data.companies || []);
-    } catch {
-      toast.error('Failed to load companies');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { fetchCompanies(); }, []);
-
-  const openView = (company: Company, view: CompanyPageView) => {
-    setSelectedCompany(company);
-    setPageView(view);
-  };
-
-  const backToList = () => {
-    setPageView('list');
-    setSelectedCompany(null);
-    fetchCompanies();
-  };
-
   return (
-    <div>
-      {pageView === 'list' && <CompanyListView companies={companies} loading={loading} onView={c => openView(c, 'view')} onEdit={c => openView(c, 'edit')} onTemplates={c => openView(c, 'templates')} onRefresh={fetchCompanies} />}
-      {pageView === 'view' && selectedCompany && <CompanyDetailView company={selectedCompany} onBack={backToList} onEdit={() => setPageView('edit')} />}
-      {pageView === 'edit' && selectedCompany && <CompanyEditView company={selectedCompany} onBack={backToList} onTemplates={() => setPageView('templates')} />}
-      {pageView === 'templates' && selectedCompany && <CompanyTemplatesView company={selectedCompany} onBack={() => setPageView('edit')} />}
-    </div>
+    <Suspense fallback={<div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-[var(--gm-accent-primary)]" /></div>}>
+      <CompaniesPageLazy />
+    </Suspense>
   );
 }
 
-// ── Companies: List ──────────────────────────────────────────────────────────
+const ProjectsPageLazy = lazy(() => import('./ProjectsPage'));
 
-function CompanyListView({ companies, loading, onView, onEdit, onTemplates, onRefresh }: {
-  companies: Company[]; loading: boolean;
-  onView: (c: Company) => void; onEdit: (c: Company) => void; onTemplates: (c: Company) => void; onRefresh: () => void;
-}) {
-  const [creating, setCreating] = useState(false);
-  const [newName, setNewName] = useState('');
-  const [deleteTarget, setDeleteTarget] = useState<Company | null>(null);
-
-  const handleCreate = async () => {
-    if (!newName.trim()) { toast.error('Company name is required'); return; }
-    setCreating(true);
-    try {
-      await apiClient.post('/api/companies', { name: newName.trim() });
-      toast.success('Company created');
-      setNewName('');
-      onRefresh();
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to create company');
-    } finally {
-      setCreating(false);
-    }
-  };
-
-  const handleAnalyze = async (company: Company) => {
-    toast.info(`Analyzing ${company.name}...`);
-    try {
-      await apiClient.post(`/api/companies/${company.id}/analyze`, {});
-      toast.success(`${company.name} analysis started`);
-      onRefresh();
-    } catch (err: any) {
-      toast.error(err.message || 'Analysis failed');
-    }
-  };
-
-  const handleDeleteConfirm = async () => {
-    if (!deleteTarget) return;
-    try {
-      await apiClient.delete(`/api/companies/${deleteTarget.id}`);
-      toast.success('Company deleted');
-      onRefresh();
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to delete');
-    } finally {
-      setDeleteTarget(null);
-    }
-  };
-
+function ProjectsSection() {
   return (
-    <div className="space-y-5">
-      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete {deleteTarget?.name || 'this item'}?</AlertDialogTitle>
-            <AlertDialogDescription>This action cannot be undone. The company and all its data will be permanently removed.</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteConfirm} className="bg-[var(--color-danger-500)] text-white hover:bg-[var(--color-danger-600)]">Delete</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <SectionHeader title="Companies" subtitle="Manage company profiles and assets" />
-
-      <div className="flex gap-2">
-        <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="New company name..."
-          className={cn(INPUT, 'max-w-xs')} onKeyDown={e => { if (e.key === 'Enter') handleCreate(); }} />
-        <button onClick={handleCreate} disabled={creating} className={BTN_PRIMARY}>
-          {creating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />} New company
-        </button>
-      </div>
-
-      {loading ? (
-        <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-[var(--gm-accent-primary)]" /></div>
-      ) : companies.length === 0 ? (
-        <div className={cn(CARD, 'p-10 text-center text-[var(--gm-text-tertiary)] text-sm')}>No companies yet. Create one above.</div>
-      ) : (
-        <div className="space-y-2">
-          {companies.map(company => (
-            <div key={company.id} className={cn(CARD, 'p-4 hover:border-[var(--gm-accent-primary)]/30')}>
-              <div className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-lg bg-[var(--gm-bg-tertiary)] flex items-center justify-center flex-shrink-0">
-                  <span className="text-[10px] font-bold text-[var(--gm-text-primary)]">{(company.name || '???').substring(0, 3).toUpperCase()}</span>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-xs font-semibold text-[var(--gm-text-primary)]">{company.name}</h3>
-                    {(company.colors || []).length > 0 && (
-                      <div className="flex gap-0.5">
-                        {(company.colors || []).map((c, i) => (
-                          <div key={i} className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: c }} />
-                        ))}
-                      </div>
-                    )}
-                    <span className={cn('text-[10px] px-2 py-0.5 rounded-full font-medium',
-                      company.status === 'analyzed'
-                        ? 'bg-emerald-500/10 text-emerald-500'
-                        : 'bg-[var(--gm-bg-tertiary)] text-[var(--gm-text-tertiary)]')}>
-                      {company.status === 'analyzed' ? 'Analyzed' : 'Not analyzed'}
-                    </span>
-                  </div>
-                  {company.website && <p className="text-[10px] text-[var(--gm-text-tertiary)]">{company.website}</p>}
-                </div>
-                <div className="flex items-center gap-1 flex-shrink-0 flex-wrap">
-                  <button onClick={() => onView(company)} className={cn(BTN_SECONDARY, 'border-0 px-2')}>
-                    <Eye className="w-3 h-3" /> View
-                  </button>
-                  <button onClick={() => onEdit(company)} className={cn(BTN_SECONDARY, 'border-0 px-2')}>
-                    <Edit2 className="w-3 h-3" /> Edit
-                  </button>
-                  <button onClick={() => onTemplates(company)} className={cn(BTN_SECONDARY, 'border-0 px-2')}>
-                    <FileText className="w-3 h-3" /> Templates
-                  </button>
-                  <button onClick={() => handleAnalyze(company)} className={cn(BTN_SECONDARY, 'border-0 px-2')}>
-                    <Zap className="w-3 h-3" /> {company.status === 'analyzed' ? 'Re-analyze' : 'Analyze'}
-                  </button>
-                  <button onClick={() => setDeleteTarget(company)}
-                    className="p-1.5 rounded-lg text-[var(--gm-text-tertiary)] hover:bg-[var(--color-danger-500)]/10 hover:text-[var(--color-danger-500)] transition-colors">
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Companies: Detail View ───────────────────────────────────────────────────
-
-function CompanyDetailView({ company, onBack, onEdit }: { company: Company; onBack: () => void; onEdit: () => void }) {
-  const [activeSection, setActiveSection] = useState(REPORT_SECTIONS[0]);
-  const [analyzing, setAnalyzing] = useState(false);
-
-  const handleReanalyze = async () => {
-    setAnalyzing(true);
-    try {
-      await apiClient.post(`/api/companies/${company.id}/analyze`, {});
-      toast.success('Analysis started');
-    } catch (err: any) {
-      toast.error(err.message || 'Analysis failed');
-    } finally {
-      setAnalyzing(false);
-    }
-  };
-
-  return (
-    <div className="space-y-5">
-      <button onClick={onBack} className="flex items-center gap-1.5 text-[10px] text-[var(--gm-text-tertiary)] hover:text-[var(--gm-accent-primary)] transition-colors">
-        <ArrowLeft className="w-3.5 h-3.5" /> Back to Companies
-      </button>
-
-      <div className="flex items-center gap-4">
-        <div className="w-12 h-12 rounded-xl bg-[var(--gm-bg-tertiary)] flex items-center justify-center">
-          <span className="text-sm font-bold text-[var(--gm-text-primary)]">{(company.name || '???').substring(0, 3).toUpperCase()}</span>
-        </div>
-        <div className="flex-1">
-          <h2 className="text-lg font-bold text-[var(--gm-text-primary)]">{company.name}</h2>
-          <div className="flex items-center gap-3 mt-0.5">
-            {company.website && <a href={company.website} target="_blank" rel="noreferrer" className="text-[10px] text-[var(--gm-accent-primary)] flex items-center gap-1 hover:underline"><Globe className="w-3 h-3" /> {company.website}</a>}
-            {company.linkedin && <a href={company.linkedin} target="_blank" rel="noreferrer" className="text-[10px] text-[var(--gm-accent-primary)] flex items-center gap-1 hover:underline"><ExternalLink className="w-3 h-3" /> LinkedIn</a>}
-          </div>
-        </div>
-        <div className="flex gap-2 flex-shrink-0">
-          <button onClick={handleReanalyze} disabled={analyzing} className={BTN_PRIMARY}>
-            {analyzing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />} Re-analyze
-          </button>
-          <button onClick={onEdit} className={BTN_SECONDARY}>
-            <Edit2 className="w-3.5 h-3.5" /> Edit
-          </button>
-        </div>
-      </div>
-
-      <div className="flex gap-5">
-        <div className="w-52 flex-shrink-0 space-y-0.5">
-          <p className={cn(SECTION_TITLE, 'mb-2 px-1')}>Report Sections</p>
-          {REPORT_SECTIONS.map(section => (
-            <button key={section} onClick={() => setActiveSection(section)}
-              className={cn('w-full text-left px-3 py-2 rounded-lg text-[10px] transition-colors flex items-center justify-between',
-                activeSection === section
-                  ? 'text-[var(--gm-accent-primary)] bg-[var(--gm-surface-hover)] font-semibold'
-                  : 'text-[var(--gm-text-tertiary)] hover:text-[var(--gm-text-primary)] hover:bg-[var(--gm-surface-hover)]')}>
-              <span className="truncate">{section}</span>
-              {activeSection === section && <ChevronRight className="w-3 h-3 flex-shrink-0" />}
-            </button>
-          ))}
-        </div>
-
-        <div className={cn(CARD, 'flex-1 p-5')}>
-          <h3 className="text-sm font-bold text-[var(--gm-text-primary)] mb-3">{activeSection}</h3>
-          <div className="text-xs text-[var(--gm-text-secondary)] whitespace-pre-line leading-relaxed">
-            {company.report?.[activeSection] || `Content for "${activeSection}" — run analysis to populate.`}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Companies: Edit ──────────────────────────────────────────────────────────
-
-function CompanyEditView({ company, onBack, onTemplates }: { company: Company; onBack: () => void; onTemplates: () => void }) {
-  const [name, setName] = useState(company.name);
-  const [description, setDescription] = useState(company.description || '');
-  const [logoUrl, setLogoUrl] = useState(company.logo_url || '');
-  const [website, setWebsite] = useState(company.website || '');
-  const [linkedin, setLinkedin] = useState(company.linkedin || '');
-  const [saving, setSaving] = useState(false);
-
-  const handleSave = async () => {
-    if (!name.trim()) { toast.error('Name is required'); return; }
-    const urlPattern = /^https?:\/\//;
-    if (website.trim() && !urlPattern.test(website.trim())) {
-      toast.error('Website must start with http:// or https://');
-      return;
-    }
-    if (linkedin.trim() && !urlPattern.test(linkedin.trim())) {
-      toast.error('LinkedIn URL must start with http:// or https://');
-      return;
-    }
-    setSaving(true);
-    try {
-      await apiClient.put(`/api/companies/${company.id}`, { name, description, logo_url: logoUrl, website, linkedin });
-      toast.success('Company updated');
-      onBack();
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to save');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="space-y-5">
-      <button onClick={onBack} className="flex items-center gap-1.5 text-[10px] text-[var(--gm-text-tertiary)] hover:text-[var(--gm-accent-primary)] transition-colors">
-        <ArrowLeft className="w-3.5 h-3.5" /> Back to Companies
-      </button>
-
-      <SectionHeader title={`Edit ${company.name}`} />
-
-      <div className={cn(CARD, 'p-5')}>
-        <div className="max-w-lg space-y-4">
-          <div>
-            <label className={LABEL}>Name *</label>
-            <input value={name} onChange={e => setName(e.target.value)} className={INPUT} />
-          </div>
-          <div>
-            <label className={LABEL}><AlignLeft className="w-3 h-3" /> Description</label>
-            <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3} className={cn(INPUT, 'resize-y')} />
-          </div>
-          <div>
-            <label className={LABEL}><Image className="w-3 h-3" /> Logo URL</label>
-            <input value={logoUrl} onChange={e => setLogoUrl(e.target.value)} placeholder="https://..." className={cn(INPUT, 'font-mono text-xs')} />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className={LABEL}><Globe className="w-3 h-3" /> Website</label>
-              <input value={website} onChange={e => setWebsite(e.target.value)} className={INPUT} />
-            </div>
-            <div>
-              <label className={LABEL}><ExternalLink className="w-3 h-3" /> LinkedIn</label>
-              <input value={linkedin} onChange={e => setLinkedin(e.target.value)} className={INPUT} />
-            </div>
-          </div>
-
-          <div className="border-t border-[var(--gm-border-primary)] pt-4 flex justify-center gap-2">
-            <button onClick={handleSave} disabled={saving} className={BTN_PRIMARY}>
-              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-              {saving ? 'Saving...' : 'Save'}
-            </button>
-            <button onClick={onBack} className={BTN_SECONDARY}>Cancel</button>
-          </div>
-        </div>
-
-        <div className="mt-6 pt-5 border-t border-[var(--gm-border-primary)]">
-          <h3 className={cn(SECTION_TITLE, 'mb-3')}>Documents</h3>
-          <button onClick={onTemplates} className={BTN_SECONDARY}>
-            <FileText className="w-3.5 h-3.5" /> Templates (A4 / PPT)
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Companies: Templates ─────────────────────────────────────────────────────
-
-function CompanyTemplatesView({ company, onBack }: { company: Company; onBack: () => void }) {
-  const [templateType, setTemplateType] = useState<'a4' | 'ppt'>('a4');
-  const [codeTab, setCodeTab] = useState<'code' | 'theme'>('code');
-  const [templateCode, setTemplateCode] = useState('');
-  const [loadingTemplate, setLoadingTemplate] = useState(false);
-  const [generating, setGenerating] = useState(false);
-  const [saving, setSaving] = useState(false);
-
-  const loadTemplate = async () => {
-    setLoadingTemplate(true);
-    try {
-      const data = await apiClient.get<{ template: { content: string } }>(`/api/companies/${company.id}/templates/${templateType}`);
-      setTemplateCode(data.template?.content || `<!-- No ${templateType} template yet -->`);
-      toast.success('Template loaded');
-    } catch {
-      setTemplateCode(`<!-- No ${templateType} template found -->`);
-    } finally {
-      setLoadingTemplate(false);
-    }
-  };
-
-  const handleGenerate = async () => {
-    setGenerating(true);
-    try {
-      const data = await apiClient.post<{ template: { content: string } }>(`/api/companies/${company.id}/templates/generate`, { type: templateType });
-      setTemplateCode(data.template?.content || templateCode);
-      toast.success('Template generated');
-    } catch (err: any) {
-      toast.error(err.message || 'Generation failed');
-    } finally {
-      setGenerating(false);
-    }
-  };
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      await apiClient.put(`/api/companies/${company.id}/templates/${templateType}`, { content: templateCode });
-      toast.success('Template saved');
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to save');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  useEffect(() => { loadTemplate(); }, [templateType]);
-
-  return (
-    <div className="space-y-5">
-      <button onClick={onBack} className="flex items-center gap-1.5 text-[10px] text-[var(--gm-text-tertiary)] hover:text-[var(--gm-accent-primary)] transition-colors">
-        <ArrowLeft className="w-3.5 h-3.5" /> Back to Edit
-      </button>
-
-      <SectionHeader title={`${company.name} — Templates`} subtitle="Manage document templates for this company" />
-
-      <div className="flex items-center justify-between">
-        <div className="flex gap-1">
-          {(['a4', 'ppt'] as const).map(t => (
-            <button key={t} onClick={() => setTemplateType(t)}
-              className={cn('px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
-                templateType === t
-                  ? 'bg-[var(--gm-accent-primary)]/10 text-[var(--gm-accent-primary)]'
-                  : 'text-[var(--gm-text-tertiary)] hover:text-[var(--gm-text-primary)]')}>
-              {t === 'a4' ? 'A4 document' : 'Presentation'}
-            </button>
-          ))}
-        </div>
-        <div className="flex gap-2">
-          <button onClick={loadTemplate} disabled={loadingTemplate} className={BTN_SECONDARY}>
-            {loadingTemplate ? 'Loading...' : 'Load current'}
-          </button>
-          <button onClick={handleGenerate} disabled={generating} className={BTN_PRIMARY}>
-            {generating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
-            {generating ? 'Generating...' : 'Generate with AI'}
-          </button>
-          <button onClick={handleSave} disabled={saving} className={BTN_PRIMARY}>
-            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-            {saving ? 'Saving...' : 'Save template'}
-          </button>
-        </div>
-      </div>
-
-      <div className="flex gap-4">
-        <div className="flex-1">
-          <div className="flex border-b border-[var(--gm-border-primary)] mb-2">
-            {(['code', 'theme'] as const).map(tab => (
-              <button key={tab} onClick={() => setCodeTab(tab)}
-                className={cn('flex items-center gap-1.5 px-3 py-2 text-xs border-b-2 transition-colors',
-                  codeTab === tab
-                    ? 'text-[var(--gm-accent-primary)] border-[var(--gm-accent-primary)]'
-                    : 'text-[var(--gm-text-tertiary)] border-transparent')}>
-                {tab === 'code' ? <Code2 className="w-3 h-3" /> : <Palette className="w-3 h-3" />}
-                {tab === 'code' ? 'Code' : 'Theme'}
-              </button>
-            ))}
-          </div>
-          <textarea value={templateCode} onChange={e => setTemplateCode(e.target.value)}
-            className={cn(INPUT, 'h-[500px] font-mono text-[10px] resize-none')} />
-        </div>
-
-        <div className="w-[300px] flex-shrink-0">
-          <p className={cn(SECTION_TITLE, 'mb-2')}>Preview</p>
-          <div className="bg-white border border-[var(--gm-border-primary)] rounded-lg overflow-hidden h-[500px]">
-            <div className="h-1.5 bg-[var(--color-danger-500)]" />
-            <div className="p-5">
-              <div className="flex items-center gap-2 mb-5">
-                <div className="w-8 h-8 bg-[var(--gm-bg-tertiary)] rounded flex items-center justify-center">
-                  <span className="text-[8px] font-bold text-[var(--gm-text-tertiary)]">{(company.name || '???').substring(0, 3)}</span>
-                </div>
-                <div>
-                  <p className="text-[10px] font-bold text-[var(--gm-text-primary)]">{company.name}</p>
-                  <p className="text-[8px] text-[var(--gm-text-tertiary)]">{templateType === 'a4' ? 'Document' : 'Presentation'} Template</p>
-                </div>
-              </div>
-              <div className="text-[9px] text-[var(--gm-text-tertiary)] whitespace-pre-wrap font-mono max-h-[400px] overflow-auto">
-                {templateCode.substring(0, 500)}
-                {templateCode.length > 500 && '...'}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+    <Suspense fallback={<div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-[var(--gm-accent-primary)]" /></div>}>
+      <ProjectsPageLazy />
+    </Suspense>
   );
 }
 

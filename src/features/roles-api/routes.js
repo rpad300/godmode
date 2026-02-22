@@ -134,7 +134,7 @@ async function handleRolesApi(ctx) {
             const { getRoleDashboard } = require('../../roles');
             const dashboard = getRoleDashboard({ storage });
             dashboard.setStorage(storage);
-            const project = storage.getCurrentProject();
+            const project = await storage.getCurrentProject();
             const result = dashboard.generateDashboard(project?.userRole, project?.userRolePrompt);
             jsonResponse(res, { ok: true, ...result });
             return true;
@@ -145,7 +145,7 @@ async function handleRolesApi(ctx) {
             const body = await parseBody(req);
             const { getRoleAnalytics } = require('../../roles');
             const analytics = getRoleAnalytics({ dataDir });
-            const project = storage.getCurrentProject();
+            const project = await storage.getCurrentProject();
             const entry = analytics.trackInteraction({ ...body, userRole: project?.userRole || 'unknown' });
             jsonResponse(res, { ok: true, entry });
             return true;
@@ -155,7 +155,7 @@ async function handleRolesApi(ctx) {
         if (pathname === '/api/roles/analytics' && req.method === 'GET') {
             const { getRoleAnalytics } = require('../../roles');
             const analytics = getRoleAnalytics({ dataDir });
-            const project = storage.getCurrentProject();
+            const project = await storage.getCurrentProject();
             const result = analytics.getDashboard(project?.userRole || 'unknown');
             jsonResponse(res, { ok: true, ...result });
             return true;
@@ -165,7 +165,7 @@ async function handleRolesApi(ctx) {
         if (pathname === '/api/roles/notifications' && req.method === 'GET') {
             const { getSmartNotifications } = require('../../roles');
             const notifications = getSmartNotifications({ dataDir });
-            const project = storage.getCurrentProject();
+            const project = await storage.getCurrentProject();
             const unreadOnly = urlParsed.query?.unread === 'true';
             const result = notifications.getNotificationsForRole(project?.userRole, { unreadOnly });
             const stats = notifications.getStats(project?.userRole);
@@ -243,7 +243,7 @@ async function handleRolesApi(ctx) {
             const { getRoleFilters } = require('../../roles');
             const filters = getRoleFilters({ storage });
             filters.setStorage(storage);
-            const project = storage.getCurrentProject();
+            const project = await storage.getCurrentProject();
             const result = filters.getFilteredKnowledge(project?.userRole, project?.userRolePrompt);
             const summary = filters.getRelevanceSummary(project?.userRole, project?.userRolePrompt);
             jsonResponse(res, { ok: true, knowledge: result, summary });
@@ -328,7 +328,7 @@ async function handleRolesApi(ctx) {
             const events = calendar.getUpcomingEvents(days);
             const today = calendar.getTodayEvents();
             const stats = calendar.getStats();
-            const project = storage.getCurrentProject();
+            const project = await storage.getCurrentProject();
             const context = calendar.getContextForBriefing(project?.userRole, project?.userRolePrompt);
             jsonResponse(res, { ok: true, events, today, stats, briefingContext: context });
             return true;
@@ -358,7 +358,7 @@ async function handleRolesApi(ctx) {
         if (pathname === '/api/roles/onboarding' && req.method === 'GET') {
             const { getRoleOnboarding } = require('../../roles');
             const onboarding = getRoleOnboarding();
-            const project = storage.getCurrentProject();
+            const project = await storage.getCurrentProject();
             const steps = onboarding.getSteps();
             const quickSetup = onboarding.getQuickSetupOptions();
             const tips = onboarding.getRoleTips();
@@ -374,7 +374,7 @@ async function handleRolesApi(ctx) {
             const onboarding = getRoleOnboarding();
             const history = getRoleHistory({ dataDir });
             const result = onboarding.processOnboarding(body);
-            const project = storage.getCurrentProject();
+            const project = await storage.getCurrentProject();
             if (project) {
                 const oldRole = project.userRole;
                 await storage.updateProject(project.id, {
@@ -402,7 +402,7 @@ async function handleRolesApi(ctx) {
             filters.setStorage(storage);
             dashboard.setStorage(storage);
             roleExport.setStorage(storage);
-            const project = storage.getCurrentProject();
+            const project = await storage.getCurrentProject();
             const format = urlParsed.query?.format || 'markdown';
             const result = roleExport.generateReport(
                 project?.userRole,
@@ -430,7 +430,7 @@ async function handleRolesApi(ctx) {
             filters.setStorage(storage);
             dashboard.setStorage(storage);
             roleExport.setStorage(storage);
-            const project = storage.getCurrentProject();
+            const project = await storage.getCurrentProject();
             const result = roleExport.generateExecutiveSummary(project?.userRole, project?.userRolePrompt);
             jsonResponse(res, { ok: true, ...result });
             return true;

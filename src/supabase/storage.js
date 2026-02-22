@@ -2207,6 +2207,10 @@ class SupabaseStorage {
         return data;
     }
 
+    async addActionItem(data) {
+        return this.addAction(data);
+    }
+
     /**
      * Get task dependency IDs (task_ids this task depends on)
      */
@@ -2419,6 +2423,8 @@ class SupabaseStorage {
                 start_date: data.start_date,
                 end_date: data.end_date,
                 context: data.context ?? null,
+                status: data.status ?? 'planning',
+                goals: data.goals ?? [],
                 analysis_start_date: data.analysis_start_date ?? null,
                 analysis_end_date: data.analysis_end_date ?? null,
                 created_by: user?.id
@@ -2432,9 +2438,11 @@ class SupabaseStorage {
 
     /**
      * Get a single sprint by id
+     * @param {string} id - Sprint UUID
+     * @param {string} [explicitProjectId] - Optional project ID to avoid race conditions on shared storage
      */
-    async getSprint(id) {
-        const projectId = this.getProjectId();
+    async getSprint(id, explicitProjectId) {
+        const projectId = explicitProjectId || this.getProjectId();
         const { data, error } = await this.supabase
             .from('sprints')
             .select('*')
@@ -2469,6 +2477,8 @@ class SupabaseStorage {
         if (updates.start_date !== undefined) payload.start_date = updates.start_date;
         if (updates.end_date !== undefined) payload.end_date = updates.end_date;
         if (updates.context !== undefined) payload.context = updates.context;
+        if (updates.status !== undefined) payload.status = updates.status;
+        if (updates.goals !== undefined) payload.goals = updates.goals;
         if (updates.analysis_start_date !== undefined) payload.analysis_start_date = updates.analysis_start_date;
         if (updates.analysis_end_date !== undefined) payload.analysis_end_date = updates.analysis_end_date;
         if (Object.keys(payload).length === 0) return await this.getSprint(id);
@@ -2482,6 +2492,103 @@ class SupabaseStorage {
             .single();
         if (error) throw error;
         return data;
+    }
+
+    /**
+     * Get or create a sprint retrospective
+     */
+    async getRetrospective(sprintId) {
+        const projectId = this.getProjectId();
+        const { data, error } = await this.supabase
+            .from('sprint_retrospectives')
+            .select('*')
+            .eq('sprint_id', sprintId)
+            .eq('project_id', projectId)
+            .maybeSingle();
+        if (error) throw error;
+        return data;
+    }
+
+    /**
+     * Save (upsert) a sprint retrospective
+     */
+    async saveRetrospective(sprintId, retroData) {
+        const projectId = this.getProjectId();
+        const user = await this.getCurrentUser();
+        const { data, error } = await this.supabase
+            .from('sprint_retrospectives')
+            .upsert({
+                sprint_id: sprintId,
+                project_id: projectId,
+                went_well: retroData.went_well || [],
+                went_wrong: retroData.went_wrong || [],
+                action_items: retroData.action_items || [],
+                ai_suggestions: retroData.ai_suggestions || null,
+                created_by: user?.id,
+                updated_at: new Date().toISOString()
+            }, { onConflict: 'sprint_id' })
+            .select()
+            .single();
+        if (error) throw error;
+        return data;
+    }
+
+    /**
+     * Save a weekly report
+     */
+    async saveWeeklyReport(reportData) {
+        const projectId = this.getProjectId();
+        const user = await this.getCurrentUser();
+        const { data, error } = await this.supabase
+            .from('weekly_reports')
+            .upsert({
+                project_id: projectId,
+                week_key: reportData.week_key,
+                report_markdown: reportData.report_markdown,
+                summary: reportData.summary || null,
+                highlights: reportData.highlights || [],
+                risks: reportData.risks || [],
+                kpis: reportData.kpis || {},
+                sections: reportData.sections || {},
+                report_html: reportData.report_html || null,
+                generated_by: user?.id,
+                generated_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            }, { onConflict: 'project_id,week_key' })
+            .select()
+            .single();
+        if (error) throw error;
+        return data;
+    }
+
+    /**
+     * Get a weekly report by week key
+     */
+    async getWeeklyReport(weekKey) {
+        const projectId = this.getProjectId();
+        const { data, error } = await this.supabase
+            .from('weekly_reports')
+            .select('*')
+            .eq('project_id', projectId)
+            .eq('week_key', weekKey)
+            .maybeSingle();
+        if (error) throw error;
+        return data;
+    }
+
+    /**
+     * List weekly reports for the current project
+     */
+    async getWeeklyReports(limit = 10) {
+        const projectId = this.getProjectId();
+        const { data, error } = await this.supabase
+            .from('weekly_reports')
+            .select('*')
+            .eq('project_id', projectId)
+            .order('generated_at', { ascending: false })
+            .limit(limit);
+        if (error) throw error;
+        return data || [];
     }
 
     /**
@@ -5268,6 +5375,353 @@ class SupabaseStorage {
             .eq('entity_id', entityId);
     }
 
+    // ==================== RAG Pipeline ====================
+
+    /**
+     * Return embedding coverage stats for the current project.
+     */
+    async getEmbeddingStatus() {
+        const projectId = this.getProjectId();
+
+        const [embResult, latestResult, factsR, decisionsR, risksR, actionsR, questionsR, peopleR] = await Promise.all([
+            this.supabase.from('embeddings').select('*', { count: 'exact', head: true }).eq('project_id', projectId),
+            this.supabase.from('embeddings').select('model, updated_at').eq('project_id', projectId)
+                .order('updated_at', { ascending: false }).limit(1),
+            this.supabase.from('facts').select('*', { count: 'exact', head: true }).eq('project_id', projectId).is('deleted_at', null),
+            this.supabase.from('decisions').select('*', { count: 'exact', head: true }).eq('project_id', projectId).is('deleted_at', null),
+            this.supabase.from('risks').select('*', { count: 'exact', head: true }).eq('project_id', projectId).is('deleted_at', null),
+            this.supabase.from('action_items').select('*', { count: 'exact', head: true }).eq('project_id', projectId).is('deleted_at', null),
+            this.supabase.from('knowledge_questions').select('*', { count: 'exact', head: true }).eq('project_id', projectId).is('deleted_at', null),
+            this.supabase.from('people').select('*', { count: 'exact', head: true }).eq('project_id', projectId).is('deleted_at', null)
+        ]);
+
+        const embeddingCount = embResult.count || 0;
+        const total = (factsR.count || 0) + (decisionsR.count || 0) + (risksR.count || 0) +
+            (actionsR.count || 0) + (questionsR.count || 0) + (peopleR.count || 0);
+        const latestModel = latestResult.data?.[0]?.model || null;
+
+        return {
+            indexed: embeddingCount > 0,
+            count: embeddingCount,
+            total,
+            model: latestModel,
+            stale: total > 0 && embeddingCount < total
+        };
+    }
+
+    /**
+     * Collect every embeddable item across all entity tables.
+     * Returns [{id, type, text, data}] where id is prefixed (e.g. "fact_<uuid>").
+     */
+    async getAllItemsForEmbedding() {
+        const projectId = this.getProjectId();
+        const knowledge = await this.getAllKnowledge();
+        const items = [];
+
+        for (const f of (knowledge.facts || [])) {
+            items.push({ id: `fact_${f.id}`, type: 'fact', text: f.content || '', data: f });
+        }
+        for (const d of (knowledge.decisions || [])) {
+            items.push({ id: `decision_${d.id}`, type: 'decision', text: d.content || '', data: d });
+        }
+        for (const r of (knowledge.risks || [])) {
+            items.push({ id: `risk_${r.id}`, type: 'risk', text: r.content || '', data: r });
+        }
+        for (const a of (knowledge.actions || [])) {
+            items.push({ id: `action_${a.id}`, type: 'action', text: a.task || a.content || '', data: a });
+        }
+        for (const q of (knowledge.questions || [])) {
+            items.push({ id: `question_${q.id}`, type: 'question', text: q.content || '', data: q });
+        }
+        for (const p of (knowledge.people || [])) {
+            const text = [p.name, p.role, p.organization, p.notes].filter(Boolean).join(' – ');
+            items.push({ id: `person_${p.id}`, type: 'person', text, data: p });
+        }
+
+        try {
+            const [docs, emails, contacts, conversations, sprints, userStories, teams] = await Promise.all([
+                this.getDocuments().catch(() => []),
+                this.getEmails().catch(() => ({ emails: [] })),
+                this.getContacts().catch(() => []),
+                this.getConversations().catch(() => []),
+                this.getSprints(projectId).catch(() => []),
+                this.getUserStories().catch(() => []),
+                this.getTeams().catch(() => [])
+            ]);
+
+            for (const doc of (docs || [])) {
+                const text = [doc.title || doc.filename, doc.ai_summary || (doc.content || '').substring(0, 300)].filter(Boolean).join(' – ');
+                items.push({ id: `document_${doc.id}`, type: 'document', text, data: doc });
+            }
+            for (const em of (emails?.emails || emails || [])) {
+                const text = [em.subject, `from ${em.from_name || em.from_email || ''}`, (em.body || '').substring(0, 300)].filter(Boolean).join(' – ');
+                items.push({ id: `email_${em.id}`, type: 'email', text, data: em });
+            }
+            for (const ct of (contacts || [])) {
+                const text = [ct.name, ct.email, ct.role, ct.company, ct.organization].filter(Boolean).join(' – ');
+                items.push({ id: `contact_${ct.id}`, type: 'contact', text, data: ct });
+            }
+            for (const cv of (conversations || [])) {
+                const text = [cv.title, cv.conversation_type, cv.source, (cv.participants || []).join(', ')].filter(Boolean).join(' – ');
+                items.push({ id: `conversation_${cv.id}`, type: 'conversation', text, data: cv });
+            }
+            for (const sp of (sprints || [])) {
+                const text = [sp.title || sp.name, sp.goal, sp.status].filter(Boolean).join(' – ');
+                items.push({ id: `sprint_${sp.id}`, type: 'sprint', text, data: sp });
+            }
+            for (const us of (userStories || [])) {
+                const text = [us.title, us.description, us.acceptance_criteria].filter(Boolean).join(' – ');
+                items.push({ id: `user_story_${us.id}`, type: 'user_story', text, data: us });
+            }
+            for (const tm of (teams || [])) {
+                const text = [tm.name, tm.description, tm.department].filter(Boolean).join(' – ');
+                items.push({ id: `team_${tm.id}`, type: 'team', text, data: tm });
+            }
+        } catch (err) {
+            log.warn({ event: 'embedding_extra_entities_error', reason: err?.message }, 'Failed to fetch some entity types for embedding');
+        }
+
+        return items.filter(i => i.text && i.text.length > 0);
+    }
+
+    /**
+     * Parse a composite ID like "user_story_<uuid>" into { type, id }.
+     * Tries known multi-word type prefixes first, then falls back to first '_'.
+     */
+    _parseCompositeId(compositeId) {
+        const MULTI_WORD_PREFIXES = ['user_story', 'calendar_event', 'action_item'];
+        for (const prefix of MULTI_WORD_PREFIXES) {
+            if (compositeId.startsWith(prefix + '_')) {
+                return { type: prefix, id: compositeId.substring(prefix.length + 1) };
+            }
+        }
+        const sep = compositeId.indexOf('_');
+        if (sep < 0) return null;
+        return { type: compositeId.substring(0, sep), id: compositeId.substring(sep + 1) };
+    }
+
+    /**
+     * Given an array of prefixed IDs (e.g. ["fact_<uuid>", "risk_<uuid>"]),
+     * fetch the matching rows from the appropriate tables.
+     */
+    async getItemsByIds(ids) {
+        if (!ids || ids.length === 0) return [];
+
+        const grouped = {};
+        for (const compositeId of ids) {
+            const parsed = this._parseCompositeId(compositeId);
+            if (!parsed) continue;
+            if (!grouped[parsed.type]) grouped[parsed.type] = [];
+            grouped[parsed.type].push(parsed.id);
+        }
+
+        const TABLE_MAP = {
+            fact: 'facts',
+            decision: 'decisions',
+            risk: 'risks',
+            action: 'action_items',
+            action_item: 'action_items',
+            question: 'knowledge_questions',
+            person: 'people',
+            document: 'documents',
+            email: 'emails',
+            contact: 'contacts',
+            company: 'companies',
+            conversation: 'conversations',
+            sprint: 'sprints',
+            user_story: 'user_stories',
+            team: 'teams'
+        };
+
+        const fetches = Object.entries(grouped).map(async ([type, uuids]) => {
+            const table = TABLE_MAP[type];
+            if (!table) return [];
+            const { data } = await this.supabase.from(table).select('*').in('id', uuids);
+            return (data || []).map(row => ({
+                ...row,
+                id: `${type}_${row.id}`,
+                _type: type
+            }));
+        });
+
+        const results = await Promise.all(fetches);
+        return results.flat();
+    }
+
+    /**
+     * Persist an array of generated embeddings into the embeddings table.
+     * `data` is an Array of {id, type, text, embedding} with .model / .provider props.
+     */
+    async saveEmbeddings(data) {
+        if (!data) return;
+        const projectId = this.getProjectId();
+        const model = data.model || 'unknown';
+        const items = Array.isArray(data) ? data : (data.embeddings || []);
+        const validItems = items.filter(e => e && e.embedding);
+
+        if (validItems.length === 0) return;
+
+        const rows = validItems.map(item => {
+            const parsed = this._parseCompositeId(item.id);
+            const entityType = parsed ? parsed.type : (item.type || 'unknown');
+            const entityId = parsed ? parsed.id : item.id;
+            return {
+                project_id: projectId,
+                entity_type: entityType,
+                entity_id: entityId,
+                content: item.text || '',
+                embedding: item.embedding,
+                model
+            };
+        });
+
+        const BATCH = 100;
+        for (let i = 0; i < rows.length; i += BATCH) {
+            const batch = rows.slice(i, i + BATCH);
+            const { error } = await this.supabase
+                .from('embeddings')
+                .upsert(batch, { onConflict: 'entity_type,entity_id' });
+            if (error) {
+                log.warn({ event: 'save_embeddings_batch_error', offset: i, reason: error.message }, 'Batch upsert failed');
+            }
+        }
+    }
+
+    /**
+     * Load all embeddings for the current project, returning the shape
+     * expected by the semantic-search route.
+     */
+    async loadEmbeddings() {
+        const projectId = this.getProjectId();
+
+        const { data, error } = await this.supabase
+            .from('embeddings')
+            .select('*')
+            .eq('project_id', projectId);
+
+        if (error || !data || data.length === 0) return null;
+
+        const latestModel = data[0]?.model || null;
+        const latestDate = data.reduce((max, r) => {
+            const d = r.updated_at || r.created_at;
+            return d > max ? d : max;
+        }, '');
+
+        return {
+            version: 1,
+            generated_at: latestDate,
+            model: latestModel,
+            count: data.length,
+            embeddings: data.map(row => ({
+                id: `${row.entity_type}_${row.entity_id}`,
+                type: row.entity_type,
+                text: row.content,
+                embedding: row.embedding
+            }))
+        };
+    }
+
+    /**
+     * In Supabase mode data already lives in the DB, so "saving" the
+     * knowledge JSON is a no-op write; we simply return the current snapshot.
+     */
+    async saveKnowledgeJSON() {
+        return this.getAllKnowledge();
+    }
+
+    /**
+     * Return the current knowledge snapshot (equivalent to reading a cached file).
+     */
+    async loadKnowledgeJSON() {
+        return this.getAllKnowledge();
+    }
+
+    /**
+     * No-op write for questions — data lives in the DB already.
+     */
+    async saveQuestionsJSON() {
+        return this.getQuestions();
+    }
+
+    /**
+     * Return questions from the DB (equivalent to reading a cached file).
+     */
+    async loadQuestionsJSON() {
+        return this.getQuestions();
+    }
+
+    /**
+     * Build SOURCE_OF_TRUTH.md and PENDING_QUESTIONS.md from the knowledge
+     * currently stored in Supabase. Returns {sot, pq} markdown strings.
+     */
+    async regenerateMarkdown() {
+        const knowledge = await this.getAllKnowledge();
+
+        const sotParts = ['# Source of Truth\n'];
+        if (knowledge.facts?.length) {
+            sotParts.push('## Facts\n');
+            for (const f of knowledge.facts) {
+                sotParts.push(`- **[${f.category || 'general'}]** ${f.content}${f.confidence ? ` _(confidence: ${f.confidence})_` : ''}`);
+            }
+            sotParts.push('');
+        }
+        if (knowledge.decisions?.length) {
+            sotParts.push('## Decisions\n');
+            for (const d of knowledge.decisions) {
+                sotParts.push(`- ${d.content}${d.owner ? ` (owner: ${d.owner})` : ''}${d.status ? ` [${d.status}]` : ''}`);
+            }
+            sotParts.push('');
+        }
+        if (knowledge.risks?.length) {
+            sotParts.push('## Risks\n');
+            for (const r of knowledge.risks) {
+                sotParts.push(`- ${r.content} — impact: ${r.impact || 'unknown'}, likelihood: ${r.likelihood || 'unknown'}${r.mitigation ? ` | mitigation: ${r.mitigation}` : ''}`);
+            }
+            sotParts.push('');
+        }
+        if (knowledge.actions?.length) {
+            sotParts.push('## Action Items\n');
+            for (const a of knowledge.actions) {
+                sotParts.push(`- [${a.status || 'open'}] ${a.task || a.content}${a.owner ? ` (${a.owner})` : ''}${a.deadline ? ` due ${a.deadline}` : ''}`);
+            }
+            sotParts.push('');
+        }
+        if (knowledge.people?.length) {
+            sotParts.push('## People\n');
+            for (const p of knowledge.people) {
+                sotParts.push(`- **${p.name}**${p.role ? ` — ${p.role}` : ''}${p.organization ? ` @ ${p.organization}` : ''}`);
+            }
+            sotParts.push('');
+        }
+        if (knowledge.relationships?.length) {
+            sotParts.push('## Relationships\n');
+            for (const rel of knowledge.relationships) {
+                sotParts.push(`- ${rel.from_person_id} → ${rel.to_person_id}: ${rel.relationship_type || 'related'}`);
+            }
+            sotParts.push('');
+        }
+
+        const pqParts = ['# Pending Questions\n'];
+        if (knowledge.questions?.length) {
+            for (const q of knowledge.questions) {
+                pqParts.push(`- ${q.content}${q.assigned_to ? ` _(assigned: ${q.assigned_to})_` : ''}${q.priority ? ` [${q.priority}]` : ''}`);
+            }
+        } else {
+            pqParts.push('_No pending questions._');
+        }
+
+        return { sot: sotParts.join('\n'), pq: pqParts.join('\n') };
+    }
+
+    /**
+     * Clear any in-memory embedding/RAG caches.
+     */
+    invalidateRAGCache() {
+        this._cache.delete('embeddings');
+        this._cache.delete('knowledge');
+        this._cache.delete('questions');
+    }
+
     // ==================== Config ====================
 
     /**
@@ -7888,6 +8342,636 @@ class SupabaseStorage {
             log.error({ event: 'reset_project_data_error', err: err?.message }, 'resetProjectData error');
             return { success: false, error: err.message };
         }
+    }
+
+    // ==================== Phase 3: CRUD & Utility Methods ====================
+
+    /**
+     * Delete a sprint.  The FK on action_items.sprint_id is SET NULL on delete,
+     * and sprint_retrospectives cascades, so a hard delete is safe.
+     * The route handler also unlinks action_items explicitly before calling this.
+     */
+    async deleteSprint(id) {
+        const projectId = this.getProjectId();
+        const { error } = await this.supabase
+            .from('sprints')
+            .delete()
+            .eq('id', id)
+            .eq('project_id', projectId);
+        if (error) throw error;
+        await this._addToOutbox('sprint.deleted', 'DELETE', 'Sprint', id, { id, project_id: projectId });
+    }
+
+    /**
+     * Alias for resetProjectData (legacy callers use `storage.reset()`).
+     */
+    async reset() {
+        return this.resetProjectData();
+    }
+
+    /**
+     * Find knowledge items whose source_document_id references a deleted or
+     * non-existent document and soft-delete them.  Returns per-table counts.
+     */
+    async cleanOrphanData() {
+        const projectId = this.getProjectId();
+        const stats = { facts: 0, decisions: 0, risks: 0, actions: 0, questions: 0 };
+
+        const { data: docs } = await this.supabase
+            .from('documents')
+            .select('id')
+            .eq('project_id', projectId)
+            .is('deleted_at', null);
+        const validDocIds = new Set((docs || []).map(d => d.id));
+
+        const tables = [
+            { table: 'facts', key: 'facts' },
+            { table: 'decisions', key: 'decisions' },
+            { table: 'risks', key: 'risks' },
+            { table: 'action_items', key: 'actions' },
+            { table: 'knowledge_questions', key: 'questions' }
+        ];
+
+        for (const { table, key } of tables) {
+            const { data: rows } = await this.supabase
+                .from(table)
+                .select('id, source_document_id')
+                .eq('project_id', projectId)
+                .is('deleted_at', null)
+                .not('source_document_id', 'is', null);
+
+            const orphanIds = (rows || [])
+                .filter(r => !validDocIds.has(r.source_document_id))
+                .map(r => r.id);
+
+            if (orphanIds.length) {
+                const { error } = await this.supabase
+                    .from(table)
+                    .update({ deleted_at: new Date().toISOString() })
+                    .in('id', orphanIds);
+                if (!error) stats[key] = orphanIds.length;
+            }
+        }
+
+        const total = Object.values(stats).reduce((a, b) => a + b, 0);
+        if (total > 0) {
+            log.info({ event: 'clean_orphan_data', stats }, `Soft-deleted ${total} orphan items`);
+        }
+        return stats;
+    }
+
+    /**
+     * Structured search – wraps searchKnowledge and groups results by type
+     * into { facts, questions, decisions, risks, people }.
+     */
+    async search(query, options = {}) {
+        const flat = await this.searchKnowledge(query, options.types || null);
+        const grouped = { facts: [], questions: [], decisions: [], risks: [], people: [] };
+        for (const item of flat) {
+            switch (item._type) {
+                case 'fact':     grouped.facts.push(item);     break;
+                case 'question': grouped.questions.push(item); break;
+                case 'decision': grouped.decisions.push(item); break;
+                case 'risk':     grouped.risks.push(item);     break;
+                case 'person':   grouped.people.push(item);    break;
+                default:         (grouped[item._type + 's'] ??= []).push(item); break;
+            }
+        }
+        return grouped;
+    }
+
+    /**
+     * Return the local filesystem path for this project's data directory.
+     * Used by processor, file-upload routes, etc.
+     */
+    getProjectDataDir() {
+        const pid = this.currentProjectId || 'default';
+        return path.join(this.filesBasePath || path.join(process.cwd(), 'data', 'projects'), pid);
+    }
+
+    /**
+     * No-op – in Supabase mode each document is persisted on individual writes.
+     * Kept for API compatibility with callers that call saveDocuments() after
+     * mutating a document object in-memory.
+     */
+    saveDocuments() {
+        log.debug({ event: 'save_documents_noop' }, 'saveDocuments (no-op in Supabase mode)');
+    }
+
+    // ==================== Data Aggregation ====================
+
+    async getQuestionsByPerson() {
+        const projectId = this.getProjectId();
+
+        const { data, error } = await this.supabase
+            .from('knowledge_questions')
+            .select('*')
+            .eq('project_id', projectId)
+            .is('deleted_at', null)
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        const grouped = {};
+        for (const q of (data || [])) {
+            const person = q.assigned_to || 'Unassigned';
+            if (!grouped[person]) grouped[person] = [];
+            grouped[person].push(q);
+        }
+        return grouped;
+    }
+
+    _categorizeQuestion(content) {
+        if (!content) return 'General';
+        const text = content.toLowerCase();
+
+        const teamKeywords = {
+            'Technical': ['api', 'database', 'server', 'code', 'bug', 'error', 'integration', 'system'],
+            'Business': ['process', 'workflow', 'policy', 'procedure', 'approval', 'budget'],
+            'Data': ['data', 'migration', 'export', 'import', 'format', 'mapping'],
+            'Operations': ['timesheet', 'report', 'submit', 'portal', 'access', 'login'],
+            'HR/Admin': ['employee', 'leave', 'vacation', 'holiday', 'contract', 'onboarding']
+        };
+
+        for (const [team, keywords] of Object.entries(teamKeywords)) {
+            if (keywords.some(kw => text.includes(kw))) return team;
+        }
+        return 'General';
+    }
+
+    async getQuestionsByTeam() {
+        const projectId = this.getProjectId();
+
+        const { data, error } = await this.supabase
+            .from('knowledge_questions')
+            .select('*')
+            .eq('project_id', projectId)
+            .is('deleted_at', null)
+            .neq('status', 'resolved')
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        const grouped = {};
+        for (const q of (data || [])) {
+            const team = this._categorizeQuestion(q.content);
+            if (!grouped[team]) grouped[team] = [];
+            grouped[team].push(q);
+        }
+        return grouped;
+    }
+
+    async getRisksByCategory() {
+        const projectId = this.getProjectId();
+
+        const { data, error } = await this.supabase
+            .from('risks')
+            .select('*')
+            .eq('project_id', projectId)
+            .is('deleted_at', null)
+            .neq('status', 'mitigated')
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        const grouped = { 'High Impact': [], 'Medium Impact': [], 'Low Impact': [] };
+        for (const r of (data || [])) {
+            const impact = (r.impact || 'medium').toLowerCase();
+            if (impact === 'high' || impact === 'critical') grouped['High Impact'].push(r);
+            else if (impact === 'medium') grouped['Medium Impact'].push(r);
+            else grouped['Low Impact'].push(r);
+        }
+
+        for (const key of Object.keys(grouped)) {
+            if (grouped[key].length === 0) delete grouped[key];
+        }
+        return grouped;
+    }
+
+    async getTrends(daysBack = 7) {
+        const projectId = this.getProjectId();
+
+        const [
+            { count: factsCount },
+            { count: questionsCount },
+            { count: risksCount },
+            { count: actionsCount },
+            { count: decisionsCount }
+        ] = await Promise.all([
+            this.supabase.from('facts').select('id', { count: 'exact', head: true })
+                .eq('project_id', projectId).is('deleted_at', null),
+            this.supabase.from('knowledge_questions').select('id', { count: 'exact', head: true })
+                .eq('project_id', projectId).is('deleted_at', null).neq('status', 'resolved'),
+            this.supabase.from('risks').select('id', { count: 'exact', head: true })
+                .eq('project_id', projectId).is('deleted_at', null).neq('status', 'mitigated'),
+            this.supabase.from('action_items').select('id', { count: 'exact', head: true })
+                .eq('project_id', projectId).is('deleted_at', null).neq('status', 'completed'),
+            this.supabase.from('decisions').select('id', { count: 'exact', head: true })
+                .eq('project_id', projectId).is('deleted_at', null)
+        ]);
+
+        const current = {
+            facts: factsCount || 0,
+            questions: questionsCount || 0,
+            risks: risksCount || 0,
+            actions: actionsCount || 0,
+            decisions: decisionsCount || 0
+        };
+
+        const targetDate = new Date();
+        targetDate.setDate(targetDate.getDate() - daysBack);
+        const targetDateStr = targetDate.toISOString().split('T')[0];
+
+        const { data: snapshots } = await this.supabase
+            .from('stats_history')
+            .select('*')
+            .eq('project_id', projectId)
+            .lte('snapshot_date', targetDateStr)
+            .order('snapshot_date', { ascending: false })
+            .limit(1);
+
+        const previous = snapshots?.[0] || null;
+        if (!previous) {
+            return { hasTrends: false, reason: 'no_historical_data' };
+        }
+
+        const calculateTrend = (currentVal, previousVal, invertBetter = false) => {
+            const delta = currentVal - previousVal;
+            let direction = 'stable';
+            if (delta > 0) direction = 'up';
+            else if (delta < 0) direction = 'down';
+
+            let sentiment = 'neutral';
+            if (delta !== 0) {
+                if (invertBetter) {
+                    sentiment = delta > 0 ? 'positive' : 'negative';
+                } else {
+                    sentiment = delta < 0 ? 'positive' : 'negative';
+                }
+            }
+
+            return { current: currentVal, previous: previousVal, delta, direction, sentiment };
+        };
+
+        return {
+            hasTrends: true,
+            periodDays: daysBack,
+            compareDate: previous.snapshot_date,
+            facts: calculateTrend(current.facts, previous.facts_count || 0, true),
+            questions: calculateTrend(current.questions, previous.questions_open ?? previous.questions_count ?? 0, false),
+            risks: calculateTrend(current.risks, previous.risks_open ?? previous.risks_count ?? 0, false),
+            actions: calculateTrend(current.actions, previous.actions_pending ?? previous.actions_count ?? 0, false),
+            decisions: calculateTrend(current.decisions, previous.decisions_count || 0, true)
+        };
+    }
+
+    async getTrendInsights() {
+        const trends = await this.getTrends(7);
+        if (!trends.hasTrends) {
+            return [];
+        }
+
+        const insights = [];
+
+        const addInsight = (metric, trend, labels) => {
+            if (!trend || trend.direction === 'stable') return;
+
+            const { current, previous, delta, direction, sentiment } = trend;
+            const absChange = Math.abs(delta);
+            const percentChange = previous > 0 ? Math.round((absChange / previous) * 100) : 100;
+
+            let severity = 'info';
+            if (sentiment === 'negative') {
+                severity = absChange >= 3 || percentChange >= 50 ? 'warning' : 'info';
+            } else if (sentiment === 'positive') {
+                severity = 'success';
+            }
+
+            const changeWord = direction === 'up' ? labels.upWord : labels.downWord;
+            const trendWord = direction === 'up' ? 'increased' : 'decreased';
+
+            let message = '';
+            if (absChange === 1) {
+                message = `${labels.singular} ${changeWord} (${previous} → ${current})`;
+            } else {
+                message = `${labels.plural} ${trendWord} by ${absChange} (${previous} → ${current})`;
+            }
+
+            if (percentChange > 0 && previous > 0) {
+                message += ` — ${percentChange}% change`;
+            }
+
+            insights.push({ metric, message, severity, direction, sentiment, delta, icon: labels.icon });
+        };
+
+        addInsight('facts', trends.facts, {
+            singular: 'New fact added', plural: 'Facts',
+            upWord: 'added', downWord: 'removed', icon: '📋'
+        });
+        addInsight('questions', trends.questions, {
+            singular: 'Pending question', plural: 'Pending questions',
+            upWord: 'added', downWord: 'resolved', icon: '❓'
+        });
+        addInsight('risks', trends.risks, {
+            singular: 'Risk', plural: 'Open risks',
+            upWord: 'identified', downWord: 'mitigated', icon: '⚠️'
+        });
+        addInsight('actions', trends.actions, {
+            singular: 'Action item', plural: 'Pending actions',
+            upWord: 'added', downWord: 'completed', icon: '✅'
+        });
+        addInsight('decisions', trends.decisions, {
+            singular: 'Decision made', plural: 'Decisions',
+            upWord: 'made', downWord: 'removed', icon: '🎯'
+        });
+
+        const severityOrder = { warning: 0, info: 1, success: 2 };
+        insights.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
+
+        return insights;
+    }
+
+    async getWeeklyActivity() {
+        const projectId = this.getProjectId();
+        const oneWeekAgo = new Date();
+        oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+        const since = oneWeekAgo.toISOString();
+
+        const [
+            { data: facts },
+            { data: actions },
+            { data: questions }
+        ] = await Promise.all([
+            this.supabase.from('facts').select('created_at')
+                .eq('project_id', projectId).is('deleted_at', null)
+                .gte('created_at', since),
+            this.supabase.from('action_items').select('created_at')
+                .eq('project_id', projectId).is('deleted_at', null)
+                .gte('created_at', since),
+            this.supabase.from('knowledge_questions').select('created_at')
+                .eq('project_id', projectId).is('deleted_at', null)
+                .gte('created_at', since)
+        ]);
+
+        const activity = {
+            Mon: { facts: 0, actions: 0, questions: 0 },
+            Tue: { facts: 0, actions: 0, questions: 0 },
+            Wed: { facts: 0, actions: 0, questions: 0 },
+            Thu: { facts: 0, actions: 0, questions: 0 },
+            Fri: { facts: 0, actions: 0, questions: 0 },
+            Sat: { facts: 0, actions: 0, questions: 0 },
+            Sun: { facts: 0, actions: 0, questions: 0 }
+        };
+
+        const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        const tally = (items, type) => {
+            for (const item of (items || [])) {
+                const d = new Date(item.created_at);
+                const day = dayNames[d.getDay()];
+                if (activity[day]) activity[day][type]++;
+            }
+        };
+
+        tally(facts, 'facts');
+        tally(actions, 'actions');
+        tally(questions, 'questions');
+
+        return Object.entries(activity).map(([day, counts]) => ({ day, ...counts }));
+    }
+
+    async getRecentActivity(limit = 10) {
+        const projectId = this.getProjectId();
+
+        const [
+            { data: facts },
+            { data: decisions },
+            { data: risks },
+            { data: actions },
+            { data: questions }
+        ] = await Promise.all([
+            this.supabase.from('facts').select('id, content, created_at')
+                .eq('project_id', projectId).is('deleted_at', null)
+                .order('created_at', { ascending: false }).limit(limit),
+            this.supabase.from('decisions').select('id, title, content, created_at')
+                .eq('project_id', projectId).is('deleted_at', null)
+                .order('created_at', { ascending: false }).limit(limit),
+            this.supabase.from('risks').select('id, title, description, created_at')
+                .eq('project_id', projectId).is('deleted_at', null)
+                .order('created_at', { ascending: false }).limit(limit),
+            this.supabase.from('action_items').select('id, task, created_at')
+                .eq('project_id', projectId).is('deleted_at', null)
+                .order('created_at', { ascending: false }).limit(limit),
+            this.supabase.from('knowledge_questions').select('id, content, created_at')
+                .eq('project_id', projectId).is('deleted_at', null)
+                .order('created_at', { ascending: false }).limit(limit)
+        ]);
+
+        const events = [];
+        const truncate = (s, n = 50) => s ? s.substring(0, n) + (s.length > n ? '...' : '') : '';
+
+        for (const f of (facts || [])) {
+            events.push({
+                id: f.id, type: 'fact', action: 'Captured Fact',
+                description: truncate(f.content),
+                timestamp: f.created_at, status: 'success'
+            });
+        }
+        for (const d of (decisions || [])) {
+            events.push({
+                id: d.id, type: 'decision', action: 'Made Decision',
+                description: truncate(d.title || d.content),
+                timestamp: d.created_at, status: 'info'
+            });
+        }
+        for (const r of (risks || [])) {
+            events.push({
+                id: r.id, type: 'risk', action: 'Identified Risk',
+                description: truncate(r.title || r.description),
+                timestamp: r.created_at, status: 'warning'
+            });
+        }
+        for (const a of (actions || [])) {
+            events.push({
+                id: a.id, type: 'action', action: 'Created Action',
+                description: truncate(a.task),
+                timestamp: a.created_at, status: 'warning'
+            });
+        }
+        for (const q of (questions || [])) {
+            events.push({
+                id: q.id, type: 'question', action: 'Raised Question',
+                description: truncate(q.content),
+                timestamp: q.created_at, status: 'error'
+            });
+        }
+
+        events.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        return events.slice(0, limit);
+    }
+
+    async getHistory() {
+        return await this.getProcessingHistory();
+    }
+
+    // ==================== Org Chart ====================
+
+    _buildNodeTitle(contact, team) {
+        let title = contact.name;
+        if (contact.role) title += `\n${contact.role}`;
+        if (contact.organization) title += `\n${contact.organization}`;
+        if (team) title += `\nTeam: ${team.name}`;
+        if (contact.email) title += `\n${contact.email}`;
+        if (contact.phone) title += `\n${contact.phone}`;
+        return title;
+    }
+
+    _getRelationshipStyle(type) {
+        let arrows = 'to';
+        let dashes = false;
+        let color = '#3498db';
+        let width = 1;
+
+        switch (type) {
+            case 'reports_to':
+                arrows = 'to'; color = '#e74c3c'; width = 2; break;
+            case 'manages':
+                arrows = 'from'; color = '#e74c3c'; width = 2; break;
+            case 'leads':
+                arrows = 'from'; color = '#9b59b6'; width = 2; break;
+            case 'member_of':
+                arrows = 'to'; color = '#1abc9c'; break;
+            case 'works_with':
+            case 'collaborates':
+                arrows = ''; dashes = true; color = '#95a5a6'; break;
+        }
+
+        return { arrows, dashes, color: { color }, width };
+    }
+
+    async getOrgChartData() {
+        const [contacts, teams, people, relationships] = await Promise.all([
+            this.getContacts(),
+            this.getTeams(),
+            this.getPeople(),
+            this.getRelationships()
+        ]);
+
+        const nameToNode = new Map();
+        const idToNode = new Map();
+        const nodes = [];
+
+        for (const contact of (contacts || [])) {
+            if (!contact.name) continue;
+            const nodeKey = contact.name.toLowerCase().trim();
+            if (nameToNode.has(nodeKey)) continue;
+
+            const team = (teams || []).find(t => t.id === contact.team_id);
+
+            const node = {
+                id: `contact_${contact.id}`,
+                contactId: contact.id,
+                label: contact.name,
+                title: this._buildNodeTitle(contact, team),
+                group: contact.team_id ? `team_${contact.team_id}` : (contact.organization || 'default'),
+                role: contact.role,
+                organization: contact.organization,
+                email: contact.email,
+                phone: contact.phone,
+                isContact: true,
+                teamColor: team?.color || null,
+                shape: (contact.photo_url || contact.avatar_url) ? 'circularImage' : 'box',
+                image: contact.photo_url || contact.avatar_url || null,
+                color: team
+                    ? { background: team.color, border: team.color }
+                    : { background: '#6366f1', border: '#4f46e5' }
+            };
+
+            if (node.shape === 'box') {
+                node.font = { color: '#ffffff' };
+            }
+
+            nodes.push(node);
+            nameToNode.set(nodeKey, node);
+            idToNode.set(contact.id, node);
+
+            for (const alias of (contact.aliases || [])) {
+                const aliasKey = alias.toLowerCase().trim();
+                if (!nameToNode.has(aliasKey)) {
+                    nameToNode.set(aliasKey, node);
+                }
+            }
+        }
+
+        for (const person of (people || [])) {
+            if (!person.name) continue;
+            const nameKey = person.name.toLowerCase().trim();
+
+            if (!nameToNode.has(nameKey)) {
+                const node = {
+                    id: person.id,
+                    label: person.name,
+                    title: person.role ? `${person.name}\n${person.role}` : person.name,
+                    group: person.organization || 'default',
+                    role: person.role,
+                    organization: person.organization,
+                    isContact: false,
+                    shape: 'ellipse',
+                    color: { background: '#94a3b8', border: '#64748b' }
+                };
+                nodes.push(node);
+                nameToNode.set(nameKey, node);
+                idToNode.set(person.id, node);
+            } else {
+                const existingNode = nameToNode.get(nameKey);
+                existingNode.knowledgeId = person.id;
+                idToNode.set(person.id, existingNode);
+            }
+        }
+
+        const edges = [];
+        const edgeSet = new Set();
+
+        for (const rel of (relationships || [])) {
+            const fromNode = idToNode.get(rel.from_person_id)
+                || nameToNode.get(rel.from_name?.toLowerCase().trim());
+            const toNode = idToNode.get(rel.to_person_id)
+                || nameToNode.get(rel.to_name?.toLowerCase().trim());
+            if (!fromNode || !toNode) continue;
+
+            const relType = rel.relationship_type || rel.type || 'works_with';
+            const edgeKey = `${fromNode.id}_${toNode.id}_${relType}`;
+            if (edgeSet.has(edgeKey)) continue;
+            edgeSet.add(edgeKey);
+
+            const edgeStyle = this._getRelationshipStyle(relType);
+            edges.push({
+                from: fromNode.id,
+                to: toNode.id,
+                ...edgeStyle,
+                title: relType.replace(/_/g, ' '),
+                source: 'knowledge'
+            });
+        }
+
+        const teamGroups = (teams || []).map(t => ({
+            id: `team_${t.id}`,
+            name: t.name,
+            color: t.color,
+            memberCount: t.members?.length || 0
+        }));
+
+        return {
+            nodes,
+            edges,
+            teams: teamGroups,
+            stats: {
+                people: nodes.length,
+                relationships: edges.length,
+                contacts: (contacts || []).length,
+                knowledgePeople: (people || []).length,
+                teams: (teams || []).length
+            }
+        };
     }
 }
 

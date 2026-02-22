@@ -1733,7 +1733,7 @@ class GraphSync {
             }
 
             // Sync actions (with PART_OF to user stories, DEPENDS_ON between tasks)
-            const actions = storage.getActionItems?.() || (storage.getActions ? await storage.getActions() : []);
+            const actions = storage.getActions ? await storage.getActions() : [];
             for (const action of actions) {
                 const r = await this.syncAction(action);
                 if (r.success) results.actions++;

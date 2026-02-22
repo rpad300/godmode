@@ -30,6 +30,7 @@
 
 export const NodeLabel = {
     Project: 'Project',
+    Company: 'Company',
     Document: 'Document',
     Person: 'Person',
     Contact: 'Contact',
@@ -41,11 +42,15 @@ export const NodeLabel = {
     Question: 'Question',
     Email: 'Email',
     Sprint: 'Sprint',
+    CalendarEvent: 'CalendarEvent',
+    UserStory: 'UserStory',
+    Task: 'Task',
 };
 
 export const RelationshipType = {
     // Structural
     BELONGS_TO_PROJECT: 'BELONGS_TO_PROJECT',
+    BELONGS_TO_COMPANY: 'BELONGS_TO_COMPANY',
 
     // Extraction
     EXTRACTED_FROM: 'EXTRACTED_FROM',
@@ -75,6 +80,18 @@ export const RelationshipType = {
     HAS_ATTACHMENT: 'HAS_ATTACHMENT',
     DEPENDS_ON: 'DEPENDS_ON',
 
+    // Attribution
+    AUTHORED_BY: 'AUTHORED_BY',
+    ASSIGNED_TO: 'ASSIGNED_TO',
+    PARENT_OF: 'PARENT_OF',
+
+    // Communication
+    MENTIONS: 'MENTIONS',
+    INVOLVES: 'INVOLVES',
+    DERIVED_FROM: 'DERIVED_FROM',
+    REPLY_TO: 'REPLY_TO',
+    REQUESTED_BY: 'REQUESTED_BY',
+
     // Semantic (Similarity)
     SIMILAR_TO: 'SIMILAR_TO',
 };
@@ -82,6 +99,7 @@ export const RelationshipType = {
 // Map source tables to Node Labels
 export const TableToLabel = {
     projects: NodeLabel.Project,
+    companies: NodeLabel.Company,
     documents: NodeLabel.Document,
     people: NodeLabel.Person,
     contacts: NodeLabel.Contact,
@@ -93,11 +111,14 @@ export const TableToLabel = {
     knowledge_questions: NodeLabel.Question,
     emails: NodeLabel.Email,
     sprints: NodeLabel.Sprint,
+    calendar_events: NodeLabel.CalendarEvent,
+    user_stories: NodeLabel.UserStory,
 };
 
 // Node Colors for consistent backend/frontend use (if needed by backend transformer)
 export const NodeColors = {
     [NodeLabel.Project]: '#2563eb', // blue-600
+    [NodeLabel.Company]: '#0d9488', // teal-600
     [NodeLabel.Document]: '#f59e0b', // amber-500
     [NodeLabel.Person]: '#22c55e', // green-500
     [NodeLabel.Contact]: '#14b8a6', // teal-500
@@ -109,4 +130,7 @@ export const NodeColors = {
     [NodeLabel.Question]: '#a78bfa', // violet-400
     [NodeLabel.Email]: '#94a3b8', // slate-400
     [NodeLabel.Sprint]: '#6366f1', // indigo-500
+    [NodeLabel.CalendarEvent]: '#06b6d4', // cyan-500
+    [NodeLabel.UserStory]: '#ec4899', // pink-500
+    [NodeLabel.Task]: '#10b981', // emerald-500 (same as Action)
 };

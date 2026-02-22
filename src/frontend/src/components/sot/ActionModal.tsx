@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import type { Action, Sprint, UserStory } from '@/types/godmode';
 import { useAiSuggestTask, useSotChat } from '../../hooks/useGodMode';
+import { useSprints } from '../../hooks/useAdmin';
 import OwnerSelect from './OwnerSelect';
 
 interface ActionModalProps {
@@ -27,11 +28,13 @@ const emptyAction: Omit<Action, 'id'> = {
   parent_story_id: '',
 };
 
-const ActionModal = ({ open, onClose, onSave, action, mode, sprints = [], userStories = [] }: ActionModalProps) => {
+const ActionModal = ({ open, onClose, onSave, action, mode, sprints: propSprints, userStories = [] }: ActionModalProps) => {
   const [form, setForm] = useState<Omit<Action, 'id'>>(emptyAction);
   const [aiLoading, setAiLoading] = useState<string | null>(null);
   const suggestTask = useAiSuggestTask();
   const chatMut = useSotChat();
+  const { data: sprintsData } = useSprints();
+  const sprints = propSprints ?? (sprintsData as { sprints?: Sprint[] })?.sprints ?? [];
 
   useEffect(() => {
     if (action && mode === 'edit') {
@@ -42,7 +45,7 @@ const ActionModal = ({ open, onClose, onSave, action, mode, sprints = [], userSt
     }
   }, [action, mode, open]);
 
-  const storiesForSprint = userStories.filter(s => s.sprintId === form.sprintId);
+  const storiesForSprint = userStories.filter(s => (s.sprint_id || s.sprintId) === form.sprint_id);
 
   const handleAiSuggest = async (field: 'title' | 'description') => {
     setAiLoading(field);
@@ -92,12 +95,14 @@ const ActionModal = ({ open, onClose, onSave, action, mode, sprints = [], userSt
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.title.trim()) return;
+    const taskText = (form.task || form.title || '').trim();
+    if (!taskText) return;
     onSave({
       id: action?.id || String(Date.now()),
       ...form,
-      createdAt: action?.createdAt || new Date().toISOString().split('T')[0],
-      updatedAt: new Date().toISOString().split('T')[0],
+      task: taskText,
+      created_at: action?.created_at || new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     });
     onClose();
   };
@@ -157,14 +162,14 @@ const ActionModal = ({ open, onClose, onSave, action, mode, sprints = [], userSt
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="text-xs font-medium text-[var(--gm-text-tertiary)] uppercase tracking-wider">Sprint</label>
-                    <select value={form.sprintId || ''} onChange={e => setForm({ ...form, sprintId: e.target.value, storyId: '' })} className="mt-1 w-full bg-[var(--gm-bg-tertiary)] border border-[var(--gm-border-primary)] rounded-lg px-3 py-2 text-sm text-[var(--gm-text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--gm-border-focus)]">
+                    <select value={form.sprint_id || ''} onChange={e => setForm({ ...form, sprint_id: e.target.value, parent_story_id: '' })} className="mt-1 w-full bg-[var(--gm-bg-tertiary)] border border-[var(--gm-border-primary)] rounded-lg px-3 py-2 text-sm text-[var(--gm-text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--gm-border-focus)]">
                       <option value="">No sprint</option>
                       {sprints.map(s => <option key={s.id} value={s.id}>{s.name || '(unnamed)'}</option>)}
                     </select>
                   </div>
                   <div>
                     <label className="text-xs font-medium text-[var(--gm-text-tertiary)] uppercase tracking-wider">User Story</label>
-                    <select value={form.storyId || ''} onChange={e => setForm({ ...form, storyId: e.target.value })} className="mt-1 w-full bg-[var(--gm-bg-tertiary)] border border-[var(--gm-border-primary)] rounded-lg px-3 py-2 text-sm text-[var(--gm-text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--gm-border-focus)]" disabled={!form.sprintId}>
+                    <select value={form.parent_story_id || ''} onChange={e => setForm({ ...form, parent_story_id: e.target.value })} className="mt-1 w-full bg-[var(--gm-bg-tertiary)] border border-[var(--gm-border-primary)] rounded-lg px-3 py-2 text-sm text-[var(--gm-text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--gm-border-focus)]" disabled={!form.sprint_id}>
                       <option value="">No story</option>
                       {storiesForSprint.map(s => <option key={s.id} value={s.id}>{s.title || '(untitled)'}</option>)}
                     </select>

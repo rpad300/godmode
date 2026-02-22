@@ -26,10 +26,8 @@
  *   - Full resync deletes and recreates the graph before re-syncing
  *
  * Notes:
- *   - The /api/graphrag/sync and /api/graphrag/resync endpoints appear twice in the file:
- *     once as background-async (lines 269-391) and once as synchronous (lines 442-614).
- *     The first match wins at runtime, so the background versions handle requests.
- *     Assumption: the synchronous duplicates are dead code from an earlier refactor.
+ *   - The /api/graphrag/sync and /api/graphrag/resync endpoints use background-async
+ *     processing (fire-and-forget after returning HTTP 202).
  *   - GraphRAGEngine is hot-swapped if the graph provider changes between requests
  *   - All query endpoints require LLM text config; embed endpoints also need embedding config
  *
@@ -54,6 +52,7 @@ const { parseBody } = require('../../server/request');
 const { getLogger } = require('../../server/requestContext');
 const { jsonResponse } = require('../../server/response');
 const llmConfig = require('../../llm/config');
+const llmRouter = require('../../llm/router');
 
 function isGraphragRoute(pathname) {
     return pathname.startsWith('/api/graphrag/');
@@ -64,8 +63,8 @@ async function handleGraphrag(ctx) {
 
     if (!isGraphragRoute(pathname)) return false;
 
-    const textCfg = llmConfig.getTextConfig(config);
-    const embedCfg = llmConfig.getEmbeddingsConfig(config);
+    const textCfg = llmRouter.routeResolve('processing', 'generateText', config) || {};
+    const embedCfg = llmRouter.routeResolve('embeddings', 'embed', config) || {};
 
     // POST /api/graphrag/stream
     if (pathname === '/api/graphrag/stream' && req.method === 'POST') {
@@ -92,7 +91,7 @@ async function handleGraphrag(ctx) {
                     enableCache: true
                 });
             }
-            await streamGraphRAGQuery(res, global.graphRAGEngine, query, body);
+            await streamGraphRAGQuery(res, global.graphRAGEngine, query, body, config);
         } catch (error) {
             log.warn({ event: 'graphrag_stream_error', reason: error?.message }, 'Stream error');
             res.writeHead(500);
@@ -285,7 +284,7 @@ async function handleGraphrag(ctx) {
 
     // GET /api/graphrag/status
     if (pathname === '/api/graphrag/status' && req.method === 'GET') {
-        const projectId = storage.getCurrentProject()?.id;
+        const projectId = (await storage.getCurrentProject())?.id;
         if (!projectId) {
             jsonResponse(res, { ok: false, error: 'No active project' }, 400);
             return true;
@@ -302,11 +301,14 @@ async function handleGraphrag(ctx) {
 
     // POST /api/graphrag/sync or /api/graphrag/resync
     if ((pathname === '/api/graphrag/sync' || pathname === '/api/graphrag/resync') && req.method === 'POST') {
-        const projectId = storage.getCurrentProject()?.id;
+        const body = await parseBody(req);
+        const projectId = body?.project_id || storage.getCurrentProject()?.id;
         if (!projectId) {
             jsonResponse(res, { ok: false, error: 'No active project' }, 400);
             return true;
         }
+        // Ensure storage context matches the requested project
+        if (storage.switchProject) await storage.switchProject(projectId);
 
         const isResync = pathname.endsWith('/resync');
 
@@ -354,6 +356,9 @@ async function handleGraphrag(ctx) {
         (async () => {
             const log = getLogger().child({ module: 'graphrag-sync', projectId });
             try {
+                // Re-set project context inside async to guard against race conditions
+                if (storage.switchProject) await storage.switchProject(projectId);
+
                 log.info({ event: 'sync_started', type: isResync ? 'full' : 'incremental' }, 'Starting GraphRAG sync');
 
                 // Fetch data
@@ -374,15 +379,45 @@ async function handleGraphrag(ctx) {
                 global.graphRAGEngine.setProjectContext(projectId);
                 // Fetch new entities
                 const [
-                    userStories, risks, emails
+                    userStories, risks, emails, contacts, calendarEvents, contactRelationships
                 ] = await Promise.all([
                     storage.getUserStories ? storage.getUserStories() : [],
                     storage.getRisks ? storage.getRisks() : [],
-                    storage.getEmails ? storage.getEmails() : []
+                    storage.getEmails ? storage.getEmails() : [],
+                    storage.getContacts ? storage.getContacts() : [],
+                    storage.getCalendarEvents ? storage.getCalendarEvents() : [],
+                    storage.getContactRelationships ? storage.getContactRelationships() : []
                 ]);
 
                 // Get project info for the project node
                 const project = await storage.getProject(projectId);
+
+                // Enrich emails with recipients and attachments for graph relationship creation
+                if (emails && emails.length > 0 && storage.supabase) {
+                    try {
+                        const emailIds = emails.map(e => e.id);
+                        const [recipientsRes, attachmentsRes] = await Promise.all([
+                            storage.supabase.from('email_recipients').select('*').in('email_id', emailIds),
+                            storage.supabase.from('email_attachments').select('*').in('email_id', emailIds)
+                        ]);
+                        const recipientsByEmail = {};
+                        const attachmentsByEmail = {};
+                        for (const r of (recipientsRes.data || [])) {
+                            if (!recipientsByEmail[r.email_id]) recipientsByEmail[r.email_id] = [];
+                            recipientsByEmail[r.email_id].push(r);
+                        }
+                        for (const a of (attachmentsRes.data || [])) {
+                            if (!attachmentsByEmail[a.email_id]) attachmentsByEmail[a.email_id] = [];
+                            attachmentsByEmail[a.email_id].push(a);
+                        }
+                        for (const email of emails) {
+                            email.recipients = recipientsByEmail[email.id] || [];
+                            email.attachments = attachmentsByEmail[email.id] || [];
+                        }
+                    } catch (enrichErr) {
+                        log.warn({ event: 'email_enrichment_failed', reason: enrichErr.message }, 'Failed to enrich emails (non-blocking)');
+                    }
+                }
 
                 // Sync
                 global.graphRAGEngine.setProjectContext(projectId);
@@ -398,7 +433,10 @@ async function handleGraphrag(ctx) {
                     questions,
                     userStories,
                     risks,
-                    emails
+                    emails,
+                    contacts,
+                    events: calendarEvents,
+                    contactRelationships
                 }, { clear: isResync });
 
                 // Update status
@@ -469,180 +507,6 @@ async function handleGraphrag(ctx) {
             jsonResponse(res, { ok: true, ...result });
         } catch (error) {
             log.warn({ event: 'graphrag_query_error', reason: error?.message }, 'Query error');
-            jsonResponse(res, { ok: false, error: error.message }, 500);
-        }
-        return true;
-    }
-
-    // POST /api/graphrag/sync
-    if (pathname === '/api/graphrag/sync' && req.method === 'POST') {
-        const body = await parseBody(req).catch(() => ({}));
-        const incremental = body.incremental !== false; // Default true
-
-        // 1. Get GraphRAG Engine
-        try {
-            const { GraphRAGEngine } = require('../../graphrag');
-            if (!global.graphRAGEngine) {
-                global.graphRAGEngine = new GraphRAGEngine({
-                    graphProvider: storage.getGraphProvider(),
-                    storage,
-                    llmConfig: config.llm,
-                    enableCache: true
-                });
-            }
-            if (storage.getGraphProvider() && global.graphRAGEngine.graphProvider !== storage.getGraphProvider()) {
-                global.graphRAGEngine.graphProvider = storage.getGraphProvider();
-            }
-
-            // 2. Fetch all data from storage
-            const projectId = storage.getProjectId?.() || storage.currentProjectId;
-            if (!projectId) {
-                jsonResponse(res, { error: 'Project context required' }, 400);
-                return true;
-            }
-
-            // Parallel fetch
-            const [
-                projectData,
-                people,
-                facts,
-                decisions,
-                risks,
-                actions,
-                questions,
-                documents,
-                sprints,
-                emails,
-                eventsResponse,
-                storiesResponse,
-                teamsResponse,
-                entityLinksResponse
-            ] = await Promise.all([
-                storage.getProject ? storage.getProject(projectId) : null,
-                storage.getPeople ? storage.getPeople() : [],
-                storage.getFacts ? storage.getFacts() : [],
-                storage.getDecisions ? storage.getDecisions() : [],
-                storage.getRisks ? storage.getRisks() : [],
-                storage.getActions ? storage.getActions() : [],
-                storage.getQuestions ? storage.getQuestions() : [],
-                storage.getDocuments ? storage.getDocuments() : [],
-                storage.getSprints ? storage.getSprints(projectId) : [],
-                storage.getEmails ? storage.getEmails({ limit: 1000 }) : [], // Recent emails
-                storage.supabase.from('calendar_events').select('*, calendar_event_contacts(*)').eq('project_id', projectId),
-                storage.supabase.from('stories').select('*').eq('project_id', projectId),
-                storage.supabase.from('teams').select('*').eq('project_id', projectId),
-                storage.supabase.from('entity_links').select('*').eq('project_id', projectId)
-            ]);
-
-            const userStories = storiesResponse.data || [];
-            const teams = teamsResponse.data || [];
-            const events = eventsResponse.data || [];
-            const entityLinks = entityLinksResponse.data || [];
-
-            // 3. Construct data object
-            const data = {
-                project: projectData,
-                people,
-                facts,
-                decisions,
-                risks,
-                actions,
-                questions,
-                documents,
-                sprints,
-                emails,
-                events,
-                userStories,
-                teams,
-                entityLinks
-            };
-
-            // 4. Sync
-            const result = await global.graphRAGEngine.syncToGraph(data, { incremental });
-            jsonResponse(res, result);
-
-        } catch (error) {
-            log.warn({ event: 'graphrag_sync_error', reason: error.message }, 'Sync failed');
-            jsonResponse(res, { ok: false, error: error.message }, 500);
-        }
-        return true;
-    }
-
-    // POST /api/graphrag/resync (Full Reset)
-    if (pathname === '/api/graphrag/resync' && req.method === 'POST') {
-        try {
-            const { GraphRAGEngine } = require('../../graphrag');
-            if (!global.graphRAGEngine) {
-                global.graphRAGEngine = new GraphRAGEngine({
-                    graphProvider: storage.getGraphProvider(),
-                    storage,
-                    llmConfig: config.llm,
-                    enableCache: true
-                });
-            }
-
-            // Reset graph
-            await global.graphRAGEngine.graphProvider.deleteGraph(global.graphRAGEngine.graphProvider.currentGraphName);
-            await global.graphRAGEngine.graphProvider.createGraph(global.graphRAGEngine.graphProvider.currentGraphName);
-            await global.graphRAGEngine.graphProvider.createOntologyIndexes(); // Ensure schema exists
-
-            // Trigger sync (non-incremental)
-            // Reuse logic? Or redirect? 
-            // Better to copy fetch logic or extract helper. 
-            // For now, I'll copy fetch logic to be safe and fast.
-
-            const projectId = storage.getProjectId?.() || storage.currentProjectId;
-            const [
-                projectData,
-                people,
-                facts,
-                decisions,
-                risks,
-                actions,
-                questions,
-                documents,
-                sprints,
-                emails,
-                eventsResponse,
-                storiesResponse,
-                teamsResponse
-            ] = await Promise.all([
-                storage.getProject ? storage.getProject(projectId) : null,
-                storage.getPeople ? storage.getPeople() : [],
-                storage.getFacts ? storage.getFacts() : [],
-                storage.getDecisions ? storage.getDecisions() : [],
-                storage.getRisks ? storage.getRisks() : [],
-                storage.getActions ? storage.getActions() : [],
-                storage.getQuestions ? storage.getQuestions() : [],
-                storage.getDocuments ? storage.getDocuments() : [],
-                storage.getSprints ? storage.getSprints(projectId) : [],
-                storage.getEmails ? storage.getEmails({ limit: 1000 }) : [],
-                storage.supabase.from('calendar_events').select('*').eq('project_id', projectId),
-                storage.supabase.from('stories').select('*').eq('project_id', projectId),
-                storage.supabase.from('teams').select('*').eq('project_id', projectId)
-            ]);
-
-            const data = {
-                project: projectData,
-                people,
-                facts,
-                decisions,
-                risks,
-                actions,
-                questions,
-                documents,
-                sprints,
-                emails,
-                events: eventsResponse.data || [],
-                userStories: storiesResponse.data || [],
-                teams: teamsResponse.data || []
-            };
-
-            const result = await global.graphRAGEngine.syncToGraph(data, { incremental: false });
-            jsonResponse(res, result);
-
-        } catch (error) {
-            log.warn({ event: 'graphrag_resync_error', reason: error.message }, 'Resync failed');
             jsonResponse(res, { ok: false, error: error.message }, 500);
         }
         return true;

@@ -37,8 +37,7 @@
  *   - isGarbageQuestion() filters out meta-questions about the slide/image itself
  */
 const { logger: rootLogger } = require('../logger');
-const llm = require('../llm');
-const llmConfig = require('../llm/config');
+const llmRouter = require('../llm/router');
 const { getOntologyAwarePrompts } = require('../prompts');
 
 // Try to load prompts service for Supabase prompts
@@ -357,34 +356,21 @@ class DocumentAnalyzer {
      * Generate text using configured LLM
      */
     async llmGenerateText(model, prompt, options = {}) {
-        const textCfg = llmConfig.getTextConfig(this.config);
-        if (!textCfg?.provider || !textCfg?.model) {
-            return { success: false, response: '', error: 'No LLM text provider/model configured.' };
-        }
-
-        const provider = textCfg.provider;
-        const providerConfig = textCfg.providerConfig || {};
-        const modelToUse = model || textCfg.model;
-
-        const result = await llm.generateText({
-            provider,
-            providerConfig,
-            model: modelToUse,
+        const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
             prompt,
             temperature: options.temperature || 0.7,
             maxTokens: options.maxTokens || 4096,
             context: options.context || 'document'
-        });
+        }, this.config);
 
-        // Use setTimeout to avoid rapid-fire requests if needed
         await new Promise(resolve => setTimeout(resolve, 50));
 
         return {
-            success: result.success,
-            response: result.text,
-            error: result.error,
-            evalCount: result.usage?.outputTokens,
-            raw: result.raw
+            success: routerResult.success,
+            response: routerResult.result?.text,
+            error: routerResult.error?.message || routerResult.error,
+            evalCount: routerResult.result?.usage?.outputTokens,
+            raw: routerResult.result?.raw
         };
     }
 
@@ -392,24 +378,17 @@ class DocumentAnalyzer {
      * Generate vision output
      */
     async llmGenerateVision(model, prompt, images, options = {}) {
-        const visionCfg = llmConfig.getVisionConfig(this.config, { model });
-        const provider = visionCfg.provider;
-        const providerConfig = visionCfg.providerConfig || {};
-
-        const result = await llm.generateVision({
-            provider,
-            providerConfig,
-            model: visionCfg.model || model,
+        const routerResult = await llmRouter.routeAndExecute('processing', 'generateVision', {
             prompt,
             images,
             temperature: options.temperature || 0.2,
             maxTokens: options.maxTokens || 2048,
-        });
+        }, this.config);
 
         return {
-            success: result.success,
-            response: result.text,
-            error: result.error
+            success: routerResult.success,
+            response: routerResult.result?.text,
+            error: routerResult.error?.message || routerResult.error
         };
     }
 
@@ -418,9 +397,6 @@ class DocumentAnalyzer {
      */
     async generateFileSummary(filename, extracted, factsCount, decisionsCount, risksCount, peopleCount) {
         try {
-            const textCfg = llmConfig.getTextConfig(this.config);
-            if (!textCfg?.provider || !textCfg?.model) return null;
-
             const factsSample = (extracted.facts || []).slice(0, 3).map(f => f.content).join('; ');
             const decisionsSample = (extracted.decisions || []).slice(0, 2).map(d => d.content).join('; ');
             const peopleSample = (extracted.people || []).slice(0, 5).map(p => p.name).join(', ');
@@ -453,7 +429,7 @@ Respond ONLY in this JSON format:
             }
 
             const result = await this.llmGenerateText(
-                textCfg.model,
+                null,
                 prompt,
                 { temperature: 0.3, maxTokens: 150, context: 'document' }
             );
@@ -729,19 +705,15 @@ SOURCE: <source>
 CONFIDENCE: <high|medium|low>`;
 
                 try {
-                    const reasoningCfg = llmConfig.getTextConfigForReasoning(config || this.config);
-                    if (!reasoningCfg?.provider) continue;
-
-                    const llmResult = await llm.generateText({
-                        provider: reasoningCfg.provider,
-                        providerConfig: reasoningCfg.providerConfig || {},
-                        model: reasoningCfg.model,
-                        prompt: prompt,
+                    const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
+                        prompt,
                         maxTokens: 500,
                         temperature: 0.2
-                    });
+                    }, config || this.config);
 
-                    const response = llmResult.success ? llmResult.text : '';
+                    if (!routerResult.success) continue;
+
+                    const response = routerResult.result?.text || '';
                     const answeredMatch = response.match(/ANSWERED:\s*(yes|no)/i);
                     const answerMatch = response.match(/ANSWER:\s*(.+?)(?=SOURCE:|CONFIDENCE:|$)/is);
                     const confidenceMatch = response.match(/CONFIDENCE:\s*(high|medium|low)/i);
@@ -769,10 +741,10 @@ CONFIDENCE: <high|medium|low>`;
     /**
      * Check actions completion
      */
-    checkAndCompleteActions(storage, extracted) {
+    async checkAndCompleteActions(storage, extracted) {
         let completed = 0;
         try {
-            const pendingActions = storage.getActionItems('pending');
+            const pendingActions = await storage.getActions('pending');
             if (pendingActions.length === 0) return 0;
 
             const completionTexts = [];

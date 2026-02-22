@@ -58,9 +58,7 @@ import {
   File,
   X,
   Wrench,
-  Briefcase,
   User,
-  Building2,
   FileBarChart,
   Search,
   Activity,
@@ -88,8 +86,14 @@ import {
   useActions,
   useFacts,
   useDecisions,
+  useImportEmail,
+  useImportConversation,
   type PendingFile,
 } from '../../hooks/useGodMode';
+import ImportDocumentModal from '../files/ImportDocumentModal';
+import ImportTranscriptModal from '../files/ImportTranscriptModal';
+import AddEmailModal from '../files/AddEmailModal';
+import ImportConversationModal from '../files/ImportConversationModal';
 
 interface AppSidebarProps {
   open: boolean;
@@ -116,11 +120,9 @@ const navSections: NavSection[] = [
       { to: '/costs', label: 'Costs', icon: DollarSign },
       { to: '/history', label: 'History', icon: Clock },
       { to: '/sprints', label: 'Sprints', icon: Calendar },
-      { to: '/companies', label: 'Companies', icon: Building2 },
       { to: '/reports', label: 'Reports', icon: FileBarChart },
       { to: '/search', label: 'Search', icon: Search },
       { to: '/optimizations', label: 'Optimizations', icon: Activity },
-      { to: '/projects', label: 'Projects', icon: Briefcase },
       { to: '/settings', label: 'Project Settings', icon: Settings },
     ],
   },
@@ -158,6 +160,12 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const activeDropZoneRef = useRef<string>('documents');
 
+  // Modal state for each Add Files type
+  const [docModalOpen, setDocModalOpen] = useState(false);
+  const [transcriptModalOpen, setTranscriptModalOpen] = useState(false);
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const [convModalOpen, setConvModalOpen] = useState(false);
+
   // Queries & mutations
   const { data: pendingFiles = [] } = usePendingFiles();
   const { data: questions = [] } = useQuestions();
@@ -170,6 +178,8 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
   const cleanupOrphans = useCleanupOrphans();
   const uploadFiles = useUploadFiles();
   const deletePendingFile = useDeletePendingFile();
+  const importEmail = useImportEmail();
+  const importConversation = useImportConversation();
 
   // suppress unused var warning — exportProject is available for server-side export
   void exportProject;
@@ -277,12 +287,12 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
   }, []);
 
   const handleDropZoneClick = useCallback((type: string) => {
-    activeDropZoneRef.current = type;
-    const zone = dropZones.find(z => z.type === type);
-    if (fileInputRef.current) {
-      fileInputRef.current.accept = zone?.accept || '';
+    switch (type) {
+      case 'documents': setDocModalOpen(true); break;
+      case 'transcripts': setTranscriptModalOpen(true); break;
+      case 'emails': setEmailModalOpen(true); break;
+      case 'conversations': setConvModalOpen(true); break;
     }
-    fileInputRef.current?.click();
   }, []);
 
   const handleFileInputChange = useCallback(
@@ -298,6 +308,125 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
     },
     [uploadFiles]
   );
+
+  // ── Modal Import Handlers ────────────────────────────────────────────────
+  const handleDocumentImport = useCallback((data: { content: string; title: string; sprintId: string; taskId: string; file?: File | null }) => {
+    if (data.file) {
+      uploadFiles.mutate({ files: [data.file], type: 'documents', sprintId: data.sprintId, taskId: data.taskId }, {
+        onSuccess: () => toast.success('Document uploaded — ready for processing'),
+        onError: (err: Error) => toast.error(`Upload failed: ${err.message}`),
+      });
+    } else if (data.content?.trim()) {
+      const filename = (data.title?.trim() || 'Pasted Document').replace(/[^a-zA-Z0-9_\- ]/g, '') + '.txt';
+      const blob = new Blob([data.content], { type: 'text/plain' });
+      const file = new File([blob], filename, { type: 'text/plain' });
+      uploadFiles.mutate({ files: [file], type: 'documents', sprintId: data.sprintId, taskId: data.taskId }, {
+        onSuccess: () => toast.success('Document imported — ready for processing'),
+        onError: (err: Error) => toast.error(`Import failed: ${err.message}`),
+      });
+    }
+  }, [uploadFiles]);
+
+  const handleTranscriptImport = useCallback((data: { content: string; source: string; sprintId: string; taskId: string; file?: File | null }) => {
+    if (data.file) {
+      uploadFiles.mutate({ files: [data.file], type: 'transcripts', sprintId: data.sprintId, taskId: data.taskId, source: data.source }, {
+        onSuccess: () => toast.success('Transcript uploaded — AI processing started'),
+        onError: (err: Error) => toast.error(`Upload failed: ${err.message}`),
+      });
+    } else if (data.content?.trim()) {
+      const blob = new Blob([data.content], { type: 'text/plain' });
+      const file = new File([blob], 'transcript.txt', { type: 'text/plain' });
+      uploadFiles.mutate({ files: [file], type: 'transcripts', sprintId: data.sprintId, taskId: data.taskId, source: data.source }, {
+        onSuccess: () => toast.success('Transcript imported — AI processing started'),
+        onError: (err: Error) => toast.error(`Import failed: ${err.message}`),
+      });
+    }
+  }, [uploadFiles]);
+
+  const handleEmailImport = useCallback((data: { tab: string; content: string; manual: { from: string; date: string; to: string; cc: string; subject: string; body: string }; sprintId: string; taskId: string; file?: File | null }) => {
+    const buildPayload = async () => {
+      const base: Record<string, unknown> = {};
+      if (data.sprintId && data.sprintId !== 'none') base.sprint_id = data.sprintId;
+      if (data.taskId && data.taskId !== 'none') base.action_id = data.taskId;
+
+      if (data.tab === 'paste' && data.content?.trim()) {
+        return { ...base, emailText: data.content };
+      }
+      if (data.tab === 'upload' && data.file) {
+        const buffer = await data.file.arrayBuffer();
+        const bytes = new Uint8Array(buffer);
+        let binary = '';
+        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+        const b64 = btoa(binary);
+        const ext = data.file.name.split('.').pop()?.toLowerCase();
+        if (ext === 'msg') {
+          return { ...base, msgBase64: b64, filename: data.file.name };
+        }
+        return { ...base, emlBase64: b64, filename: data.file.name };
+      }
+      if (data.tab === 'manual') {
+        const toList = data.manual.to.split(',').map(e => e.trim()).filter(Boolean).map(e => ({ email: e }));
+        const ccList = data.manual.cc ? data.manual.cc.split(',').map(e => e.trim()).filter(Boolean).map(e => ({ email: e })) : [];
+        return {
+          ...base,
+          from: { email: data.manual.from },
+          to: toList,
+          cc: ccList,
+          subject: data.manual.subject,
+          body: data.manual.body,
+          date: data.manual.date || undefined,
+        };
+      }
+      return null;
+    };
+
+    buildPayload().then(payload => {
+      if (!payload) { toast.error('No email content provided'); return; }
+      importEmail.mutate(payload, {
+        onSuccess: (result) => {
+          const email = (result as Record<string, unknown>).email as Record<string, unknown> | undefined;
+          const subject = email?.subject || 'Email';
+          toast.success(`Email imported: "${subject}"`);
+        },
+        onError: (err: Error) => toast.error(`Email import failed: ${err.message}`),
+      });
+    });
+  }, [importEmail]);
+
+  const handleConversationImport = useCallback((data: {
+    content: string;
+    format: string;
+    title: string;
+    channelName: string;
+    documentDate: string;
+    skipAI: boolean;
+    sprintId: string;
+    taskId: string;
+    file?: File | null;
+  }) => {
+    const text = data.content?.trim();
+    if (!text || text.length < 20) {
+      toast.error('Conversation text is too short (min 20 characters)');
+      return;
+    }
+    importConversation.mutate({
+      text,
+      formatHint: data.format !== 'auto' ? data.format : undefined,
+      meta: {
+        title: data.title || undefined,
+        channelName: data.channelName || undefined,
+        documentDate: data.documentDate || undefined,
+      },
+      skipAI: data.skipAI,
+    }, {
+      onSuccess: (result) => {
+        const r = result as Record<string, unknown>;
+        const stats = r.stats as Record<string, unknown> | undefined;
+        toast.success(`Conversation imported: "${r.title || 'Conversation'}" (${stats?.messageCount ?? '?'} messages)`);
+      },
+      onError: (err: Error) => toast.error(`Conversation import failed: ${err.message}`),
+    });
+  }, [importConversation]);
 
   // ── Delete Pending File ───────────────────────────────────────────────────
   const handleDeleteFile = useCallback(
@@ -560,6 +689,32 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
           </Button>
         </DialogFooter>
       </Dialog>
+
+      {/* Add Files Modals */}
+      <ImportDocumentModal
+        open={docModalOpen}
+        onClose={() => setDocModalOpen(false)}
+        onImport={handleDocumentImport}
+        loading={uploadFiles.isPending}
+      />
+      <ImportTranscriptModal
+        open={transcriptModalOpen}
+        onClose={() => setTranscriptModalOpen(false)}
+        onImport={handleTranscriptImport}
+        loading={uploadFiles.isPending}
+      />
+      <AddEmailModal
+        open={emailModalOpen}
+        onClose={() => setEmailModalOpen(false)}
+        onImport={handleEmailImport}
+        loading={importEmail.isPending}
+      />
+      <ImportConversationModal
+        open={convModalOpen}
+        onClose={() => setConvModalOpen(false)}
+        onImport={handleConversationImport}
+        loading={importConversation.isPending}
+      />
     </>
   );
 }

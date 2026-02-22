@@ -29,6 +29,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useProject } from '@/contexts/ProjectContext';
 import { useUser } from '@/hooks/useUser';
+
+export interface SavedView {
     id: string;
     project_id: string;
     name: string;

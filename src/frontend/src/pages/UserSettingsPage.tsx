@@ -180,7 +180,7 @@ function ProfileRoleSection() {
   useEffect(() => {
     // Initialize state from props
     if (user?.timezone) setSelectedTimezone(user.timezone);
-    if (currentProject?.role) setSelectedRole(currentProject.role);
+    if (currentProject?.user_role) setSelectedRole(currentProject.user_role);
 
     // Fetch Roles
     const fetchRoles = async () => {
@@ -215,11 +215,11 @@ function ProfileRoleSection() {
       }
 
       // Save Role (Update project member)
-      if (currentProjectId && selectedRole !== currentProject?.role) {
+      if (currentProjectId && selectedRole !== (currentProject?.user_role || '')) {
         // We need to update the member record.
         // Endpoint: PUT /api/projects/:id/members/:userId
         await apiClient.put(`/api/projects/${currentProjectId}/members/${user?.id}`, {
-          role: selectedRole
+          user_role: selectedRole
         });
         toast.success("Role updated for this project");
         // Ideally trigger a reload of project context or member data here

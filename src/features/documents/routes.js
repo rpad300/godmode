@@ -250,7 +250,7 @@ async function handleDocuments(ctx) {
         } catch (err) {
             log.warn({ event: 'documents_list_error', reason: err.message }, 'Documents list error');
             // Fallback to cache
-            const documents = storage.getDocuments(status);
+            const documents = await storage.getDocuments(status);
             jsonResponse(res, { 
                 documents,
                 total: documents.length,
@@ -279,7 +279,7 @@ async function handleDocuments(ctx) {
                 .single();
             
             if (error || !doc) {
-                const cachedDoc = storage.getDocumentById(docId);
+                const cachedDoc = await storage.getDocumentById(docId);
                 if (cachedDoc) {
                     jsonResponse(res, { document: cachedDoc });
                 } else {
@@ -289,7 +289,7 @@ async function handleDocuments(ctx) {
                 jsonResponse(res, { document: doc });
             }
         } catch (err) {
-            const cachedDoc = storage.getDocumentById(docId);
+            const cachedDoc = await storage.getDocumentById(docId);
             if (cachedDoc) {
                 jsonResponse(res, { document: cachedDoc });
             } else {
@@ -347,7 +347,7 @@ async function handleDocuments(ctx) {
     const restoreMatch = pathname.match(/^\/api\/documents\/([a-f0-9\-]+)\/restore$/i);
     if (restoreMatch && req.method === 'POST') {
         const docId = restoreMatch[1];
-        const doc = storage.getDocumentById(docId);
+        const doc = await storage.getDocumentById(docId);
         
         if (!doc) {
             jsonResponse(res, { error: 'Document not found' }, 404);

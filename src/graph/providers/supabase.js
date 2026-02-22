@@ -337,11 +337,17 @@ class SupabaseGraphProvider extends GraphProvider {
         }
 
         try {
-            const { data, error } = await this.supabase
+            let query = this.supabase
                 .from('graph_nodes')
                 .select('*')
                 .eq('id', nodeId)
-                .single();
+                .eq('graph_name', this.currentGraphName);
+
+            if (this.projectId) {
+                query = query.eq('project_id', this.projectId);
+            }
+
+            const { data, error } = await query.single();
 
             if (error) throw error;
 
@@ -400,17 +406,42 @@ class SupabaseGraphProvider extends GraphProvider {
         }
 
         try {
-            // Delete relationships first
-            await this.supabase
+            // Verify ownership before delete
+            if (this.projectId) {
+                const { data: existing } = await this.supabase
+                    .from('graph_nodes')
+                    .select('project_id')
+                    .eq('id', nodeId)
+                    .single();
+
+                if (existing && existing.project_id && existing.project_id !== this.projectId) {
+                    return { ok: false, error: 'Access denied: Node belongs to another project' };
+                }
+            }
+
+            // Delete relationships first (scoped)
+            let relQuery = this.supabase
                 .from('graph_relationships')
                 .delete()
+                .eq('graph_name', this.currentGraphName)
                 .or(`from_id.eq.${nodeId},to_id.eq.${nodeId}`);
 
-            // Delete node
-            const { error } = await this.supabase
+            if (this.projectId) {
+                relQuery = relQuery.eq('project_id', this.projectId);
+            }
+            await relQuery;
+
+            // Delete node (scoped)
+            let nodeQuery = this.supabase
                 .from('graph_nodes')
                 .delete()
-                .eq('id', nodeId);
+                .eq('id', nodeId)
+                .eq('graph_name', this.currentGraphName);
+
+            if (this.projectId) {
+                nodeQuery = nodeQuery.eq('project_id', this.projectId);
+            }
+            const { error } = await nodeQuery;
 
             if (error) throw error;
 
@@ -762,7 +793,6 @@ class SupabaseGraphProvider extends GraphProvider {
                 .eq('graph_name', this.currentGraphName);
 
             if (this.projectId) {
-                // For relationships, we only filter if project_id is on the relationship
                 query = query.eq('project_id', this.projectId);
             }
 
@@ -772,8 +802,106 @@ class SupabaseGraphProvider extends GraphProvider {
             return { data: [{ count: count || 0 }], metadata: {} };
         }
 
-        // MATCH (n) RETURN n, labels(n)
-        if (cypherLower.match(/match\s*\(n.*\)\s*return/i)) {
+        // MATCH (a:Label)-[r:TYPE]->(b:Label) pattern with optional WHERE
+        const relPatternMatch = cypher.match(
+            /MATCH\s*\((\w+)(?::(\w+))?\)\s*-\[(\w+):(\w+)\]->\s*\((\w+)(?::(\w+))?\)/i
+        );
+        if (relPatternMatch) {
+            const [, fromAlias, fromLabel, relAlias, relType, toAlias, toLabel] = relPatternMatch;
+            const limitMatch = cypher.match(/LIMIT\s+(\d+)/i);
+            const limit = limitMatch ? parseInt(limitMatch[1]) : 100;
+
+            let query = this.supabase
+                .from('graph_relationships')
+                .select(`
+                    id, from_id, to_id, type, properties,
+                    from_node:graph_nodes!from_id(id, label, properties),
+                    to_node:graph_nodes!to_id(id, label, properties)
+                `)
+                .eq('graph_name', this.currentGraphName)
+                .eq('type', relType);
+
+            if (this.projectId) {
+                query = query.eq('project_id', this.projectId);
+            }
+
+            const { data: rels, error: relError } = await query;
+            if (relError) throw relError;
+
+            let results = (rels || []).filter(r => {
+                if (fromLabel && r.from_node?.label !== fromLabel) return false;
+                if (toLabel && r.to_node?.label !== toLabel) return false;
+                return true;
+            });
+
+            // Parse WHERE clauses for property filtering on JSONB properties
+            results = this._applyWhereFilters(cypher, results, {
+                [fromAlias]: 'from_node',
+                [toAlias]: 'to_node',
+                [relAlias]: null
+            }, params);
+
+            const mapped = results.slice(0, limit).map(r => ({
+                [fromAlias]: r.from_node ? {
+                    id: r.from_node.id,
+                    labels: [r.from_node.label],
+                    ...(r.from_node.properties || {})
+                } : { id: r.from_id },
+                [relAlias]: {
+                    id: r.id,
+                    type: r.type,
+                    ...(r.properties || {})
+                },
+                [toAlias]: r.to_node ? {
+                    id: r.to_node.id,
+                    labels: [r.to_node.label],
+                    ...(r.to_node.properties || {})
+                } : { id: r.to_id }
+            }));
+
+            return { data: mapped, metadata: {} };
+        }
+
+        // MATCH (n:Label) with WHERE + property filters
+        const nodeMatchWithWhere = cypherLower.match(/match\s*\((\w+)(?::(\w+))?\)/) && cypherLower.includes('where');
+        if (nodeMatchWithWhere && !cypherLower.includes('-[') && cypherLower.includes('return')) {
+            const nodeMatch = cypher.match(/MATCH\s*\((\w+)(?::(\w+))?\)/i);
+            if (nodeMatch) {
+                const [, alias, label] = nodeMatch;
+                const limitMatch = cypher.match(/LIMIT\s+(\d+)/i);
+
+                let query = this.supabase
+                    .from('graph_nodes')
+                    .select('*')
+                    .eq('graph_name', this.currentGraphName);
+
+                if (this.projectId) {
+                    query = query.eq('project_id', this.projectId);
+                }
+
+                if (label) {
+                    query = query.eq('label', label);
+                }
+
+                const { data, error } = await query;
+                if (error) throw error;
+
+                let results = (data || []).map(r => ({ _row: r }));
+
+                results = this._applyNodeWhereFilters(cypher, results, alias, params);
+
+                const limit = limitMatch ? parseInt(limitMatch[1]) : 100;
+                const mapped = results.slice(0, limit).map(r => ({
+                    [alias]: { id: r._row.id, labels: [r._row.label], ...(r._row.properties || {}) },
+                    nodeLabels: [r._row.label]
+                }));
+
+                return { data: mapped, metadata: {} };
+            }
+        }
+
+        // MATCH (n) RETURN n, labels(n) -- simple node match without WHERE
+        if (cypherLower.match(/match\s*\(n.*\)\s*return/i) && !cypherLower.includes('-[')) {
             const labelMatch = cypher.match(/\(n:(\w+)\)/);
             const limitMatch = cypher.match(/limit\s+(\d+)/i);
 
@@ -804,7 +932,7 @@ class SupabaseGraphProvider extends GraphProvider {
             return { data: results, metadata: {} };
         }
 
-        // MATCH (from)-[r]->(to) RETURN from, r, to
+        // MATCH (from)-[r]->(to) RETURN from, r, to (untyped relationship)
         if (cypherLower.includes('-[r]->') || cypherLower.includes('from)-[r]->(to)')) {
             const limitMatch = cypher.match(/limit\s+(\d+)/i);
             const limit = limitMatch ? parseInt(limitMatch[1]) : 100;
@@ -900,8 +1028,199 @@ class SupabaseGraphProvider extends GraphProvider {
             return { data: [props], metadata: { merged: true } };
         }
 
-        // Silently ignore unsupported queries (don't spam logs)
-        return { data: [], metadata: { warning: 'Query not fully supported' } };
+        log.warn({ event: 'cypher_unsupported', cypher: cypher.substring(0, 200) }, 'Cypher pattern not supported by Supabase translator');
+        return { data: [], metadata: { unsupported: true, error: 'Query pattern not supported by the Supabase Cypher translator. Falling back to alternative retrieval.' } };
+    }
+
+    /**
+     * Apply WHERE clause filters to relationship query results.
+     * Supports: properties->>'key' ILIKE '%val%', = 'val', IN ('a','b')
+     */
+    _applyWhereFilters(cypher, results, aliasMap, params) {
+        const whereMatch = cypher.match(/WHERE\s+(.*?)(?:\s+RETURN)/is);
+        if (!whereMatch) return results;
+
+        const whereClauses = whereMatch[1];
+
+        // Parse ILIKE conditions: alias.properties->>'key' ILIKE '%' || $param || '%'
+        const ilikePattern = /(\w+)\.properties->>'(\w+)'\s+ILIKE\s+'%'\s*\|\|\s*\$(\w+)\s*\|\|\s*'%'/gi;
+        let ilikeMatch;
+        while ((ilikeMatch = ilikePattern.exec(whereClauses)) !== null) {
+            const [, alias, prop, paramName] = ilikeMatch;
+            const value = (params[paramName] || '').toLowerCase();
+            const nodeKey = aliasMap[alias];
+            if (!value) continue;
+
+            results = results.filter(r => {
+                const node = nodeKey ? r[nodeKey] : r;
+                const propVal = node?.properties?.[prop] || '';
+                return propVal.toLowerCase().includes(value);
+            });
+        }
+
+        // Parse equality conditions: alias.properties->>'key' = 'value' or $param
+        const eqPattern = /(\w+)\.properties->>'(\w+)'\s*=\s*(?:'([^']*)'|\$(\w+))/gi;
+        let eqMatch;
+        while ((eqMatch = eqPattern.exec(whereClauses)) !== null) {
+            const [, alias, prop, literal, paramName] = eqMatch;
+            const value = literal || params[paramName] || '';
+            const nodeKey = aliasMap[alias];
+
+            results = results.filter(r => {
+                const node = nodeKey ? r[nodeKey] : r;
+                const propVal = node?.properties?.[prop] || '';
+                return propVal === value;
+            });
+        }
+
+        // Parse IN conditions: alias.properties->>'key' IN ('a', 'b')
+        const inPattern = /(\w+)\.properties->>'(\w+)'\s+IN\s*\(([^)]+)\)/gi;
+        let inMatch;
+        while ((inMatch = inPattern.exec(whereClauses)) !== null) {
+            const [, alias, prop, valuesStr] = inMatch;
+            const values = valuesStr.split(',').map(v => v.trim().replace(/^'|'$/g, ''));
+            const nodeKey = aliasMap[alias];
+
+            results = results.filter(r => {
+                const node = nodeKey ? r[nodeKey] : r;
+                const propVal = node?.properties?.[prop] || '';
+                return values.includes(propVal);
+            });
+        }
+
+        return results;
+    }
+
+    /**
+     * Apply WHERE clause filters to simple node query results.
+     * Each result has shape { _row: { id, label, properties } }
+     */
+    _applyNodeWhereFilters(cypher, results, alias, params) {
+        const whereMatch = cypher.match(/WHERE\s+(.*?)(?:\s+RETURN)/is);
+        if (!whereMatch) return results;
+
+        const whereClauses = whereMatch[1];
+
+        // ILIKE: alias.properties->>'key' ILIKE '%' || $param || '%'
+        const ilikePattern = /(\w+)\.properties->>'(\w+)'\s+ILIKE\s+'%'\s*\|\|\s*\$(\w+)\s*\|\|\s*'%'/gi;
+        let m;
+        while ((m = ilikePattern.exec(whereClauses)) !== null) {
+            const [, , prop, paramName] = m;
+            const value = (params[paramName] || '').toLowerCase();
+            if (!value) continue;
+            results = results.filter(r => {
+                const propVal = r._row.properties?.[prop] || '';
+                return propVal.toLowerCase().includes(value);
+            });
+        }
+
+        // Equality: alias.properties->>'key' = 'value' or $param
+        const eqPattern = /(\w+)\.properties->>'(\w+)'\s*=\s*(?:'([^']*)'|\$(\w+))/gi;
+        while ((m = eqPattern.exec(whereClauses)) !== null) {
+            const [, , prop, literal, paramName] = m;
+            const value = literal || params[paramName] || '';
+            results = results.filter(r => {
+                const propVal = r._row.properties?.[prop] || '';
+                return propVal === value;
+            });
+        }
+
+        // IN: alias.properties->>'key' IN ('a', 'b')
+        const inPattern = /(\w+)\.properties->>'(\w+)'\s+IN\s*\(([^)]+)\)/gi;
+        while ((m = inPattern.exec(whereClauses)) !== null) {
+            const [, , prop, valuesStr] = m;
+            const values = valuesStr.split(',').map(v => v.trim().replace(/^'|'$/g, ''));
+            results = results.filter(r => {
+                const propVal = r._row.properties?.[prop] || '';
+                return values.includes(propVal);
+            });
+        }
+
+        // CONTAINS: alias.properties->>'key' CONTAINS 'value'
+        const containsPattern = /(\w+)\.properties->>'(\w+)'\s+CONTAINS\s+'([^']*)'/gi;
+        while ((m = containsPattern.exec(whereClauses)) !== null) {
+            const [, , prop, value] = m;
+            results = results.filter(r => {
+                const propVal = r._row.properties?.[prop] || '';
+                return propVal.toLowerCase().includes(value.toLowerCase());
+            });
+        }
+
+        return results;
+    }
+
+    // ==================== Graph Traversal ====================
+
+    /**
+     * BFS traversal from a start node following specified relationship types.
+     * Returns paths as { from, to, type, relationship } objects up to maxDepth hops.
+     */
+    async traversePath(startNodeId, relTypes = [], maxDepth = 2, direction = 'both') {
+        if (!this.connected) return { ok: false, paths: [], error: 'Not connected' };
+
+        try {
+            const paths = [];
+            const visited = new Set([startNodeId]);
+            let frontier = [startNodeId];
+
+            for (let depth = 0; depth < maxDepth && frontier.length > 0; depth++) {
+                const nextFrontier = [];
+
+                for (const nodeId of frontier) {
+                    // Fetch relationships where nodeId is source or target
+                    let query = this.supabase
+                        .from('graph_relationships')
+                        .select(`
+                            id, from_id, to_id, type, properties,
+                            from_node:graph_nodes!from_id(id, label, properties),
+                            to_node:graph_nodes!to_id(id, label, properties)
+                        `)
+                        .eq('graph_name', this.currentGraphName);
+
+                    if (this.projectId) {
+                        query = query.eq('project_id', this.projectId);
+                    }
+
+                    if (relTypes.length > 0) {
+                        query = query.in('type', relTypes);
+                    }
+
+                    if (direction === 'outgoing') {
+                        query = query.eq('from_id', nodeId);
+                    } else if (direction === 'incoming') {
+                        query = query.eq('to_id', nodeId);
+                    } else {
+                        query = query.or(`from_id.eq.${nodeId},to_id.eq.${nodeId}`);
+                    }
+
+                    const { data, error } = await query.limit(50);
+                    if (error || !data) continue;
+
+                    for (const rel of data) {
+                        const neighborId = rel.from_id === nodeId ? rel.to_id : rel.from_id;
+
+                        paths.push({
+                            from: rel.from_node || { id: rel.from_id },
+                            to: rel.to_node || { id: rel.to_id },
+                            type: rel.type,
+                            relationship: { id: rel.id, type: rel.type, properties: rel.properties }
+                        });
+
+                        if (!visited.has(neighborId)) {
+                            visited.add(neighborId);
+                            nextFrontier.push(neighborId);
+                        }
+                    }
+                }
+
+                frontier = nextFrontier;
+            }
+
+            return { ok: true, paths };
+        } catch (error) {
+            this.log('error', 'traversePath failed', { error: error.message });
+            return { ok: false, paths: [], error: error.message };
+        }
     }
 
     // ==================== Search Operations ====================

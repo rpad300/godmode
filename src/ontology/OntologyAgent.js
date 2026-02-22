@@ -39,8 +39,7 @@
 const fs = require('fs');
 const path = require('path');
 const { logger } = require('../logger');
-const llm = require('../llm');
-const llmConfig = require('../llm/config');
+const llmRouter = require('../llm/router');
 const { getOntologyManager } = require('./OntologyManager');
 
 const log = logger.child({ module: 'ontology-agent' });
@@ -74,6 +73,7 @@ class OntologyAgent {
         this.storage = options.storage;
         this.llmConfig = options.llmConfig || {};
         this.appConfig = options.appConfig || null;
+        this._resolvedConfig = this.appConfig || { llm: this.llmConfig };
         this.dataDir = options.dataDir || './data';
         
         // Pending suggestions file (fallback for local storage)
@@ -428,25 +428,16 @@ Respond in JSON:
 }`;
 
         try {
-            const textCfg = this.appConfig ? llmConfig.getTextConfig(this.appConfig) : null;
-            const provider = textCfg?.provider ?? this.llmConfig?.perTask?.text?.provider ?? this.llmConfig?.provider;
-            const model = textCfg?.model ?? this.llmConfig?.perTask?.text?.model ?? this.llmConfig?.models?.text;
-            const providerConfig = textCfg?.providerConfig ?? this.llmConfig?.providers?.[provider] ?? {};
-            if (!provider || !model) {
-                log.warn({ event: 'ontology_agent_no_llm' }, 'No LLM provider/model configured');
-                return [];
-            }
-            const result = await llm.generateText({
-                provider,
-                providerConfig,
-                model,
+            const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
                 prompt,
                 temperature: 0.3,
-                maxTokens: 500
-            });
+                maxTokens: 500,
+                context: 'ontology-enrichment'
+            }, this._resolvedConfig);
 
-            if (result.success) {
-                const match = result.text.match(/\{[\s\S]*\}/);
+            if (routerResult.success) {
+                const rText = routerResult.result?.text || routerResult.result?.response || '';
+                const match = rText.match(/\{[\s\S]*\}/);
                 if (match) {
                     const enrichment = JSON.parse(match[0]);
                     suggestion.enrichment = enrichment;
@@ -682,11 +673,8 @@ Respond in JSON:
             return { error: 'Graph not connected' };
         }
 
-        const textCfg = this.appConfig ? llmConfig.getTextConfig(this.appConfig) : null;
-        const provider = textCfg?.provider ?? this.llmConfig?.perTask?.text?.provider ?? this.llmConfig?.provider;
-        const model = textCfg?.model ?? this.llmConfig?.perTask?.text?.model ?? this.llmConfig?.models?.text;
-        const providerConfig = textCfg?.providerConfig ?? this.llmConfig?.providers?.[provider] ?? {};
-        if (!provider || !model) {
+        const routerCheck = await llmRouter.routeResolve('processing', 'generateText', this._resolvedConfig);
+        if (!routerCheck) {
             return { error: 'No LLM configured' };
         }
 
@@ -754,21 +742,19 @@ Respond in JSON format:
 }`;
 
         try {
-            const result = await llm.generateText({
-                provider,
-                providerConfig,
-                model,
+            const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
                 prompt,
                 temperature: 0.2,
                 maxTokens: 2000,
                 context: 'ontology_analysis'
-            });
+            }, this._resolvedConfig);
 
-            if (!result.success) {
-                return { error: result.error };
+            if (!routerResult.success) {
+                return { error: routerResult.error?.message || routerResult.error };
             }
 
-            const match = result.text.match(/\{[\s\S]*\}/);
+            const rText = routerResult.result?.text || routerResult.result?.response || '';
+            const match = rText.match(/\{[\s\S]*\}/);
             if (!match) {
                 return { error: 'Could not parse LLM response' };
             }

@@ -101,7 +101,7 @@ class RelationshipInferrer {
             analyzed: { 
                 contacts: 0, teams: 0, questions: 0, risks: 0, 
                 decisions: 0, actions: 0, facts: 0, documents: 0,
-                meetings: 0, conversations: 0
+                meetings: 0, conversations: 0, companies: 0
             },
             inferred: { total: 0, autoApproved: 0, pending: 0 },
             relationships: [],
@@ -183,6 +183,12 @@ class RelationshipInferrer {
             const convRels = await this.inferConversationRelationships();
             results.analyzed.conversations = convRels.analyzed;
             results.relationships.push(...convRels.relationships);
+
+            // 11. Company - project ownership, contacts
+            const companyRels = await this.inferCompanyRelationships();
+            results.analyzed.companies = companyRels.analyzed;
+            results.relationships.push(...companyRels.relationships);
+            results.nodes.push(...(companyRels.nodes || []));
 
             // Save all nodes first
             log.debug({ event: 'relationship_inferrer_creating_nodes', count: results.nodes.length }, 'Creating nodes');
@@ -1499,6 +1505,118 @@ class RelationshipInferrer {
                 log.warn({ event: 'relationship_inferrer_suggestion_save_error', reason: e.message }, 'Suggestion save error');
             }
         }
+    }
+
+    /**
+     * Infer Company-Project and Company-Contact relationships.
+     * Uses the projects.company_id FK and contact metadata to build graph edges.
+     */
+    async inferCompanyRelationships() {
+        const relationships = [];
+        const nodes = [];
+        let analyzed = 0;
+
+        try {
+            if (!this.supabase) {
+                return { analyzed: 0, relationships: [], nodes: [] };
+            }
+
+            // Load companies
+            const { data: companies } = await this.supabase
+                .from('companies')
+                .select('id, name, description, website_url, linkedin_url');
+            if (!companies?.length) {
+                return { analyzed: 0, relationships: [], nodes: [] };
+            }
+            analyzed = companies.length;
+            log.debug({ event: 'relationship_inferrer_found_companies', analyzed }, 'Found companies');
+
+            const companyById = {};
+            for (const co of companies) {
+                companyById[co.id] = co;
+                nodes.push({
+                    label: 'Company',
+                    properties: {
+                        id: `company_${co.id}`,
+                        name: co.name,
+                        description: co.description || '',
+                        website_url: co.website_url || ''
+                    }
+                });
+            }
+
+            // Project -> BELONGS_TO_COMPANY
+            const { data: projects } = await this.supabase
+                .from('projects')
+                .select('id, name, company_id');
+            for (const proj of (projects || [])) {
+                if (proj.company_id && companyById[proj.company_id]) {
+                    const co = companyById[proj.company_id];
+                    relationships.push({
+                        fromId: `project_${proj.id}`,
+                        fromName: proj.name,
+                        toId: `company_${co.id}`,
+                        toName: co.name,
+                        type: 'BELONGS_TO_COMPANY',
+                        confidence: 1.0,
+                        reason: 'Project has company_id FK',
+                        source: 'database_fk'
+                    });
+                }
+            }
+
+            // Contacts whose company name matches a known company -> BELONGS_TO_COMPANY
+            for (const contact of this.contacts) {
+                if (!contact.company) continue;
+                const companyNameLower = contact.company.toLowerCase();
+                const matchedCompany = companies.find(co =>
+                    co.name.toLowerCase() === companyNameLower
+                );
+                if (matchedCompany) {
+                    relationships.push({
+                        fromId: contact.id,
+                        fromName: contact.name,
+                        toId: `company_${matchedCompany.id}`,
+                        toName: matchedCompany.name,
+                        type: 'BELONGS_TO_COMPANY',
+                        confidence: 0.9,
+                        reason: `Contact company field matches: ${contact.company}`,
+                        source: 'contact_company_match'
+                    });
+                }
+            }
+
+            // Company -> EMPLOYS -> Contact (for contacts linked to projects of that company)
+            const projectCompanyMap = {};
+            for (const proj of (projects || [])) {
+                if (proj.company_id) projectCompanyMap[proj.id] = proj.company_id;
+            }
+
+            if (this.projectId && projectCompanyMap[this.projectId]) {
+                const companyId = projectCompanyMap[this.projectId];
+                const co = companyById[companyId];
+                if (co) {
+                    for (const contact of this.contacts) {
+                        relationships.push({
+                            fromId: `company_${co.id}`,
+                            fromName: co.name,
+                            toId: contact.id,
+                            toName: contact.name,
+                            type: 'EMPLOYS',
+                            confidence: 0.7,
+                            reason: `Contact is in project owned by ${co.name}`,
+                            source: 'project_company_inference'
+                        });
+                    }
+                }
+            }
+
+            log.debug({ event: 'relationship_inferrer_companies_done', analyzed, relationships: relationships.length, nodes: nodes.length }, 'Company analysis');
+        } catch (e) {
+            log.error({ event: 'relationship_inferrer_company_error', reason: e.message }, 'Company analysis error');
+        }
+
+        return { analyzed, relationships, nodes };
     }
 }
 

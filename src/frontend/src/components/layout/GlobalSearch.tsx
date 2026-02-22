@@ -46,7 +46,7 @@ const typeRoutes: Record<string, string> = {
   email: '/emails',
   conversation: '/conversations',
   document: '/files',
-  company: '/companies',
+  company: '/profile?tab=companies',
   event: '/timeline',
 };
 

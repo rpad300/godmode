@@ -25,8 +25,7 @@
  *     it produces a "method: 'fallback'" flag in its output.
  */
 
-const llm = require('../llm');
-const llmConfig = require('../llm/config');
+const llmRouter = require('../llm/router');
 const { logger } = require('../logger');
 const log = logger.child({ module: 'auto-tagging' });
 
@@ -46,7 +45,8 @@ class AutoTagging {
         this.llmModel = options.llmModel || null;
         this.llmConfig = options.llmConfig || {};
         this.appConfig = options.appConfig || null;
-        
+        this._resolvedConfig = this.appConfig || { llm: this.llmConfig };
+
         // Predefined tag categories
         this.categories = options.categories || [
             'technical',
@@ -105,22 +105,16 @@ Classify this document and respond in JSON format:
 Be concise and accurate.`;
 
         try {
-            const textCfg = this.appConfig ? llmConfig.getTextConfig(this.appConfig) : null;
-            const provider = textCfg?.provider ?? this.llmProvider;
-            const model = textCfg?.model ?? this.llmModel;
-            const providerConfig = textCfg?.providerConfig ?? this.llmConfig?.providers?.[provider] ?? {};
-            if (!provider || !model) return this.fallbackTagging(content, title);
-            const result = await llm.generateText({
-                provider,
-                providerConfig,
-                model,
+            const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
                 prompt,
                 temperature: 0.2,
-                maxTokens: 500
-            });
+                maxTokens: 500,
+                context: 'auto-tagging'
+            }, this._resolvedConfig);
 
-            if (result.success) {
-                return this.parseTagResponse(result.text);
+            if (routerResult.success) {
+                const rText = routerResult.result?.text || routerResult.result?.response || '';
+                return this.parseTagResponse(rText);
             }
             return this.fallbackTagging(content, title);
         } catch (e) {

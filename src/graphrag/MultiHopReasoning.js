@@ -37,7 +37,7 @@
  */
 
 const { logger } = require('../logger');
-const llm = require('../llm');
+const llmRouter = require('../llm/router');
 
 const log = logger.child({ module: 'multi-hop' });
 
@@ -47,6 +47,7 @@ class MultiHopReasoning {
         this.llmProvider = options.llmProvider || null;
         this.llmModel = options.llmModel || null;
         this.llmConfig = options.llmConfig || {};
+        this._resolvedConfig = options.config || { llm: this.llmConfig };
         
         if (!this.llmProvider) {
             log.warn({ event: 'multi_hop_no_llm' }, 'No LLM provider specified');
@@ -86,21 +87,19 @@ Return a JSON object with this structure:
 If the question is simple, return isComplex: false with a single subQuery.
 Return ONLY valid JSON.`;
 
-        const result = await llm.generateText({
-            provider: this.llmProvider,
-            model: this.llmModel,
+        const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
             prompt,
             temperature: 0.2,
             maxTokens: 500,
-            providerConfig: this.llmConfig
-        });
+            context: 'multi-hop-decompose'
+        }, this._resolvedConfig);
         
-        if (!result.success) {
+        if (!routerResult.success) {
             return { isComplex: false, subQueries: [{ id: 1, query, type: 'general', depends: [] }] };
         }
         
         try {
-            const parsed = JSON.parse(result.text);
+            const parsed = JSON.parse(routerResult.result?.text || routerResult.result?.response);
             log.debug({ event: 'multi_hop_decomposed', count: parsed.subQueries?.length || 1 }, 'Decomposed into sub-queries');
             return parsed;
         } catch {
@@ -305,21 +304,19 @@ Return JSON:
 
 If the query doesn't describe a graph traversal, return {"ok": false, "reason": "..."}`;
 
-        const result = await llm.generateText({
-            provider: this.llmProvider,
-            model: this.llmModel,
+        const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
             prompt,
             temperature: 0.1,
             maxTokens: 200,
-            providerConfig: this.llmConfig
-        });
+            context: 'multi-hop-traversal-intent'
+        }, this._resolvedConfig);
         
-        if (!result.success) {
-            return { ok: false, error: result.error };
+        if (!routerResult.success) {
+            return { ok: false, error: routerResult.error?.message || routerResult.error };
         }
         
         try {
-            return JSON.parse(result.text);
+            return JSON.parse(routerResult.result?.text || routerResult.result?.response);
         } catch {
             return { ok: false, error: 'Failed to parse traversal intent' };
         }
@@ -378,16 +375,15 @@ If the query doesn't describe a graph traversal, return {"ok": false, "reason": 
             .map(r => r.content || JSON.stringify(r.data))
             .join('\n---\n');
         
-        const result = await llm.generateText({
-            provider: this.llmProvider,
-            model: this.llmModel,
+        const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
             prompt: `Summarize these findings in 1-2 sentences relevant to the question: "${query}"\n\nFindings:\n${context}`,
             temperature: 0.3,
             maxTokens: 150,
-            providerConfig: this.llmConfig
-        });
+            context: 'multi-hop-summarize'
+        }, this._resolvedConfig);
         
-        return result.success ? result.text : 'Summary unavailable.';
+        const text = routerResult.result?.text || routerResult.result?.response;
+        return routerResult.success && text ? text : 'Summary unavailable.';
     }
 
     /**
@@ -402,9 +398,7 @@ If the query doesn't describe a graph traversal, return {"ok": false, "reason": 
             .map(sr => `Q: ${sr.query}\nA: ${sr.summary}`)
             .join('\n\n');
         
-        const result = await llm.generateText({
-            provider: this.llmProvider,
-            model: this.llmModel,
+        const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
             prompt: `Answer the original question by synthesizing these findings.
 
 Original Question: "${originalQuery}"
@@ -415,12 +409,13 @@ ${findings}
 Provide a comprehensive answer that integrates all the findings.`,
             temperature: 0.3,
             maxTokens: 500,
-            providerConfig: this.llmConfig
-        });
+            context: 'multi-hop-synthesize'
+        }, this._resolvedConfig);
         
+        const text = routerResult.result?.text || routerResult.result?.response;
         return {
-            answer: result.success ? result.text : 'Unable to synthesize answer.',
-            confidence: result.success ? 0.8 : 0.3
+            answer: routerResult.success && text ? text : 'Unable to synthesize answer.',
+            confidence: routerResult.success ? 0.8 : 0.3
         };
     }
 
@@ -451,18 +446,17 @@ Provide a comprehensive answer that integrates all the findings.`,
      * @returns {Promise<string>}
      */
     async refineQuery(originalQuery, currentQuery, results) {
-        const result = await llm.generateText({
-            provider: this.llmProvider,
-            model: this.llmModel,
+        const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
             prompt: `The query "${currentQuery}" returned ${results.length} results but may not fully answer: "${originalQuery}"
 
 Generate a refined query that might find more relevant information. Return ONLY the new query, nothing else.`,
             temperature: 0.5,
             maxTokens: 100,
-            providerConfig: this.llmConfig
-        });
+            context: 'multi-hop-refine'
+        }, this._resolvedConfig);
         
-        return result.success ? result.text.trim() : currentQuery;
+        const text = routerResult.result?.text || routerResult.result?.response;
+        return routerResult.success && text ? text.trim() : currentQuery;
     }
 
     /**

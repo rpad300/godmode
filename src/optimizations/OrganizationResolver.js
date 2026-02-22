@@ -35,7 +35,7 @@
  */
 
 const { logger } = require('../logger');
-const llm = require('../llm');
+const llmRouter = require('../llm/router');
 
 const log = logger.child({ module: 'organization-resolver' });
 
@@ -56,7 +56,8 @@ class OrganizationResolver {
         this.graphProvider = options.graphProvider;
         this.llmConfig = options.llmConfig || {};
         this.appConfig = options.appConfig || null;
-        
+        this._resolvedConfig = this.appConfig || { llm: this.llmConfig };
+
         // Cache for resolved organizations
         this.cache = new Map();
         this.cacheTTL = options.cacheTTL || 10 * 60 * 1000; // 10 minutes
@@ -349,15 +350,6 @@ class OrganizationResolver {
      * @returns {Promise<{same: boolean, confidence: number, reason: string}>}
      */
     async resolveWithLLM(org1, org2) {
-        const llmConfig = require('../llm/config');
-        const textCfg = this.appConfig ? llmConfig.getTextConfig(this.appConfig) : null;
-        const provider = textCfg?.provider ?? this.llmConfig?.perTask?.text?.provider ?? this.llmConfig?.provider;
-        const model = textCfg?.model ?? this.llmConfig?.perTask?.text?.model ?? this.llmConfig?.models?.text;
-        const providerConfig = textCfg?.providerConfig ?? this.llmConfig?.providers?.[provider] ?? {};
-        if (!provider || !model) {
-            return { same: false, confidence: 0, reason: 'No LLM configured' };
-        }
-
         const prompt = `Determine if these two organizations are the same company:
 
 Organization 1:
@@ -380,22 +372,20 @@ Respond with JSON only:
 {"same": true/false, "confidence": 0.0-1.0, "reason": "brief explanation"}`;
 
         try {
-            const result = await llm.generateText({
-                provider,
-                providerConfig,
-                model,
+            const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
                 prompt,
                 temperature: 0.1,
                 maxTokens: 150,
                 jsonMode: true,
                 context: 'organization_resolution'
-            });
+            }, this._resolvedConfig);
 
-            if (!result.success) {
+            if (!routerResult.success) {
                 return { same: false, confidence: 0, reason: 'LLM call failed' };
             }
 
-            const parsed = JSON.parse(result.text.match(/\{[\s\S]*\}/)?.[0] || '{}');
+            const rText = routerResult.result?.text || routerResult.result?.response || '';
+            const parsed = JSON.parse(rText.match(/\{[\s\S]*\}/)?.[0] || '{}');
             this.stats.aiAssisted++;
             
             return {

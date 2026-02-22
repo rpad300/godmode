@@ -45,6 +45,7 @@ const { isValidUUID } = require('../../server/security');
 const companiesModule = require('../../supabase/companies');
 const activity = require('../../supabase/activity');
 const braveSearch = require('./braveSearch');
+const llmRouter = require('../../llm/router');
 
 const RATE_LIMIT_ANALYZE_MS = 5 * 60 * 1000; // 5 minutes per company
 
@@ -92,7 +93,7 @@ async function isOwner(adminClient, companyId, userId) {
  * @param {object} ctx - { req, res, pathname, supabase, config?, llm? }
  */
 async function handleCompanies(ctx) {
-    const { req, res, pathname, supabase, config = {}, llm } = ctx;
+    const { req, res, pathname, supabase, config = {} } = ctx;
     const log = getLogger().child({ module: 'companies' });
 
     if (!pathname.startsWith('/api/companies')) return false;
@@ -255,15 +256,6 @@ async function handleCompanies(ctx) {
             } catch (e) { log.debug({ event: 'company_analyze_brave_skip', reason: e.message }, 'Brave search skipped'); }
         }
 
-        const llmConfig = (require('../../llm/config') || {}).getTextConfig?.(config) || {};
-        const provider = llmConfig.provider;
-        const model = llmConfig.model;
-        const providerConfig = llmConfig.providerConfig || {};
-        if (!provider || !model || !llm?.generateText) {
-            jsonResponse(res, { error: 'LLM not configured' }, 400);
-            return true;
-        }
-
         const reportSectionsStr = ANALYSIS_REPORT_SECTIONS.map(s => `"${s}"`).join(', ');
         const prompt = `És um analista de empresas. Produz uma análise profunda e detalhada em português (Portugal) com base nas fontes abaixo.
 
@@ -289,8 +281,10 @@ Estrutura do relatório (usa "Informação não disponível publicamente" quando
 Devolve UM ÚNICO objeto JSON com as chaves: "primary_color" (hex, ex: "#1a1a2e"), "secondary_color" (hex), "ai_context" (1-2 frases para branding), e as 10 secções: ${reportSectionsStr}. Cada secção é uma string (pode ter parágrafos). Sem markdown à volta do JSON.`;
 
         try {
-            const result = await llm.generateText({ provider, providerConfig, model, prompt, temperature: 0.2, maxTokens: 6500, context: 'company-analyze' });
-            const text = (result.text || result.response || '').trim();
+            const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
+                prompt, temperature: 0.2, maxTokens: 6500, context: 'company-analyze'
+            }, config);
+            const text = (routerResult.result?.text || routerResult.result?.response || '').trim();
             let parsed = {};
             try {
                 const cleaned = text.replace(/^```json?\s*|\s*```$/g, '').trim();
@@ -330,6 +324,96 @@ Devolve UM ÚNICO objeto JSON com as chaves: "primary_color" (hex, ex: "#1a1a2e"
         } catch (e) {
             log.warn({ event: 'company_analyze_error', id, reason: e.message }, 'Analyze failed');
             jsonResponse(res, { error: e.message || 'Analysis failed' }, 500);
+        }
+        return true;
+    }
+
+    // POST /api/companies/:id/logo - Upload logo image
+    const logoUploadMatch = pathname.match(/^\/api\/companies\/([^/]+)\/logo$/);
+    if (logoUploadMatch && req.method === 'POST') {
+        const id = logoUploadMatch[1];
+        if (!isValidUUID(id)) { jsonResponse(res, { error: 'Invalid company ID' }, 400); return true; }
+        const owned = await isOwner(adminClient, id, user.id);
+        if (!owned) { jsonResponse(res, { error: 'Only the owner can upload a logo' }, 403); return true; }
+        try {
+            const boundary = req.headers['content-type']?.split('boundary=')[1];
+            if (!boundary) { jsonResponse(res, { error: 'Invalid content type' }, 400); return true; }
+            const chunks = [];
+            for await (const chunk of req) chunks.push(chunk);
+            const buffer = Buffer.concat(chunks);
+            const data = buffer.toString('binary');
+            const parts = data.split('--' + boundary);
+            let fileBuffer = null, fileName = 'logo.png', contentType = 'image/png';
+            for (const part of parts) {
+                if (part.includes('filename=')) {
+                    const match = part.match(/filename="([^"]+)"/);
+                    if (match) fileName = match[1];
+                    const typeMatch = part.match(/Content-Type:\s*([^\r\n]+)/i);
+                    if (typeMatch) contentType = typeMatch[1].trim();
+                    const contentStart = part.indexOf('\r\n\r\n') + 4;
+                    const contentEnd = part.lastIndexOf('\r\n');
+                    if (contentStart > 3 && contentEnd > contentStart) {
+                        fileBuffer = Buffer.from(part.substring(contentStart, contentEnd), 'binary');
+                    }
+                }
+            }
+            if (!fileBuffer) { jsonResponse(res, { error: 'No file uploaded' }, 400); return true; }
+            const ext = fileName.split('.').pop() || 'png';
+            const storagePath = `companies/${id}.${ext}`;
+            let logoUrl;
+
+            const driveModule = require('../../integrations/googleDrive/drive');
+            const driveAvailable = await driveModule.isDriveAvailable();
+            if (driveAvailable) {
+                const result = await driveModule.uploadAvatar(fileBuffer, contentType, `company-${id}`, ext);
+                logoUrl = result.url;
+            } else {
+                const client = adminClient;
+                const { error: uploadError } = await client.storage
+                    .from('avatars')
+                    .upload(storagePath, fileBuffer, { contentType, upsert: true });
+                if (uploadError) {
+                    if (uploadError.message.includes('not found')) {
+                        await client.storage.createBucket('avatars', { public: true });
+                        const { error: retryError } = await client.storage
+                            .from('avatars')
+                            .upload(storagePath, fileBuffer, { contentType, upsert: true });
+                        if (retryError) throw retryError;
+                    } else throw uploadError;
+                }
+                const { data: urlData } = client.storage.from('avatars').getPublicUrl(storagePath);
+                logoUrl = urlData.publicUrl;
+            }
+
+            await companiesModule.updateCompany(id, { logo_url: logoUrl });
+            jsonResponse(res, { avatar_url: logoUrl, logo_url: logoUrl, storage: driveAvailable ? 'google_drive' : 'supabase' });
+        } catch (e) {
+            log.warn({ event: 'company_logo_upload_error', reason: e.message }, 'Logo upload error');
+            jsonResponse(res, { error: 'Logo upload failed: ' + e.message }, 500);
+        }
+        return true;
+    }
+
+    // DELETE /api/companies/:id/logo - Remove logo
+    const logoDeleteMatch = pathname.match(/^\/api\/companies\/([^/]+)\/logo$/);
+    if (logoDeleteMatch && req.method === 'DELETE') {
+        const id = logoDeleteMatch[1];
+        if (!isValidUUID(id)) { jsonResponse(res, { error: 'Invalid company ID' }, 400); return true; }
+        const owned = await isOwner(adminClient, id, user.id);
+        if (!owned) { jsonResponse(res, { error: 'Only the owner can delete the logo' }, 403); return true; }
+        try {
+            try {
+                const driveModule = require('../../integrations/googleDrive/drive');
+                await driveModule.deleteAvatar(`company-${id}`);
+            } catch {}
+            for (const ext of ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg']) {
+                try { await adminClient.storage.from('avatars').remove([`companies/${id}.${ext}`]); } catch {}
+            }
+            await companiesModule.updateCompany(id, { logo_url: null });
+            jsonResponse(res, { success: true });
+        } catch (e) {
+            log.warn({ event: 'company_logo_delete_error', reason: e.message }, 'Logo delete error');
+            jsonResponse(res, { error: 'Failed to remove logo' }, 500);
         }
         return true;
     }
@@ -511,6 +595,20 @@ Devolve UM ÚNICO objeto JSON com as chaves: "primary_color" (hex, ex: "#1a1a2e"
         return true;
     }
 
+    // POST /api/companies/:id/templates/:type/reset - Reset template to default
+    const resetTplMatch = pathname.match(/^\/api\/companies\/([^/]+)\/templates\/(a4|ppt)\/reset$/);
+    if (resetTplMatch && req.method === 'POST') {
+        const [, id, type] = resetTplMatch;
+        if (!isValidUUID(id)) { jsonResponse(res, { error: 'Invalid company ID' }, 400); return true; }
+        const owned = await isOwner(adminClient, id, user.id);
+        if (!owned) { jsonResponse(res, { error: 'Only the owner can reset templates' }, 403); return true; }
+        const defaultHtml = DEFAULT_TEMPLATES[type] || '';
+        const result = await companiesModule.updateTemplate(id, type, defaultHtml);
+        if (result.success) jsonResponse(res, { success: true, html: defaultHtml });
+        else jsonResponse(res, { error: result.error }, 400);
+        return true;
+    }
+
     // POST /api/companies/:id/templates/generate
     const genTplMatch = pathname.match(/^\/api\/companies\/([^/]+)\/templates\/generate$/);
     if (genTplMatch && req.method === 'POST') {
@@ -520,30 +618,34 @@ Devolve UM ÚNICO objeto JSON com as chaves: "primary_color" (hex, ex: "#1a1a2e"
         if (!owned) { jsonResponse(res, { error: 'Only the owner can generate templates' }, 403); return true; }
         const body = await parseBody(req).catch(() => ({}));
         const type = (body.type || 'a4') === 'ppt' ? 'ppt' : 'a4';
+        const style = body.style || 'corporate';
+        const customPromptExtra = body.customPrompt ? `\nAdditional instructions: ${String(body.customPrompt).slice(0, 500)}` : '';
         const getRes = await companiesModule.getCompany(id);
         if (!getRes.success || !getRes.company) { jsonResponse(res, { error: 'Company not found' }, 404); return true; }
         const company = getRes.company;
-        const llmCfg = (require('../../llm/config') || {}).getTextConfigForReasoning?.(config) || (require('../../llm/config') || {}).getTextConfig?.(config) || {};
-        const provider = llmCfg.provider;
-        const model = llmCfg.model;
-        const providerConfig = llmCfg.providerConfig || {};
-        if (!provider || !model || !llm?.generateText) {
-            jsonResponse(res, { error: 'LLM not configured' }, 400);
-            return true;
-        }
         const isA4 = type === 'a4';
         const placeholders = 'Use these placeholders: {{COMPANY_NAME}}, {{COMPANY_LOGO_URL}}, {{PRIMARY_COLOR}}, {{SECONDARY_COLOR}}, {{REPORT_DATA}}.';
+        const STYLE_INSTRUCTIONS = {
+            corporate: 'Style: Corporate Classic — formal serif/sans-serif fonts, structured layout with clear hierarchy, traditional header/footer, conservative colors with accent from brand colors, elegant borders and dividers.',
+            minimal: 'Style: Modern Minimal — lots of whitespace, clean sans-serif typography, minimal borders, subtle color accents, flat design, no gradients, focus on content readability.',
+            tech: 'Style: Startup Tech — modern geometric design, bold headers, code-inspired mono accents, dark/light contrast sections, gradient hero areas, tech-forward aesthetic.',
+            consultancy: 'Style: Consultancy Premium — premium feel with gold/navy accents blended with brand colors, refined typography, data-friendly layout with chart placeholders, executive summary style.',
+        };
+        const styleDesc = STYLE_INSTRUCTIONS[style] || STYLE_INSTRUCTIONS.corporate;
         const prompt = `Generate a single complete HTML file for a ${isA4 ? 'professional A4 document' : 'presentation (PPT-style slides)'} template for this company.
 Company: ${company.name || 'Company'}
 Logo URL: ${company.logo_url || ''}
 Primary color: ${(company.brand_assets && company.brand_assets.primary_color) || '#1a1a2e'}
 Secondary color: ${(company.brand_assets && company.brand_assets.secondary_color) || '#16213e'}
+${styleDesc}
 ${placeholders}
-${isA4 ? 'Use A4 dimensions (e.g. 794px x 1123px per page), header with logo and company name, footer with page numbers. Include a main content area where {{REPORT_DATA}} will be injected.' : 'Use slide-based layout (each section is a slide), title slide with logo, content slides with {{REPORT_DATA}} area.'}
+${isA4 ? 'Use A4 dimensions (e.g. 794px x 1123px per page), header with logo and company name, footer with page numbers. Include a main content area where {{REPORT_DATA}} will be injected.' : 'Use slide-based layout (each section is a slide), title slide with logo, content slides with {{REPORT_DATA}} area.'}${customPromptExtra}
 Return only the HTML code, no markdown or explanation.`;
         try {
-            const result = await llm.generateText({ provider, providerConfig, model, prompt, temperature: 0.3, maxTokens: 8192, context: 'company-template-generate' });
-            let html = (result.text || result.response || '').trim();
+            const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
+                prompt, temperature: 0.3, maxTokens: 8192, context: 'company-template-generate'
+            }, config);
+            let html = (routerResult.result?.text || routerResult.result?.response || '').trim();
             html = html.replace(/^```html?\s*|\s*```$/g, '').trim();
             if (!html) { jsonResponse(res, { error: 'No HTML generated' }, 500); return true; }
             const updateResult = await companiesModule.updateTemplate(id, type, html);

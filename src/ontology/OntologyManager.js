@@ -89,6 +89,9 @@ class OntologyManager {
     setStorage(storage) {
         this.storage = storage;
         this.useSupabase = storage !== null;
+        if (storage && this.loaded && this.loadedFrom === 'file') {
+            this._autoSyncToSupabase();
+        }
     }
 
     /**
@@ -109,6 +112,17 @@ class OntologyManager {
             try {
                 const supabaseSchema = await this.storage.buildSchemaFromSupabase(this.projectId);
                 if (supabaseSchema && Object.keys(supabaseSchema.entityTypes || {}).length > 0) {
+                    // Check if the file version is newer and should take precedence
+                    const fileNewer = await this._isFileVersionNewer(supabaseSchema.version);
+                    const supabaseRelCount = Object.keys(supabaseSchema.relationTypes || {}).length;
+                    if (fileNewer || supabaseRelCount === 0) {
+                        log.info({ event: 'ontology_file_newer_than_db', dbVersion: supabaseSchema.version, dbRelations: supabaseRelCount }, 'File schema is newer or DB has no relations, loading from file and syncing to Supabase');
+                        const loaded = await this._loadFromFile();
+                        if (loaded) {
+                            this._autoSyncToSupabase();
+                        }
+                        return loaded;
+                    }
                     this._applySchema(supabaseSchema);
                     this.loadedFrom = 'supabase';
                     log.info({ event: 'ontology_loaded_supabase', version: this.schema.version, entities: Object.keys(this.entityTypes).length, relations: Object.keys(this.relationTypes).length }, 'Loaded from Supabase');
@@ -121,7 +135,66 @@ class OntologyManager {
         }
         
         // Fallback to file
-        return this._loadFromFile();
+        const loaded = await this._loadFromFile();
+        if (loaded && this.useSupabase && this.storage) {
+            this._autoSyncToSupabase();
+        }
+        return loaded;
+    }
+
+    /**
+     * Check if the local file schema has a newer version than the given DB version
+     * @private
+     */
+    async _isFileVersionNewer(dbVersion) {
+        try {
+            const schemaContent = fs.readFileSync(this.schemaPath, 'utf-8');
+            const fileSchema = JSON.parse(schemaContent);
+            const fileVersion = String(fileSchema.version || '0');
+            const dbVer = String(dbVersion || '0');
+            const fileEntities = Object.keys(fileSchema.entityTypes || {}).length;
+            const dbEntitiesLoaded = Object.keys(this.entityTypes || {}).length;
+            // Newer if version is higher or if file has more entity types (schema was enriched)
+            return fileVersion > dbVer || (fileVersion === dbVer && fileEntities > dbEntitiesLoaded);
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * Auto-sync schema to Supabase in the background (fire-and-forget).
+     * Called when loading from file while Supabase storage is available.
+     * @private
+     */
+    _autoSyncToSupabase() {
+        if (!this.storage || !this.schema || this._autoSyncInProgress) return;
+        this._autoSyncInProgress = true;
+        log.info({ event: 'ontology_auto_sync_start', version: this.schema.version }, 'Auto-syncing schema to Supabase');
+        this.storage.saveOntologySchema(this.schema, this.projectId, null)
+            .then(() => {
+                this.loadedFrom = 'supabase';
+                log.info({ event: 'ontology_auto_sync_done', entities: Object.keys(this.entityTypes).length, relations: Object.keys(this.relationTypes).length }, 'Auto-sync complete');
+                return this.storage.logOntologyChange({
+                    projectId: this.projectId,
+                    changeType: 'schema_import',
+                    targetType: 'schema',
+                    targetName: 'full_schema',
+                    newDefinition: {
+                        version: this.schema.version,
+                        entityCount: Object.keys(this.entityTypes).length,
+                        relationCount: Object.keys(this.relationTypes).length,
+                        source: 'auto_sync'
+                    },
+                    reason: 'Auto-sync from schema.json on ontology load',
+                    source: 'auto_sync'
+                }).catch(() => {});
+            })
+            .catch(e => {
+                log.warn({ event: 'ontology_auto_sync_failed', reason: e.message }, 'Auto-sync failed (non-fatal)');
+            })
+            .finally(() => {
+                this._autoSyncInProgress = false;
+            });
     }
 
     /**
@@ -979,6 +1052,8 @@ class OntologyManager {
                     patternName: name,
                     pattern, 
                     matches,
+                    params: matches,
+                    cypherTemplate: pattern.cypher,
                     cypher: this.buildCypher(pattern.cypher, matches)
                 };
             }
@@ -1005,10 +1080,24 @@ class OntologyManager {
     }
 
     /**
-     * Build a Cypher query by interpolating matched parameter values into
-     * the template. Values are single-quoted inline -- not parameterised --
-     * so this should only be used with trusted/sanitised input from
-     * matchQueryPattern().
+     * Escape a string value for safe inline Cypher interpolation.
+     * Removes characters that could break out of a Cypher string literal.
+     *
+     * @param {string} value
+     * @returns {string}
+     */
+    _sanitizeCypherValue(value) {
+        if (typeof value !== 'string') return String(value ?? '');
+        return value
+            .replace(/\\/g, '\\\\')
+            .replace(/'/g, "\\'")
+            .replace(/"/g, '\\"')
+            .replace(/[\x00-\x1f]/g, '');
+    }
+
+    /**
+     * Build a Cypher query by interpolating sanitised parameter values into
+     * the template. All values are escaped to prevent injection.
      *
      * @param {string} cypherTemplate - Cypher with $param placeholders
      * @param {object} params - Extracted parameter values
@@ -1017,7 +1106,8 @@ class OntologyManager {
     buildCypher(cypherTemplate, params) {
         let cypher = cypherTemplate;
         for (const [key, value] of Object.entries(params)) {
-            cypher = cypher.replace(new RegExp(`\\$${key}`, 'g'), `'${value}'`);
+            const safe = this._sanitizeCypherValue(value);
+            cypher = cypher.replace(new RegExp(`\\$${key}`, 'g'), `'${safe}'`);
         }
         return cypher;
     }
@@ -1069,6 +1159,11 @@ class OntologyManager {
             'Document': ['document', 'doc', 'file', 'report', 'spec', 'specification'],
             'Technology': ['technology', 'tech', 'tool', 'framework', 'language', 'stack'],
             'Client': ['client', 'customer', 'account'],
+            'Company': ['company', 'business', 'firm', 'enterprise', 'corporation', 'employer'],
+            'Organization': ['organization', 'organisation', 'org', 'institution', 'agency'],
+            'Contact': ['contact', 'lead', 'stakeholder', 'partner'],
+            'Team': ['team', 'squad', 'group', 'department', 'division'],
+            'Sprint': ['sprint', 'iteration', 'cycle', 'milestone'],
             'Decision': ['decision', 'decided', 'resolution'],
             'Task': ['task', 'todo', 'action item', 'assignment'],
             'Risk': ['risk', 'issue', 'concern', 'problem'],
@@ -1091,10 +1186,15 @@ class OntologyManager {
         // Look for relation keywords
         const relationKeywords = {
             'WORKS_ON': ['works on', 'working on', 'assigned to project'],
+            'BELONGS_TO_COMPANY': ['belongs to company', 'owned by', 'managed by company', 'company project'],
+            'BELONGS_TO_PROJECT': ['belongs to project', 'part of project', 'in project'],
             'ATTENDS': ['attends', 'attended', 'in meeting', 'participated'],
+            'ASSIGNED_TO': ['assigned to', 'responsible for', 'owner of'],
+            'EXTRACTED_FROM': ['extracted from', 'found in', 'sourced from', 'came from'],
+            'EMPLOYS': ['employs', 'hired', 'works at', 'works for', 'employed by'],
             'AUTHORED': ['wrote', 'authored', 'created', 'wrote'],
             'KNOWS': ['knows', 'know', 'contact'],
-            'USES_TECH': ['uses', 'using', 'built with', 'developed with'],
+            'USES_TECHNOLOGY': ['uses', 'using', 'built with', 'developed with'],
             'HAS_SKILL': ['knows', 'skilled in', 'expert in', 'experienced with']
         };
         

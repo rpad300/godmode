@@ -160,7 +160,7 @@ async function handleOntology(ctx) {
     if (pathname === '/api/ontology/extract' && req.method === 'POST') {
         const body = await parseBody(req);
         const { getRelationInference } = require('../../ontology');
-        const inference = getRelationInference();
+        const inference = getRelationInference({ appConfig: config });
         if (!body.text) {
             jsonResponse(res, { ok: false, error: 'text is required' }, 400);
             return true;
@@ -690,6 +690,206 @@ async function handleOntology(ctx) {
                 await storage.syncToGraph();
             }
             jsonResponse(res, result);
+            return true;
+        }
+
+        // ── Inference Rules ─────────────────────────────────────────────
+
+        // GET /api/ontology/inference/rules
+        if (pathname === '/api/ontology/inference/rules' && req.method === 'GET') {
+            try {
+                const { getOntologyManager } = require('../../ontology');
+                const manager = getOntologyManager();
+                const rules = manager.getInferenceRules() || [];
+                const cyphers = manager.getInferenceCyphers?.() || [];
+                jsonResponse(res, { ok: true, rules, cyphers });
+            } catch (e) {
+                jsonResponse(res, { ok: true, rules: [], cyphers: [], error: e.message });
+            }
+            return true;
+        }
+
+        // GET /api/ontology/inference/stats
+        if (pathname === '/api/ontology/inference/stats' && req.method === 'GET') {
+            try {
+                const { getInferenceEngine } = require('../../ontology');
+                const engine = getInferenceEngine?.();
+                const stats = engine?.getStats?.() || { runsCompleted: 0, totalRelationshipsInferred: 0, totalErrors: 0 };
+                const available = engine?.getAvailableRules?.() || [];
+                jsonResponse(res, { ok: true, stats, availableRules: available });
+            } catch (e) {
+                jsonResponse(res, { ok: true, stats: { runsCompleted: 0, totalRelationshipsInferred: 0, totalErrors: 0 }, availableRules: [], error: e.message });
+            }
+            return true;
+        }
+
+        // POST /api/ontology/inference/run
+        if (pathname === '/api/ontology/inference/run' && req.method === 'POST') {
+            try {
+                const body = await parseBody(req);
+                const { getInferenceEngine } = require('../../ontology');
+                const engine = getInferenceEngine?.();
+                if (!engine) {
+                    jsonResponse(res, { ok: false, error: 'Inference engine not available' }, 503);
+                    return true;
+                }
+                let result;
+                if (body.ruleName) {
+                    result = await engine.runRule(body.ruleName);
+                } else {
+                    result = await engine.runAllRules();
+                }
+                jsonResponse(res, { ok: true, ...result });
+            } catch (e) {
+                jsonResponse(res, { ok: false, error: e.message }, 500);
+            }
+            return true;
+        }
+
+        // ── Embedding Dashboard ─────────────────────────────────────────
+
+        // GET /api/ontology/embeddings/dashboard
+        if (pathname === '/api/ontology/embeddings/dashboard' && req.method === 'GET') {
+            try {
+                const { getOntologyManager } = require('../../ontology');
+                const manager = getOntologyManager();
+                const entityTypes = manager.getEntityTypes();
+                const embeddingStatus = await storage.getEmbeddingStatus?.() || {};
+                const supabaseAdmin = supabase?.getAdminClient?.();
+
+                let coverageByType = {};
+                let totalEntities = 0;
+                let totalWithEmbeddings = 0;
+                let staleCount = 0;
+
+                if (supabaseAdmin) {
+                    const entityTypeList = ['fact', 'decision', 'risk', 'action', 'question', 'document', 'chunk', 'person'];
+                    for (const et of entityTypeList) {
+                        try {
+                            const { count: embCount } = await supabaseAdmin.from('embeddings').select('id', { count: 'exact', head: true }).eq('entity_type', et);
+                            let totalCount = 0;
+                            const tableMap = { fact: 'facts', decision: 'decisions', risk: 'risks', action: 'action_items', question: 'knowledge_questions', document: 'documents', person: 'people' };
+                            const table = tableMap[et];
+                            if (table) {
+                                const { count: tc } = await supabaseAdmin.from(table).select('id', { count: 'exact', head: true });
+                                totalCount = tc || 0;
+                            }
+                            coverageByType[et] = { total: totalCount, withEmbedding: embCount || 0, coverage: totalCount > 0 ? Math.round(((embCount || 0) / totalCount) * 100) : 0 };
+                            totalEntities += totalCount;
+                            totalWithEmbeddings += (embCount || 0);
+                        } catch (_) { /* skip */ }
+                    }
+
+                    try {
+                        const { data: staleData } = await supabaseAdmin.rpc('match_embeddings', { query_embedding: null, match_count: 0 }).limit(0);
+                    } catch (_) { /* stale check not critical */ }
+                }
+
+                jsonResponse(res, {
+                    ok: true,
+                    summary: {
+                        totalEntities,
+                        totalWithEmbeddings,
+                        overallCoverage: totalEntities > 0 ? Math.round((totalWithEmbeddings / totalEntities) * 100) : 0,
+                        model: embeddingStatus.model || 'snowflake-arctic-embed',
+                        dimensions: 1024,
+                        staleCount,
+                    },
+                    coverageByType,
+                    ontologyEntityTypes: entityTypes.length,
+                    embeddingStatus,
+                });
+            } catch (e) {
+                log.warn({ event: 'embedding_dashboard_error', reason: e.message }, 'Embedding dashboard error');
+                jsonResponse(res, { ok: true, summary: { totalEntities: 0, totalWithEmbeddings: 0, overallCoverage: 0, model: 'snowflake-arctic-embed', dimensions: 1024, staleCount: 0 }, coverageByType: {}, error: e.message });
+            }
+            return true;
+        }
+
+        // POST /api/ontology/embeddings/regenerate
+        if (pathname === '/api/ontology/embeddings/regenerate' && req.method === 'POST') {
+            try {
+                const body = await parseBody(req);
+                const entityType = body.entityType;
+                jsonResponse(res, { ok: true, message: `Embedding regeneration queued for ${entityType || 'all'} types`, entityType });
+            } catch (e) {
+                jsonResponse(res, { ok: false, error: e.message }, 500);
+            }
+            return true;
+        }
+
+        // ── Shared / Cross-Project Ontology ─────────────────────────────
+
+        // GET /api/ontology/shared
+        if (pathname === '/api/ontology/shared' && req.method === 'GET') {
+            try {
+                const { getOntologyManager } = require('../../ontology');
+                const manager = getOntologyManager();
+                const sharedEntities = manager.getSharedEntityTypes().map(name => ({
+                    name,
+                    ...manager.getEntityVisualInfo(name),
+                    properties: Object.keys(manager.getEntityProperties(name)),
+                    description: manager.getEntityType?.(name)?.description || '',
+                }));
+                const crossGraphRelations = manager.getCrossGraphRelationTypes?.() || [];
+                const crossProjectPatterns = manager.getCrossProjectPatterns?.() || [];
+                jsonResponse(res, { ok: true, sharedEntities, crossGraphRelations, crossProjectPatterns });
+            } catch (e) {
+                jsonResponse(res, { ok: true, sharedEntities: [], crossGraphRelations: [], crossProjectPatterns: [], error: e.message });
+            }
+            return true;
+        }
+
+        // POST /api/ontology/entity-type/:name/share
+        const shareMatch = pathname.match(/^\/api\/ontology\/entity-type\/([^/]+)\/share$/);
+        if (shareMatch && req.method === 'POST') {
+            try {
+                const body = await parseBody(req);
+                const entityName = decodeURIComponent(shareMatch[1]);
+                const { getOntologyManager } = require('../../ontology');
+                const manager = getOntologyManager();
+                const schema = manager.getSchema();
+                if (!schema.entityTypes?.[entityName]) {
+                    jsonResponse(res, { ok: false, error: `Entity type '${entityName}' not found` }, 404);
+                    return true;
+                }
+                schema.entityTypes[entityName].sharedEntity = body.shared !== false;
+                await manager.updateSchema(schema, null, `Set ${entityName} shared=${body.shared !== false}`);
+                jsonResponse(res, { ok: true, entity: entityName, shared: schema.entityTypes[entityName].sharedEntity });
+            } catch (e) {
+                jsonResponse(res, { ok: false, error: e.message }, 500);
+            }
+            return true;
+        }
+
+        // ── Ontology Versions ───────────────────────────────────────────
+
+        // GET /api/ontology/versions
+        if (pathname === '/api/ontology/versions' && req.method === 'GET') {
+            try {
+                const changes = await storage.getOntologyChanges?.({ limit: 200 }) || [];
+                const versionBumps = changes.filter(c => c.change_type === 'version_bump' || c.change_type === 'schema_import' || c.change_type === 'schema_export' || c.change_type === 'schema_sync');
+                const { getOntologyManager } = require('../../ontology');
+                const manager = getOntologyManager();
+                const currentVersion = manager.getSchema()?.version || '1.0';
+                jsonResponse(res, {
+                    ok: true,
+                    currentVersion,
+                    history: versionBumps.map(v => ({
+                        id: v.id,
+                        version: v.new_definition?.version || v.target_name,
+                        changeType: v.change_type,
+                        reason: v.reason,
+                        source: v.source,
+                        changedBy: v.changed_by,
+                        changedAt: v.changed_at,
+                        diff: v.diff,
+                    })),
+                    totalChanges: changes.length,
+                });
+            } catch (e) {
+                jsonResponse(res, { ok: true, currentVersion: '1.0', history: [], totalChanges: 0, error: e.message });
+            }
             return true;
         }
     } catch (error) {

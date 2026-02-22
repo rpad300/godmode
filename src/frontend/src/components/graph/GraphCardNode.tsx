@@ -28,7 +28,7 @@ import { GraphNodeTier0 } from './node-cards/GraphNodeTier0';
 import { GraphNodeTier1 } from './node-cards/GraphNodeTier1';
 import { GraphNodeTier2 } from './node-cards/GraphNodeTier2';
 
-export default memo((props: NodeProps<GraphNode>) => {
+const GraphCardNode = memo((props: NodeProps<GraphNode>) => {
     const { data } = props;
     const tier = data.tier ?? 2;
 
@@ -42,3 +42,6 @@ export default memo((props: NodeProps<GraphNode>) => {
             return <GraphNodeTier2 {...props} />;
     }
 });
+
+GraphCardNode.displayName = 'GraphCardNode';
+export default GraphCardNode;

@@ -256,6 +256,51 @@ class EmbeddingEnricher {
                 questions.push(`What do we know about this?`);
                 if (entity.content) questions.push(entity.content);
                 break;
+
+            case 'Company':
+                questions.push(`What is ${name}?`);
+                questions.push(`What does ${name} do?`);
+                if (entity.industry) questions.push(`What industry is ${name} in? ${entity.industry}`);
+                if (entity.description) questions.push(`${entity.description}`);
+                if (entity.website_url) questions.push(`What is ${name}'s website? ${entity.website_url}`);
+                break;
+
+            case 'Organization':
+                questions.push(`What is ${name}?`);
+                if (entity.type) questions.push(`What type of organization is ${name}? ${entity.type}`);
+                if (entity.industry) questions.push(`What industry is ${name} in? ${entity.industry}`);
+                if (entity.description) questions.push(`${entity.description}`);
+                break;
+
+            case 'Contact':
+                questions.push(`Who is ${name}?`);
+                if (entity.role) questions.push(`What is ${name}'s role? ${entity.role}`);
+                if (entity.company) questions.push(`Where does ${name} work? ${entity.company}`);
+                if (entity.email) questions.push(`What is ${name}'s email? ${entity.email}`);
+                break;
+
+            case 'Team':
+                questions.push(`What is the ${name} team?`);
+                if (entity.department) questions.push(`Which department is ${name} in? ${entity.department}`);
+                if (entity.description) questions.push(`${entity.description}`);
+                break;
+
+            case 'Sprint':
+                questions.push(`What is sprint ${name}?`);
+                if (entity.goal) questions.push(`What is the goal of sprint ${name}? ${entity.goal}`);
+                if (entity.status) questions.push(`What is the status of sprint ${name}? ${entity.status}`);
+                break;
+
+            case 'UserStory':
+                questions.push(`What is the user story ${name}?`);
+                if (entity.description) questions.push(`${entity.description}`);
+                if (entity.status) questions.push(`What is the status of ${name}? ${entity.status}`);
+                break;
+
+            default:
+                if (name) questions.push(`What is ${name}?`);
+                if (entity.description) questions.push(entity.description);
+                break;
         }
 
         return questions.join(' ');
@@ -451,15 +496,54 @@ class EmbeddingEnricher {
     }
 
     /**
-     * Get embedding configuration based on entity type
-     * @param {string} entityType 
+     * Get embedding configuration based on entity type.
+     *
+     * Resolves the active embedding model and its output dimensions from
+     * the application config (LLM routing layer). Falls back to the DB
+     * default (snowflake-arctic-embed @ 1024d) when no config is available.
+     *
+     * @param {string} entityType
+     * @param {object} [appConfig] - Application config (llm + ollama). When
+     *   provided the method resolves the active embedding model via the LLM
+     *   config layer; otherwise falls back to the DB default.
      * @returns {{model: string, dimensions: number}}
      */
-    getEmbeddingConfig(entityType) {
-        // Could be customized per entity type
+    getEmbeddingConfig(entityType, appConfig) {
+        const KNOWN_DIMENSIONS = {
+            'snowflake-arctic-embed':   1024,
+            'snowflake-arctic-embed:l': 1024,
+            'snowflake-arctic-embed:m': 768,
+            'snowflake-arctic-embed:s': 384,
+            'mxbai-embed-large':        1024,
+            'nomic-embed-text':         768,
+            'all-minilm':               384,
+            'text-embedding-3-small':   1536,
+            'text-embedding-3-large':   3072,
+            'text-embedding-ada-002':   1536,
+            'embedding-001':            768,
+            'models/embedding-001':     768,
+        };
+
+        const DB_VECTOR_DIMENSIONS = 1024;
+
+        if (appConfig) {
+            try {
+                const { getEmbeddingsConfig } = require('../llm/config');
+                const embCfg = getEmbeddingsConfig(appConfig);
+
+                if (embCfg?.model) {
+                    const model = embCfg.model;
+                    const dimensions = KNOWN_DIMENSIONS[model] || DB_VECTOR_DIMENSIONS;
+                    return { model, dimensions };
+                }
+            } catch (_) {
+                // Config resolution failed -- fall through to default
+            }
+        }
+
         return {
-            model: 'text-embedding-3-small',
-            dimensions: 1536
+            model: 'snowflake-arctic-embed',
+            dimensions: DB_VECTOR_DIMENSIONS
         };
     }
 }

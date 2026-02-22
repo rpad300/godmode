@@ -424,16 +424,7 @@ export function useEmailsNeedingResponse() {
 
 // ── Sprints ──────────────────────────────────────────────────────────────────
 
-export interface Sprint {
-  id: string;
-  name: string;
-  start_date?: string;
-  end_date?: string;
-  status?: string;
-  goal?: string;
-  context?: string;
-  [key: string]: unknown;
-}
+import type { Sprint } from '../types/godmode';
 
 export function useSprints() {
   return useQuery({
@@ -560,6 +551,21 @@ export function useLLMModels() {
   return useQuery({
     queryKey: ['llmModels'],
     queryFn: () => apiClient.get<unknown>('/api/llm/models'),
+  });
+}
+
+export function useLLMModelsByProvider(providerId: string | null) {
+  return useQuery({
+    queryKey: ['llmModels', providerId],
+    queryFn: () => apiClient.get<{
+      provider: string;
+      textModels: Array<{ id: string; name?: string; contextTokens?: number }>;
+      visionModels: Array<{ id: string; name?: string }>;
+      embeddingModels: Array<{ id: string; name?: string }>;
+    }>(`/api/llm/models?provider=${providerId}`),
+    enabled: !!providerId,
+    staleTime: 60_000,
+    retry: 1,
   });
 }
 
@@ -1015,9 +1021,159 @@ export function useOntologyAddEntityType() {
 export function useOntologyAddRelationType() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: { name: string; from?: string; to?: string }) =>
+    mutationFn: (body: { name: string; from?: string; to?: string; description?: string }) =>
       apiClient.post<unknown>('/api/ontology/relation-type', body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['ontologySchema'] }),
+  });
+}
+
+export function useOntologyJobs() {
+  return useQuery({
+    queryKey: ['ontologyJobs'],
+    queryFn: () => apiClient.get<{ ok: boolean; jobs: Array<Record<string, unknown>> }>('/api/ontology/jobs'),
+  });
+}
+
+export function useOntologyToggleJob() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiClient.post<unknown>(`/api/ontology/jobs/${id}/toggle`, {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['ontologyJobs'] }),
+  });
+}
+
+export function useOntologyExtractFromGraph() {
+  return useMutation({
+    mutationFn: () => apiClient.get<unknown>('/api/ontology/extract-from-graph'),
+  });
+}
+
+export function useOntologyMerge() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { source: unknown; strategy?: string }) =>
+      apiClient.post<unknown>('/api/ontology/merge', body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ontologySchema'] });
+      qc.invalidateQueries({ queryKey: ['ontologyStats'] });
+    },
+  });
+}
+
+export function useOntologyWorkerLog() {
+  return useQuery({
+    queryKey: ['ontologyWorkerLog'],
+    queryFn: () => apiClient.get<{ ok: boolean; log: Array<Record<string, unknown>> }>('/api/ontology/worker/log'),
+  });
+}
+
+export function useOntologyEnrichSuggestion() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiClient.post<unknown>(`/api/ontology/suggestions/${id}/enrich`, {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['ontologySuggestions'] }),
+  });
+}
+
+// ── Inference Rules ─────────────────────────────────────────────────────────
+
+export function useInferenceRules() {
+  return useQuery({
+    queryKey: ['inferenceRules'],
+    queryFn: () => apiClient.get<{ ok: boolean; rules: Array<Record<string, unknown>>; cyphers: Array<Record<string, unknown>> }>('/api/ontology/inference/rules'),
+  });
+}
+
+export function useInferenceStats() {
+  return useQuery({
+    queryKey: ['inferenceStats'],
+    queryFn: () => apiClient.get<{ ok: boolean; stats: Record<string, unknown>; availableRules: Array<Record<string, unknown>> }>('/api/ontology/inference/stats'),
+  });
+}
+
+export function useRunInferenceRule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ruleName?: string) =>
+      apiClient.post<unknown>('/api/ontology/inference/run', { ruleName }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['inferenceStats'] });
+      qc.invalidateQueries({ queryKey: ['inferenceRules'] });
+    },
+  });
+}
+
+// ── Embedding Dashboard ─────────────────────────────────────────────────────
+
+export function useEmbeddingsDashboard() {
+  return useQuery({
+    queryKey: ['embeddingsDashboard'],
+    queryFn: () => apiClient.get<{ ok: boolean; summary: Record<string, unknown>; coverageByType: Record<string, Record<string, unknown>> }>('/api/ontology/embeddings/dashboard'),
+  });
+}
+
+export function useRegenerateEmbeddings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (entityType?: string) =>
+      apiClient.post<unknown>('/api/ontology/embeddings/regenerate', { entityType }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['embeddingsDashboard'] }),
+  });
+}
+
+// ── Shared / Cross-Project Ontology ─────────────────────────────────────────
+
+export function useSharedOntology() {
+  return useQuery({
+    queryKey: ['sharedOntology'],
+    queryFn: () => apiClient.get<{ ok: boolean; sharedEntities: Array<Record<string, unknown>>; crossGraphRelations: Array<Record<string, unknown>>; crossProjectPatterns: Array<Record<string, unknown>> }>('/api/ontology/shared'),
+  });
+}
+
+export function useToggleEntityShared() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ name, shared }: { name: string; shared: boolean }) =>
+      apiClient.post<unknown>(`/api/ontology/entity-type/${encodeURIComponent(name)}/share`, { shared }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sharedOntology'] });
+      qc.invalidateQueries({ queryKey: ['ontologyEntities'] });
+      qc.invalidateQueries({ queryKey: ['ontologySchema'] });
+    },
+  });
+}
+
+// ── Ontology Versions ───────────────────────────────────────────────────────
+
+export function useOntologyVersions() {
+  return useQuery({
+    queryKey: ['ontologyVersions'],
+    queryFn: () => apiClient.get<{ ok: boolean; currentVersion: string; history: Array<Record<string, unknown>>; totalChanges: number }>('/api/ontology/versions'),
+  });
+}
+
+// ── Ontology Testing ────────────────────────────────────────────────────────
+
+export function useValidateEntity() {
+  return useMutation({
+    mutationFn: ({ type, entity }: { type: string; entity: Record<string, unknown> }) =>
+      apiClient.post<{ ok: boolean; valid: boolean; errors?: string[]; missingRequired?: string[]; unknownProperties?: string[] }>('/api/ontology/validate', { type, entity }),
+  });
+}
+
+export function useExtractFromText() {
+  return useMutation({
+    mutationFn: ({ text, existingEntities }: { text: string; existingEntities?: string[] }) =>
+      apiClient.post<{ ok: boolean; entities?: Array<Record<string, unknown>>; relationships?: Array<Record<string, unknown>> }>('/api/ontology/extract', { text, existingEntities }),
+  });
+}
+
+export function useEnrichEntity() {
+  return useMutation({
+    mutationFn: ({ type, entity, context }: { type: string; entity: Record<string, unknown>; context?: Record<string, unknown> }) =>
+      apiClient.post<{ ok: boolean; enrichedText?: string }>('/api/ontology/enrich', { type, entity, context }),
   });
 }
 

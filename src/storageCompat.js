@@ -748,9 +748,9 @@ class StorageCompat {
         return { id: null, ...data };
     }
 
-    async getSprint(id) {
+    async getSprint(id, explicitProjectId) {
         if (this._supabase && typeof this._supabase.getSprint === 'function') {
-            return await this._supabase.getSprint(id);
+            return await this._supabase.getSprint(id, explicitProjectId);
         }
         return null;
     }
@@ -4220,7 +4220,22 @@ class StorageCompat {
             const priority = (a.priority || 'medium').toLowerCase();
             const due = (a.due_date || a.deadline || '').toString();
             const text = `[Task] ${title} - ${desc}. Status: ${status}, Priority: ${priority}. Due: ${due}`.trim();
-            items.push({ id: `action_item_${a.id}`, type: 'action_item', text: text || `Task ${a.id}`, data: a });
+            items.push({ id: `action_${a.id}`, type: 'action', text: text || `Task ${a.id}`, data: a });
+        });
+
+        (this._cache.documents || []).forEach(doc => {
+            const text = [doc.title || doc.filename, doc.ai_summary || (doc.content || '').substring(0, 300)].filter(Boolean).join(' – ');
+            if (text) items.push({ id: `document_${doc.id}`, type: 'document', text, data: doc });
+        });
+
+        (this._cache.contacts || []).forEach(ct => {
+            const text = [ct.name, ct.email, ct.role, ct.company, ct.organization].filter(Boolean).join(' – ');
+            if (text) items.push({ id: `contact_${ct.id}`, type: 'contact', text, data: ct });
+        });
+
+        (this._cache.conversations || []).forEach(cv => {
+            const text = [cv.title, cv.conversation_type, cv.source, (cv.participants || []).join(', ')].filter(Boolean).join(' – ');
+            if (text) items.push({ id: `conversation_${cv.id}`, type: 'conversation', text, data: cv });
         });
 
         return items;
@@ -4250,44 +4265,19 @@ class StorageCompat {
      * For compatibility with legacy code that expects this method
      * @returns {object|null}
      */
-    loadEmbeddings() {
-        // In Supabase mode, embeddings are stored in DB and searched via match_embeddings RPC
-        // Return a stub that indicates RAG should use Supabase vector search
+    async loadEmbeddings() {
         if (this._isSupabaseMode && this._supabase) {
-            return {
-                version: 'supabase',
-                generated_at: new Date().toISOString(),
-                model: 'supabase_vectors',
-                count: -1, // Indicates Supabase mode
-                embeddings: [], // Empty - use searchBySimilarity instead
-                isSupabaseMode: true
-            };
+            return this._supabase.loadEmbeddings();
         }
         return null;
     }
 
     /**
-     * Save embeddings - in Supabase mode, use upsertEmbedding for each item
-     * @param {Array} embeddings - Array of embedding objects
-     * @returns {object}
+     * Delegate to SupabaseStorage batch upsert; falls back to no-op.
      */
     async saveEmbeddings(embeddings) {
-        if (this._isSupabaseMode && this._supabase && typeof this._supabase.upsertEmbedding === 'function') {
-            let count = 0;
-            for (const item of embeddings || []) {
-                if (!item.embedding || !Array.isArray(item.embedding)) continue;
-                const entityType = item.type || (item.id && item.id.split('_')[0]);
-                const entityId = item.id && entityType ? item.id.slice(String(entityType).length + 1) : item.id;
-                if (!entityId) continue;
-                try {
-                    await this._supabase.upsertEmbedding(entityType, entityId, item.text || '', item.embedding);
-                    count++;
-                } catch (err) {
-                    log.warn({ event: 'save_embedding_item_error', entityType, entityId, reason: err.message }, 'upsertEmbedding item failed');
-                }
-            }
-            log.debug({ event: 'save_embeddings_supabase', count }, 'saveEmbeddings: upserted to Supabase');
-            return { version: 'supabase', count };
+        if (this._isSupabaseMode && this._supabase) {
+            return this._supabase.saveEmbeddings(embeddings);
         }
         return { version: 'local', count: (embeddings || []).length };
     }
@@ -4305,27 +4295,78 @@ class StorageCompat {
      * @returns {object}
      */
     async getEmbeddingStatus() {
-        if (this._isSupabaseMode && this._supabase && this.currentProjectId) {
+        if (this._isSupabaseMode && this._supabase) {
             try {
-                const { count, error } = await this._supabase.supabase
-                    .from('embeddings')
-                    .select('*', { count: 'exact', head: true })
-                    .eq('project_id', this.currentProjectId);
-
-                const embeddingCount = error ? 0 : (count ?? 0);
-                return {
-                    indexed: embeddingCount > 0,
-                    count: embeddingCount,
-                    total: this.getAllItemsForEmbedding().length,
-                    model: 'supabase_vectors',
-                    generated_at: new Date().toISOString(),
-                    isSupabaseMode: true
-                };
+                return await this._supabase.getEmbeddingStatus();
             } catch (e) {
                 log.warn({ event: 'get_embedding_status_error', reason: e.message }, 'getEmbeddingStatus error');
             }
         }
         return { indexed: false, count: 0, total: this.getAllItemsForEmbedding().length, model: null };
+    }
+
+    /**
+     * Delegate to SupabaseStorage; falls back to returning current cache.
+     */
+    async saveKnowledgeJSON() {
+        if (this._isSupabaseMode && this._supabase) {
+            return this._supabase.saveKnowledgeJSON();
+        }
+        return this._cache;
+    }
+
+    /**
+     * Delegate to SupabaseStorage; falls back to returning current cache.
+     */
+    async loadKnowledgeJSON() {
+        if (this._isSupabaseMode && this._supabase) {
+            return this._supabase.loadKnowledgeJSON();
+        }
+        return this._cache;
+    }
+
+    /**
+     * Delegate to SupabaseStorage; falls back to returning cached questions.
+     */
+    async saveQuestionsJSON() {
+        if (this._isSupabaseMode && this._supabase) {
+            return this._supabase.saveQuestionsJSON();
+        }
+        return this._cache.questions || [];
+    }
+
+    /**
+     * Delegate to SupabaseStorage; falls back to returning cached questions.
+     */
+    async loadQuestionsJSON() {
+        if (this._isSupabaseMode && this._supabase) {
+            return this._supabase.loadQuestionsJSON();
+        }
+        return this._cache.questions || [];
+    }
+
+    /**
+     * Build SOT and PQ markdown from current knowledge.
+     * Delegates to SupabaseStorage when available.
+     */
+    async regenerateMarkdown() {
+        if (this._isSupabaseMode && this._supabase) {
+            return this._supabase.regenerateMarkdown();
+        }
+        return { sot: '', pq: '' };
+    }
+
+    /**
+     * Look up items by prefixed IDs (e.g. "fact_<uuid>").
+     * Delegates to SupabaseStorage; falls back to local cache scan.
+     */
+    async getItemsByIds(ids) {
+        if (this._isSupabaseMode && this._supabase) {
+            return this._supabase.getItemsByIds(ids);
+        }
+        const all = this.getAllItemsForEmbedding();
+        const idSet = new Set(ids);
+        return all.filter(item => idSet.has(item.id));
     }
 
     /**
@@ -4431,6 +4472,29 @@ class StorageCompat {
             // Fallback to keyword-only
             return this.hybridSearch(query, [], { semanticWeight: 0, keywordWeight: 1, limit });
         }
+    }
+
+    // ==================== Weekly Reports ====================
+
+    async getWeeklyReport(weekKey) {
+        if (this._supabase) {
+            return this._supabase.getWeeklyReport(weekKey);
+        }
+        return null;
+    }
+
+    async getWeeklyReports(limit = 10) {
+        if (this._supabase) {
+            return this._supabase.getWeeklyReports(limit);
+        }
+        return [];
+    }
+
+    async saveWeeklyReport(reportData) {
+        if (this._supabase) {
+            return this._supabase.saveWeeklyReport(reportData);
+        }
+        throw new Error('Weekly reports require Supabase storage');
     }
 
     /**

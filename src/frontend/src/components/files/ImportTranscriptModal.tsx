@@ -1,31 +1,6 @@
-/**
- * Purpose:
- *   Modal dialog for importing meeting transcripts via paste or file
- *   upload, with source platform selection and sprint/task association.
- *
- * Responsibilities:
- *   - Tab-based UI with paste and upload modes
- *   - Paste tab: freeform textarea with source selector (auto, Krisp,
- *     Otter.ai, Zoom, Google Meet, MS Teams)
- *   - Upload tab: file input accepting .txt, .md, .srt, .vtt
- *   - SprintTaskAssociation selector for linking the transcript to a
- *     sprint/task
- *   - Resets form state on close or submission
- *
- * Key dependencies:
- *   - Dialog (shadcn/ui): modal container
- *   - Select (shadcn/ui): source platform selector
- *   - SprintTaskAssociation: sprint/task selector sub-component
- *
- * Side effects:
- *   - None (delegates import action to parent via onImport)
- *
- * Notes:
- *   - The Upload icon is imported but unused.
- */
 import { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { Mic, Upload } from 'lucide-react';
+import { Mic, Loader2 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import SprintTaskAssociation from './SprintTaskAssociation';
 
@@ -33,41 +8,43 @@ interface Props {
   open: boolean;
   onClose: () => void;
   onImport: (data: { content: string; source: string; sprintId: string; taskId: string; file?: File | null }) => void;
+  loading?: boolean;
 }
 
-const ImportTranscriptModal = ({ open, onClose, onImport }: Props) => {
+const ImportTranscriptModal = ({ open, onClose, onImport, loading }: Props) => {
   const [tab, setTab] = useState<'paste' | 'upload'>('paste');
   const [content, setContent] = useState('');
   const [source, setSource] = useState('auto');
   const [sprintId, setSprintId] = useState('none');
   const [taskId, setTaskId] = useState('none');
   const [fileName, setFileName] = useState('');
-
   const [file, setFile] = useState<File | null>(null);
 
   const reset = () => {
     setContent(''); setSource('auto'); setSprintId('none'); setTaskId('none'); setFileName(''); setTab('paste'); setFile(null);
   };
-
   const handleClose = () => { reset(); onClose(); };
 
+  const canSubmit = tab === 'paste' ? content.trim().length > 0 : !!file;
+
   const handleSubmit = () => {
-    onImport({ content: content || fileName, source, sprintId, taskId, file });
+    if (!canSubmit) return;
+    onImport({ content, source, sprintId, taskId, file });
     reset();
     onClose();
   };
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
-      <DialogContent className="max-w-md p-0 gap-0">
-        <DialogHeader className="p-5 pb-0">
+      <DialogContent className="max-w-md p-0 gap-0 max-h-[90vh] overflow-hidden flex flex-col">
+        <DialogHeader className="p-5 pb-0 shrink-0">
           <DialogTitle className="text-lg text-white">Import Transcript</DialogTitle>
           <DialogDescription className="text-sm text-gray-400">
             Import a meeting transcript by pasting text or uploading a file.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex gap-4 px-5 pt-3 border-b border-white/10">
+        <div className="flex gap-4 px-5 pt-3 border-b border-white/10 shrink-0">
           <button onClick={() => setTab('paste')} className={`pb-2 text-sm font-medium border-b-2 transition-colors ${tab === 'paste' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
             Paste Text
           </button>
@@ -76,7 +53,7 @@ const ImportTranscriptModal = ({ open, onClose, onImport }: Props) => {
           </button>
         </div>
 
-        <div className="p-5 space-y-4">
+        <div className="p-5 space-y-4 overflow-y-auto flex-1">
           {tab === 'paste' ? (
             <>
               <div>
@@ -85,7 +62,7 @@ const ImportTranscriptModal = ({ open, onClose, onImport }: Props) => {
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
                   placeholder={`Paste your meeting transcript here...\n\nSupported formats:\n• Krisp transcripts\n• Otter.ai transcripts\n• Zoom meeting transcripts\n• Google Meet transcripts\n• Microsoft Teams transcripts\n\nExample:\nSpeaker 1 (00:00:05):\nHello everyone, welcome to today's meeting.`}
-                  className="w-full min-h-[180px] rounded-lg px-3 py-2 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 resize-y"
+                  className="w-full min-h-[150px] rounded-lg px-3 py-2 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 resize-y"
                   style={{ backgroundColor: 'var(--gm-surface-secondary, #252540)', border: '1px solid var(--gm-border-primary, #2d2d44)' }}
                 />
                 <p className="text-xs text-gray-400 mt-1">Include speaker names and timestamps if available for better parsing.</p>
@@ -112,7 +89,7 @@ const ImportTranscriptModal = ({ open, onClose, onImport }: Props) => {
               <Mic className="w-10 h-10 mx-auto mb-3 text-gray-500" />
               <label className="cursor-pointer">
                 <p className="text-sm font-medium text-blue-400">Drop transcript file here</p>
-                <p className="text-xs text-gray-400 mt-1">or click to browse • .txt, .md, .srt, .vtt</p>
+                <p className="text-xs text-gray-400 mt-1">or click to browse &bull; .txt, .md, .srt, .vtt</p>
                 <input type="file" className="hidden" accept=".txt,.md,.srt,.vtt" onChange={(e) => {
                   if (e.target.files?.[0]) {
                     setFileName(e.target.files[0].name);
@@ -130,8 +107,13 @@ const ImportTranscriptModal = ({ open, onClose, onImport }: Props) => {
             <button onClick={handleClose} className="flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors text-gray-300 hover:text-white" style={{ backgroundColor: 'var(--gm-surface-secondary, #252540)' }}>
               Cancel
             </button>
-            <button onClick={handleSubmit} className="flex-1 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors">
-              Import
+            <button
+              onClick={handleSubmit}
+              disabled={!canSubmit || loading}
+              className="flex-1 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+              {loading ? 'Importing...' : 'Import'}
             </button>
           </div>
         </div>

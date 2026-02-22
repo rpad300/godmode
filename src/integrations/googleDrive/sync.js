@@ -29,8 +29,8 @@
  * Notes:
  *   - Filenames are sanitised (non-alphanumeric replaced with underscore)
  *   - File hash is SHA-256 for deduplication
- *   - The batch page size per folder is 100 files; pagination is not yet
- *     implemented -- TODO: confirm if large folders need cursor-based listing
+ *   - Uses cursor-based pagination (nextPageToken) to handle folders with
+ *     more than 100 files
  *   - syncProject() returns { total, imported, errors } stats
  *   - syncAllProjects() only syncs projects with googleDrive.enabled in settings
  */
@@ -90,14 +90,22 @@ async function syncProject(projectId) {
         if (!folder.id) continue;
 
         try {
-            // List files in folder
-            const res = await client.drive.files.list({
-                q: `'${folder.id}' in parents and trashed = false and mimeType != 'application/vnd.google-apps.folder'`,
-                fields: 'files(id, name, mimeType, modifiedTime, size, webViewLink)',
-                pageSize: 100 // Batch size
-            });
+            // List ALL files in folder using cursor-based pagination
+            const files = [];
+            let pageToken = null;
+            do {
+                const listParams = {
+                    q: `'${folder.id}' in parents and trashed = false and mimeType != 'application/vnd.google-apps.folder'`,
+                    fields: 'nextPageToken, files(id, name, mimeType, modifiedTime, size, webViewLink)',
+                    pageSize: 100
+                };
+                if (pageToken) listParams.pageToken = pageToken;
 
-            const files = res.data.files || [];
+                const res = await client.drive.files.list(listParams);
+                files.push(...(res.data.files || []));
+                pageToken = res.data.nextPageToken || null;
+            } while (pageToken);
+
             stats.total += files.length;
 
             for (const file of files) {

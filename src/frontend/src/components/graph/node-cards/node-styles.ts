@@ -60,17 +60,26 @@ export const getNodeTheme = (type: string, tier: number): NodeTheme => {
             badge: "bg-amber-900/80 text-amber-300"
         };
     }
-    if (t === 'person' || t === 'contact') {
-        const isContact = t === 'contact';
-        const base = isContact ? 'teal' : 'green';
+    if (t === 'person') {
         return {
-            bg: `from-${base}-950/80 to-${base}-900/60`,
-            border: `border-${base}-500/50`,
-            accent: `bg-${base}-500`,
-            glow: `shadow-${base}-500/20`,
-            text: `text-${base}-300`,
-            badge: `bg-${base}-900/80 text-${base}-300`,
-            avatar: `bg-${base}-700`
+            bg: "from-green-950/80 to-green-900/60",
+            border: "border-green-500/50",
+            accent: "bg-green-500",
+            glow: "shadow-green-500/20",
+            text: "text-green-300",
+            badge: "bg-green-900/80 text-green-300",
+            avatar: "bg-green-700"
+        };
+    }
+    if (t === 'contact') {
+        return {
+            bg: "from-teal-950/80 to-teal-900/60",
+            border: "border-teal-500/50",
+            accent: "bg-teal-500",
+            glow: "shadow-teal-500/20",
+            text: "text-teal-300",
+            badge: "bg-teal-900/80 text-teal-300",
+            avatar: "bg-teal-700"
         };
     }
     if (t === 'team') {
@@ -174,6 +183,46 @@ export const getNodeTheme = (type: string, tier: number): NodeTheme => {
             glow: "shadow-pink-500/20",
             text: "text-pink-300",
             badge: "bg-pink-900/80 text-pink-300"
+        };
+    }
+    if (t === 'company') {
+        return {
+            bg: "from-teal-950/80 to-teal-900/60",
+            border: "border-teal-500/50",
+            accent: "bg-teal-500",
+            glow: "shadow-teal-500/20",
+            text: "text-teal-300",
+            badge: "bg-teal-900/80 text-teal-300"
+        };
+    }
+    if (t === 'task') {
+        return {
+            bg: "from-emerald-950/80 to-emerald-900/60",
+            border: "border-emerald-500/50",
+            accent: "bg-emerald-500",
+            glow: "shadow-emerald-500/20",
+            text: "text-emerald-300",
+            badge: "bg-emerald-900/80 text-emerald-300"
+        };
+    }
+    if (t === 'technology') {
+        return {
+            bg: "from-blue-950/80 to-blue-900/60",
+            border: "border-blue-400/50",
+            accent: "bg-blue-400",
+            glow: "shadow-blue-400/20",
+            text: "text-blue-300",
+            badge: "bg-blue-900/80 text-blue-300"
+        };
+    }
+    if (t === 'meeting') {
+        return {
+            bg: "from-cyan-950/80 to-cyan-900/60",
+            border: "border-cyan-500/50",
+            accent: "bg-cyan-500",
+            glow: "shadow-cyan-500/20",
+            text: "text-cyan-300",
+            badge: "bg-cyan-900/80 text-cyan-300"
         };
     }
 

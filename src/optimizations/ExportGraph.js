@@ -216,20 +216,21 @@ class ExportGraph {
     /**
      * Export knowledge base to JSON
      */
-    exportKnowledgeBase() {
+    async exportKnowledgeBase() {
         if (!this.storage) return { error: 'Storage not set' };
 
+        const [facts, decisions, risks, questions, people, actionItems] = await Promise.all([
+            this.storage.getFacts(),
+            this.storage.getDecisions(),
+            this.storage.getRisks(),
+            this.storage.getQuestions(),
+            this.storage.getPeople(),
+            this.storage.getActions(),
+        ]);
         return {
             exportedAt: new Date().toISOString(),
             format: 'knowledge_base',
-            data: {
-                facts: this.storage.getFacts(),
-                decisions: this.storage.getDecisions(),
-                risks: this.storage.getRisks(),
-                questions: this.storage.getQuestions(),
-                people: this.storage.getPeople(),
-                actionItems: this.storage.getActionItems()
-            }
+            data: { facts, decisions, risks, questions, people, actionItems }
         };
     }
 
@@ -258,7 +259,7 @@ class ExportGraph {
                 extension = 'csv';
                 break;
             case 'knowledge':
-                exportData = this.exportKnowledgeBase();
+                exportData = await this.exportKnowledgeBase();
                 extension = 'json';
                 break;
             default:

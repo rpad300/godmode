@@ -7,12 +7,7 @@ import {
 } from '../../hooks/useGodMode';
 import { cn } from '../../lib/utils';
 
-const NODE_COLORS: Record<string, string> = {
-  Project: '#6366f1', Person: '#ec4899', Team: '#8b5cf6',
-  Document: '#06b6d4', Fact: '#f59e0b', Decision: '#a855f7',
-  Risk: '#ef4444', Action: '#22c55e', Question: '#3b82f6',
-  Email: '#f97316', Contact: '#ec4899', Sprint: '#14b8a6',
-};
+import { NODE_COLORS } from '@/lib/graph-transformer';
 
 export default function GraphAnalytics() {
   const insights = useGraphInsights();

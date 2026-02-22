@@ -15,14 +15,18 @@
  */
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
-  Send, Trash2, Info, MessageCircle, Shield, FileBarChart,
-  RotateCw, Loader2, Plus, ChevronRight, User as UserIcon,
+  Send, Trash2, MessageCircle, Shield, FileBarChart,
+  RotateCw, Loader2, Plus, ChevronRight,
+  Pencil, X, Check, Copy, Brain, ThumbsUp, ThumbsDown,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   useSendChatMessage, useSotChat, useBriefing,
-  useChatSessions, useCreateChatSession, useUpdateChatSession, useChatMessages,
-  useContacts,
+  useChatSessions, useCreateChatSession, useUpdateChatSession, useDeleteChatSession, useChatMessages,
+  useChatMessageFeedback, useContacts,
+  useFacts, useQuestions, useDecisions,
   type ChatSource, type ChatRAGInfo, type ChatResponse, type ChatSession,
 } from '../hooks/useGodMode';
 import { cn } from '../lib/utils';
@@ -46,6 +50,8 @@ interface LocalMessage {
   confidence?: string;
   queryType?: string;
   rag?: ChatRAGInfo;
+  suggestedFollowups?: string[];
+  feedback?: 'up' | 'down' | null;
 }
 
 const QUICK_PROMPTS = [
@@ -91,6 +97,12 @@ function RagBadges({ msg }: { msg: LocalMessage }) {
     const total = msg.rag.fusedResults || (msg.rag.vectorResults + msg.rag.graphResults);
     if (total > 0) {
       badges.push({ label: `${total} sources`, cls: 'bg-sky-500/15 text-sky-400', title: 'Sources found' });
+    }
+    if (msg.rag.tokenBudget?.estimated) {
+      const pct = msg.rag.tokenBudget.limit ? Math.round((msg.rag.tokenBudget.estimated / msg.rag.tokenBudget.limit) * 100) : null;
+      const label = pct ? `${pct}% ctx` : `~${Math.round(msg.rag.tokenBudget.estimated / 1000)}k tok`;
+      const cls = msg.rag.tokenBudget.truncated ? 'bg-orange-500/15 text-orange-400' : 'bg-zinc-500/15 text-zinc-400';
+      badges.push({ label, cls, title: `Tokens: ~${msg.rag.tokenBudget.estimated}${msg.rag.tokenBudget.limit ? ` / ${msg.rag.tokenBudget.limit}` : ''}${msg.rag.tokenBudget.truncated ? ' (truncated)' : ''}` });
     }
   }
 
@@ -165,17 +177,33 @@ function CollapsibleSources({ sources }: { sources: ChatSource[] }) {
 // ── Sessions Sidebar ─────────────────────────────────────────────────────────
 
 function SessionsSidebar({
-  sessions, currentId, onSelect, onCreate, contacts, onContextChange,
+  sessions, currentId, onSelect, onCreate, onDelete, onRename, contacts, onContextChange,
 }: {
   sessions: ChatSession[];
   currentId: string | null;
   onSelect: (id: string) => void;
   onCreate: (contextContactId?: string | null) => void;
+  onDelete: (id: string) => void;
+  onRename: (id: string, title: string) => void;
   contacts: Contact[];
   onContextChange: (contactId: string | null) => void;
 }) {
   const [newCtx, setNewCtx] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState('');
   const currentSession = sessions.find(s => s.id === currentId);
+
+  const startEdit = (s: ChatSession) => {
+    setEditingId(s.id);
+    setEditTitle(s.title || '');
+  };
+
+  const confirmEdit = () => {
+    if (editingId && editTitle.trim()) {
+      onRename(editingId, editTitle.trim());
+    }
+    setEditingId(null);
+  };
 
   return (
     <div className="w-60 min-w-[200px] border-r border-[var(--gm-border-primary)] bg-[var(--gm-bg-tertiary)] flex flex-col overflow-hidden shrink-0">
@@ -186,7 +214,6 @@ function SessionsSidebar({
         <Plus className="w-4 h-4" /> New Conversation
       </button>
 
-      {/* Context selector for new chat */}
       {contacts.length > 0 && (
         <div className="px-3 pb-2 space-y-1">
           <span className="text-[10px] text-[var(--gm-text-tertiary)]">As who?</span>
@@ -200,7 +227,6 @@ function SessionsSidebar({
         </div>
       )}
 
-      {/* Active session context */}
       {currentSession && contacts.length > 0 && (
         <div className="px-3 pb-2 pt-1 border-t border-[var(--gm-border-primary)] space-y-1">
           <span className="text-[10px] text-[var(--gm-text-tertiary)]">Session context</span>
@@ -214,22 +240,54 @@ function SessionsSidebar({
         </div>
       )}
 
-      {/* Sessions list */}
       <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
         {sessions.map(s => (
-          <button
+          <div
             key={s.id}
-            onClick={() => onSelect(s.id)}
             className={cn(
-              'w-full text-left flex flex-col gap-0.5 px-3 py-2 rounded-lg text-xs transition-colors',
+              'group w-full text-left flex flex-col gap-0.5 px-3 py-2 rounded-lg text-xs transition-colors cursor-pointer',
               s.id === currentId
                 ? 'bg-[var(--gm-interactive-primary)]/15 text-[var(--gm-accent-primary)] font-medium'
                 : 'text-[var(--gm-text-tertiary)] hover:bg-[var(--gm-surface-hover)] hover:text-[var(--gm-text-primary)]'
             )}
+            onClick={() => { if (editingId !== s.id) onSelect(s.id); }}
           >
-            <span className="truncate">{(s.title || 'Untitled').length > 40 ? (s.title || 'Untitled').substring(0, 37) + '...' : (s.title || 'Untitled')}</span>
+            {editingId === s.id ? (
+              <div className="flex items-center gap-1">
+                <input
+                  autoFocus
+                  value={editTitle}
+                  onChange={e => setEditTitle(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') confirmEdit(); if (e.key === 'Escape') setEditingId(null); }}
+                  className="flex-1 bg-[var(--gm-bg-tertiary)] border border-[var(--gm-border-focus)] rounded px-1 py-0.5 text-xs text-[var(--gm-text-primary)] outline-none"
+                  onClick={e => e.stopPropagation()}
+                />
+                <button onClick={e => { e.stopPropagation(); confirmEdit(); }} className="text-emerald-400 hover:text-emerald-300"><Check className="w-3 h-3" /></button>
+                <button onClick={e => { e.stopPropagation(); setEditingId(null); }} className="text-[var(--gm-text-tertiary)] hover:text-[var(--gm-text-primary)]"><X className="w-3 h-3" /></button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1">
+                <span className="truncate flex-1">{(s.title || 'Untitled').length > 30 ? (s.title || 'Untitled').substring(0, 27) + '...' : (s.title || 'Untitled')}</span>
+                <div className="hidden group-hover:flex items-center gap-0.5 shrink-0">
+                  <button
+                    onClick={e => { e.stopPropagation(); startEdit(s); }}
+                    className="p-0.5 rounded hover:bg-[var(--gm-surface-hover)] text-[var(--gm-text-tertiary)] hover:text-[var(--gm-text-primary)]"
+                    title="Rename"
+                  >
+                    <Pencil className="w-2.5 h-2.5" />
+                  </button>
+                  <button
+                    onClick={e => { e.stopPropagation(); onDelete(s.id); }}
+                    className="p-0.5 rounded hover:bg-red-500/10 text-[var(--gm-text-tertiary)] hover:text-red-400"
+                    title="Delete"
+                  >
+                    <Trash2 className="w-2.5 h-2.5" />
+                  </button>
+                </div>
+              </div>
+            )}
             <span className="text-[10px] opacity-60">{formatRelativeTime(s.updated_at)}</span>
-          </button>
+          </div>
         ))}
         {sessions.length === 0 && (
           <p className="text-xs text-[var(--gm-text-tertiary)] text-center py-4">No conversations yet</p>
@@ -247,17 +305,25 @@ export default function ChatPage() {
   const [localMessages, setLocalMessages] = useState<LocalMessage[]>([]);
   const [input, setInput] = useState('');
   const [refreshBriefing, setRefreshBriefing] = useState(false);
+  const [deepReasoning, setDeepReasoning] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const sendRagMessage = useSendChatMessage();
   const sendSotMessage = useSotChat();
+  const feedbackMutation = useChatMessageFeedback();
   const briefing = useBriefing(refreshBriefing);
   const { data: sessionsData, refetch: refetchSessions } = useChatSessions();
   const createSession = useCreateChatSession();
   const updateSession = useUpdateChatSession();
+  const deleteSession = useDeleteChatSession();
   const { data: contactsData } = useContacts();
   const { data: serverMessages } = useChatMessages(currentSessionId);
+
+  // Context injection data
+  const factsData = useFacts();
+  const questionsData = useQuestions();
+  const decisionsData = useDecisions();
 
   const sessions = (sessionsData as { sessions?: ChatSession[] })?.sessions ?? [];
   const contacts = useMemo(() => {
@@ -267,6 +333,34 @@ export default function ChatPage() {
   }, [contactsData]);
 
   const isPending = sendRagMessage.isPending || sendSotMessage.isPending;
+
+  // Build fallback context from project data for context injection
+  const buildFallbackContext = useCallback(() => {
+    const ctx: Record<string, unknown> = {};
+    const facts = Array.isArray(factsData.data) ? factsData.data : [];
+    const questions = Array.isArray(questionsData.data) ? questionsData.data : [];
+    const decisions = Array.isArray(decisionsData.data) ? decisionsData.data : [];
+    if (facts.length > 0) ctx.facts = facts.slice(0, 30).map((f: Record<string, unknown>) => ({ content: f.content, category: f.category }));
+    if (questions.length > 0) ctx.questions = questions.slice(0, 20).map((q: Record<string, unknown>) => ({ content: q.content, priority: q.priority, assignee: q.assignee }));
+    if (decisions.length > 0) ctx.decisions = decisions.slice(0, 20).map((d: Record<string, unknown>) => ({ content: d.content, date: d.date, owner: d.owner }));
+    return Object.keys(ctx).length > 0 ? ctx : undefined;
+  }, [factsData.data, questionsData.data, decisionsData.data]);
+
+  // Copy message to clipboard
+  const handleCopyMessage = useCallback((content: string) => {
+    navigator.clipboard.writeText(content).then(
+      () => toast.success('Copied to clipboard'),
+      () => toast.error('Failed to copy')
+    );
+  }, []);
+
+  // Submit feedback
+  const handleFeedback = useCallback((msgId: string, feedback: 'up' | 'down') => {
+    setLocalMessages(prev => prev.map(m => m.id === msgId ? { ...m, feedback: m.feedback === feedback ? null : feedback } : m));
+    if (currentSessionId) {
+      feedbackMutation.mutate({ sessionId: currentSessionId, messageId: msgId, feedback });
+    }
+  }, [currentSessionId, feedbackMutation]);
 
   // When switching session, load messages from server
   useEffect(() => {
@@ -315,6 +409,29 @@ export default function ChatPage() {
     });
   }, [createSession, refetchSessions]);
 
+  // Delete session
+  const handleDeleteSession = useCallback((id: string) => {
+    deleteSession.mutate(id, {
+      onSuccess: () => {
+        if (currentSessionId === id) {
+          setCurrentSessionId(null);
+          setLocalMessages([]);
+        }
+        refetchSessions();
+        toast.success('Conversation deleted');
+      },
+      onError: () => toast.error('Failed to delete conversation'),
+    });
+  }, [deleteSession, currentSessionId, refetchSessions]);
+
+  // Rename session
+  const handleRenameSession = useCallback((id: string, title: string) => {
+    updateSession.mutate({ sessionId: id, title }, {
+      onSuccess: () => { refetchSessions(); toast.success('Renamed'); },
+      onError: () => toast.error('Failed to rename'),
+    });
+  }, [updateSession, refetchSessions]);
+
   // Update session context
   const handleContextChange = useCallback((contactId: string | null) => {
     if (!currentSessionId) return;
@@ -337,12 +454,36 @@ export default function ChatPage() {
     if (textareaRef.current) { textareaRef.current.style.height = 'auto'; }
 
     const history = localMessages.slice(-10).map(m => ({ role: m.role, content: m.content }));
-    const mutationFn = mode === 'sot' ? sendSotMessage : sendRagMessage;
 
-    const payload: Record<string, unknown> = { message: msg, history };
-    if (mode === 'rag' && currentSessionId) payload.sessionId = currentSessionId;
+    if (mode === 'sot') {
+      sendSotMessage.mutate({ message: msg, history } as Parameters<typeof sendSotMessage.mutate>[0], {
+        onSuccess: (data: unknown) => {
+          const d = data as ChatResponse;
+          setLocalMessages(prev => [...prev, {
+            id: `msg-${Date.now()}-assistant`, role: 'assistant',
+            content: d.response, timestamp: new Date().toISOString(),
+            sources: d.sources, contextQuality: d.contextQuality,
+            confidence: d.confidence, queryType: d.queryType, rag: d.rag,
+          }]);
+        },
+        onError: (error: Error) => {
+          setLocalMessages(prev => [...prev, {
+            id: `msg-${Date.now()}-error`, role: 'system' as const,
+            content: `Error: ${error.message}`, timestamp: new Date().toISOString(),
+          }]);
+        },
+      });
+      return;
+    }
 
-    mutationFn.mutate(payload as Parameters<typeof mutationFn.mutate>[0], {
+    // RAG mode with context injection + deep reasoning
+    const fallbackCtx = buildFallbackContext();
+    sendRagMessage.mutate({
+      message: msg, history,
+      sessionId: currentSessionId ?? undefined,
+      deepReasoning: deepReasoning || undefined,
+      context: fallbackCtx,
+    }, {
       onSuccess: (data: unknown) => {
         const d = data as ChatResponse;
         const assistantMsg: LocalMessage = {
@@ -350,10 +491,10 @@ export default function ChatPage() {
           content: d.response, timestamp: new Date().toISOString(),
           sources: d.sources, contextQuality: d.contextQuality,
           confidence: d.confidence, queryType: d.queryType, rag: d.rag,
+          suggestedFollowups: d.suggestedFollowups,
         };
         setLocalMessages(prev => [...prev, assistantMsg]);
 
-        // Auto-create session if backend created one
         if (d.sessionId && !currentSessionId) {
           setCurrentSessionId(d.sessionId);
           refetchSessions();
@@ -366,7 +507,7 @@ export default function ChatPage() {
         }]);
       },
     });
-  }, [input, localMessages, isPending, mode, sendRagMessage, sendSotMessage, currentSessionId, refetchSessions]);
+  }, [input, localMessages, isPending, mode, sendRagMessage, sendSotMessage, currentSessionId, refetchSessions, deepReasoning, buildFallbackContext]);
 
   // Clear
   const handleClear = useCallback(() => {
@@ -432,6 +573,8 @@ export default function ChatPage() {
           currentId={currentSessionId}
           onSelect={handleSelectSession}
           onCreate={handleCreateSession}
+          onDelete={handleDeleteSession}
+          onRename={handleRenameSession}
           contacts={contacts}
           onContextChange={handleContextChange}
         />
@@ -479,24 +622,54 @@ export default function ChatPage() {
           {localMessages.map(msg => (
             <div key={msg.id}>
               <div className={cn(
-                'max-w-[80%] rounded-xl p-3 text-sm',
+                'group/msg max-w-[80%] rounded-xl p-3 text-sm relative',
                 msg.role === 'user' ? 'ml-auto bg-[var(--gm-interactive-primary)] text-[var(--gm-text-on-brand)]' :
                   msg.role === 'system' ? 'mx-auto bg-[var(--color-danger-500)]/10 text-[var(--color-danger-500)]' :
                     'bg-[var(--gm-bg-tertiary)]'
               )}>
-                <div className="whitespace-pre-wrap">{msg.content}</div>
+                {msg.role === 'assistant' ? (
+                  <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-headings:my-2 prose-pre:my-2 prose-code:text-[var(--gm-accent-primary)] prose-code:bg-[var(--gm-bg-tertiary)] prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                  </div>
+                ) : (
+                  <div className="whitespace-pre-wrap">{msg.content}</div>
+                )}
                 <div className="flex items-center justify-between mt-1.5">
                   <span className="text-[10px] opacity-50">{msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString() : '—'}</span>
-                  {msg.contextQuality && msg.role === 'assistant' && (
-                    <span className={cn(
-                      'text-[9px] px-2 py-0.5 rounded-full font-medium ml-2',
-                      msg.contextQuality === 'high' ? 'bg-emerald-500/10 text-emerald-400' :
-                        msg.contextQuality === 'medium' ? 'bg-amber-500/10 text-amber-400' :
-                          'bg-[var(--gm-bg-tertiary)] text-[var(--gm-text-tertiary)]'
-                    )}>
-                      {msg.contextQuality} confidence
-                    </span>
-                  )}
+                  <div className="flex items-center gap-1.5">
+                    {msg.contextQuality && msg.role === 'assistant' && (
+                      <span className={cn(
+                        'text-[9px] px-2 py-0.5 rounded-full font-medium',
+                        msg.contextQuality === 'high' ? 'bg-emerald-500/10 text-emerald-400' :
+                          msg.contextQuality === 'medium' ? 'bg-amber-500/10 text-amber-400' :
+                            'bg-[var(--gm-bg-tertiary)] text-[var(--gm-text-tertiary)]'
+                      )}>
+                        {msg.contextQuality} ctx
+                      </span>
+                    )}
+                    {/* Copy + Feedback buttons */}
+                    {msg.role === 'assistant' && (
+                      <div className="hidden group-hover/msg:flex items-center gap-0.5 ml-1">
+                        <button onClick={() => handleCopyMessage(msg.content)} className="p-1 rounded hover:bg-white/10 text-[var(--gm-text-tertiary)] hover:text-[var(--gm-text-primary)] transition-colors" title="Copy">
+                          <Copy className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={() => handleFeedback(msg.id, 'up')}
+                          className={cn('p-1 rounded hover:bg-white/10 transition-colors', msg.feedback === 'up' ? 'text-emerald-400' : 'text-[var(--gm-text-tertiary)] hover:text-emerald-400')}
+                          title="Good answer"
+                        >
+                          <ThumbsUp className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={() => handleFeedback(msg.id, 'down')}
+                          className={cn('p-1 rounded hover:bg-white/10 transition-colors', msg.feedback === 'down' ? 'text-red-400' : 'text-[var(--gm-text-tertiary)] hover:text-red-400')}
+                          title="Bad answer"
+                        >
+                          <ThumbsDown className="w-3 h-3" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <RagBadges msg={msg} />
               </div>
@@ -504,6 +677,20 @@ export default function ChatPage() {
                 <div className="max-w-[80%]">
                   <ContactPills sources={msg.sources} />
                   <CollapsibleSources sources={msg.sources} />
+                </div>
+              )}
+              {/* Follow-up suggestions */}
+              {msg.suggestedFollowups && msg.suggestedFollowups.length > 0 && (
+                <div className="max-w-[80%] flex flex-wrap gap-1.5 mt-2">
+                  {msg.suggestedFollowups.map((fq, i) => (
+                    <button
+                      key={i}
+                      onClick={() => handleSend(fq)}
+                      className="px-2.5 py-1 text-[10px] rounded-full border border-[var(--gm-accent-primary)]/30 bg-[var(--gm-accent-primary)]/5 text-[var(--gm-accent-primary)] hover:bg-[var(--gm-accent-primary)]/15 hover:border-[var(--gm-accent-primary)]/50 transition-colors"
+                    >
+                      {fq}
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
@@ -534,23 +721,45 @@ export default function ChatPage() {
         )}
 
         {/* Input */}
-        <div className="flex gap-2 px-6 py-3 border-t border-[var(--gm-border-primary)] bg-[var(--gm-bg-tertiary)] shrink-0">
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={handleInputChange}
-            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-            placeholder={mode === 'sot' ? 'Ask about facts, decisions, risks...' : 'Ask a question...'}
-            rows={1}
-            className={cn(INPUT, 'flex-1 min-h-[44px] max-h-[120px] resize-none py-2.5')}
-          />
-          <button
-            onClick={() => handleSend()}
-            disabled={!input.trim() || isPending}
-            className={cn(BTN_PRIMARY, 'h-11 px-4 text-sm self-end')}
-          >
-            <Send className="h-4 w-4" />
-          </button>
+        <div className="px-6 py-3 border-t border-[var(--gm-border-primary)] bg-[var(--gm-bg-tertiary)] shrink-0 space-y-2">
+          {mode === 'rag' && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setDeepReasoning(v => !v)}
+                className={cn(
+                  'inline-flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-medium rounded-full border transition-all',
+                  deepReasoning
+                    ? 'bg-[var(--gm-accent-primary)]/15 border-[var(--gm-accent-primary)]/40 text-[var(--gm-accent-primary)]'
+                    : 'bg-transparent border-[var(--gm-border-primary)] text-[var(--gm-text-tertiary)] hover:text-[var(--gm-text-primary)] hover:border-[var(--gm-border-focus)]'
+                )}
+                title="Deep reasoning uses a structured 4-step analysis framework for more thorough answers"
+              >
+                <Brain className="w-3 h-3" />
+                Deep Reasoning {deepReasoning ? 'ON' : 'OFF'}
+              </button>
+              {deepReasoning && (
+                <span className="text-[9px] text-[var(--gm-text-tertiary)]">Structured analysis with confidence indicators</span>
+              )}
+            </div>
+          )}
+          <div className="flex gap-2">
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={handleInputChange}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+              placeholder={mode === 'sot' ? 'Ask about facts, decisions, risks...' : deepReasoning ? 'Ask a complex question for deep analysis...' : 'Ask a question...'}
+              rows={1}
+              className={cn(INPUT, 'flex-1 min-h-[44px] max-h-[120px] resize-none py-2.5')}
+            />
+            <button
+              onClick={() => handleSend()}
+              disabled={!input.trim() || isPending}
+              className={cn(BTN_PRIMARY, 'h-11 px-4 text-sm self-end')}
+            >
+              {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            </button>
+          </div>
         </div>
       </div>
     </div>

@@ -59,7 +59,7 @@
  *   GET  /api/krisp/oauth/status               - OAuth connection status
  *   GET  /api/krisp/oauth/authorize            - Start PKCE OAuth flow (returns redirect URL)
  *   GET  /api/krisp/oauth/callback             - OAuth callback (browser redirect, no auth)
- *   POST /api/krisp/oauth/disconnect           - Disconnect OAuth
+ *   DELETE /api/krisp/oauth/disconnect         - Disconnect OAuth
  *   GET  /api/krisp/oauth/meetings             - List available meetings via MCP OAuth
  *   POST /api/krisp/oauth/meetings/import      - Import meetings via MCP OAuth
  */
@@ -908,8 +908,8 @@ async function handleKrispApi(ctx) {
         return true;
     }
 
-    // POST /api/krisp/oauth/disconnect - Disconnect OAuth
-    if (pathname === '/api/krisp/oauth/disconnect' && req.method === 'POST') {
+    // DELETE /api/krisp/oauth/disconnect - Disconnect OAuth
+    if (pathname === '/api/krisp/oauth/disconnect' && req.method === 'DELETE') {
         if (!supabase || !supabase.isConfigured()) {
             jsonResponse(res, { error: 'Not configured' }, 503);
             return true;

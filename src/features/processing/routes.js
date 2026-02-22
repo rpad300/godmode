@@ -42,6 +42,7 @@
 const { parseBody } = require('../../server/request');
 const { getLogger } = require('../../server/requestContext');
 const { jsonResponse } = require('../../server/response');
+const llmRouter = require('../../llm/router');
 
 async function handleProcessing(ctx) {
     const { req, res, pathname, processor, storage, config, llm, invalidateBriefingCache } = ctx;
@@ -67,7 +68,7 @@ async function handleProcessing(ctx) {
             processor.config.llm.provider = requestProvider;
         }
 
-        const currentProject = storage.getCurrentProject();
+        const currentProject = await storage.getCurrentProject();
         const userRole = currentProject?.userRole || '';
 
         processor.processAllContentFirst(textModel, visionModel, userRole).then(async (result) => {
@@ -98,13 +99,11 @@ async function handleProcessing(ctx) {
                     const allEmbeddings = [];
                     for (let i = 0; i < texts.length; i += batchSize) {
                         const batch = texts.slice(i, i + batchSize);
-                        const embedResult = await llm.embed({
-                            provider: embedCfg.provider,
-                            providerConfig: embedCfg.providerConfig,
-                            model: embedModel,
-                            texts: batch
-                        });
-                        if (embedResult.success && embedResult.embeddings) allEmbeddings.push(...embedResult.embeddings);
+                        const embedRouterResult = await llmRouter.routeAndExecute('embeddings', 'embed', {
+                            texts: batch,
+                            context: 'processing-embed'
+                        }, config);
+                        if (embedRouterResult.success && embedRouterResult.result?.embeddings) allEmbeddings.push(...embedRouterResult.result.embeddings);
                         else allEmbeddings.push(...batch.map(() => null));
                     }
                     if (allEmbeddings.some(e => e !== null)) {

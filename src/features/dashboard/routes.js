@@ -38,13 +38,17 @@ async function handleDashboard(ctx) {
             storage.getFacts ? storage.getFacts() : Promise.resolve([])
         ]);
 
-        const stats = storage.getStats();
-        const allQuestions = storage.getQuestions({});
+        const [allQuestions, allActions, allPeople, allDecisions] = await Promise.all([
+            storage.getQuestions(),
+            storage.getActions(),
+            storage.getPeople(),
+            storage.getDecisions(),
+        ]);
         const questionsByPriority = {
-            critical: allQuestions.filter(q => q.priority === 'critical' && q.status === 'pending').length,
-            high: allQuestions.filter(q => q.priority === 'high' && q.status === 'pending').length,
-            medium: allQuestions.filter(q => q.priority === 'medium' && q.status === 'pending').length,
-            resolved: allQuestions.filter(q => q.status === 'resolved').length
+            critical: (allQuestions || []).filter(q => q.priority === 'critical' && q.status === 'pending').length,
+            high: (allQuestions || []).filter(q => q.priority === 'high' && q.status === 'pending').length,
+            medium: (allQuestions || []).filter(q => q.priority === 'medium' && q.status === 'pending').length,
+            resolved: (allQuestions || []).filter(q => q.status === 'resolved').length
         };
 
         const risksByImpact = {
@@ -52,9 +56,6 @@ async function handleDashboard(ctx) {
             medium: allRisks.filter(r => (r.impact || '').toLowerCase() === 'medium' && r.status === 'open').length,
             low: allRisks.filter(r => (r.impact || '').toLowerCase() === 'low' && r.status === 'open').length
         };
-
-        const allActions = storage.getActionItems();
-        const allPeople = storage.getPeople ? storage.getPeople() : [];
 
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -111,17 +112,15 @@ async function handleDashboard(ctx) {
         };
         const factsVerifiedCount = allFacts.filter(f => f.verified === true).length;
 
-        const trends = storage.getTrends ? storage.getTrends(7) : [];
-        const trendInsights = storage.getTrendInsights ? storage.getTrendInsights() : [];
+        const trends = storage.getTrends ? await storage.getTrends(7) : [];
+        const trendInsights = storage.getTrendInsights ? await storage.getTrendInsights() : [];
 
-        // New Aggregations
-        const weeklyActivity = storage.getWeeklyActivity ? storage.getWeeklyActivity() : [];
-        const recentHistory = storage.getRecentActivity ? storage.getRecentActivity(10) : [];
+        const weeklyActivity = storage.getWeeklyActivity ? await storage.getWeeklyActivity() : [];
+        const recentHistory = storage.getRecentActivity ? await storage.getRecentActivity(10) : [];
 
-        // Sprint Placeholder (until Sprints are fully implemented)
         let sprints = [];
         if (storage.getSprints) {
-            const result = storage.getSprints();
+            const result = await storage.getSprints();
             if (Array.isArray(result)) {
                 sprints = result;
             }
@@ -129,12 +128,12 @@ async function handleDashboard(ctx) {
         const activeSprint = sprints.find(s => s.status === 'active') || null;
 
         jsonResponse(res, {
-            documents: stats.documents || { total: 0, processed: 0, pending: 0 },
-            totalFacts: stats.facts || 0,
+            documents: { total: 0, processed: 0, pending: 0 },
+            totalFacts: (allFacts || []).length,
             factsByCategory,
             factsVerifiedCount,
             totalQuestions: pendingQuestions,
-            totalDecisions: stats.decisions || 0,
+            totalDecisions: (allDecisions || []).length,
             totalRisks: openRisks,
             totalActions: pendingActions,
             totalPeople: allPeople.length,
@@ -160,8 +159,8 @@ async function handleDashboard(ctx) {
     if (pathname === '/api/trends' && req.method === 'GET') {
         const parsedUrl = parseUrl(req.url);
         const days = parseInt(parsedUrl.query.days) || 7;
-        const trends = storage.getTrends(days);
-        const history = storage.getStatsHistory(30);
+        const trends = await storage.getTrends(days);
+        const history = await storage.getStatsHistory(30);
         jsonResponse(res, { trends, history });
         return true;
     }

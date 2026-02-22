@@ -60,6 +60,10 @@ export const NodeContentRenderer = ({ type, data, theme }: { type: string, data:
         case 'action': return <ActionBody data={data} theme={theme} />;
         case 'question': return <QuestionBody data={data} theme={theme} />;
         case 'userstory': return <UserStoryBody data={data} theme={theme} />;
+        case 'company': return <CompanyBody data={data} theme={theme} />;
+        case 'task': return <ActionBody data={data} theme={theme} />;
+        case 'technology': return <TechnologyBody data={data} theme={theme} />;
+        case 'meeting': return <EventBody data={data} theme={theme} />;
         default: return <DefaultBody data={data} type={type} theme={theme} />;
     }
 };
@@ -125,7 +129,6 @@ const ProjectBody = ({ data, theme }: { data: any, theme: NodeTheme }) => (
 );
 
 const DocumentBody = ({ data }: { data: any, theme: NodeTheme }) => {
-    // Map backend fields to UI fields if necessary
     const stats = {
         facts: data.facts_count || data.facts || 0,
         decisions: data.decisions_count || data.decisions || 0,
@@ -138,7 +141,7 @@ const DocumentBody = ({ data }: { data: any, theme: NodeTheme }) => {
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
                     <span className="text-sm">{data.file_type === 'transcript' ? '🎙️' : '📄'}</span>
-                    <span className="text-sm font-medium text-white truncate max-w-40">{data.name || '(unnamed)'}</span>
+                    <span className="text-sm font-medium text-white truncate max-w-40">{data.name || data.title || data.label || '(unnamed)'}</span>
                 </div>
                 <StatusDot status={data.status} />
             </div>
@@ -272,7 +275,7 @@ const FactBody = ({ data, theme }: { data: any, theme: NodeTheme }) => (
             </div>
             <span className="text-[9px] bg-blue-900/60 text-blue-300 px-1.5 py-0.5 rounded">{data.category || 'general'}</span>
         </div>
-        <div className="text-xs text-slate-200 mt-1.5 line-clamp-2 leading-relaxed">"{data.name || data.content || '—'}"</div>
+        <div className="text-xs text-slate-200 mt-1.5 line-clamp-2 leading-relaxed">"{data.content || data.name || data.title || data.label || '—'}"</div>
         <div className="flex items-center gap-2 mt-2">
             <ConfidenceBar value={data.confidence || 0.8} />
             {data.verified && <span className="text-green-400 text-xs">✅</span>}
@@ -289,9 +292,9 @@ const DecisionBody = ({ data, theme }: { data: any, theme: NodeTheme }) => (
             </div>
             <StatusDot status={data.status} />
         </div>
-        <div className="text-xs text-slate-200 mt-1.5 line-clamp-2 leading-relaxed">"{data.name || data.content || '—'}"</div>
+        <div className="text-xs text-slate-200 mt-1.5 line-clamp-2 leading-relaxed">"{data.title || data.name || data.content || data.label || '—'}"</div>
         <div className="flex items-center gap-2 mt-2 text-[10px] text-slate-500">
-            <span>👤 {data.owner || 'Board'}</span>
+            <span>👤 {data.owner || data.made_by || 'Board'}</span>
             <span>·</span>
             <span>{data.date || (data.decision_date ? new Date(data.decision_date).toLocaleDateString() : '')}</span>
         </div>
@@ -315,7 +318,7 @@ const RiskBody = ({ data, theme }: { data: any, theme: NodeTheme }) => {
                 <span className="text-sm">⚠️</span>
                 <span className="text-xs font-medium text-slate-400">Risk</span>
             </div>
-            <div className="text-xs text-slate-200 mt-1.5 line-clamp-2 leading-relaxed">"{data.name || data.content || '—'}"</div>
+            <div className="text-xs text-slate-200 mt-1.5 line-clamp-2 leading-relaxed">"{data.title || data.name || data.content || data.label || '—'}"</div>
             <div className="flex items-center justify-between mt-2">
                 <div className="flex items-center gap-1">
                     <span className={cn("text-[9px] px-1.5 py-0.5 rounded font-semibold", getBadgeStyle(impact))}>
@@ -356,7 +359,7 @@ const ActionBody = ({ data }: { data: any, theme: NodeTheme }) => {
                     {priority}
                 </span>
             </div>
-            <div className="text-xs text-slate-200 mt-1.5 line-clamp-2 leading-relaxed">"{data.name || data.content || '—'}"</div>
+            <div className="text-xs text-slate-200 mt-1.5 line-clamp-2 leading-relaxed">"{data.title || data.task || data.name || data.content || data.label || '—'}"</div>
             <div className="flex items-center gap-1.5 mt-2 text-[10px] text-slate-500 flex-wrap">
                 <span>👤 {data.owner || 'Me'}</span>
                 {data.deadline && (
@@ -395,7 +398,7 @@ const QuestionBody = ({ data }: { data: any, theme: NodeTheme }) => {
                     {priority}
                 </span>
             </div>
-            <div className="text-xs text-slate-200 mt-1.5 line-clamp-2 leading-relaxed">"{data.name || data.content || '—'}"</div>
+            <div className="text-xs text-slate-200 mt-1.5 line-clamp-2 leading-relaxed">"{data.content || data.name || data.title || data.label || '—'}"</div>
             <div className="flex items-center gap-2 mt-2 text-[10px] text-slate-500">
                 <div className="flex items-center gap-1">
                     <StatusDot status={data.status} />
@@ -421,11 +424,39 @@ const UserStoryBody = ({ data }: { data: any, theme: NodeTheme }) => (
             </div>
             <StatusDot status={data.status} />
         </div>
-        <div className="text-xs text-slate-200 mt-1.5 line-clamp-2 leading-relaxed">"{data.name || data.content || '—'}"</div>
+        <div className="text-xs text-slate-200 mt-1.5 line-clamp-2 leading-relaxed">"{data.title || data.name || data.content || data.label || '—'}"</div>
         <div className="flex items-center gap-2 mt-2 text-[10px]">
             <span className="bg-pink-900/60 text-pink-300 px-1.5 py-0.5 rounded font-semibold">📊 {data.story_points || data.points || 0} pts</span>
             <span className="text-slate-500">{data.done_count || data.done || 0}/{data.tasks_count || data.tasks || 0} tasks</span>
         </div>
+    </>
+);
+
+const CompanyBody = ({ data, theme }: { data: any, theme: NodeTheme }) => (
+    <>
+        <div className="flex items-start gap-3">
+            <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0", theme.accent)}>
+                🏢
+            </div>
+            <div className="min-w-0">
+                <div className="text-sm font-semibold text-white truncate">{data.name || data.label || 'Company'}</div>
+                {data.industry && <div className={cn("text-xs mt-0.5", theme.text)}>{data.industry}</div>}
+                {data.domain && <div className="text-[10px] text-slate-500 font-mono">{data.domain}</div>}
+            </div>
+        </div>
+        {data.description && <div className="text-[10px] text-slate-400 mt-1.5 line-clamp-2">{data.description}</div>}
+    </>
+);
+
+const TechnologyBody = ({ data, theme }: { data: any, theme: NodeTheme }) => (
+    <>
+        <div className="flex items-center gap-1.5">
+            <span className="text-sm">🔧</span>
+            <span className="text-sm font-medium text-white truncate">{data.name || '(unnamed)'}</span>
+        </div>
+        {data.category && <span className={cn("inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded", theme.badge)}>{data.category}</span>}
+        {data.version && <div className="text-[10px] text-slate-500 mt-0.5">v{data.version}</div>}
+        {data.description && <div className="text-[10px] text-slate-400 mt-1 line-clamp-2">{data.description}</div>}
     </>
 );
 
@@ -435,7 +466,7 @@ const DefaultBody = ({ data, type }: { data: any, type: string, theme: NodeTheme
             <span className="text-[9px] font-bold uppercase text-slate-400">{type}</span>
         </div>
         <p className="text-xs font-medium text-white line-clamp-2">
-            {data.name || data.content || 'Entity'}
+            {data.name || data.title || data.content || data.label || 'Entity'}
         </p>
     </div>
 );

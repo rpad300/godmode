@@ -32,7 +32,7 @@
  */
 
 const { logger } = require('../logger');
-const llm = require('../llm');
+const llmRouter = require('../llm/router');
 
 const log = logger.child({ module: 'reranker' });
 
@@ -42,6 +42,7 @@ class Reranker {
         this.llmProvider = options.llmProvider || null;
         this.llmModel = options.llmModel || null;
         this.llmConfig = options.llmConfig || {};
+        this._resolvedConfig = options.config || { llm: this.llmConfig };
         
         if (!this.llmProvider) {
             log.warn({ event: 'reranker_no_llm' }, 'No LLM provider specified');
@@ -189,22 +190,19 @@ ${candidateTexts}
 Return ONLY a JSON array of scores in order, like: [0.9, 0.7, 0.3, ...]
 No explanation, just the array.`;
 
-            const result = await llm.generateText({
-                provider: this.llmProvider,
-                model: this.llmModel,
+            const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
                 prompt,
-                temperature: 0.1, // Low temperature for consistent scoring
+                temperature: 0.1,
                 maxTokens: 100,
-                providerConfig: this.llmConfig
-            });
+                context: 'reranker-scoring'
+            }, this._resolvedConfig);
             
-            if (!result.success) {
-                log.warn({ event: 'reranker_scoring_failed', reason: result.error }, 'Scoring failed');
-                return batch.map(() => 0.5); // Default score
+            if (!routerResult.success) {
+                log.warn({ event: 'reranker_scoring_failed', reason: routerResult.error?.message || routerResult.error }, 'Scoring failed');
+                return batch.map(() => 0.5);
             }
             
-            // Parse scores from response
-            const text = result.text.trim();
+            const text = (routerResult.result?.text || routerResult.result?.response || '').trim();
             const match = text.match(/\[[\d.,\s]+\]/);
             
             if (match) {
@@ -275,8 +273,8 @@ No explanation, just the array.`;
             const type = candidate.type || '';
             
             // Boost based on query type
-            if (queryType === 'who' || /quem|who|pessoa|people/i.test(q)) {
-                if (type === 'person' || content.includes('person')) boost *= 1.5;
+            if (queryType === 'who' || /quem|who|pessoa|people|contact/i.test(q)) {
+                if (type === 'person' || type === 'contact' || content.includes('person')) boost *= 1.5;
             }
             
             if (queryType === 'what' || /o que|what|tecnologia|technology/i.test(q)) {
@@ -284,7 +282,31 @@ No explanation, just the array.`;
             }
             
             if (queryType === 'when' || /quando|when|data|date/i.test(q)) {
-                if (type === 'meeting' || type === 'decision') boost *= 1.4;
+                if (type === 'meeting' || type === 'decision' || type === 'calendarevent') boost *= 1.4;
+            }
+
+            if (/empresa|company|compan(y|ies)|organiza/i.test(q)) {
+                if (type === 'company' || type === 'organization') boost *= 1.5;
+            }
+
+            if (/sprint|iteraç/i.test(q)) {
+                if (type === 'sprint') boost *= 1.4;
+            }
+
+            if (/tarefa|task|ação|action/i.test(q)) {
+                if (type === 'task' || type === 'action') boost *= 1.3;
+            }
+
+            if (/email|correio/i.test(q)) {
+                if (type === 'email') boost *= 1.4;
+            }
+
+            if (/risco|risk/i.test(q)) {
+                if (type === 'risk') boost *= 1.4;
+            }
+
+            if (/documento|document|ficheiro|file/i.test(q)) {
+                if (type === 'document') boost *= 1.3;
             }
             
             // Boost exact matches

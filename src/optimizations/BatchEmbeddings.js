@@ -27,7 +27,7 @@
  */
 
 const { logger } = require('../logger');
-const llm = require('../llm');
+const llmRouter = require('../llm/router');
 
 const log = logger.child({ module: 'batch-embeddings' });
 
@@ -47,6 +47,7 @@ class BatchEmbeddings {
         this.maxConcurrent = options.maxConcurrent || 3;
         this.llmConfig = options.llmConfig || {};
         this.appConfig = options.appConfig || null;
+        this._resolvedConfig = this.appConfig || { llm: this.llmConfig };
         this.retryAttempts = options.retryAttempts || 3;
         this.retryDelay = options.retryDelay || 1000;
         
@@ -142,22 +143,15 @@ class BatchEmbeddings {
      * @returns {Promise<{success: boolean, embeddings: Array}>}
      */
     async processBatch(texts, options = {}) {
-        const embedCfg = this.appConfig ? require('../llm/config').getEmbeddingsConfig(this.appConfig) : null;
-        const provider = options.provider || embedCfg?.provider || this.llmConfig?.embeddingsProvider;
-        const model = options.model || embedCfg?.model || this.llmConfig?.models?.embeddings;
-        const providerConfig = embedCfg?.providerConfig || this.llmConfig?.providers?.[provider] || {};
-        if (!provider || !model) return { success: false, embeddings: [] };
         for (let attempt = 1; attempt <= this.retryAttempts; attempt++) {
             try {
-                const result = await llm.embed({
-                    provider,
-                    providerConfig,
-                    model,
-                    texts
-                });
+                const routerResult = await llmRouter.routeAndExecute('embeddings', 'embed', {
+                    texts,
+                    context: 'batch-embeddings'
+                }, this._resolvedConfig);
 
-                if (result.success) {
-                    return result;
+                if (routerResult.success && routerResult.result?.embeddings) {
+                    return { success: true, embeddings: routerResult.result.embeddings };
                 }
 
                 if (attempt < this.retryAttempts) {

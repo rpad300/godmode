@@ -30,10 +30,9 @@
  */
 
 const { logger } = require('../logger');
-const llm = require('../llm');
+const llmRouter = require('../llm/router');
 
 const log = logger.child({ module: 'decision-suggest-owner' });
-const llmConfig = require('../llm/config');
 const promptsService = require('../supabase/prompts');
 
 function buildContactsList(contacts) {
@@ -65,11 +64,6 @@ async function runDecisionSuggestOwner(config, options = {}) {
         return { error: 'Content is required' };
     }
 
-    const llmCfg = llmConfig.getTextConfigForReasoning(config);
-    if (!llmCfg?.provider || !llmCfg?.model) {
-        return { error: 'No AI/LLM configured' };
-    }
-
     const contactsListStr = buildContactsList(contacts);
     let promptRecord;
     try {
@@ -95,26 +89,23 @@ ${rationale ? `Rationale/context: ${rationale}` : ''}
 Respond with a single JSON object: {"suggested_owners": [{"name": "<exact name from list>", "reason": "...", "score": 0-100}, ...]}
 suggested_owners: 3-5 people from the CONTACTS list only. If no contacts listed, return suggested_owners: [].`;
 
-    let result;
+    let routerResult;
     try {
-        result = await llm.generateText({
-            provider: llmCfg.provider,
-            providerConfig: llmCfg.providerConfig,
-            model: llmCfg.model,
+        routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
             prompt,
             temperature: 0.3,
             maxTokens: 512,
             context: 'decision-suggest-owner'
-        });
+        }, config);
     } catch (e) {
         log.warn({ event: 'decision_suggest_owner_llm_error', reason: e.message }, 'LLM error');
         return { error: e.message || 'AI request failed' };
     }
 
-    const raw = (result.text || result.response || '').trim();
-    if (!result.success) {
-        return { error: result.error || 'AI request failed' };
+    if (!routerResult.success) {
+        return { error: routerResult.error?.message || routerResult.error || 'AI request failed' };
     }
+    const raw = (routerResult.result?.text || '').trim();
 
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {

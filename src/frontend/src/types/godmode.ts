@@ -113,34 +113,164 @@ export interface Risk {
 export interface Sprint {
   id: string;
   name: string;
-  startDate: string;
-  endDate: string;
+  start_date: string;
+  end_date: string;
+  startDate?: string;
+  endDate?: string;
   context?: string;
+  goals?: string[];
   status: 'planning' | 'active' | 'completed';
+  analysis_start_date?: string;
+  analysis_end_date?: string;
+  project_id?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface UserStory {
   id: string;
   title: string;
   description?: string;
-  sprintId: string;
+  sprintId?: string;
+  sprint_id?: string;
   status: 'todo' | 'in_progress' | 'done';
   priority: 'high' | 'medium' | 'low';
   acceptanceCriteria?: string[];
+  acceptance_criteria?: string;
+  story_points?: number;
 }
 
 export interface Action {
   id: string;
   task: string;
+  title?: string;
+  content?: string;
   description?: string;
   owner?: string;
   deadline?: string;
   status: 'pending' | 'in_progress' | 'completed' | 'overdue';
   priority: 'high' | 'medium' | 'low';
   sprint_id?: string;
+  sprintId?: string;
+  sprint_name?: string;
   parent_story_id?: string;
+  storyId?: string;
+  task_points?: number;
+  size_estimate?: string;
+  definition_of_done?: string[];
+  acceptance_criteria?: string[];
+  generation_source?: string;
+  depends_on?: string[];
+  blocked_by?: string[];
+  story_points_estimate?: number;
   created_at?: string;
   updated_at?: string;
+  createdAt?: string;
+}
+
+export interface ProposedTask {
+  task: string;
+  description?: string;
+  size_estimate?: string;
+  definition_of_done?: string[];
+  acceptance_criteria?: string[];
+  priority?: string;
+  due_date?: string;
+}
+
+export interface SprintBreakdown {
+  by_status: Record<string, number>;
+  by_assignee: Record<string, number>;
+}
+
+export interface SprintReport {
+  sprint: Sprint;
+  actions: Action[];
+  breakdown: SprintBreakdown;
+  total_task_points: number;
+  completed_task_points: number;
+  total_tasks: number;
+  completed_tasks: number;
+}
+
+export interface SprintGenerateResult {
+  proposed_new_tasks: ProposedTask[];
+  existing_action_ids: string[];
+  existing_details: Array<{ id: string; task: string; status: string }>;
+}
+
+export interface SprintVelocity {
+  sprint_id: string;
+  sprint_name: string;
+  start_date: string;
+  end_date: string;
+  total_points: number;
+  completed_points: number;
+  total_tasks: number;
+  completed_tasks: number;
+  daily_progress: Array<{ date: string; completed_tasks: number; completed_points: number; remaining_tasks: number; remaining_points: number }>;
+}
+
+export interface SprintRetrospective {
+  id?: string;
+  sprint_id: string;
+  went_well: string[];
+  went_wrong: string[];
+  action_items: string[];
+  ai_suggestions?: string;
+  created_at?: string;
+}
+
+export interface SprintHealthScore {
+  score: number;
+  factors: {
+    completion_rate: number;
+    time_progress: number;
+    velocity_trend: number;
+    overdue_ratio: number;
+    distribution_balance: number;
+  };
+  risk_level: 'low' | 'medium' | 'high' | 'critical';
+  alerts: string[];
+}
+
+export interface StandupEntry {
+  person: string;
+  done: string[];
+  doing: string[];
+  blockers: string[];
+}
+
+export interface SprintStandup {
+  sprint_id: string;
+  date: string;
+  entries: StandupEntry[];
+  ai_summary?: string;
+}
+
+export interface TaskDependency {
+  from_id: string;
+  to_id: string;
+  type: 'blocks' | 'depends_on';
+}
+
+export interface SprintCapacity {
+  person: string;
+  available_points: number;
+  assigned_points: number;
+  utilization: number;
+  over_allocated?: boolean;
+  tasks?: string[];
+}
+
+export interface SprintTemplate {
+  id: string;
+  name: string;
+  description?: string;
+  duration_days: number;
+  goals_template: string[];
+  context_template: string;
+  task_templates: Array<{ task: string; description?: string; priority: string; size_estimate?: string }>;
 }
 
 export interface Decision {

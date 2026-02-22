@@ -1,21 +1,31 @@
 {
-  "version": "2.5",
+  "version": "2.8",
   "entityTypes": {
     "Action": {
       "icon": "check-square",
-      "color": "#10b981",
-      "label": "Action",
+      "color": "#22c55e",
+      "label": "Action Item",
       "properties": {
         "id": {
           "type": "string",
           "required": true
         },
-        "title": {
+        "name": {
           "type": "string",
           "required": true,
           "searchable": true
         },
+        "description": {
+          "type": "string",
+          "searchable": true
+        },
         "status": {
+          "enum": [
+            "open",
+            "in_progress",
+            "done",
+            "cancelled"
+          ],
           "type": "string",
           "default": "open"
         },
@@ -24,28 +34,36 @@
             "low",
             "medium",
             "high",
-            "urgent"
+            "critical"
           ],
           "type": "string"
+        },
+        "assignee": {
+          "type": "string",
+          "searchable": true
         },
         "due_date": {
           "type": "string",
           "format": "date"
         },
-        "assignee_id": {
+        "source": {
           "type": "string"
         },
-        "project_id": {
+        "decision_id": {
           "type": "string"
         },
         "created_at": {
           "type": "string",
           "format": "date-time"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
         }
       },
-      "description": "An action item or task",
+      "description": "An action item or follow-up task from a meeting or decision",
       "sharedEntity": false,
-      "embeddingTemplate": "[Action] {title}. Status: {status}. Priority: {priority}"
+      "embeddingTemplate": "[Action] {name}. Status: {status}. Assigned to: {assignee}. {description}"
     },
     "Answer": {
       "icon": "message-circle",
@@ -79,10 +97,6 @@
           "type": "number",
           "maximum": 1,
           "minimum": 0
-        },
-        "question_id": {
-          "type": "string",
-          "required": true
         },
         "created_at": {
           "type": "string",
@@ -143,6 +157,41 @@
       "description": "A daily briefing summarizing project status and insights",
       "sharedEntity": false,
       "embeddingTemplate": "[Briefing] {summary}. Generated: {created_at}"
+    },
+    "CalendarEvent": {
+      "icon": "calendar",
+      "color": "#06b6d4",
+      "label": "CalendarEvent",
+      "properties": {
+        "id": {
+          "type": "string",
+          "required": true
+        },
+        "title": {
+          "type": "string",
+          "searchable": true
+        },
+        "end_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "location": {
+          "type": "string"
+        },
+        "start_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "event_type": {
+          "type": "string"
+        },
+        "project_id": {
+          "type": "string"
+        }
+      },
+      "description": "A calendar event",
+      "sharedEntity": false,
+      "embeddingTemplate": "[Event] {title}. Type: {event_type}. Time: {start_at}"
     },
     "Client": {
       "icon": "briefcase",
@@ -225,8 +274,8 @@
       "embeddingTemplate": "[Client] {name} - {industry}. {description}. Contract: {contractType}"
     },
     "Contact": {
-      "icon": "user",
-      "color": "#3498DB",
+      "icon": "contact",
+      "color": "#14B8A6",
       "label": "Contact",
       "properties": {
         "id": {
@@ -240,16 +289,22 @@
         },
         "email": {
           "type": "string",
-          "format": "email"
+          "searchable": true
         },
         "phone": {
           "type": "string"
         },
         "role": {
-          "type": "string"
+          "type": "string",
+          "searchable": true
         },
-        "client_id": {
-          "type": "string"
+        "company": {
+          "type": "string",
+          "searchable": true
+        },
+        "notes": {
+          "type": "string",
+          "searchable": true
         },
         "created_at": {
           "type": "string",
@@ -260,9 +315,9 @@
           "format": "date-time"
         }
       },
-      "description": "A person associated with a client or project",
+      "description": "A contact person associated with a project or company",
       "sharedEntity": true,
-      "embeddingTemplate": "[Contact] {name} ({role}). Email: {email}"
+      "embeddingTemplate": "[Contact] {name} - {role} at {company}. {email}. {notes}"
     },
     "Conversation": {
       "icon": "message-circle",
@@ -389,8 +444,6 @@
             "notes",
             "guide",
             "policy",
-            "image",
-            "spreadsheet",
             "other"
           ],
           "type": "string",
@@ -909,13 +962,33 @@
       "embeddingTemplate": "[Project] {name} ({code}) - {description}. Status: {status}, Phase: {phase}. Objectives: {objectives}"
     },
     "Project Management Tool": {
+      "icon": "kanban",
+      "color": "#3b82f6",
+      "label": "PM Tool",
       "properties": {
-        "name": {
+        "id": {
           "type": "string",
           "required": true
+        },
+        "name": {
+          "type": "string",
+          "required": true,
+          "searchable": true
+        },
+        "description": {
+          "type": "string",
+          "searchable": true
+        },
+        "category": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
         }
       },
-      "description": "New entity type detected: Project Management Tool"
+      "description": "A project management tool or platform (e.g., Jira, Trello, Asana)",
+      "sharedEntity": true,
+      "embeddingTemplate": "[Tool] {name} - {category}. {description}"
     },
     "Question": {
       "icon": "help-circle",
@@ -1006,13 +1079,54 @@
       "embeddingTemplate": "[Question] {content}. Context: {context}. Answer: {answer}"
     },
     "Regulation": {
+      "icon": "scale",
+      "color": "#e74c3c",
+      "label": "Regulation",
       "properties": {
-        "name": {
+        "id": {
           "type": "string",
           "required": true
+        },
+        "name": {
+          "type": "string",
+          "required": true,
+          "searchable": true
+        },
+        "description": {
+          "type": "string",
+          "searchable": true
+        },
+        "jurisdiction": {
+          "type": "string",
+          "searchable": true
+        },
+        "category": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "active",
+            "draft",
+            "deprecated"
+          ],
+          "type": "string",
+          "default": "active"
+        },
+        "effective_date": {
+          "type": "string",
+          "format": "date"
+        },
+        "url": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
         }
       },
-      "description": "New entity type detected: Regulation"
+      "description": "A law, regulation, or compliance requirement",
+      "sharedEntity": true,
+      "embeddingTemplate": "[Regulation] {name} - {jurisdiction}. {description}"
     },
     "Risk": {
       "icon": "alert-triangle",
@@ -1098,6 +1212,52 @@
       "sharedEntity": false,
       "embeddingTemplate": "[Risk] {title} - {description}. Severity: {severity}, Probability: {probability}. Mitigation: {mitigation}"
     },
+    "Sprint": {
+      "icon": "zap",
+      "color": "#6366f1",
+      "label": "Sprint",
+      "properties": {
+        "id": {
+          "type": "string",
+          "required": true
+        },
+        "goal": {
+          "type": "string",
+          "searchable": true
+        },
+        "name": {
+          "type": "string",
+          "required": true,
+          "searchable": true
+        },
+        "status": {
+          "enum": [
+            "planned",
+            "active",
+            "completed"
+          ],
+          "type": "string"
+        },
+        "end_date": {
+          "type": "string",
+          "format": "date"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "start_date": {
+          "type": "string",
+          "format": "date"
+        }
+      },
+      "description": "A time-boxed sprint or iteration",
+      "sharedEntity": false,
+      "embeddingTemplate": "[Sprint] {name}. Goal: {goal}. Status: {status}"
+    },
     "Task": {
       "icon": "check-square",
       "color": "#3498DB",
@@ -1170,7 +1330,7 @@
     },
     "Team": {
       "icon": "users",
-      "color": "#a855f7",
+      "color": "#A855F7",
       "label": "Team",
       "properties": {
         "id": {
@@ -1186,20 +1346,18 @@
           "type": "string",
           "searchable": true
         },
-        "project_id": {
-          "type": "string"
-        },
-        "lead_id": {
-          "type": "string"
+        "department": {
+          "type": "string",
+          "searchable": true
         },
         "created_at": {
           "type": "string",
           "format": "date-time"
         }
       },
-      "description": "A team working on the project",
+      "description": "A team or group of people working together",
       "sharedEntity": false,
-      "embeddingTemplate": "[Team] {name}: {description}"
+      "embeddingTemplate": "[Team] {name} - {department}. {description}"
     },
     "Technology": {
       "icon": "cpu",
@@ -1283,87 +1441,6 @@
       "sharedEntity": true,
       "embeddingTemplate": "[Technology] {name} ({category}) - {description}. Version: {version}. Tags: {tags}"
     },
-    "Sprint": {
-      "icon": "zap",
-      "color": "#6366f1",
-      "label": "Sprint",
-      "properties": {
-        "id": {
-          "type": "string",
-          "required": true
-        },
-        "name": {
-          "type": "string",
-          "required": true,
-          "searchable": true
-        },
-        "goal": {
-          "type": "string",
-          "searchable": true
-        },
-        "start_date": {
-          "type": "string",
-          "format": "date"
-        },
-        "end_date": {
-          "type": "string",
-          "format": "date"
-        },
-        "status": {
-          "enum": [
-            "planned",
-            "active",
-            "completed"
-          ],
-          "type": "string"
-        },
-        "project_id": {
-          "type": "string"
-        },
-        "created_at": {
-          "type": "string",
-          "format": "date-time"
-        }
-      },
-      "description": "A time-boxed sprint or iteration",
-      "sharedEntity": false,
-      "embeddingTemplate": "[Sprint] {name}. Goal: {goal}. Status: {status}"
-    },
-    "CalendarEvent": {
-      "icon": "calendar",
-      "color": "#06b6d4",
-      "label": "CalendarEvent",
-      "properties": {
-        "id": {
-          "type": "string",
-          "required": true
-        },
-        "title": {
-          "type": "string",
-          "searchable": true
-        },
-        "event_type": {
-          "type": "string"
-        },
-        "start_at": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "end_at": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "location": {
-          "type": "string"
-        },
-        "project_id": {
-          "type": "string"
-        }
-      },
-      "description": "A calendar event",
-      "sharedEntity": false,
-      "embeddingTemplate": "[Event] {title}. Type: {event_type}. Time: {start_at}"
-    },
     "UserStory": {
       "icon": "book-open",
       "color": "#ec4899",
@@ -1380,32 +1457,139 @@
         "status": {
           "type": "string"
         },
-        "story_points": {
-          "type": "number"
-        },
         "project_id": {
           "type": "string"
         },
         "description": {
           "type": "string",
           "searchable": true
+        },
+        "story_points": {
+          "type": "number"
         }
       },
       "description": "A user story or requirement",
       "sharedEntity": false,
       "embeddingTemplate": "[Story] {title}. Points: {story_points}. Status: {status}"
+    },
+    "Company": {
+      "icon": "building-2",
+      "color": "#0D9488",
+      "label": "Company",
+      "properties": {
+        "id": {
+          "type": "string",
+          "required": true
+        },
+        "name": {
+          "type": "string",
+          "required": true,
+          "searchable": true
+        },
+        "description": {
+          "type": "string",
+          "searchable": true
+        },
+        "website_url": {
+          "type": "string"
+        },
+        "linkedin_url": {
+          "type": "string"
+        },
+        "logo_url": {
+          "type": "string"
+        },
+        "industry": {
+          "type": "string",
+          "searchable": true
+        },
+        "size": {
+          "enum": [
+            "startup",
+            "small",
+            "medium",
+            "large",
+            "enterprise"
+          ],
+          "type": "string"
+        },
+        "country": {
+          "type": "string"
+        },
+        "founded": {
+          "type": "string",
+          "format": "date"
+        },
+        "brand_assets": {
+          "type": "object"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "description": "A company that owns and manages one or more projects",
+      "sharedEntity": true,
+      "embeddingTemplate": "[Company] {name} - {industry}. {description}. Website: {website_url}"
     }
   },
   "relationTypes": {
     "BELONGS_TO_PROJECT": {
-      "label": "Belongs To Project",
+      "label": "Belongs to Project",
       "fromTypes": [
-        "*"
+        "Document",
+        "Email",
+        "Meeting",
+        "Task",
+        "UserStory",
+        "Risk",
+        "Decision",
+        "Fact",
+        "Sprint",
+        "Conversation",
+        "CalendarEvent",
+        "Action",
+        "Question"
       ],
       "toTypes": [
         "Project"
       ],
-      "description": "Structural relationship linking entities to their project"
+      "description": "Links an entity to the project it belongs to",
+      "properties": {}
+    },
+    "BELONGS_TO_COMPANY": {
+      "label": "Belongs to Company",
+      "fromTypes": [
+        "Project",
+        "Contact",
+        "Person",
+        "Document"
+      ],
+      "toTypes": [
+        "Company"
+      ],
+      "description": "Links a project or person to the company that owns/manages it",
+      "properties": {}
+    },
+    "MEMBER_OF_TEAM": {
+      "label": "Member of Team",
+      "fromTypes": [
+        "Person",
+        "Contact"
+      ],
+      "toTypes": [
+        "Team"
+      ],
+      "description": "A person is a member of a team",
+      "properties": {
+        "role": {
+          "type": "string"
+        }
+      }
     },
     "EXTRACTED_FROM": {
       "label": "Extracted From",
@@ -1414,167 +1598,305 @@
         "Decision",
         "Risk",
         "Action",
-        "Question"
+        "Question",
+        "Task"
       ],
       "toTypes": [
-        "Document"
+        "Document",
+        "Email",
+        "Meeting",
+        "Conversation"
       ],
-      "description": "Source document for the entity"
+      "description": "An entity was extracted or discovered from a source document/conversation",
+      "properties": {}
     },
-    "MENTIONED_IN": {
-      "label": "Mentioned In",
+    "MENTIONS": {
+      "label": "Mentions",
+      "fromTypes": [
+        "Document",
+        "Email",
+        "Meeting",
+        "Conversation"
+      ],
+      "toTypes": [
+        "Person",
+        "Company",
+        "Organization",
+        "Client",
+        "Technology",
+        "Project"
+      ],
+      "description": "A document or conversation mentions another entity",
+      "properties": {}
+    },
+    "WORKS_ON": {
+      "label": "Works On",
       "fromTypes": [
         "Person",
-        "Organization",
-        "Team"
-      ],
-      "toTypes": [
-        "Document"
-      ],
-      "description": "Entity is mentioned in the document"
-    },
-    "MEMBER_OF_TEAM": {
-      "label": "Member Of Team",
-      "fromTypes": [
-        "Contact",
-        "Person"
-      ],
-      "toTypes": [
-        "Team"
-      ],
-      "description": "Person is a member of the team"
-    },
-    "LEADS_TEAM": {
-      "label": "Leads Team",
-      "fromTypes": [
-        "Contact",
-        "Person"
-      ],
-      "toTypes": [
-        "Team"
-      ],
-      "description": "Person leads the team"
-    },
-    "PARTICIPATES_IN": {
-      "label": "Participates In",
-      "fromTypes": [
-        "Contact",
-        "Person"
+        "Contact"
       ],
       "toTypes": [
         "Project"
       ],
-      "description": "Person participates in the project"
+      "description": "A person is assigned to or works on a project",
+      "properties": {
+        "role": {
+          "type": "string"
+        }
+      }
     },
-    "LINKED_TO": {
-      "label": "Linked To",
+    "ATTENDS": {
+      "label": "Attends",
       "fromTypes": [
+        "Person",
         "Contact"
       ],
       "toTypes": [
-        "Person"
+        "Meeting",
+        "CalendarEvent"
       ],
-      "description": "Contact profile linked to a Person entity"
+      "description": "A person attends a meeting or calendar event",
+      "properties": {}
     },
-    "REPORTS_TO": {
-      "label": "Reports To",
+    "ABOUT_PROJECT": {
+      "label": "About Project",
       "fromTypes": [
-        "Person"
-      ],
-      "toTypes": [
-        "Person"
-      ],
-      "description": "Reporting line"
-    },
-    "MANAGES": {
-      "label": "Manages",
-      "fromTypes": [
-        "Person"
-      ],
-      "toTypes": [
-        "Person"
-      ],
-      "description": "Management relationship"
-    },
-    "LEADS": {
-      "label": "Leads",
-      "fromTypes": [
-        "Person"
-      ],
-      "toTypes": [
-        "Person"
-      ],
-      "description": "Leadership relationship"
-    },
-    "WORKS_WITH": {
-      "label": "Works With",
-      "fromTypes": [
-        "Person"
-      ],
-      "toTypes": [
-        "Person"
-      ],
-      "description": "Working relationship"
-    },
-    "COLLABORATES": {
-      "label": "Collaborates",
-      "fromTypes": [
-        "Person"
-      ],
-      "toTypes": [
-        "Person"
-      ],
-      "description": "Collaboration relationship"
-    },
-    "ADVISES": {
-      "label": "Advises",
-      "fromTypes": [
-        "Person"
-      ],
-      "toTypes": [
-        "Person"
-      ],
-      "description": "Advisory relationship"
-    },
-    "STAKEHOLDER": {
-      "label": "Stakeholder",
-      "fromTypes": [
-        "Person"
-      ],
-      "toTypes": [
-        "Person"
-      ],
-      "description": "Stakeholder relationship"
-    },
-    "IMPLEMENTS": {
-      "label": "Implements",
-      "fromTypes": [
-        "Action"
-      ],
-      "toTypes": [
+        "Meeting",
+        "Document",
+        "Email",
+        "Conversation",
         "Decision"
       ],
-      "description": "Action implements a decision"
+      "toTypes": [
+        "Project"
+      ],
+      "description": "A meeting, document, or conversation is about a specific project",
+      "properties": {}
     },
-    "CHILD_OF": {
-      "label": "Child Of",
+    "RELATED_TO": {
+      "label": "Related To",
       "fromTypes": [
-        "Action"
+        "Risk",
+        "Decision",
+        "Fact",
+        "Action",
+        "Question",
+        "Task"
       ],
       "toTypes": [
-        "Action"
+        "Risk",
+        "Decision",
+        "Fact",
+        "Action",
+        "Question",
+        "Task",
+        "Person",
+        "Technology"
       ],
-      "description": "Parent-child task relationship"
+      "description": "A general relationship between two entities",
+      "properties": {
+        "strength": {
+          "type": "number"
+        }
+      }
     },
-    "PLANNED_IN": {
-      "label": "Planned In",
+    "ASSIGNED_TO": {
+      "label": "Assigned To",
       "fromTypes": [
-        "Action"
+        "Task",
+        "Action",
+        "UserStory"
+      ],
+      "toTypes": [
+        "Person",
+        "Contact"
+      ],
+      "description": "A task or action item is assigned to a person",
+      "properties": {}
+    },
+    "DEPENDS_ON": {
+      "label": "Depends On",
+      "fromTypes": [
+        "Task",
+        "UserStory",
+        "Decision"
+      ],
+      "toTypes": [
+        "Task",
+        "UserStory",
+        "Decision",
+        "Fact"
+      ],
+      "description": "An entity depends on or is blocked by another entity",
+      "properties": {}
+    },
+    "PART_OF_SPRINT": {
+      "label": "Part of Sprint",
+      "fromTypes": [
+        "Task",
+        "UserStory"
       ],
       "toTypes": [
         "Sprint"
       ],
-      "description": "Action planned for a sprint"
+      "description": "A task or user story is planned for a sprint",
+      "properties": {}
+    },
+    "EMPLOYS": {
+      "label": "Employs",
+      "fromTypes": [
+        "Company",
+        "Organization",
+        "Client"
+      ],
+      "toTypes": [
+        "Person",
+        "Contact"
+      ],
+      "description": "A company employs a person",
+      "properties": {
+        "role": {
+          "type": "string"
+        },
+        "department": {
+          "type": "string"
+        }
+      }
+    },
+    "USES_TECHNOLOGY": {
+      "label": "Uses Technology",
+      "fromTypes": [
+        "Project",
+        "Company",
+        "Organization"
+      ],
+      "toTypes": [
+        "Technology"
+      ],
+      "description": "A project or company uses a technology",
+      "properties": {}
+    },
+    "CLIENT_OF": {
+      "label": "Client Of",
+      "fromTypes": [
+        "Client"
+      ],
+      "toTypes": [
+        "Company"
+      ],
+      "description": "A client is a customer of a company",
+      "properties": {
+        "contractType": {
+          "type": "string"
+        },
+        "contractValue": {
+          "type": "number"
+        }
+      }
+    },
+    "PLANNED_IN": {
+      "label": "Planned In",
+      "fromTypes": [
+        "Task",
+        "UserStory",
+        "Document",
+        "Email"
+      ],
+      "toTypes": [
+        "Sprint"
+      ],
+      "description": "An entity is planned or scheduled within a sprint",
+      "properties": {}
+    },
+    "IMPLEMENTS": {
+      "label": "Implements",
+      "fromTypes": [
+        "Task"
+      ],
+      "toTypes": [
+        "UserStory"
+      ],
+      "description": "A task implements a user story",
+      "properties": {}
+    },
+    "LINKED_TO": {
+      "label": "Linked To",
+      "fromTypes": [
+        "Task",
+        "CalendarEvent"
+      ],
+      "toTypes": [
+        "Decision",
+        "Document",
+        "Action"
+      ],
+      "description": "Generic link between related entities",
+      "properties": {}
+    },
+    "OWNED_BY": {
+      "label": "Owned By",
+      "fromTypes": [
+        "Decision",
+        "Risk"
+      ],
+      "toTypes": [
+        "Person",
+        "Contact"
+      ],
+      "description": "An entity is owned or managed by a person",
+      "properties": {}
+    },
+    "AUTHORED_BY": {
+      "label": "Authored By",
+      "fromTypes": [
+        "Document",
+        "Decision"
+      ],
+      "toTypes": [
+        "Person",
+        "Contact"
+      ],
+      "description": "An entity was authored or created by a person",
+      "properties": {}
+    },
+    "LEADS_TEAM": {
+      "label": "Leads Team",
+      "fromTypes": [
+        "Person",
+        "Contact"
+      ],
+      "toTypes": [
+        "Team"
+      ],
+      "description": "A person leads or manages a team",
+      "properties": {}
+    },
+    "PARENT_OF": {
+      "label": "Parent Of",
+      "fromTypes": [
+        "Team"
+      ],
+      "toTypes": [
+        "Team"
+      ],
+      "description": "A team is a parent of another team in the hierarchy",
+      "properties": {}
+    },
+    "DERIVED_FROM": {
+      "label": "Derived From",
+      "fromTypes": [
+        "Task",
+        "UserStory",
+        "Fact",
+        "Decision",
+        "Risk",
+        "Question"
+      ],
+      "toTypes": [
+        "Email"
+      ],
+      "description": "An entity was derived from an email",
+      "properties": {}
     },
     "SENT_BY": {
       "label": "Sent By",
@@ -1585,7 +1907,8 @@
         "Contact",
         "Person"
       ],
-      "description": "Sender of the email"
+      "description": "An email was sent by a person",
+      "properties": {}
     },
     "SENT_TO": {
       "label": "Sent To",
@@ -1596,7 +1919,23 @@
         "Contact",
         "Person"
       ],
-      "description": "Recipient of the email"
+      "description": "An email was sent to a person",
+      "properties": {
+        "type": {
+          "type": "string"
+        }
+      }
+    },
+    "REPLY_TO": {
+      "label": "Reply To",
+      "fromTypes": [
+        "Email"
+      ],
+      "toTypes": [
+        "Email"
+      ],
+      "description": "An email is a reply to another email",
+      "properties": {}
     },
     "HAS_ATTACHMENT": {
       "label": "Has Attachment",
@@ -1606,67 +1945,123 @@
       "toTypes": [
         "Document"
       ],
-      "description": "Email has attachment"
+      "description": "An email has an attached document",
+      "properties": {}
     },
-    "DEPENDS_ON": {
-      "label": "Depends On",
+    "INVOLVES": {
+      "label": "Involves",
       "fromTypes": [
-        "Action"
+        "CalendarEvent"
       ],
       "toTypes": [
-        "Action"
+        "Contact",
+        "Person"
       ],
-      "description": "Task dependency"
+      "description": "A calendar event involves a person",
+      "properties": {}
     },
     "SIMILAR_TO": {
       "label": "Similar To",
       "fromTypes": [
         "Fact",
         "Decision",
+        "Risk",
         "Question"
       ],
       "toTypes": [
         "Fact",
         "Decision",
+        "Risk",
         "Question"
       ],
-      "description": "Semantic similarity between entities"
+      "description": "Semantic similarity between entities",
+      "properties": {
+        "score": {
+          "type": "number"
+        }
+      }
     },
-    "QUESTION_ASSIGNED_TO": {
+    "IS_CONTACT_OF": {
+      "label": "Is Contact Of",
       "fromTypes": [
-        "*"
+        "Contact"
       ],
       "toTypes": [
-        "*"
+        "Person"
       ],
-      "description": "Legacy Relation: Question Assigned To"
+      "description": "Links a contact record to its corresponding person entity",
+      "properties": {}
     },
-    "QUESTION_FROM_DOCUMENT": {
+    "WORKS_AT": {
+      "label": "Works At",
       "fromTypes": [
-        "*"
+        "Contact",
+        "Person"
       ],
       "toTypes": [
-        "*"
+        "Company"
       ],
-      "description": "Legacy Relation: Question From Document"
+      "description": "A person works at a company",
+      "properties": {}
     },
-    "BRIEFING_FOR": {
+    "WORKS_WITH": {
+      "label": "Works With",
       "fromTypes": [
-        "*"
+        "Contact",
+        "Person"
       ],
       "toTypes": [
-        "*"
+        "Contact",
+        "Person"
       ],
-      "description": "Legacy Relation: Briefing For"
+      "description": "Two people work together (inferred from co-occurrence)",
+      "properties": {}
+    },
+    "REPORTS_TO": {
+      "from": "*",
+      "to": "*",
+      "description": "Relation type \"REPORTS_TO\" exists in graph (1 edges) but not in ontology",
+      "properties": {}
     }
   },
+  "queryPatterns": {},
   "inferenceRules": [
     {
       "name": "meeting_about_project_from_participants",
       "condition": "MATCH (m:Meeting)<-[:ATTENDS]-(p:Person)-[:WORKS_ON]->(proj:Project)",
       "inference": "MERGE (m)-[:ABOUT_PROJECT]->(proj)",
       "description": "Meeting is about a project if participants work on it"
+    },
+    {
+      "name": "project_belongs_to_company_from_documents",
+      "condition": "MATCH (doc:Document)-[:BELONGS_TO_PROJECT]->(proj:Project), (doc)-[:MENTIONS]->(c:Company)",
+      "inference": "MERGE (proj)-[:BELONGS_TO_COMPANY]->(c)",
+      "description": "Project belongs to a company if its documents mention that company"
+    },
+    {
+      "name": "person_works_on_project_from_tasks",
+      "condition": "MATCH (t:Task)-[:ASSIGNED_TO]->(p:Person), (t)-[:BELONGS_TO_PROJECT]->(proj:Project)",
+      "inference": "MERGE (p)-[:WORKS_ON]->(proj)",
+      "description": "Person works on a project if they have tasks assigned in that project"
+    },
+    {
+      "name": "contact_belongs_to_company_from_email",
+      "condition": "MATCH (e:Email)-[:MENTIONS]->(c:Contact), (e)-[:MENTIONS]->(comp:Company)",
+      "inference": "MERGE (c)-[:BELONGS_TO_COMPANY]->(comp)",
+      "description": "Contact belongs to a company if they appear in the same emails"
+    },
+    {
+      "name": "risk_related_to_project",
+      "condition": "MATCH (r:Risk)-[:EXTRACTED_FROM]->(d:Document)-[:BELONGS_TO_PROJECT]->(proj:Project)",
+      "inference": "MERGE (r)-[:BELONGS_TO_PROJECT]->(proj)",
+      "description": "Risk belongs to a project if extracted from a project document"
+    },
+    {
+      "name": "decision_about_project",
+      "condition": "MATCH (d:Decision)-[:EXTRACTED_FROM]->(doc:Document)-[:BELONGS_TO_PROJECT]->(proj:Project)",
+      "inference": "MERGE (d)-[:ABOUT_PROJECT]->(proj)",
+      "description": "Decision is about a project if extracted from a project document"
     }
   ],
-  "lastUpdated": "2026-02-14T10:15:00.000Z"
+  "lastUpdated": "2026-02-22T20:07:56.822Z"
 }

@@ -33,6 +33,12 @@ export interface Bookmark {
     project_id: string;
     user_id: string;
     node_id: string;
+    node_type: string;
+    node_label: string;
+    node_avatar_url?: string;
+    note?: string;
+    color?: string;
+    sort_order?: number;
     created_at: string;
 }
 
@@ -62,14 +68,16 @@ export function useBookmarks() {
 
     // Add Bookmark
     const addBookmark = useMutation({
-        mutationFn: async (nodeId: string) => {
+        mutationFn: async (payload: { nodeId: string; nodeType: string; nodeLabel: string }) => {
             if (!currentProjectId || !user?.id) throw new Error("No context");
             const { error } = await supabase
                 .from('graph_bookmarks')
                 .insert({
                     project_id: currentProjectId,
                     user_id: user.id,
-                    node_id: nodeId
+                    node_id: payload.nodeId,
+                    node_type: payload.nodeType,
+                    node_label: payload.nodeLabel,
                 });
             if (error) throw error;
         },

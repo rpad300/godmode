@@ -485,7 +485,6 @@ class SourceOfTruthEngine {
             storage.getDecisions?.() ?? Promise.resolve([]),
             storage.getRisks?.() ?? Promise.resolve([]),
             storage.getActions?.() ?? Promise.resolve([]),
-            storage.getActionItems?.() ?? Promise.resolve([]),
             storage.getDocuments?.() ?? Promise.resolve([]),
             storage.getFacts?.() ?? Promise.resolve([]),
             storage.getQuestions?.() ?? Promise.resolve([])
@@ -499,11 +498,11 @@ class SourceOfTruthEngine {
 
         const decisions = resolve(0);
         const risks = resolve(1);
-        const actionsRaw = resolve(2).length ? resolve(2) : resolve(3);
-        const documents = resolve(4);
-        const facts = resolve(5);
-        const questions = resolve(6);
-        let i = 7;
+        const actionsRaw = resolve(2);
+        const documents = resolve(3);
+        const facts = resolve(4);
+        const questions = resolve(5);
+        let i = 6;
         const emails = storage.getEmails ? resolve(i++) : [];
         const conversations = storage.getConversations ? resolve(i++) : [];
         const chatSessions = storage.getChatSessions ? resolve(i) : [];
@@ -808,11 +807,11 @@ Generated: ${new Date().toISOString()}
             // Include data object for frontend compatibility
             data: {
                 people: people || [],
-                facts: storage.getFacts ? storage.getFacts() : [],
-                decisions: storage.getDecisions ? storage.getDecisions() : [],
-                risks: storage.getRisks ? storage.getRisks() : [],
-                actions: storage.getActionItems ? storage.getActionItems() : [],
-                questions: storage.getQuestions ? storage.getQuestions() : []
+                facts: storage.getFacts ? await storage.getFacts() : [],
+                decisions: storage.getDecisions ? await storage.getDecisions() : [],
+                risks: storage.getRisks ? await storage.getRisks() : [],
+                actions: storage.getActions ? await storage.getActions() : [],
+                questions: storage.getQuestions ? await storage.getQuestions() : []
             },
             generatedAt: new Date().toISOString()
         };

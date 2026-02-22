@@ -298,8 +298,11 @@ async function routeAndExecute(taskType, operation, payload, config) {
     // Single provider mode: no failover. The central config determines exactly one
     // provider+model pair. Routing metadata is still returned for uniform diagnostics.
     if (routing.mode !== 'failover') {
-        const textCfg = configModule.getTextConfig(config);
-        const providerId = textCfg?.provider ?? config.llm?.provider ?? null;
+        let cfgFn = configModule.getTextConfig;
+        if (operation === 'generateVision') cfgFn = configModule.getVisionConfig;
+        else if (operation === 'embed') cfgFn = configModule.getEmbeddingsConfig;
+        const taskCfg = cfgFn(config);
+        const providerId = taskCfg?.provider ?? config.llm?.provider ?? null;
         if (!providerId) {
             return {
                 success: false,
@@ -307,8 +310,8 @@ async function routeAndExecute(taskType, operation, payload, config) {
                 routing: { mode: 'single', usedProvider: null, model: null, attempts: [] }
             };
         }
-        const providerConfig = textCfg?.providerConfig ?? providers[providerId] ?? {};
-        const model = payload.model || textCfg?.model || getModelForProvider(taskType, operation, providerId, routing, defaultModels);
+        const providerConfig = taskCfg?.providerConfig ?? providers[providerId] ?? {};
+        const model = payload.model || taskCfg?.model || getModelForProvider(taskType, operation, providerId, routing, defaultModels);
         
         const result = await executeOnProvider(operation, payload, providerId, model, providerConfig, 120000);
         
@@ -432,6 +435,36 @@ async function routeAndExecute(taskType, operation, payload, config) {
 }
 
 /**
+ * Resolve the provider/model/config that would be used for a given task,
+ * without actually executing the operation. Useful for streaming callers
+ * that need the routing decision but perform execution themselves.
+ * @param {string} taskType - Task type: 'chat' | 'processing' | 'embeddings'
+ * @param {string} operation - Operation: 'generateText' | 'generateVision' | 'embed'
+ * @param {object} config - Application config
+ * @returns {{ provider: string, model: string, providerConfig: object } | null}
+ */
+function routeResolve(taskType, operation, config) {
+    const routing = config?.llm?.routing || DEFAULT_ROUTING_POLICY;
+    const providers = config?.llm?.providers || {};
+    const defaultModels = config?.llm?.models || {};
+
+    if (routing.mode !== 'failover') {
+        let cfgFn;
+        if (operation === 'generateVision') cfgFn = configModule.getVisionConfig;
+        else if (operation === 'embed') cfgFn = configModule.getEmbeddingsConfig;
+        else cfgFn = configModule.getTextConfig;
+        const resolved = cfgFn(config);
+        if (!resolved?.provider) return null;
+        return { provider: resolved.provider, model: resolved.model, providerConfig: resolved.providerConfig || {} };
+    }
+
+    const candidates = buildCandidateList(taskType, operation, routing, providers, defaultModels);
+    const first = candidates.find(c => c.eligible && c.model);
+    if (!first) return null;
+    return { provider: first.providerId, model: first.model, providerConfig: providers[first.providerId] || {} };
+}
+
+/**
  * Get routing status for diagnostics
  * @param {object} config - Application config
  * @returns {object} Routing status
@@ -459,6 +492,7 @@ function resetRoutingState() {
 
 module.exports = {
     routeAndExecute,
+    routeResolve,
     normalizeError,
     checkProviderEligibility,
     buildCandidateList,

@@ -15,7 +15,7 @@
  *
  * Key dependencies:
  *   - storage (ctx): sprint CRUD, action items, user stories, project/graph access
- *   - ../../llm + ../../llm/config: text generation for task generation, analysis, reports
+ *   - ../../llm/router: LLM routing for all AI operations (task generation, analysis, reports)
  *   - ../../supabase/prompts: managed prompt templates for sprint task generation and reports
  *   - ../../krisp.getTranscriptsForProject: meeting transcript retrieval
  *
@@ -54,8 +54,7 @@
 const { parseUrl, parseBody } = require('../../server/request');
 const { getLogger } = require('../../server/requestContext');
 const { jsonResponse } = require('../../server/response');
-const llm = require('../../llm');
-const llmConfig = require('../../llm/config');
+const llmRouter = require('../../llm/router');
 const promptsService = require('../../supabase/prompts');
 const { getTranscriptsForProject } = require('../../krisp');
 
@@ -88,6 +87,19 @@ function safeUrl(url) {
     return escapeHtml(url.trim());
 }
 
+function extractRouterText(routerResult) {
+    if (!routerResult?.success) return null;
+    const r = routerResult.result || routerResult;
+    return (r.text || r.response || '').trim() || null;
+}
+
+async function loadPromptTemplate(key, fallback) {
+    try {
+        const record = await promptsService.getPrompt(key);
+        return record?.prompt_template || fallback;
+    } catch { return fallback; }
+}
+
 async function handleSprints(ctx) {
     const { req, res, pathname, storage, config } = ctx;
     const log = getLogger().child({ module: 'sprints' });
@@ -103,7 +115,7 @@ async function handleSprints(ctx) {
     if (pathname === '/api/sprints' && req.method === 'POST') {
         try {
             const body = await parseBody(req);
-            const { name, start_date, end_date, context, analysis_start_date, analysis_end_date } = body;
+            const { name, start_date, end_date, context, analysis_start_date, analysis_end_date, goals } = body;
             if (!name || !start_date || !end_date) {
                 jsonResponse(res, { error: 'name, start_date and end_date are required' }, 400);
                 return true;
@@ -118,7 +130,8 @@ async function handleSprints(ctx) {
                 end_date,
                 context: context || null,
                 analysis_start_date: analysis_start_date || null,
-                analysis_end_date: analysis_end_date || null
+                analysis_end_date: analysis_end_date || null,
+                goals: Array.isArray(goals) ? goals : (goals ? [goals] : null)
             });
             jsonResponse(res, { sprint });
         } catch (e) {
@@ -139,12 +152,89 @@ async function handleSprints(ctx) {
         return true;
     }
 
+    // PUT /api/sprints/:id – update sprint
+    const putSprintMatch = pathname.match(/^\/api\/sprints\/([^/]+)$/);
+    if (putSprintMatch && req.method === 'PUT') {
+        try {
+            const id = putSprintMatch[1];
+            const existing = await storage.getSprint(id, projectId);
+            if (!existing) {
+                jsonResponse(res, { error: 'Sprint not found' }, 404);
+                return true;
+            }
+            const body = await parseBody(req);
+            const updates = {};
+            if (body.name !== undefined) updates.name = body.name;
+            if (body.start_date !== undefined) updates.start_date = body.start_date;
+            if (body.end_date !== undefined) updates.end_date = body.end_date;
+            if (body.context !== undefined) updates.context = body.context;
+            if (body.goals !== undefined) updates.goals = body.goals;
+            if (body.status !== undefined) updates.status = body.status;
+            if (body.analysis_start_date !== undefined) updates.analysis_start_date = body.analysis_start_date;
+            if (body.analysis_end_date !== undefined) updates.analysis_end_date = body.analysis_end_date;
+            const sprint = await storage.updateSprint(id, updates);
+            jsonResponse(res, { ok: true, sprint: sprint || { ...existing, ...updates } });
+        } catch (e) {
+            log.warn({ event: 'sprint_update_error', reason: e.message }, 'Update sprint failed');
+            jsonResponse(res, { error: e.message }, 500);
+        }
+        return true;
+    }
+
+    // DELETE /api/sprints/:id – delete sprint and unlink actions
+    const deleteSprintMatch = pathname.match(/^\/api\/sprints\/([^/]+)$/);
+    if (deleteSprintMatch && req.method === 'DELETE') {
+        try {
+            const id = deleteSprintMatch[1];
+            const existing = await storage.getSprint(id, projectId);
+            if (!existing) {
+                jsonResponse(res, { error: 'Sprint not found' }, 404);
+                return true;
+            }
+            const actions = await storage.getActions(null, null, id);
+            for (const a of (actions || [])) {
+                await storage.updateAction?.(a.id, { sprint_id: null });
+            }
+            await storage.deleteSprint(id);
+            jsonResponse(res, { ok: true });
+        } catch (e) {
+            log.warn({ event: 'sprint_delete_error', reason: e.message }, 'Delete sprint failed');
+            jsonResponse(res, { error: e.message }, 500);
+        }
+        return true;
+    }
+
+    // PATCH /api/sprints/:id/status – transition sprint status
+    const statusMatch = pathname.match(/^\/api\/sprints\/([^/]+)\/status$/);
+    if (statusMatch && req.method === 'PATCH') {
+        try {
+            const id = statusMatch[1];
+            const existing = await storage.getSprint(id, projectId);
+            if (!existing) {
+                jsonResponse(res, { error: 'Sprint not found' }, 404);
+                return true;
+            }
+            const body = await parseBody(req);
+            const validStatuses = ['planning', 'active', 'completed'];
+            if (!body.status || !validStatuses.includes(body.status)) {
+                jsonResponse(res, { error: `status must be one of: ${validStatuses.join(', ')}` }, 400);
+                return true;
+            }
+            const sprint = await storage.updateSprint(id, { status: body.status });
+            jsonResponse(res, { ok: true, sprint: sprint || { ...existing, status: body.status } });
+        } catch (e) {
+            log.warn({ event: 'sprint_status_error', reason: e.message }, 'Status transition failed');
+            jsonResponse(res, { error: e.message }, 500);
+        }
+        return true;
+    }
+
     // GET /api/sprints/:id
     const getSprintMatch = pathname.match(/^\/api\/sprints\/([^/]+)$/);
     if (getSprintMatch && req.method === 'GET') {
         try {
             const id = getSprintMatch[1];
-            const sprint = await storage.getSprint(id);
+            const sprint = await storage.getSprint(id, projectId);
             if (!sprint) {
                 jsonResponse(res, { error: 'Sprint not found' }, 404);
                 return true;
@@ -161,7 +251,7 @@ async function handleSprints(ctx) {
     if (generateMatch && req.method === 'POST') {
         try {
             const sprintId = generateMatch[1];
-            const sprint = await storage.getSprint(sprintId);
+            const sprint = await storage.getSprint(sprintId, projectId);
             if (!sprint) {
                 jsonResponse(res, { error: 'Sprint not found' }, 404);
                 return true;
@@ -200,25 +290,18 @@ async function handleSprints(ctx) {
                 EXISTING_ACTIONS: actionsBlob
             }) || (DEFAULT_SPRINT_PROMPT + `\n\nSprint: ${sprint.name} (${sprint.start_date} to ${sprint.end_date}). Context: ${sprint.context || 'None'}\n\nEmails:\n${emailBlob}\n\nTranscripts:\n${transcriptBlob}\n\nExisting actions:\n${actionsBlob}\n\nOutput JSON with new_tasks and existing_action_ids:`);
 
-            const llmCfg = llmConfig.getTextConfigForReasoning?.(config) || llmConfig.getTextConfig?.(config);
-            if (!llmCfg?.provider || !llmCfg?.model) {
-                jsonResponse(res, { error: 'No AI model configured for reasoning' }, 400);
-                return true;
-            }
-            const result = await llm.generateText({
-                provider: llmCfg.provider,
-                providerConfig: llmCfg.providerConfig,
-                model: llmCfg.model,
+            const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
+                projectId,
                 prompt,
                 temperature: 0.3,
                 maxTokens: 4096,
                 context: 'sprint-task-generation'
-            });
-            const raw = (result.text || result.response || '').trim();
-            if (!result.success) {
-                jsonResponse(res, { error: result.error || 'AI request failed' }, 400);
+            }, config);
+            if (!routerResult.success) {
+                jsonResponse(res, { error: routerResult.error?.message || 'AI request failed' }, 400);
                 return true;
             }
+            const raw = extractRouterText(routerResult) || '';
             const cleaned = raw.replace(/^```json?\s*|\s*```$/g, '').trim();
             let parsed;
             try {
@@ -248,7 +331,7 @@ async function handleSprints(ctx) {
     if (applyMatch && req.method === 'POST') {
         try {
             const sprintId = applyMatch[1];
-            const sprint = await storage.getSprint(sprintId);
+            const sprint = await storage.getSprint(sprintId, projectId);
             if (!sprint) {
                 jsonResponse(res, { error: 'Sprint not found' }, 404);
                 return true;
@@ -298,7 +381,7 @@ async function handleSprints(ctx) {
     if (reportMatch && req.method === 'GET') {
         try {
             const sprintId = reportMatch[1];
-            const sprint = await storage.getSprint(sprintId);
+            const sprint = await storage.getSprint(sprintId, projectId);
             if (!sprint) {
                 jsonResponse(res, { error: 'Sprint not found' }, 404);
                 return true;
@@ -317,6 +400,20 @@ async function handleSprints(ctx) {
                 totalPoints += pts;
                 if (a.status === 'completed') completedPoints += pts;
             });
+            let graph_context = null;
+            const graphProvider = storage.getGraphProvider?.();
+            if (graphProvider && graphProvider.connected && typeof graphProvider.getSprintReportContext === 'function') {
+                try {
+                    const gRes = await graphProvider.getSprintReportContext(sprintId);
+                    if (gRes?.ok) {
+                        graph_context = {
+                            sprint_name: gRes.sprint?.name || null,
+                            sprint_context: gRes.sprint?.context || null,
+                            assignees: gRes.assignees || [],
+                        };
+                    }
+                } catch (_) { /* graph context is optional */ }
+            }
             jsonResponse(res, {
                 sprint,
                 actions: actions || [],
@@ -325,6 +422,7 @@ async function handleSprints(ctx) {
                 completed_task_points: completedPoints,
                 total_tasks: (actions || []).length,
                 completed_tasks: (actions || []).filter(a => a.status === 'completed').length,
+                graph_context,
             });
         } catch (e) {
             log.warn({ event: 'sprint_report_error', reason: e.message }, 'Report failed');
@@ -338,7 +436,7 @@ async function handleSprints(ctx) {
     if (analyzeMatch && req.method === 'POST') {
         try {
             const sprintId = analyzeMatch[1];
-            const sprint = await storage.getSprint(sprintId);
+            const sprint = await storage.getSprint(sprintId, projectId);
             if (!sprint) {
                 jsonResponse(res, { error: 'Sprint not found' }, 404);
                 return true;
@@ -355,22 +453,19 @@ async function handleSprints(ctx) {
                 totalPoints > 0 ? `Points: ${donePoints}/${totalPoints} completed.` : '',
                 completed.length ? `Completed: ${completed.map(a => a.task || a.content).slice(0, 15).join('; ')}${completed.length > 15 ? '...' : ''}` : '',
             ].filter(Boolean).join('\n');
-            const llmCfg = llmConfig.getTextConfigForReasoning?.(config) || llmConfig.getTextConfig?.(config);
-            if (!llmCfg?.provider || !llmCfg?.model) {
-                jsonResponse(res, { analysis: summary, ai_analysis: null, error: 'No AI model configured' });
-                return true;
-            }
-            const prompt = `You are a Scrum Master. Analyze this sprint report and provide a short structured analysis (what was achieved, velocity insight, any blockers or risks, recommendations). Keep it concise.\n\n${summary}`;
-            const result = await llm.generateText({
-                provider: llmCfg.provider,
-                providerConfig: llmCfg.providerConfig,
-                model: llmCfg.model,
+            const analyzeTemplate = await loadPromptTemplate(
+                'sprint_report_analyze',
+                'You are a Scrum Master. Analyze this sprint report and provide a short structured analysis (what was achieved, velocity insight, any blockers or risks, recommendations). Keep it concise.\n\n{{SUMMARY}}'
+            );
+            const prompt = promptsService.renderPrompt(analyzeTemplate, { SUMMARY: summary });
+            const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
+                projectId,
                 prompt,
                 temperature: 0.3,
                 maxTokens: 1024,
                 context: 'sprint-report-analyze',
-            });
-            const aiAnalysis = (result.text || result.response || '').trim() || null;
+            }, config);
+            const aiAnalysis = extractRouterText(routerResult);
             jsonResponse(res, { analysis: summary, ai_analysis: aiAnalysis });
         } catch (e) {
             log.warn({ event: 'sprint_analyze_error', reason: e.message }, 'Analyze failed');
@@ -384,7 +479,7 @@ async function handleSprints(ctx) {
     if (businessMatch && req.method === 'POST') {
         try {
             const sprintId = businessMatch[1];
-            const sprint = await storage.getSprint(sprintId);
+            const sprint = await storage.getSprint(sprintId, projectId);
             if (!sprint) {
                 jsonResponse(res, { error: 'Sprint not found' }, 404);
                 return true;
@@ -398,22 +493,19 @@ async function handleSprints(ctx) {
                 `Delivery: ${completed.length}/${total} tasks completed (${completionRate}%).`,
                 completed.length ? `Key deliverables: ${completed.map(a => a.task || a.content).slice(0, 10).join('; ')}${completed.length > 10 ? '...' : ''}` : 'No completed tasks.',
             ].filter(Boolean).join('\n');
-            const llmCfg = llmConfig.getTextConfigForReasoning?.(config) || llmConfig.getTextConfig?.(config);
-            if (!llmCfg?.provider || !llmCfg?.model) {
-                jsonResponse(res, { summary, business_report: null, error: 'No AI model configured' });
-                return true;
-            }
-            const prompt = `You are an executive assistant. Write a very short business-facing sprint summary (2-4 sentences) for stakeholders: what was the sprint goal, what was delivered, and overall status. No technical jargon. Be positive and clear.\n\n${summary}`;
-            const result = await llm.generateText({
-                provider: llmCfg.provider,
-                providerConfig: llmCfg.providerConfig,
-                model: llmCfg.model,
+            const businessTemplate = await loadPromptTemplate(
+                'sprint_report_business',
+                'You are an executive assistant. Write a very short business-facing sprint summary (2-4 sentences) for stakeholders: what was the sprint goal, what was delivered, and overall status. No technical jargon. Be positive and clear.\n\n{{SUMMARY}}'
+            );
+            const prompt = promptsService.renderPrompt(businessTemplate, { SUMMARY: summary });
+            const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
+                projectId,
                 prompt,
                 temperature: 0.3,
                 maxTokens: 512,
                 context: 'sprint-report-business',
-            });
-            const businessReport = (result.text || result.response || '').trim() || null;
+            }, config);
+            const businessReport = extractRouterText(routerResult);
             jsonResponse(res, { summary, business_report: businessReport });
         } catch (e) {
             log.warn({ event: 'sprint_business_report_error', reason: e.message }, 'Business report failed');
@@ -432,7 +524,7 @@ async function handleSprints(ctx) {
      */
     async function buildReportData(sprintId, options = {}) {
         const { include_analysis = false, include_business = false } = options;
-        const sprint = await storage.getSprint(sprintId);
+        const sprint = await storage.getSprint(sprintId, projectId);
         if (!sprint) return null;
         const actions = await storage.getActions(null, null, sprintId);
         const byStatus = {};
@@ -515,32 +607,37 @@ async function handleSprints(ctx) {
 
         if (include_analysis || include_business) {
             try {
-                const llmCfg = llmConfig.getTextConfigForReasoning?.(config) || llmConfig.getTextConfig?.(config);
                 const completed = (actions || []).filter(a => a.status === 'completed');
                 const pending = (actions || []).filter(a => a.status !== 'completed' && a.status !== 'cancelled');
                 const total = (actions || []).length;
                 const tp = (actions || []).reduce((s, a) => s + (a.task_points != null ? Number(a.task_points) : 0), 0);
                 const dp = completed.reduce((s, a) => s + (a.task_points != null ? Number(a.task_points) : 0), 0);
 
-                const runAnalysis = include_analysis && llmCfg?.provider && llmCfg?.model ? llm.generateText({
-                    provider: llmCfg.provider,
-                    providerConfig: llmCfg.providerConfig,
-                    model: llmCfg.model,
-                    prompt: `You are a Scrum Master. Analyze this sprint and provide a short structured analysis (what was achieved, velocity, blockers, recommendations). Keep it concise.\n\nSprint: ${sprint.name} (${sprint.start_date} to ${sprint.end_date}). Context: ${sprint.context || 'None'}. Tasks: ${total} total, ${completed.length} completed, ${pending.length} pending.${tp > 0 ? ` Points: ${dp}/${tp} completed.` : ''}`,
-                    temperature: 0.3,
-                    maxTokens: 1024,
-                    context: 'sprint-report-analyze-inline',
-                }).then(r => (r.text || r.response || '').trim()) : Promise.resolve('');
+                const inlineSummary = [
+                    `Sprint: ${sprint.name} (${sprint.start_date} to ${sprint.end_date}). Context: ${sprint.context || 'None'}. Tasks: ${total} total, ${completed.length} completed, ${pending.length} pending.`,
+                    tp > 0 ? `Points: ${dp}/${tp} completed.` : '',
+                ].filter(Boolean).join(' ');
 
-                const runBusiness = include_business && llmCfg?.provider && llmCfg?.model ? llm.generateText({
-                    provider: llmCfg.provider,
-                    providerConfig: llmCfg.providerConfig,
-                    model: llmCfg.model,
-                    prompt: `You are an executive assistant. Write a very short business-facing sprint summary (2-4 sentences) for stakeholders. No technical jargon.\n\nSprint: ${sprint.name} (${sprint.start_date} to ${sprint.end_date}). Goals: ${sprint.context || 'N/A'}. Delivery: ${completed.length}/${total} tasks completed (${total ? Math.round((completed.length / total) * 100) : 0}%).`,
-                    temperature: 0.3,
-                    maxTokens: 512,
-                    context: 'sprint-report-business-inline',
-                }).then(r => (r.text || r.response || '').trim()) : Promise.resolve('');
+                const runAnalysis = include_analysis ? (async () => {
+                    const tpl = await loadPromptTemplate('sprint_report_analyze',
+                        'You are a Scrum Master. Analyze this sprint and provide a short structured analysis (what was achieved, velocity, blockers, recommendations). Keep it concise.\n\n{{SUMMARY}}');
+                    const p = promptsService.renderPrompt(tpl, { SUMMARY: inlineSummary });
+                    const r = await llmRouter.routeAndExecute('processing', 'generateText', {
+                        projectId, prompt: p, temperature: 0.3, maxTokens: 1024, context: 'sprint-report-analyze-inline',
+                    }, config);
+                    return extractRouterText(r) || '';
+                })() : Promise.resolve('');
+
+                const businessSummary = `Sprint: ${sprint.name} (${sprint.start_date} to ${sprint.end_date}). Goals: ${sprint.context || 'N/A'}. Delivery: ${completed.length}/${total} tasks completed (${total ? Math.round((completed.length / total) * 100) : 0}%).`;
+                const runBusiness = include_business ? (async () => {
+                    const tpl = await loadPromptTemplate('sprint_report_business',
+                        'You are an executive assistant. Write a very short business-facing sprint summary (2-4 sentences) for stakeholders. No technical jargon.\n\n{{SUMMARY}}');
+                    const p = promptsService.renderPrompt(tpl, { SUMMARY: businessSummary });
+                    const r = await llmRouter.routeAndExecute('processing', 'generateText', {
+                        projectId, prompt: p, temperature: 0.3, maxTokens: 512, context: 'sprint-report-business-inline',
+                    }, config);
+                    return extractRouterText(r) || '';
+                })() : Promise.resolve('');
 
                 const [aiAnalysis, businessReport] = await Promise.all([runAnalysis, runBusiness]);
                 if (aiAnalysis) text += '\n\n## Análise IA\n' + aiAnalysis;
@@ -573,7 +670,7 @@ async function handleSprints(ctx) {
     if (documentMatch && req.method === 'POST') {
         try {
             const sprintId = documentMatch[1];
-            const sprint = await storage.getSprint(sprintId);
+            const sprint = await storage.getSprint(sprintId, projectId);
             if (!sprint) {
                 jsonResponse(res, { error: 'Sprint not found' }, 404);
                 return true;
@@ -603,6 +700,7 @@ async function handleSprints(ctx) {
                 let html = company.a4_template_html
                     .replace(/\{\{COMPANY_NAME\}\}/g, escapeHtml(companyVars.COMPANY_NAME))
                     .replace(/\{\{COMPANY_LOGO_URL\}\}/g, safeUrl(companyVars.COMPANY_LOGO_URL))
+                    .replace(/\{\{LOGO_URL\}\}/g, safeUrl(companyVars.COMPANY_LOGO_URL))
                     .replace(/\{\{PRIMARY_COLOR\}\}/g, escapeHtml(companyVars.PRIMARY_COLOR))
                     .replace(/\{\{SECONDARY_COLOR\}\}/g, escapeHtml(companyVars.SECONDARY_COLOR))
                     .replace(/\{\{REPORT_DATA\}\}/g, reportData);
@@ -625,26 +723,18 @@ async function handleSprints(ctx) {
 
             const prompt = promptsService.renderPrompt(template, { REPORT_DATA: reportData, STYLE_VARIANT: styleVariant, ...companyVars });
 
-            const llmCfg = llmConfig.getTextConfigForReasoning?.(config) || llmConfig.getTextConfig?.(config);
-            if (!llmCfg?.provider || !llmCfg?.model) {
-                jsonResponse(res, { error: 'No AI model configured' }, 400);
-                return true;
-            }
-
-            const result = await llm.generateText({
-                provider: llmCfg.provider,
-                providerConfig: llmCfg.providerConfig,
-                model: llmCfg.model,
+            const docResult = await llmRouter.routeAndExecute('processing', 'generateText', {
+                projectId,
                 prompt,
                 temperature: 0.3,
                 maxTokens: 16384,
                 context: 'sprint-report-document',
-            });
+            }, config);
 
-            const raw = (result.text || result.response || '').trim();
+            const raw = extractRouterText(docResult) || '';
             const html = extractHtmlFromResponse(raw);
             if (!html) {
-                jsonResponse(res, { error: 'Model did not return valid HTML' }, 500);
+                jsonResponse(res, { error: docResult.error?.message || 'Model did not return valid HTML' }, 500);
                 return true;
             }
             jsonResponse(res, { html });
@@ -660,7 +750,7 @@ async function handleSprints(ctx) {
     if (presentationMatch && req.method === 'POST') {
         try {
             const sprintId = presentationMatch[1];
-            const sprint = await storage.getSprint(sprintId);
+            const sprint = await storage.getSprint(sprintId, projectId);
             if (!sprint) {
                 jsonResponse(res, { error: 'Sprint not found' }, 404);
                 return true;
@@ -689,6 +779,7 @@ async function handleSprints(ctx) {
                 let html = company.ppt_template_html
                     .replace(/\{\{COMPANY_NAME\}\}/g, escapeHtml(companyVars.COMPANY_NAME))
                     .replace(/\{\{COMPANY_LOGO_URL\}\}/g, safeUrl(companyVars.COMPANY_LOGO_URL))
+                    .replace(/\{\{LOGO_URL\}\}/g, safeUrl(companyVars.COMPANY_LOGO_URL))
                     .replace(/\{\{PRIMARY_COLOR\}\}/g, escapeHtml(companyVars.PRIMARY_COLOR))
                     .replace(/\{\{SECONDARY_COLOR\}\}/g, escapeHtml(companyVars.SECONDARY_COLOR))
                     .replace(/\{\{REPORT_DATA\}\}/g, reportData);
@@ -705,23 +796,15 @@ async function handleSprints(ctx) {
 
             const prompt = promptsService.renderPrompt(template, { REPORT_DATA: reportData, ...companyVars });
 
-            const llmCfg = llmConfig.getTextConfigForReasoning?.(config) || llmConfig.getTextConfig?.(config);
-            if (!llmCfg?.provider || !llmCfg?.model) {
-                jsonResponse(res, { error: 'No AI model configured' }, 400);
-                return true;
-            }
-
-            const result = await llm.generateText({
-                provider: llmCfg.provider,
-                providerConfig: llmCfg.providerConfig,
-                model: llmCfg.model,
+            const presResult = await llmRouter.routeAndExecute('processing', 'generateText', {
+                projectId,
                 prompt,
                 temperature: 0.3,
                 maxTokens: 16384,
                 context: 'sprint-report-presentation',
-            });
+            }, config);
 
-            const raw = (result.text || result.response || '').trim();
+            const raw = extractRouterText(presResult) || '';
             const html = extractHtmlFromResponse(raw);
             if (!html) {
                 jsonResponse(res, { error: 'Model did not return valid HTML' }, 500);
@@ -730,6 +813,414 @@ async function handleSprints(ctx) {
             jsonResponse(res, { html });
         } catch (e) {
             log.warn({ event: 'sprint_report_presentation_error', reason: e.message }, 'Presentation generation failed');
+            jsonResponse(res, { error: e.message }, 500);
+        }
+        return true;
+    }
+
+    // GET /api/sprints/:id/velocity — velocity data with daily burndown
+    const velocityMatch = pathname.match(/^\/api\/sprints\/([^/]+)\/velocity$/);
+    if (velocityMatch && req.method === 'GET') {
+        try {
+            const sprintId = velocityMatch[1];
+            const sprint = await storage.getSprint(sprintId, projectId);
+            if (!sprint) { jsonResponse(res, { error: 'Sprint not found' }, 404); return true; }
+            const actions = await storage.getActions(null, null, sprintId);
+            const startDate = new Date(sprint.start_date);
+            const endDate = new Date(sprint.end_date);
+            const totalTasks = (actions || []).length;
+            const totalPoints = (actions || []).reduce((s, a) => s + (a.task_points != null ? Number(a.task_points) : 0), 0);
+
+            const dailyProgress = [];
+            const current = new Date(startDate);
+            while (current <= endDate) {
+                const dateStr = current.toISOString().slice(0, 10);
+                const completedByDate = (actions || []).filter(a =>
+                    a.status === 'completed' && a.updated_at && new Date(a.updated_at).toISOString().slice(0, 10) <= dateStr
+                );
+                const doneT = completedByDate.length;
+                const donePts = completedByDate.reduce((s, a) => s + (a.task_points != null ? Number(a.task_points) : 0), 0);
+                dailyProgress.push({
+                    date: dateStr,
+                    completed_tasks: doneT,
+                    completed_points: donePts,
+                    remaining_tasks: totalTasks - doneT,
+                    remaining_points: totalPoints - donePts,
+                });
+                current.setDate(current.getDate() + 1);
+            }
+
+            const allSprints = await storage.getSprints(projectId);
+            const velocityHistory = [];
+            for (const sp of (allSprints || [])) {
+                if (sp.status !== 'completed' && sp.id !== sprintId) continue;
+                const spActions = await storage.getActions(null, null, sp.id);
+                const spCompleted = (spActions || []).filter(a => a.status === 'completed');
+                velocityHistory.push({
+                    sprint_id: sp.id,
+                    sprint_name: sp.name,
+                    start_date: sp.start_date,
+                    end_date: sp.end_date,
+                    total_points: (spActions || []).reduce((s, a) => s + (a.task_points != null ? Number(a.task_points) : 0), 0),
+                    completed_points: spCompleted.reduce((s, a) => s + (a.task_points != null ? Number(a.task_points) : 0), 0),
+                    total_tasks: (spActions || []).length,
+                    completed_tasks: spCompleted.length,
+                });
+            }
+
+            jsonResponse(res, {
+                sprint_id: sprintId,
+                sprint_name: sprint.name,
+                start_date: sprint.start_date,
+                end_date: sprint.end_date,
+                total_points: totalPoints,
+                completed_points: (actions || []).filter(a => a.status === 'completed').reduce((s, a) => s + (a.task_points != null ? Number(a.task_points) : 0), 0),
+                total_tasks: totalTasks,
+                completed_tasks: (actions || []).filter(a => a.status === 'completed').length,
+                daily_progress: dailyProgress,
+                velocity_history: velocityHistory,
+            });
+        } catch (e) {
+            jsonResponse(res, { error: e.message }, 500);
+        }
+        return true;
+    }
+
+    // GET /api/sprints/:id/health — health score
+    const healthMatch = pathname.match(/^\/api\/sprints\/([^/]+)\/health$/);
+    if (healthMatch && req.method === 'GET') {
+        try {
+            const sprintId = healthMatch[1];
+            const sprint = await storage.getSprint(sprintId, projectId);
+            if (!sprint) { jsonResponse(res, { error: 'Sprint not found' }, 404); return true; }
+            const actions = await storage.getActions(null, null, sprintId);
+            const total = (actions || []).length;
+            const completed = (actions || []).filter(a => a.status === 'completed').length;
+            const overdue = (actions || []).filter(a => a.status === 'overdue').length;
+            const inProgress = (actions || []).filter(a => a.status === 'in_progress').length;
+            const now = new Date();
+            const start = new Date(sprint.start_date);
+            const end = new Date(sprint.end_date);
+            const totalDays = Math.max(1, (end - start) / 86400000);
+            const elapsedDays = Math.max(0, Math.min(totalDays, (now - start) / 86400000));
+            const timeProgress = elapsedDays / totalDays;
+            const completionRate = total > 0 ? completed / total : 0;
+            const overdueRatio = total > 0 ? overdue / total : 0;
+
+            const assignees = {};
+            (actions || []).forEach(a => {
+                const owner = (a.owner || '').trim() || '(unassigned)';
+                assignees[owner] = (assignees[owner] || 0) + 1;
+            });
+            const counts = Object.values(assignees);
+            const avgPerPerson = counts.length > 0 ? counts.reduce((a, b) => a + b, 0) / counts.length : 0;
+            const distributionVariance = counts.length > 1
+                ? counts.reduce((s, c) => s + Math.pow(c - avgPerPerson, 2), 0) / counts.length
+                : 0;
+            const maxVariance = Math.pow(total, 2);
+            const distributionBalance = maxVariance > 0 ? 1 - Math.min(1, distributionVariance / maxVariance) : 1;
+
+            const expectedCompletion = timeProgress;
+            const velocityTrend = expectedCompletion > 0 ? Math.min(1.5, completionRate / expectedCompletion) : (completionRate > 0 ? 1.5 : 0.5);
+
+            const score = Math.round(
+                (completionRate * 30) +
+                (Math.min(1, velocityTrend) * 25) +
+                ((1 - overdueRatio) * 20) +
+                (distributionBalance * 15) +
+                ((total > 0 ? 1 : 0) * 10)
+            );
+            const clampedScore = Math.max(0, Math.min(100, score));
+
+            const alerts = [];
+            if (overdueRatio > 0.3) alerts.push(`${overdue} tasks are overdue (${Math.round(overdueRatio * 100)}%)`);
+            if (timeProgress > 0.7 && completionRate < 0.3) alerts.push('Sprint is 70%+ through timeline but less than 30% complete');
+            if (timeProgress > 0.9 && completionRate < 0.5) alerts.push('Sprint ending soon with less than 50% completion');
+            if (counts.length > 1 && distributionBalance < 0.5) alerts.push('Task distribution is uneven across team members');
+            if (inProgress === 0 && completed < total && sprint.status === 'active') alerts.push('No tasks currently in progress');
+
+            const riskLevel = clampedScore >= 75 ? 'low' : clampedScore >= 50 ? 'medium' : clampedScore >= 25 ? 'high' : 'critical';
+
+            jsonResponse(res, {
+                score: clampedScore,
+                factors: {
+                    completion_rate: Math.round(completionRate * 100),
+                    time_progress: Math.round(timeProgress * 100),
+                    velocity_trend: Math.round(Math.min(1, velocityTrend) * 100),
+                    overdue_ratio: Math.round(overdueRatio * 100),
+                    distribution_balance: Math.round(distributionBalance * 100),
+                },
+                risk_level: riskLevel,
+                alerts,
+            });
+        } catch (e) {
+            jsonResponse(res, { error: e.message }, 500);
+        }
+        return true;
+    }
+
+    // GET /api/sprints/:id/retrospective — load saved retrospective
+    const retroGetMatch = pathname.match(/^\/api\/sprints\/([^/]+)\/retrospective$/);
+    if (retroGetMatch && req.method === 'GET') {
+        try {
+            const sprintId = retroGetMatch[1];
+            const retro = await storage.getRetrospective(sprintId);
+            jsonResponse(res, retro || { sprint_id: sprintId, went_well: [], went_wrong: [], action_items: [], ai_suggestions: null });
+        } catch (e) {
+            jsonResponse(res, { error: e.message }, 500);
+        }
+        return true;
+    }
+
+    // POST /api/sprints/:id/retrospective — AI-generated retrospective
+    const retroMatch = pathname.match(/^\/api\/sprints\/([^/]+)\/retrospective$/);
+    if (retroMatch && req.method === 'POST') {
+        try {
+            const sprintId = retroMatch[1];
+            const sprint = await storage.getSprint(sprintId, projectId);
+            if (!sprint) { jsonResponse(res, { error: 'Sprint not found' }, 404); return true; }
+            const actions = await storage.getActions(null, null, sprintId);
+            const completed = (actions || []).filter(a => a.status === 'completed');
+            const overdue = (actions || []).filter(a => a.status === 'overdue');
+            const pending = (actions || []).filter(a => a.status === 'pending');
+            const total = (actions || []).length;
+
+            const body = await parseBody(req).catch(() => ({}));
+            const wentWell = Array.isArray(body.went_well) ? body.went_well : [];
+            const wentWrong = Array.isArray(body.went_wrong) ? body.went_wrong : [];
+            const actionItemsInput = Array.isArray(body.action_items) ? body.action_items : [];
+
+            const sprintSummary = [
+                `Sprint: ${sprint.name} (${sprint.start_date} to ${sprint.end_date}). Context: ${sprint.context || 'N/A'}.`,
+                `Results: ${completed.length}/${total} completed, ${overdue.length} overdue, ${pending.length} pending.`,
+                completed.length ? `Completed: ${completed.map(a => a.task || a.content).slice(0, 10).join('; ')}` : '',
+                overdue.length ? `Overdue: ${overdue.map(a => a.task || a.content).slice(0, 5).join('; ')}` : '',
+                wentWell.length ? `Team says went well: ${wentWell.join('; ')}` : '',
+                wentWrong.length ? `Team says needs improvement: ${wentWrong.join('; ')}` : '',
+            ].filter(Boolean).join('\n');
+
+            let aiSuggestions = null;
+            const retroTemplate = await loadPromptTemplate(
+                'sprint_retrospective',
+                'You are a Scrum Master facilitating a sprint retrospective. Based on the sprint data and team feedback, provide:\n1. Key insights about what went well (2-3 points)\n2. Root causes for what didn\'t go well (2-3 points)\n3. Specific, actionable improvement suggestions for the next sprint (3-5 points)\nKeep it concise and practical.\n\n{{SPRINT_SUMMARY}}'
+            );
+            const retroPrompt = promptsService.renderPrompt(retroTemplate, { SPRINT_SUMMARY: sprintSummary });
+            const retroResult = await llmRouter.routeAndExecute('processing', 'generateText', {
+                projectId, prompt: retroPrompt, temperature: 0.3, maxTokens: 1024, context: 'sprint-retrospective',
+            }, config);
+            aiSuggestions = extractRouterText(retroResult);
+
+            const saved = await storage.saveRetrospective(sprintId, {
+                went_well: wentWell,
+                went_wrong: wentWrong,
+                action_items: actionItemsInput,
+                ai_suggestions: aiSuggestions,
+            });
+
+            jsonResponse(res, saved);
+        } catch (e) {
+            jsonResponse(res, { error: e.message }, 500);
+        }
+        return true;
+    }
+
+    // POST /api/sprints/:id/clone — clone sprint (structure + optionally tasks)
+    const cloneMatch = pathname.match(/^\/api\/sprints\/([^/]+)\/clone$/);
+    if (cloneMatch && req.method === 'POST') {
+        try {
+            const sourceId = cloneMatch[1];
+            const source = await storage.getSprint(sourceId, projectId);
+            if (!source) { jsonResponse(res, { error: 'Sprint not found' }, 404); return true; }
+            const body = await parseBody(req).catch(() => ({}));
+            const name = body.name || `${source.name} (Copy)`;
+            const offsetDays = body.offset_days || 14;
+            const cloneTasks = body.clone_tasks !== false;
+            const sStart = new Date(source.start_date);
+            const sEnd = new Date(source.end_date);
+            const duration = (sEnd - sStart) / 86400000;
+            const newStart = new Date(sEnd.getTime() + offsetDays * 86400000);
+            const newEnd = new Date(newStart.getTime() + duration * 86400000);
+
+            const newSprint = await storage.createSprint(projectId, {
+                name,
+                start_date: newStart.toISOString().slice(0, 10),
+                end_date: newEnd.toISOString().slice(0, 10),
+                context: body.context || source.context || null,
+                analysis_start_date: null,
+                analysis_end_date: null,
+            });
+
+            let tasksCloned = 0;
+            if (cloneTasks && newSprint?.id) {
+                const sourceActions = await storage.getActions(null, null, sourceId);
+                for (const a of (sourceActions || [])) {
+                    await storage.addActionItem?.({
+                        task: a.task || a.content,
+                        description: a.description ?? null,
+                        size_estimate: a.size_estimate ?? null,
+                        definition_of_done: a.definition_of_done || [],
+                        acceptance_criteria: a.acceptance_criteria || [],
+                        priority: a.priority || 'medium',
+                        status: 'pending',
+                        deadline: newEnd.toISOString().slice(0, 10),
+                        task_points: a.task_points ?? null,
+                        generation_source: 'sprint_cloned',
+                        source_type: 'manual',
+                        sprint_id: newSprint.id,
+                    });
+                    tasksCloned++;
+                }
+            }
+
+            jsonResponse(res, { ok: true, sprint: newSprint, tasks_cloned: tasksCloned });
+        } catch (e) {
+            jsonResponse(res, { error: e.message }, 500);
+        }
+        return true;
+    }
+
+    // POST /api/sprints/:id/standup — AI daily standup summary
+    const standupMatch = pathname.match(/^\/api\/sprints\/([^/]+)\/standup$/);
+    if (standupMatch && req.method === 'POST') {
+        try {
+            const sprintId = standupMatch[1];
+            const sprint = await storage.getSprint(sprintId, projectId);
+            if (!sprint) { jsonResponse(res, { error: 'Sprint not found' }, 404); return true; }
+            const actions = await storage.getActions(null, null, sprintId);
+            const today = new Date().toISOString().slice(0, 10);
+            const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+
+            const byOwner = {};
+            (actions || []).forEach(a => {
+                const owner = (a.owner || '').trim() || '(unassigned)';
+                if (!byOwner[owner]) byOwner[owner] = { done: [], doing: [], blockers: [] };
+                if (a.status === 'completed' && a.updated_at && a.updated_at.slice(0, 10) >= yesterday) {
+                    byOwner[owner].done.push(a.task || a.content);
+                }
+                if (a.status === 'in_progress') {
+                    byOwner[owner].doing.push(a.task || a.content);
+                }
+                if (a.status === 'overdue') {
+                    byOwner[owner].blockers.push(a.task || a.content);
+                }
+            });
+
+            const entries = Object.entries(byOwner).map(([person, data]) => ({ person, ...data }));
+            const completed = (actions || []).filter(a => a.status === 'completed');
+            const total = (actions || []).length;
+            const pct = total > 0 ? Math.round((completed.length / total) * 100) : 0;
+
+            const standupBlob = entries.map(e =>
+                `${e.person}:\n  Done: ${e.done.join(', ') || 'None'}\n  Doing: ${e.doing.join(', ') || 'None'}\n  Blockers: ${e.blockers.join(', ') || 'None'}`
+            ).join('\n');
+            const standupTemplate = await loadPromptTemplate(
+                'sprint_standup',
+                'Daily standup summary for sprint "{{SPRINT_NAME}}" ({{PCT}}% complete, {{COMPLETED}}/{{TOTAL}} tasks done).\n\n{{STANDUP_BLOB}}\n\nProvide a brief 2-3 sentence summary of team progress, highlight any blockers, and suggest focus areas for today. Be concise.'
+            );
+            const standupPrompt = promptsService.renderPrompt(standupTemplate, {
+                SPRINT_NAME: sprint.name, PCT: String(pct), COMPLETED: String(completed.length), TOTAL: String(total), STANDUP_BLOB: standupBlob,
+            });
+            const standupResult = await llmRouter.routeAndExecute('processing', 'generateText', {
+                projectId, prompt: standupPrompt, temperature: 0.3, maxTokens: 512, context: 'sprint-standup',
+            }, config);
+            const aiSummary = extractRouterText(standupResult);
+
+            jsonResponse(res, { sprint_id: sprintId, date: today, entries, ai_summary: aiSummary });
+        } catch (e) {
+            jsonResponse(res, { error: e.message }, 500);
+        }
+        return true;
+    }
+
+    // POST /api/sprints/:id/estimate-points — AI story point estimation
+    const estimateMatch = pathname.match(/^\/api\/sprints\/([^/]+)\/estimate-points$/);
+    if (estimateMatch && req.method === 'POST') {
+        try {
+            const sprintId = estimateMatch[1];
+            const sprint = await storage.getSprint(sprintId, projectId);
+            if (!sprint) { jsonResponse(res, { error: 'Sprint not found' }, 404); return true; }
+            const body = await parseBody(req);
+            const taskDescription = body.task || body.description || '';
+            if (!taskDescription) { jsonResponse(res, { error: 'task or description required' }, 400); return true; }
+
+            const actions = await storage.getActions(null, null, sprintId);
+            const historicalRef = (actions || []).filter(a => a.task_points != null).slice(0, 10)
+                .map(a => `"${(a.task || '').slice(0, 80)}" = ${a.task_points} pts`).join('\n');
+
+            const estimateTemplate = await loadPromptTemplate(
+                'sprint_estimate_points',
+                'Estimate story points (Fibonacci: 1, 2, 3, 5, 8, 13, 21) for this task:\n\nTask: "{{TASK_DESCRIPTION}}"\n\n{{HISTORICAL_REF}}Output a JSON object with: { "points": <number>, "confidence": "high"|"medium"|"low", "reasoning": "<brief explanation>" }. Output only valid JSON.'
+            );
+            const estimatePrompt = promptsService.renderPrompt(estimateTemplate, {
+                TASK_DESCRIPTION: taskDescription,
+                HISTORICAL_REF: historicalRef ? `Historical reference from this sprint:\n${historicalRef}\n\n` : '',
+            });
+            const estimateResult = await llmRouter.routeAndExecute('processing', 'generateText', {
+                projectId, prompt: estimatePrompt, temperature: 0.2, maxTokens: 256, context: 'sprint-estimate-points',
+            }, config);
+            const raw = extractRouterText(estimateResult) || '';
+            const cleaned = raw.replace(/^```json?\s*|\s*```$/g, '').trim();
+            let parsed;
+            try { parsed = JSON.parse(cleaned); } catch (_) { parsed = { points: 3, confidence: 'low', reasoning: 'Could not parse AI response' }; }
+            jsonResponse(res, parsed);
+        } catch (e) {
+            jsonResponse(res, { error: e.message }, 500);
+        }
+        return true;
+    }
+
+    // POST /api/sprints/:id/capacity — capacity planning analysis
+    const capacityMatch = pathname.match(/^\/api\/sprints\/([^/]+)\/capacity$/);
+    if (capacityMatch && req.method === 'POST') {
+        try {
+            const sprintId = capacityMatch[1];
+            const sprint = await storage.getSprint(sprintId, projectId);
+            if (!sprint) { jsonResponse(res, { error: 'Sprint not found' }, 404); return true; }
+            const body = await parseBody(req).catch(() => ({}));
+            const capacities = body.capacities || {};
+            const actions = await storage.getActions(null, null, sprintId);
+
+            const byOwner = {};
+            (actions || []).forEach(a => {
+                const owner = (a.owner || '').trim() || '(unassigned)';
+                if (!byOwner[owner]) byOwner[owner] = { assigned_points: 0, tasks: 0 };
+                byOwner[owner].assigned_points += (a.task_points != null ? Number(a.task_points) : 0);
+                byOwner[owner].tasks++;
+            });
+
+            const people = [...new Set([...Object.keys(byOwner), ...Object.keys(capacities)])];
+            const result = people.map(person => {
+                const available = capacities[person] || 0;
+                const assigned = byOwner[person]?.assigned_points || 0;
+                return {
+                    person,
+                    available_points: available,
+                    assigned_points: assigned,
+                    tasks: byOwner[person]?.tasks || 0,
+                    utilization: available > 0 ? Math.round((assigned / available) * 100) : (assigned > 0 ? 999 : 0),
+                    over_allocated: available > 0 && assigned > available,
+                };
+            });
+
+            let aiRecommendation = null;
+            if (Object.keys(capacities).length > 0) {
+                const blob = result.map(r => `${r.person}: ${r.assigned_points}/${r.available_points} pts (${r.utilization}%)${r.over_allocated ? ' OVER-ALLOCATED' : ''}`).join('\n');
+                const unassigned = (actions || []).filter(a => !(a.owner || '').trim());
+                const capTemplate = await loadPromptTemplate(
+                    'sprint_capacity',
+                    'Sprint capacity analysis for "{{SPRINT_NAME}}":\n{{CAPACITY_BLOB}}\nUnassigned tasks: {{UNASSIGNED_COUNT}}\n\nSuggest task redistribution to balance the workload. Be specific about which tasks to move between people. Keep it to 3-5 actionable suggestions.'
+                );
+                const capPrompt = promptsService.renderPrompt(capTemplate, {
+                    SPRINT_NAME: sprint.name, CAPACITY_BLOB: blob, UNASSIGNED_COUNT: String(unassigned.length),
+                });
+                const capResult = await llmRouter.routeAndExecute('processing', 'generateText', {
+                    projectId, prompt: capPrompt, temperature: 0.3, maxTokens: 512, context: 'sprint-capacity',
+                }, config);
+                aiRecommendation = extractRouterText(capResult);
+            }
+
+            jsonResponse(res, { capacity: result, ai_recommendation: aiRecommendation });
+        } catch (e) {
             jsonResponse(res, { error: e.message }, 500);
         }
         return true;

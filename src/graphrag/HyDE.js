@@ -37,13 +37,15 @@
  */
 
 const { logger } = require('../logger');
-const llm = require('../llm');
+const llmRouter = require('../llm/router');
 
 const log = logger.child({ module: 'hyde' });
 
 class HyDE {
     constructor(options = {}) {
-        // No hardcoded defaults - must come from admin config
+        this.config = options.config || null;
+
+        // Legacy fields kept for minimal-config fallback
         this.llmProvider = options.llmProvider || null;
         this.llmModel = options.llmModel || null;
         this.llmConfig = options.llmConfig || {};
@@ -51,10 +53,12 @@ class HyDE {
         this.embeddingProvider = options.embeddingProvider || null;
         this.embeddingModel = options.embeddingModel || null;
         
-        if (!this.llmProvider) {
+        if (!this.llmProvider && !this.config) {
             log.warn({ event: 'hyde_no_llm' }, 'No LLM provider specified');
         }
         
+        this._resolvedConfig = this.config || { llm: this.llmConfig || { provider: this.llmProvider, models: { text: this.llmModel }, providers: { [this.llmProvider]: {} } } };
+
         // Cache hypothetical documents
         this.cache = new Map();
         this.cacheMaxSize = options.cacheMaxSize || 200;
@@ -94,17 +98,15 @@ class HyDE {
         const hypotheticalDocs = [];
         
         for (let i = 0; i < numDocs; i++) {
-            const result = await llm.generateText({
-                provider: this.llmProvider,
-                model: this.llmModel,
+            const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
                 prompt,
-                temperature: 0.7 + (i * 0.1), // Vary temperature for diversity
-                maxTokens: 500,
-                providerConfig: this.llmConfig
-            });
+                temperature: 0.7 + (i * 0.1),
+                maxTokens: 500
+            }, this._resolvedConfig);
             
-            if (result.success && result.text) {
-                hypotheticalDocs.push(result.text.trim());
+            const text = routerResult.result?.text || routerResult.result?.response;
+            if (routerResult.success && text) {
+                hypotheticalDocs.push(text.trim());
             }
         }
         
@@ -140,20 +142,19 @@ class HyDE {
         ];
         
         // Generate embeddings
-        const embedResult = await llm.embed({
-            provider: this.embeddingProvider,
-            model: this.embeddingModel,
-            texts: textsToEmbed,
-            providerConfig: this.llmConfig
-        });
+        const routerEmbedResult = await llmRouter.routeAndExecute('embeddings', 'embed', {
+            texts: textsToEmbed
+        }, this._resolvedConfig);
         
-        if (!embedResult.success || !embedResult.embeddings?.length) {
-            log.warn({ event: 'hyde_embed_failed', reason: embedResult.error }, 'Embedding generation failed');
-            return { embedding: null, hypotheticalDocs, error: embedResult.error };
+        const embeddings = routerEmbedResult.result?.embeddings;
+        if (!routerEmbedResult.success || !embeddings?.length) {
+            const errMsg = routerEmbedResult.error?.message || routerEmbedResult.error;
+            log.warn({ event: 'hyde_embed_failed', reason: errMsg }, 'Embedding generation failed');
+            return { embedding: null, hypotheticalDocs, error: errMsg };
         }
         
         // Average the embeddings (query + hypothetical docs)
-        const embedding = this.averageEmbeddings(embedResult.embeddings);
+        const embedding = this.averageEmbeddings(embeddings);
         
         const latency = Date.now() - startTime;
         log.debug({ event: 'hyde_embed_done', latencyMs: latency, count: hypotheticalDocs.length }, 'Generated embedding');
@@ -161,7 +162,7 @@ class HyDE {
         return {
             embedding,
             hypotheticalDocs,
-            originalQueryEmbedding: embedResult.embeddings[0],
+            originalQueryEmbedding: embeddings[0],
             latencyMs: latency
         };
     }
@@ -208,20 +209,18 @@ Original question: ${query}
 
 Variations (one per line, no numbering):`;
 
-        const result = await llm.generateText({
-            provider: this.llmProvider,
-            model: this.llmModel,
+        const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
             prompt: expansionPrompt,
             temperature: 0.8,
-            maxTokens: 300,
-            providerConfig: this.llmConfig
-        });
+            maxTokens: 300
+        }, this._resolvedConfig);
         
-        if (!result.success) {
+        if (!routerResult.success) {
             return { queries: [query], embeddings: [] };
         }
         
-        const variations = result.text
+        const resultText = routerResult.result?.text || routerResult.result?.response;
+        const variations = (resultText || '')
             .split('\n')
             .map(line => line.trim())
             .filter(line => line.length > 10)
@@ -230,16 +229,13 @@ Variations (one per line, no numbering):`;
         const allQueries = [query, ...variations];
         
         // Generate embeddings for all variations
-        const embedResult = await llm.embed({
-            provider: this.embeddingProvider,
-            model: this.embeddingModel,
-            texts: allQueries,
-            providerConfig: this.llmConfig
-        });
+        const routerEmbedResult = await llmRouter.routeAndExecute('embeddings', 'embed', {
+            texts: allQueries
+        }, this._resolvedConfig);
         
         return {
             queries: allQueries,
-            embeddings: embedResult.embeddings || []
+            embeddings: routerEmbedResult.result?.embeddings || []
         };
     }
 
@@ -264,17 +260,14 @@ Variations (one per line, no numbering):`;
         const textsToEmbed = [query, ...hypotheticalDocs];
         
         // Generate embeddings
-        const embedResult = await llm.embed({
-            provider: this.embeddingProvider,
-            model: this.embeddingModel,
-            texts: textsToEmbed,
-            providerConfig: this.llmConfig
-        });
+        const routerEmbedResult = await llmRouter.routeAndExecute('embeddings', 'embed', {
+            texts: textsToEmbed
+        }, this._resolvedConfig);
         
-        if (!embedResult.success) {
-            // Fallback to just query
+        if (!routerEmbedResult.success || !routerEmbedResult.result?.embeddings?.length) {
             return await retrieveFn(null);
         }
+        const embedResult = { success: true, embeddings: routerEmbedResult.result.embeddings };
         
         // Retrieve with each embedding
         const allResults = [];

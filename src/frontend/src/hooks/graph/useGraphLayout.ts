@@ -45,15 +45,14 @@ export function useGraphLayout(nodes: GraphNode[], edges: GraphEdge[], options: 
         const tier1 = nodes.filter(n => (n.data.tier ?? 2) === 1);
         const tier2 = nodes.filter(n => (n.data.tier ?? 2) === 2);
 
-        // Dynamic Radius Calculation
-        // Tier 1 (People/Teams) - Item width approx 80px (w-16 + gap)
-        const t1CircumferenceNeeded = Math.max(tier1.length * 100, 1000);
+        // Dynamic Radius Calculation – sized for card-based nodes (200-280 px wide)
+        const T1_ITEM_ARC = 260;
+        const T2_ITEM_ARC = 260;
+        const t1CircumferenceNeeded = Math.max(tier1.length * T1_ITEM_ARC, 1600);
         const t1Radius = Math.max(options.tier1Radius, t1CircumferenceNeeded / (2 * Math.PI));
 
-        // Tier 2 (Docs/Actions) - Item width approx 40px (small dot + gap)
-        // Ensure Tier 2 is at least 200px outside Tier 1
-        const t2CircumferenceNeeded = Math.max(tier2.length * 50, 2000);
-        const t2Radius = Math.max(options.tier2Radius, t1Radius + 250, t2CircumferenceNeeded / (2 * Math.PI));
+        const t2CircumferenceNeeded = Math.max(tier2.length * T2_ITEM_ARC, 3200);
+        const t2Radius = Math.max(options.tier2Radius, t1Radius + 400, t2CircumferenceNeeded / (2 * Math.PI));
 
         // 1. Position Tier 0 (Center)
         const centerNode = tier0[0];

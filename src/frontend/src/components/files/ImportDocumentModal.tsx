@@ -1,67 +1,47 @@
-/**
- * Purpose:
- *   Modal dialog for importing documents via paste or file upload, with
- *   optional sprint/task association.
- *
- * Responsibilities:
- *   - Tab-based UI with paste and upload modes
- *   - Paste tab: title input and freeform textarea for document content
- *   - Upload tab: file input accepting .pdf, .docx, .txt, .pptx, .xlsx,
- *     .csv
- *   - SprintTaskAssociation selector for linking the document to a
- *     sprint/task
- *   - Resets form state on close or submission
- *
- * Key dependencies:
- *   - Dialog (shadcn/ui): modal container
- *   - SprintTaskAssociation: sprint/task selector sub-component
- *
- * Side effects:
- *   - None (delegates import action to parent via onImport)
- *
- * Notes:
- *   - The onImport payload uses `content || fileName` for the content
- *     field, which sends the filename as content when pasting is empty
- *     but a file was previously uploaded. This may be unintentional.
- */
 import { useState } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { FileText } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { FileText, Loader2 } from 'lucide-react';
 import SprintTaskAssociation from './SprintTaskAssociation';
 
 interface Props {
   open: boolean;
   onClose: () => void;
-  onImport: (data: any) => void;
+  onImport: (data: { content: string; title: string; sprintId: string; taskId: string; file?: File | null }) => void;
+  loading?: boolean;
 }
 
-const ImportDocumentModal = ({ open, onClose, onImport }: Props) => {
+const ImportDocumentModal = ({ open, onClose, onImport, loading }: Props) => {
   const [tab, setTab] = useState<'paste' | 'upload'>('paste');
   const [content, setContent] = useState('');
   const [title, setTitle] = useState('');
   const [sprintId, setSprintId] = useState('none');
   const [taskId, setTaskId] = useState('none');
   const [fileName, setFileName] = useState('');
-
   const [file, setFile] = useState<File | null>(null);
 
   const reset = () => { setContent(''); setTitle(''); setSprintId('none'); setTaskId('none'); setFileName(''); setTab('paste'); setFile(null); };
   const handleClose = () => { reset(); onClose(); };
 
+  const canSubmit = tab === 'paste' ? content.trim().length > 0 : !!file;
+
   const handleSubmit = () => {
-    onImport({ content: content || fileName, title, sprintId, taskId, file });
+    if (!canSubmit) return;
+    onImport({ content, title, sprintId, taskId, file });
     reset();
     onClose();
   };
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
-      <DialogContent className="max-w-md p-0 gap-0">
-        <DialogHeader className="p-5 pb-0">
+      <DialogContent className="max-w-md p-0 gap-0 max-h-[90vh] overflow-hidden flex flex-col">
+        <DialogHeader className="p-5 pb-0 shrink-0">
           <DialogTitle className="text-lg text-white">Import Document</DialogTitle>
+          <DialogDescription className="text-sm text-gray-400">
+            Import a document by pasting text or uploading a file.
+          </DialogDescription>
         </DialogHeader>
 
-        <div className="flex gap-4 px-5 pt-3 border-b border-white/10">
+        <div className="flex gap-4 px-5 pt-3 border-b border-white/10 shrink-0">
           <button onClick={() => setTab('paste')} className={`pb-2 text-sm font-medium border-b-2 transition-colors ${tab === 'paste' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
             Paste Text
           </button>
@@ -70,7 +50,7 @@ const ImportDocumentModal = ({ open, onClose, onImport }: Props) => {
           </button>
         </div>
 
-        <div className="p-5 space-y-4">
+        <div className="p-5 space-y-4 overflow-y-auto flex-1">
           {tab === 'paste' ? (
             <>
               <div>
@@ -93,7 +73,7 @@ const ImportDocumentModal = ({ open, onClose, onImport }: Props) => {
               <FileText className="w-10 h-10 mx-auto mb-3 text-gray-500" />
               <label className="cursor-pointer">
                 <p className="text-sm font-medium text-blue-400">Drop document file here</p>
-                <p className="text-xs text-gray-400 mt-1">or click to browse • .pdf, .docx, .txt, .pptx, .xlsx, .csv</p>
+                <p className="text-xs text-gray-400 mt-1">or click to browse &bull; .pdf, .docx, .txt, .pptx, .xlsx, .csv</p>
                 <input type="file" className="hidden" accept=".pdf,.docx,.txt,.pptx,.xlsx,.csv" onChange={(e) => {
                   if (e.target.files?.[0]) {
                     setFileName(e.target.files[0].name);
@@ -111,8 +91,13 @@ const ImportDocumentModal = ({ open, onClose, onImport }: Props) => {
             <button onClick={handleClose} className="flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors text-gray-300 hover:text-white" style={{ backgroundColor: 'var(--gm-surface-secondary, #252540)' }}>
               Cancel
             </button>
-            <button onClick={handleSubmit} className="flex-1 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors">
-              Import
+            <button
+              onClick={handleSubmit}
+              disabled={!canSubmit || loading}
+              className="flex-1 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+              {loading ? 'Importing...' : 'Import'}
             </button>
           </div>
         </div>

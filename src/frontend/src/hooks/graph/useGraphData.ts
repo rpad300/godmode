@@ -67,7 +67,6 @@ export function useGraphData() {
         // 2. Filter Nodes
         const filteredNodes = nodesToProcess.filter(node => {
             // Type toggle
-            // Type toggle
             if (filters.toggles[node.label] === false) return false;
 
             // Tier
@@ -87,12 +86,8 @@ export function useGraphData() {
         // 3. Filter Edges (keep edges only if both source/target exist in filtered nodes)
         const nodeIds = new Set(filteredNodes.map(n => n.id));
         const filteredEdges = transformedEdges.filter(edge => {
-            // Connectivity check
             if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) return false;
-
-            // Semantic check
-            if (!filters.showSemantic && edge.label === 'SIMILAR_TO') return false;
-
+            if (!filters.showSemantic && (edge.data?.originalLabel === 'SIMILAR_TO' || edge.label === 'SIMILAR_TO')) return false;
             return true;
         });
 

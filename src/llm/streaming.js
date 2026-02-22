@@ -31,6 +31,7 @@
  */
 
 const llm = require('./index');
+const llmRouter = require('./router');
 const { logger: rootLogger } = require('../logger');
 const log = rootLogger.child({ module: 'llm-streaming' });
 
@@ -44,10 +45,11 @@ const log = rootLogger.child({ module: 'llm-streaming' });
  * @param {number} [options.temperature=0.7] - Temperature
  * @param {number} [options.maxTokens=4096] - Max tokens
  * @param {object} [options.providerConfig] - Provider-specific config
+ * @param {string} [options.taskType='processing'] - Router task type (chat, processing, embeddings)
  * @yields {object} { type: 'chunk'|'done'|'error', content?: string, usage?: object, error?: string }
  */
 async function* generateTextStream(options) {
-    const { provider, model, prompt, system, temperature = 0.7, maxTokens = 4096, providerConfig = {} } = options;
+    const { provider, model, prompt, system, temperature = 0.7, maxTokens = 4096, providerConfig = {}, config, taskType = 'processing' } = options;
     
     const startTime = Date.now();
     let fullText = '';
@@ -78,28 +80,25 @@ async function* generateTextStream(options) {
             }
         } else {
             // Fallback: provider does not implement generateTextStream.
-            // Fetch the full response synchronously, then drip-feed it in small chunks
-            // to give the client a streaming-like experience. The request goes through
-            // the queue at 'high' priority since streaming implies an interactive user.
-            const result = await llm.generateText({
-                provider,
-                providerConfig,
-                model,
+            // Fetch the full response synchronously via the router, then drip-feed
+            // in small chunks to give the client a streaming-like experience.
+            const routerResult = await llmRouter.routeAndExecute(taskType, 'generateText', {
                 prompt,
                 system,
                 temperature,
                 maxTokens,
                 context: 'streaming',
-                priority: 'high' // Streaming is usually interactive
-            });
+                priority: 'high'
+            }, config || { llm: { provider, providers: { [provider]: providerConfig }, models: { text: model } } });
             
-            if (!result.success) {
-                yield { type: 'error', error: result.error };
+            const fallbackResult = routerResult.result || routerResult;
+            if (!routerResult.success) {
+                yield { type: 'error', error: routerResult.error?.message || fallbackResult.error };
                 return;
             }
             
             // Chunk the response for simulated streaming
-            const text = result.text || '';
+            const text = fallbackResult.text || '';
             const chunkSize = 20; // Characters per chunk
             
             for (let i = 0; i < text.length; i += chunkSize) {
@@ -192,7 +191,7 @@ function createSSEWriter(res) {
  * @param {string} query - User query
  * @param {object} options - Query options
  */
-async function streamGraphRAGQuery(res, engine, query, options = {}) {
+async function streamGraphRAGQuery(res, engine, query, options = {}, config = null) {
     const writer = createSSEWriter(res);
     const startTime = Date.now();
     
@@ -212,14 +211,29 @@ async function streamGraphRAGQuery(res, engine, query, options = {}) {
         // Build context from search results
         const context = searchResults.map(r => r.content || JSON.stringify(r.data)).join('\n\n');
         
+        // Resolve provider/model via router if config available, otherwise use engine defaults
+        let streamProvider = engine.llmProvider;
+        let streamModel = engine.llmModel;
+        let streamProviderConfig = engine.llmConfig;
+        if (config) {
+            const resolved = llmRouter.routeResolve('processing', 'generateText', config);
+            if (resolved) {
+                streamProvider = resolved.provider;
+                streamModel = resolved.model;
+                streamProviderConfig = resolved.providerConfig;
+            }
+        }
+
         // Stream the LLM response
         const streamGen = generateTextStream({
-            provider: engine.llmProvider,
-            model: engine.llmModel,
+            provider: streamProvider,
+            model: streamModel,
             prompt: `Based on the following context, answer the question.\n\nContext:\n${context}\n\nQuestion: ${query}`,
             system: 'You are a helpful assistant that answers questions based on the provided context. Be concise and accurate.',
             temperature: 0.3,
-            providerConfig: engine.llmConfig
+            providerConfig: streamProviderConfig,
+            config,
+            taskType: 'chat'
         });
         
         for await (const chunk of streamGen) {

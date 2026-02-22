@@ -974,8 +974,37 @@ function RelationshipsTab({ data, isLoading, profiles, resolveName }: {
 }
 
 /* ═══════════════════════════════════════════════════════
-   Network Graph Tab - Enhanced with legend, info panel, edge styles
+   Network Graph Tab - Force-directed with drag, hover, HiDPI
    ═══════════════════════════════════════════════════════ */
+const GRAPH_EDGE_STYLES: Record<string, { color: string; dash: boolean; label: string }> = {
+  influences: { color: '#3b82f6', dash: false, label: 'influences' },
+  aligned_with: { color: '#22c55e', dash: false, label: 'allied' },
+  tension_with: { color: '#ef4444', dash: true, label: 'tension' },
+  defers_to: { color: '#8b5cf6', dash: false, label: 'defers to' },
+  competes_with: { color: '#f59e0b', dash: true, label: 'competes' },
+  mentors: { color: '#06b6d4', dash: false, label: 'mentors' },
+  supports: { color: '#10b981', dash: false, label: 'supports' },
+};
+
+function canvasRoundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+function graphNodeRadius(node: Record<string, unknown>) {
+  const props = (node.properties ?? {}) as Record<string, unknown>;
+  return 22 + (Number(props.influenceScore ?? node.influence_score ?? node.size ?? 50) / 12);
+}
+
 function NetworkGraphTab({ data, isLoading, profiles, resolveName }: {
   data: unknown;
   isLoading: boolean;
@@ -983,10 +1012,11 @@ function NetworkGraphTab({ data, isLoading, profiles, resolveName }: {
   resolveName: (n: string) => PersonInfo;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [selectedNode, setSelectedNode] = useState<Record<string, unknown> | null>(null);
   const graphData = data as { nodes?: Array<Record<string, unknown>>; edges?: Array<Record<string, unknown>> } | null;
-  const nodes = graphData?.nodes ?? [];
-  const edges = graphData?.edges ?? [];
+  const nodes = useMemo(() => graphData?.nodes ?? [], [graphData]);
+  const edges = useMemo(() => graphData?.edges ?? [], [graphData]);
 
   const profileLookup = useMemo(() => {
     const map: Record<string, Record<string, unknown>> = {};
@@ -997,153 +1027,359 @@ function NetworkGraphTab({ data, isLoading, profiles, resolveName }: {
     return map;
   }, [profiles]);
 
-  const positionsRef = useRef<Array<{ x: number; y: number }>>([]);
-
-  const edgeStyleMap: Record<string, { color: string; dash: boolean }> = {
-    influences: { color: '#3b82f6', dash: false },
-    aligned_with: { color: '#22c55e', dash: false },
-    tension_with: { color: '#ef4444', dash: true },
-  };
-
-  const drawGraph = useCallback(() => {
-    if (!canvasRef.current || nodes.length === 0) return;
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const w = canvas.width = canvas.parentElement?.clientWidth ?? 800;
-    const h = canvas.height = 500;
-    const nodeById = new Map<string, number>();
-    nodes.forEach((n, i) => nodeById.set(String(n.id), i));
-
-    // Circular layout with influence-based spacing
-    const positions = nodes.map((node, i) => {
-      const props = (node.properties ?? {}) as Record<string, unknown>;
-      const influence = Number(props.influenceScore ?? node.influence_score ?? node.size ?? 50);
-      const radiusFactor = 0.32 + (influence / 500);
-      return {
-        x: w / 2 + (w * radiusFactor) * Math.cos((2 * Math.PI * i) / nodes.length),
-        y: h / 2 + (h * radiusFactor) * Math.sin((2 * Math.PI * i) / nodes.length),
-      };
-    });
-    positionsRef.current = positions;
-
-    ctx.clearRect(0, 0, w, h);
-
-    // Draw edges
+  const nodeConnections = useMemo(() => {
+    const map: Record<string, Array<{ type: string; target: string; targetId: string; direction: 'out' | 'in'; strength: number }>> = {};
     edges.forEach(edge => {
-      const fromIdx = nodeById.get(String(edge.from ?? edge.source));
-      const toIdx = nodeById.get(String(edge.to ?? edge.target));
-      if (fromIdx === undefined || toIdx === undefined) return;
-      const edgeType = String(edge.type || edge.label || edge.relationship_type || '');
-      const style = edgeStyleMap[edgeType] || { color: '#94a3b8', dash: false };
+      const fromId = String(edge.from ?? edge.source);
+      const toId = String(edge.to ?? edge.target);
+      const type = String(edge.type || edge.label || edge.relationship_type || 'related');
+      const strength = Number(edge.strength ?? edge.value ?? 0.5);
+      const fromNode = nodes.find(nd => String(nd.id) === fromId);
+      const toNode = nodes.find(nd => String(nd.id) === toId);
+      if (!map[fromId]) map[fromId] = [];
+      if (!map[toId]) map[toId] = [];
+      map[fromId].push({ type, target: String(toNode?.label || toNode?.name || '?'), targetId: toId, direction: 'out', strength });
+      map[toId].push({ type, target: String(fromNode?.label || fromNode?.name || '?'), targetId: fromId, direction: 'in', strength });
+    });
+    return map;
+  }, [nodes, edges]);
 
-      ctx.beginPath();
-      ctx.setLineDash(style.dash ? [5, 5] : []);
-      ctx.moveTo(positions[fromIdx].x, positions[fromIdx].y);
-      ctx.lineTo(positions[toIdx].x, positions[toIdx].y);
-      ctx.strokeStyle = style.color + '80';
-      ctx.lineWidth = Math.max(1, Number(edge.strength ?? edge.value ?? 0.5) * 4);
-      ctx.stroke();
-      ctx.setLineDash([]);
+  const sim = useRef({
+    pos: [] as Array<{ x: number; y: number; vx: number; vy: number }>,
+    alpha: 1,
+    drag: -1,
+    dragStartX: 0,
+    dragStartY: 0,
+    hovered: -1,
+    w: 800,
+    h: 500,
+    frameId: 0,
+  });
+  const selectedIdRef = useRef<string | null>(null);
+  useEffect(() => { selectedIdRef.current = selectedNode ? String(selectedNode.id) : null; }, [selectedNode]);
 
-      // Arrow for "influences"
-      if (edgeType === 'influences') {
-        const dx = positions[toIdx].x - positions[fromIdx].x;
-        const dy = positions[toIdx].y - positions[fromIdx].y;
-        const angle = Math.atan2(dy, dx);
-        const len = 8;
-        const toProps = (nodes[toIdx].properties ?? {}) as Record<string, unknown>;
-        const toR = 22 + (Number(toProps.influenceScore ?? nodes[toIdx].influence_score ?? 50) / 10);
-        const arrowX = positions[toIdx].x - Math.cos(angle) * toR;
-        const arrowY = positions[toIdx].y - Math.sin(angle) * toR;
-        ctx.beginPath();
-        ctx.moveTo(arrowX, arrowY);
-        ctx.lineTo(arrowX - len * Math.cos(angle - Math.PI / 6), arrowY - len * Math.sin(angle - Math.PI / 6));
-        ctx.lineTo(arrowX - len * Math.cos(angle + Math.PI / 6), arrowY - len * Math.sin(angle + Math.PI / 6));
-        ctx.closePath();
-        ctx.fillStyle = style.color;
-        ctx.fill();
+  useEffect(() => {
+    if (nodes.length === 0) return;
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    if (!canvas || !container) return;
+
+    const s = sim.current;
+    s.w = container.clientWidth || 800;
+    s.h = 500;
+    const n = nodes.length;
+
+    s.pos = nodes.map((_, i) => ({
+      x: s.w / 2 + Math.cos(2 * Math.PI * i / n) * s.w * 0.2 + (Math.random() - 0.5) * 60,
+      y: s.h / 2 + Math.sin(2 * Math.PI * i / n) * s.h * 0.25 + (Math.random() - 0.5) * 60,
+      vx: 0, vy: 0,
+    }));
+    s.alpha = 1;
+
+    const nodeMap = new Map<string, number>();
+    nodes.forEach((nd, i) => nodeMap.set(String(nd.id), i));
+
+    let running = true;
+
+    function step() {
+      s.alpha *= 0.992;
+      if (s.alpha < 0.002) return;
+
+      const fx = new Float64Array(n);
+      const fy = new Float64Array(n);
+
+      const repK = 5500;
+      for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+          const dx = s.pos[j].x - s.pos[i].x;
+          const dy = s.pos[j].y - s.pos[i].y;
+          const d2 = Math.max(dx * dx + dy * dy, 100);
+          const d = Math.sqrt(d2);
+          const f = repK / d2;
+          const fxv = (dx / d) * f, fyv = (dy / d) * f;
+          fx[i] -= fxv; fy[i] -= fyv;
+          fx[j] += fxv; fy[j] += fyv;
+        }
       }
-    });
 
-    // Draw nodes with avatar-style circles
-    nodes.forEach((node, i) => {
-      const { x, y } = positions[i];
-      const nodeProps = (node.properties ?? {}) as Record<string, unknown>;
-      const influence = Number(nodeProps.influenceScore ?? node.influence_score ?? node.size ?? 50);
-      const r = 20 + (influence / 10);
-      const label = String(node.label || node.name || '?');
-      const color = stringToColor(label);
+      const attK = 0.04;
+      const ideal = Math.min(200, Math.max(120, s.w / (n + 1)));
+      edges.forEach(edge => {
+        const fi = nodeMap.get(String(edge.from ?? edge.source));
+        const ti = nodeMap.get(String(edge.to ?? edge.target));
+        if (fi === undefined || ti === undefined) return;
+        const dx = s.pos[ti].x - s.pos[fi].x;
+        const dy = s.pos[ti].y - s.pos[fi].y;
+        const d = Math.max(Math.sqrt(dx * dx + dy * dy), 1);
+        const disp = d - ideal;
+        const str = Number(edge.strength ?? edge.value ?? 0.5);
+        const fv = attK * disp * (0.5 + str);
+        const fxv = (dx / d) * fv, fyv = (dy / d) * fv;
+        fx[fi] += fxv; fy[fi] += fyv;
+        fx[ti] -= fxv; fy[ti] -= fyv;
+      });
 
-      // Shadow
-      ctx.shadowColor = 'rgba(0,0,0,0.15)';
-      ctx.shadowBlur = 8;
-      ctx.shadowOffsetX = 2;
-      ctx.shadowOffsetY = 2;
+      const grav = 0.012;
+      const cx = s.w / 2, cy = s.h / 2;
+      for (let i = 0; i < n; i++) {
+        fx[i] += (cx - s.pos[i].x) * grav;
+        fy[i] += (cy - s.pos[i].y) * grav;
+      }
 
-      // Gradient fill
-      const grad = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, 0, x, y, r);
-      grad.addColorStop(0, color);
-      grad.addColorStop(1, adjustColor(color, -40));
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, 2 * Math.PI);
-      ctx.fillStyle = grad;
-      ctx.fill();
-
-      // Border
-      ctx.shadowColor = 'transparent';
-      ctx.strokeStyle = selectedNode && String(selectedNode.id) === String(node.id) ? '#f59e0b' : 'rgba(255,255,255,0.6)';
-      ctx.lineWidth = selectedNode && String(selectedNode.id) === String(node.id) ? 3 : 2;
-      ctx.stroke();
-
-      // Initials
-      const initials = getInitials(label);
-      ctx.fillStyle = '#fff';
-      ctx.font = `bold ${Math.max(11, r * 0.55)}px Inter, system-ui, sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(initials, x, y);
-
-      // Label below
-      const textColor = getComputedStyle(document.documentElement).getPropertyValue('--gm-text-primary').trim() || '#0f172a';
-      ctx.fillStyle = textColor;
-      ctx.font = '11px Inter, system-ui, sans-serif';
-      ctx.fillText(label, x, y + r + 14);
-    });
-  }, [nodes, edges, selectedNode]);
-
-  useEffect(() => { drawGraph(); }, [drawGraph]);
-
-  const handleCanvasClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!canvasRef.current || nodes.length === 0) return;
-    const rect = canvasRef.current.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
-
-    for (let i = 0; i < nodes.length; i++) {
-      const pos = positionsRef.current[i];
-      if (!pos) continue;
-      const clickProps = (nodes[i].properties ?? {}) as Record<string, unknown>;
-      const r = 20 + (Number(clickProps.influenceScore ?? nodes[i].influence_score ?? nodes[i].size ?? 50) / 10);
-      const dx = mx - pos.x;
-      const dy = my - pos.y;
-      if (dx * dx + dy * dy <= r * r) {
-        setSelectedNode(nodes[i]);
-        return;
+      const damp = 0.55;
+      for (let i = 0; i < n; i++) {
+        if (s.drag === i) { s.pos[i].vx = 0; s.pos[i].vy = 0; continue; }
+        s.pos[i].vx = (s.pos[i].vx + fx[i] * s.alpha) * damp;
+        s.pos[i].vy = (s.pos[i].vy + fy[i] * s.alpha) * damp;
+        s.pos[i].x += s.pos[i].vx;
+        s.pos[i].y += s.pos[i].vy;
+        const r = graphNodeRadius(nodes[i]) + 12;
+        s.pos[i].x = Math.max(r, Math.min(s.w - r, s.pos[i].x));
+        s.pos[i].y = Math.max(r, Math.min(s.h - r - 16, s.pos[i].y));
       }
     }
-    setSelectedNode(null);
+
+    function draw() {
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      const dpr = window.devicePixelRatio || 1;
+      const tw = Math.round(s.w * dpr), th = Math.round(s.h * dpr);
+      if (canvas.width !== tw || canvas.height !== th) {
+        canvas.width = tw;
+        canvas.height = th;
+        canvas.style.width = `${s.w}px`;
+        canvas.style.height = `${s.h}px`;
+      }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, s.w, s.h);
+      if (s.pos.length === 0) return;
+
+      const selId = selectedIdRef.current;
+      const textColor = getComputedStyle(document.documentElement).getPropertyValue('--gm-text-primary').trim() || '#e2e8f0';
+      const bgColor = getComputedStyle(document.documentElement).getPropertyValue('--gm-surface-primary').trim() || '#1e293b';
+
+      edges.forEach(edge => {
+        const fi = nodeMap.get(String(edge.from ?? edge.source));
+        const ti = nodeMap.get(String(edge.to ?? edge.target));
+        if (fi === undefined || ti === undefined || !s.pos[fi] || !s.pos[ti]) return;
+
+        const eType = String(edge.type || edge.label || edge.relationship_type || '');
+        const st = GRAPH_EDGE_STYLES[eType] || { color: '#94a3b8', dash: false, label: eType.replace(/_/g, ' ') };
+        const relSel = selId && (String(edge.from ?? edge.source) === selId || String(edge.to ?? edge.target) === selId);
+        const opSuffix = selId ? (relSel ? 'dd' : '18') : '70';
+
+        const fp = s.pos[fi], tp = s.pos[ti];
+        const dx = tp.x - fp.x, dy = tp.y - fp.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const fromR = graphNodeRadius(nodes[fi]);
+        const toR = graphNodeRadius(nodes[ti]);
+        const lineFromX = fp.x + (dx / dist) * fromR;
+        const lineFromY = fp.y + (dy / dist) * fromR;
+        const lineToX = tp.x - (dx / dist) * toR;
+        const lineToY = tp.y - (dy / dist) * toR;
+        const strength = Number(edge.strength ?? edge.value ?? 0.5);
+
+        ctx.save();
+        ctx.beginPath();
+        if (st.dash) ctx.setLineDash([6, 4]);
+        ctx.moveTo(lineFromX, lineFromY);
+        ctx.lineTo(lineToX, lineToY);
+        ctx.strokeStyle = st.color + opSuffix;
+        ctx.lineWidth = Math.max(1.5, strength * 4);
+        ctx.stroke();
+        if (st.dash) ctx.setLineDash([]);
+
+        if ((eType === 'influences' || eType === 'defers_to' || eType === 'mentors') && dist > fromR + toR + 20) {
+          const angle = Math.atan2(dy, dx);
+          const al = 10;
+          ctx.beginPath();
+          ctx.moveTo(lineToX, lineToY);
+          ctx.lineTo(lineToX - al * Math.cos(angle - 0.45), lineToY - al * Math.sin(angle - 0.45));
+          ctx.lineTo(lineToX - al * Math.cos(angle + 0.45), lineToY - al * Math.sin(angle + 0.45));
+          ctx.closePath();
+          ctx.fillStyle = st.color + opSuffix;
+          ctx.fill();
+        }
+
+        if (dist > 90 && (relSel || !selId)) {
+          const mx = (fp.x + tp.x) / 2, my = (fp.y + tp.y) / 2;
+          ctx.font = '9px Inter, system-ui, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          const labelW = ctx.measureText(st.label).width + 8;
+          ctx.fillStyle = bgColor;
+          ctx.globalAlpha = 0.85;
+          canvasRoundRect(ctx, mx - labelW / 2, my - 7, labelW, 14, 3);
+          ctx.fill();
+          ctx.globalAlpha = 1;
+          ctx.fillStyle = st.color;
+          ctx.fillText(st.label, mx, my);
+        }
+        ctx.restore();
+      });
+
+      nodes.forEach((node, i) => {
+        if (!s.pos[i]) return;
+        const { x, y } = s.pos[i];
+        const r = graphNodeRadius(node);
+        const label = String(node.label || node.name || '?');
+        const color = stringToColor(label);
+        const isSel = selId === String(node.id);
+        const isHov = s.hovered === i;
+        const isConn = !!selId && !!nodeConnections[selId]?.some(c => c.targetId === String(node.id));
+        const dimmed = !!selId && !isSel && !isConn;
+
+        ctx.save();
+        if (dimmed) ctx.globalAlpha = 0.22;
+
+        if (isSel) { ctx.shadowColor = '#f59e0b'; ctx.shadowBlur = 18; }
+        else if (isHov) { ctx.shadowColor = color; ctx.shadowBlur = 14; }
+        else { ctx.shadowColor = 'rgba(0,0,0,0.15)'; ctx.shadowBlur = 6; ctx.shadowOffsetY = 2; }
+
+        const grad = ctx.createRadialGradient(x - r * 0.25, y - r * 0.25, 0, x, y, r);
+        grad.addColorStop(0, adjustColor(color, 25));
+        grad.addColorStop(1, adjustColor(color, -35));
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fillStyle = grad;
+        ctx.fill();
+
+        ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+        ctx.strokeStyle = isSel ? '#f59e0b' : isHov ? '#fff' : 'rgba(255,255,255,0.45)';
+        ctx.lineWidth = isSel ? 3 : isHov ? 2.5 : 1.5;
+        ctx.stroke();
+
+        ctx.fillStyle = '#fff';
+        ctx.font = `bold ${Math.max(11, r * 0.52)}px Inter, system-ui, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(getInitials(label), x, y);
+
+        const ly = y + r + 14;
+        ctx.font = '600 11px Inter, system-ui, sans-serif';
+        const lw = ctx.measureText(label).width + 10;
+        ctx.fillStyle = bgColor;
+        ctx.globalAlpha = dimmed ? 0.15 : 0.75;
+        canvasRoundRect(ctx, x - lw / 2, ly - 7, lw, 14, 3);
+        ctx.fill();
+        ctx.globalAlpha = dimmed ? 0.22 : 1;
+        ctx.fillStyle = textColor;
+        ctx.fillText(label, x, ly);
+        ctx.restore();
+      });
+    }
+
+    function loop() {
+      if (!running) return;
+      step();
+      draw();
+      s.frameId = requestAnimationFrame(loop);
+    }
+    s.frameId = requestAnimationFrame(loop);
+
+    let resizeTimer: ReturnType<typeof setTimeout>;
+    const observer = new ResizeObserver(entries => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        for (const entry of entries) {
+          const newW = entry.contentRect.width;
+          if (newW > 0 && Math.abs(newW - s.w) > 5) {
+            const scale = newW / s.w;
+            s.w = newW;
+            s.pos.forEach(p => { p.x *= scale; });
+            s.alpha = Math.max(s.alpha, 0.3);
+          }
+        }
+      }, 100);
+    });
+    observer.observe(container);
+
+    return () => {
+      running = false;
+      cancelAnimationFrame(s.frameId);
+      observer.disconnect();
+      clearTimeout(resizeTimer);
+    };
+  }, [nodes, edges, nodeConnections]);
+
+  const findNode = useCallback((mx: number, my: number) => {
+    const s2 = sim.current;
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      if (!s2.pos[i]) continue;
+      const r = graphNodeRadius(nodes[i]) + 3;
+      const dx = mx - s2.pos[i].x, dy = my - s2.pos[i].y;
+      if (dx * dx + dy * dy <= r * r) return i;
+    }
+    return -1;
   }, [nodes]);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!canvasRef.current) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    const idx = findNode(mx, my);
+    if (idx >= 0) {
+      const s2 = sim.current;
+      s2.drag = idx;
+      s2.dragStartX = mx;
+      s2.dragStartY = my;
+      s2.alpha = Math.max(s2.alpha, 0.08);
+      canvasRef.current.style.cursor = 'grabbing';
+    }
+  }, [findNode]);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!canvasRef.current) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    const s2 = sim.current;
+    if (s2.drag >= 0 && s2.pos[s2.drag]) {
+      s2.pos[s2.drag].x = mx;
+      s2.pos[s2.drag].y = my;
+      return;
+    }
+    const idx = findNode(mx, my);
+    if (idx !== s2.hovered) {
+      s2.hovered = idx;
+      canvasRef.current.style.cursor = idx >= 0 ? 'grab' : 'default';
+    }
+  }, [findNode]);
+
+  const handleMouseUp = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!canvasRef.current) return;
+    const s2 = sim.current;
+    const wasDragging = s2.drag >= 0;
+    const dragIdx = s2.drag;
+    s2.drag = -1;
+    canvasRef.current.style.cursor = 'default';
+
+    const rect = canvasRef.current.getBoundingClientRect();
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+
+    if (wasDragging) {
+      const moved = Math.sqrt((mx - s2.dragStartX) ** 2 + (my - s2.dragStartY) ** 2);
+      if (moved < 6) setSelectedNode(nodes[dragIdx] || null);
+      return;
+    }
+    const idx = findNode(mx, my);
+    setSelectedNode(idx >= 0 ? nodes[idx] : null);
+  }, [findNode, nodes]);
+
+  const handleMouseLeave = useCallback(() => {
+    sim.current.drag = -1;
+    sim.current.hovered = -1;
+  }, []);
 
   if (isLoading) return <Spinner />;
   if (nodes.length === 0) return <EmptyState icon={Network} message="No network data. Analyze profiles and sync graph to build the network." />;
 
   const selectedProfile = selectedNode ? profileLookup[String(selectedNode.id)] : null;
+  const selectedConns = selectedNode ? nodeConnections[String(selectedNode.id)] ?? [] : [];
 
   return (
     <div className="flex gap-3">
-      {/* Graph */}
       <div className="flex-1 bg-gm-surface-primary border border-gm-border-primary rounded-xl p-4">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-xs font-semibold text-gm-text-primary uppercase tracking-wider flex items-center gap-2">
@@ -1152,35 +1388,34 @@ function NetworkGraphTab({ data, isLoading, profiles, resolveName }: {
           </h3>
         </div>
 
-        {/* Legend */}
-        <div className="flex gap-4 mb-3">
-          <div className="flex items-center gap-1.5">
-            <div className="w-6 h-0.5 bg-[#3b82f6] rounded" />
-            <span className="text-[10px] text-gm-text-tertiary">Influences</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-6 h-0.5 bg-[#22c55e] rounded" />
-            <span className="text-[10px] text-gm-text-tertiary">Alliance</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-6 h-0.5 border-t-2 border-dashed border-[#ef4444]" />
-            <span className="text-[10px] text-gm-text-tertiary">Tension</span>
-          </div>
+        <div className="flex flex-wrap gap-3 mb-3">
+          {Object.entries(GRAPH_EDGE_STYLES)
+            .filter(([t]) => edges.some(e => String(e.type || e.label || e.relationship_type || '') === t))
+            .map(([t, st]) => (
+              <div key={t} className="flex items-center gap-1.5">
+                <div className={`w-5 h-0.5 rounded ${st.dash ? 'border-t-2 border-dashed' : ''}`}
+                  style={st.dash ? { borderColor: st.color } : { background: st.color }} />
+                <span className="text-[10px] text-gm-text-tertiary capitalize">{st.label}</span>
+              </div>
+            ))}
         </div>
 
-        <div className="bg-[var(--gm-surface-hover)] rounded-lg overflow-hidden cursor-pointer">
-          <canvas ref={canvasRef} className="w-full" style={{ height: 500 }} onClick={handleCanvasClick} />
+        <div ref={containerRef} className="bg-[var(--gm-surface-hover)] rounded-lg overflow-hidden">
+          <canvas ref={canvasRef} style={{ height: 500, width: '100%', display: 'block' }}
+            onMouseDown={handleMouseDown} onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp} onMouseLeave={handleMouseLeave} />
         </div>
+        <p className="text-[9px] text-gm-text-tertiary mt-1.5 text-center">Drag nodes to rearrange · Click a node for details</p>
       </div>
 
-      {/* Info Panel */}
-      <div className="w-64 bg-gm-surface-primary border border-gm-border-primary rounded-xl p-4 flex-shrink-0">
+      <div className="w-72 bg-gm-surface-primary border border-gm-border-primary rounded-xl p-4 flex-shrink-0">
         {selectedNode ? (
-          <NodeDetailPanel node={selectedNode} profile={selectedProfile} resolveName={resolveName} />
+          <NodeDetailPanel node={selectedNode} profile={selectedProfile} resolveName={resolveName} connections={selectedConns} />
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-gm-text-tertiary">
-            <Users className="w-8 h-8 mb-2 text-gray-500" />
-            <p className="text-xs text-center">Click on a person to see details</p>
+            <Network className="w-10 h-10 mb-3 opacity-40" />
+            <p className="text-xs text-center font-medium mb-1">Select a Team Member</p>
+            <p className="text-[10px] text-center text-gray-500">Click on a node to view their profile and connections.</p>
           </div>
         )}
       </div>
@@ -1191,10 +1426,11 @@ function NetworkGraphTab({ data, isLoading, profiles, resolveName }: {
 /* ═══════════════════════════════════════════════════════
    Node Detail Panel (Graph side panel)
    ═══════════════════════════════════════════════════════ */
-function NodeDetailPanel({ node, profile, resolveName }: {
+function NodeDetailPanel({ node, profile, resolveName, connections }: {
   node: Record<string, unknown>;
   profile: Record<string, unknown> | undefined;
   resolveName: (n: string) => PersonInfo;
+  connections: Array<{ type: string; target: string; targetId: string; direction: 'out' | 'in'; strength: number }>;
 }) {
   const nodeProps = (node.properties ?? {}) as Record<string, unknown>;
   const name = String(node.label || node.name || 'Unknown');
@@ -1204,10 +1440,16 @@ function NodeDetailPanel({ node, profile, resolveName }: {
   const influenceScore = Number(profile?.influence_score ?? nodeProps.influenceScore ?? node.influence_score ?? 0);
   const commStyle = String(profile?.communication_style || nodeProps.communicationStyle || '');
   const motivation = String(profile?.dominant_motivation || nodeProps.dominantMotivation || '');
+  const riskTolerance = String(profile?.risk_tolerance || nodeProps.riskTolerance || '');
   const avatarUrl = isValidAvatarUrl(contact.avatar_url) ? String(contact.avatar_url) : isValidAvatarUrl(contact.photo_url) ? String(contact.photo_url) : null;
 
+  const edgeColors: Record<string, string> = {
+    influences: '#3b82f6', aligned_with: '#22c55e', tension_with: '#ef4444',
+    defers_to: '#8b5cf6', competes_with: '#f59e0b', mentors: '#06b6d4', supports: '#10b981',
+  };
+
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 overflow-y-auto max-h-[500px]">
       <div className="flex items-center gap-3">
         <ContactAvatar url={avatarUrl} name={name} size="lg" />
         <div className="min-w-0">
@@ -1217,21 +1459,31 @@ function NodeDetailPanel({ node, profile, resolveName }: {
         </div>
       </div>
 
-      {/* Influence meter */}
       <div>
         <p className="text-[10px] text-gm-text-tertiary uppercase tracking-wider mb-1">Influence</p>
         <div className="flex items-center gap-2">
           <div className="flex-1 h-2 bg-gm-surface-secondary rounded-full">
-            <div className="h-2 bg-gm-interactive-primary rounded-full" style={{ width: `${Math.min(100, influenceScore)}%` }} />
+            <div className="h-2 bg-gm-interactive-primary rounded-full transition-all" style={{ width: `${Math.min(100, influenceScore)}%` }} />
           </div>
-          <span className="text-xs font-bold text-gm-text-primary">{influenceScore}%</span>
+          <span className="text-xs font-bold text-gm-text-primary">{influenceScore}</span>
         </div>
       </div>
+
+      {riskTolerance && riskTolerance !== 'undefined' && (
+        <div className="flex items-center justify-between">
+          <p className="text-[10px] text-gm-text-tertiary uppercase tracking-wider">Risk Tolerance</p>
+          <span className={`text-[10px] px-1.5 py-0.5 rounded-full capitalize ${
+            riskTolerance === 'low' ? 'bg-gm-status-success-bg text-gm-status-success' :
+            riskTolerance === 'high' ? 'bg-gm-status-danger-bg text-gm-status-danger' :
+            'bg-gm-status-warning-bg text-gm-status-warning'
+          }`}>{riskTolerance}</span>
+        </div>
+      )}
 
       {commStyle && (
         <div>
           <p className="text-[10px] text-gm-text-tertiary uppercase tracking-wider mb-0.5">Communication</p>
-          <p className="text-xs text-gm-text-primary">{commStyle.substring(0, 100)}</p>
+          <p className="text-xs text-gm-text-primary leading-relaxed">{commStyle.substring(0, 120)}{commStyle.length > 120 ? '...' : ''}</p>
         </div>
       )}
 
@@ -1239,6 +1491,28 @@ function NodeDetailPanel({ node, profile, resolveName }: {
         <div>
           <p className="text-[10px] text-gm-text-tertiary uppercase tracking-wider mb-0.5">Motivation</p>
           <p className="text-xs text-gm-text-primary">{motivation}</p>
+        </div>
+      )}
+
+      {connections.length > 0 && (
+        <div className="pt-2 border-t border-gm-border-primary">
+          <p className="text-[10px] text-gm-text-tertiary uppercase tracking-wider mb-2">
+            Connections <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-gm-surface-secondary ml-1">{connections.length}</span>
+          </p>
+          <div className="space-y-1">
+            {connections.map((conn, j) => {
+              const color = edgeColors[conn.type] || '#6b7280';
+              return (
+                <div key={j} className="flex items-center gap-1.5 py-1 px-2 rounded-md bg-[var(--gm-surface-hover)]">
+                  <span className="text-[10px]" style={{ color }}>{conn.direction === 'out' ? '→' : '←'}</span>
+                  <span className="text-[10px] text-gm-text-primary flex-1 truncate">{conn.target}</span>
+                  <span className="text-[9px] px-1 py-0.5 rounded capitalize" style={{ background: color + '15', color }}>
+                    {conn.type.replace(/_/g, ' ')}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>

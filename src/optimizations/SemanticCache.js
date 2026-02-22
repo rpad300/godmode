@@ -32,8 +32,7 @@
  */
 
 const { logger } = require('../logger');
-const llm = require('../llm');
-const llmConfig = require('../llm/config');
+const llmRouter = require('../llm/router');
 
 const log = logger.child({ module: 'semantic-cache' });
 
@@ -55,7 +54,8 @@ class SemanticCache {
         this.ttl = options.ttl || 30 * 60 * 1000; // 30 minutes
         this.llmConfig = options.llmConfig || {};
         this.appConfig = options.appConfig || null;
-        
+        this._resolvedConfig = this.appConfig || { llm: this.llmConfig };
+
         // Cache storage: { embedding, query, response, timestamp, hits }
         this.cache = new Map();
         this.embeddings = []; // Array of { key, embedding }
@@ -166,20 +166,13 @@ class SemanticCache {
      */
     async getEmbedding(text) {
         try {
-            const embedCfg = this.appConfig ? llmConfig.getEmbeddingsConfig(this.appConfig) : null;
-            const provider = embedCfg?.provider ?? this.llmConfig?.embeddingsProvider;
-            const providerConfig = embedCfg?.providerConfig ?? this.llmConfig?.providers?.[provider] ?? {};
-            const model = embedCfg?.model ?? this.llmConfig?.models?.embeddings;
-            if (!provider || !model) return null;
-            const result = await llm.embed({
-                provider,
-                providerConfig,
-                model,
-                texts: [text]
-            });
+            const routerResult = await llmRouter.routeAndExecute('embeddings', 'embed', {
+                texts: [text],
+                context: 'semantic-cache'
+            }, this._resolvedConfig);
 
-            if (result.success && result.embeddings?.[0]) {
-                return result.embeddings[0];
+            if (routerResult.success && routerResult.result?.embeddings?.[0]) {
+                return routerResult.result.embeddings[0];
             }
         } catch (e) {
             log.warn({ event: 'semantic_cache_embedding_error', message: e.message }, 'Embedding error');

@@ -151,8 +151,10 @@ async function handleConfig(ctx) {
             llm.clearCache();
         }
         
-        // Update processor config
-        processor.updateConfig(config);
+        // Update processor config (may be null during startup)
+        if (processor && typeof processor.updateConfig === 'function') {
+            processor.updateConfig(config);
+        }
         saveConfig(config);
         invalidateConfigCache();
         jsonResponse(res, { success: true, config: {

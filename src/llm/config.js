@@ -53,19 +53,21 @@ function getLLMConfig(appConfig) {
     const llm = appConfig.llm || {};
     const ollama = appConfig.ollama || {};
     
-    // Resolution precedence for each field: per-task override > top-level llm field > legacy ollama field > null.
-    // This layered fallback ensures that both the new LLM panel and the legacy Ollama-only
-    // config paths resolve correctly.
+    // When a non-Ollama cloud provider is configured via the LLM panel, suppress
+    // Ollama model fallbacks — sending "qwen3:30b" to OpenAI is a hard error.
+    const cloudProvider = llm.perTask?.text?.provider || llm.provider || llm.defaultProvider || null;
+    const useOllamaFallback = !cloudProvider || cloudProvider === 'ollama';
+    
     return {
         // Primary provider (from admin settings)
-        provider: llm.perTask?.text?.provider || llm.provider || llm.defaultProvider || null,
+        provider: cloudProvider,
         
         // Models by task type
         models: {
-            text: llm.perTask?.text?.model || llm.models?.text || ollama.model || null,
-            vision: llm.perTask?.vision?.model || llm.models?.vision || ollama.visionModel || null,
+            text: llm.perTask?.text?.model || llm.models?.text || (useOllamaFallback ? ollama.model : null) || null,
+            vision: llm.perTask?.vision?.model || llm.models?.vision || (useOllamaFallback ? ollama.visionModel : null) || null,
             embeddings: llm.perTask?.embeddings?.model || llm.models?.embeddings || null,
-            reasoning: llm.models?.reasoning || ollama.reasoningModel || llm.perTask?.text?.model || llm.models?.text || null
+            reasoning: llm.models?.reasoning || llm.perTask?.text?.model || llm.models?.text || (useOllamaFallback ? ollama.reasoningModel : null) || null
         },
         
         // Providers by task type

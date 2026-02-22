@@ -280,8 +280,25 @@ class MultiGraphManager {
      * @returns {Promise<Array<string>>}
      */
     async listProjectGraphs() {
-        // This would need to be tracked separately or query graph provider for graph list
-        // For now, return from cache
+        // Query the database for distinct graph_name values
+        if (this.provider?.supabase) {
+            try {
+                const { data, error } = await this.provider.supabase
+                    .from('graph_nodes')
+                    .select('graph_name')
+                    .like('graph_name', 'project_%')
+                    .limit(500);
+
+                if (!error && data) {
+                    const uniqueNames = new Set(data.map(r => r.graph_name));
+                    return [...uniqueNames].map(name => name.replace('project_', ''));
+                }
+            } catch (e) {
+                // Fall through to cache
+            }
+        }
+
+        // Fallback to cache
         const graphs = [];
         for (const [name] of this.graphCache) {
             if (name.startsWith('project_')) {

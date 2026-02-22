@@ -24,8 +24,7 @@
  */
 
 const { logger } = require('../logger');
-const llm = require('../llm');
-const llmConfig = require('../llm/config');
+const llmRouter = require('../llm/router');
 const { getRoleTemplates } = require('./RoleTemplates');
 
 const log = logger.child({ module: 'ai-role-suggestions' });
@@ -41,6 +40,7 @@ class AIRoleSuggestions {
         this.storage = options.storage;
         this.llmConfig = options.llmConfig || {};
         this.appConfig = options.appConfig || null;
+        this._resolvedConfig = this.appConfig || { llm: this.llmConfig };
     }
 
     setStorage(storage) {
@@ -249,23 +249,17 @@ Generate a role context prompt that:
 Respond with ONLY the role prompt text, no explanations.`;
 
         try {
-            const textCfg = this.appConfig ? llmConfig.getTextConfig(this.appConfig) : null;
-            const provider = textCfg?.provider ?? this.llmConfig?.provider;
-            const providerConfig = textCfg?.providerConfig ?? this.llmConfig?.providers?.[provider] ?? {};
-            const model = textCfg?.model ?? this.llmConfig?.models?.text;
-            if (!provider || !model) return null;
-            const result = await llm.generateText({
-                provider,
-                providerConfig,
-                model,
+            const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
                 prompt,
                 temperature: 0.7,
-                maxTokens: 500
-            });
+                maxTokens: 500,
+                context: 'ai-role-suggestion'
+            }, this._resolvedConfig);
 
-            if (result.success) {
+            if (routerResult.success) {
+                const rText = routerResult.result?.text || routerResult.result?.response || '';
                 return {
-                    prompt: result.text.trim(),
+                    prompt: rText.trim(),
                     basedOn: activityData.insights
                 };
             }
@@ -291,24 +285,18 @@ The prompt should:
 Respond with ONLY the prompt text.`;
 
         try {
-            const textCfg = this.appConfig ? llmConfig.getTextConfig(this.appConfig) : null;
-            const provider = textCfg?.provider ?? this.llmConfig?.provider;
-            const providerConfig = textCfg?.providerConfig ?? this.llmConfig?.providers?.[provider] ?? {};
-            const model = textCfg?.model ?? this.llmConfig?.models?.text;
-            if (!provider || !model) return null;
-            const result = await llm.generateText({
-                provider,
-                providerConfig,
-                model,
+            const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
                 prompt,
                 temperature: 0.7,
-                maxTokens: 400
-            });
+                maxTokens: 400,
+                context: 'ai-role-from-title'
+            }, this._resolvedConfig);
 
-            if (result.success) {
+            if (routerResult.success) {
+                const rText = routerResult.result?.text || routerResult.result?.response || '';
                 return {
                     success: true,
-                    prompt: result.text.trim()
+                    prompt: rText.trim()
                 };
             }
         } catch (error) {

@@ -30,17 +30,20 @@
  *     supplied via options (sourced from admin config) at construction time.
  *   - Deterministic node IDs are scoped by projectId to prevent cross-project collisions
  *     while still allowing explicit UUIDs from the source system.
- *   - The `relationships` array in syncToGraph is declared *after* Phase 1 nodes are
- *     created, but document AUTHORED_BY edges are pushed before it exists -- this is a
- *     known bug (the push targets an undeclared variable). TODO: confirm and fix ordering.
+ *   - The AUTHORED_BY edge creation was moved to Phase 2 to fix a sequencing bug
+ *     where it previously tried to push to the `relationships` array before declaration.
  *   - Query classification supports both English and Portuguese patterns.
  */
 
 const { logger } = require('../logger');
-const llm = require('../llm');
+const llmRouter = require('../llm/router');
 const { getOntologyManager, getRelationInference, getEmbeddingEnricher } = require('../ontology');
 const { getQueryCache, getSyncTracker } = require('../utils');
 const { getCypherGenerator } = require('./CypherGenerator');
+const { getReranker } = require('./Reranker');
+const { getCommunityDetection } = require('./CommunityDetection');
+const { getMultiHopReasoning } = require('./MultiHopReasoning');
+const { HyDE } = require('./HyDE');
 const crypto = require('crypto');
 
 const log = logger.child({ module: 'graphrag-engine' });
@@ -83,6 +86,7 @@ class GraphRAGEngine {
 
         // Configuration from app config
         this.llmConfig = options.llmConfig || {};
+        this._resolvedConfig = options.config || { llm: this.llmConfig };
 
         // Ontology integration
         this.ontology = options.ontology || getOntologyManager();
@@ -92,10 +96,80 @@ class GraphRAGEngine {
         // Enable ontology features
         this.useOntology = options.useOntology !== false;
 
+        // HyDE (Hypothetical Document Embeddings) for improved semantic search
+        this.useHyDE = options.useHyDE !== false;
+        this.hyde = new HyDE({
+            config: this._resolvedConfig,
+            llmProvider: this.llmProvider,
+            llmModel: this.llmModel,
+            llmConfig: this.llmConfig,
+            embeddingProvider: this.embeddingProvider,
+            embeddingModel: this.embeddingModel
+        });
+
+        // Reranker for result quality improvement
+        this.useReranker = options.useReranker !== false;
+        this.reranker = getReranker({
+            config: this._resolvedConfig,
+            llmProvider: this.llmProvider,
+            llmModel: this.llmModel,
+            llmConfig: this.llmConfig
+        });
+
+        // Community detection for result expansion
+        this.useCommunityExpansion = options.useCommunityExpansion !== false;
+        this.communityDetection = null; // Lazy-init (needs graphProvider)
+
+        // Multi-hop reasoning for complex queries
+        this.useMultiHop = options.useMultiHop !== false;
+        this.multiHop = null; // Lazy-init
+
         // Cache for query results
         this.queryCache = options.queryCache || getQueryCache();
         this.enableCache = options.enableCache !== false;
         this.cacheTTL = options.cacheTTL || 5 * 60 * 1000; // 5 minutes default
+    }
+
+    /**
+     * Lazy-init community detection (needs connected graphProvider)
+     */
+    _getCommunityDetection() {
+        if (!this.communityDetection && this.graphProvider?.connected) {
+            this.communityDetection = getCommunityDetection({
+                graphProvider: this.graphProvider
+            });
+        }
+        return this.communityDetection;
+    }
+
+    /**
+     * Lazy-init multi-hop reasoning (needs LLM config)
+     */
+    _getMultiHop() {
+        if (!this.multiHop && this.llmProvider) {
+            this.multiHop = getMultiHopReasoning({
+                llmProvider: this.llmProvider,
+                llmModel: this.llmModel,
+                llmConfig: this.llmConfig,
+                config: this._resolvedConfig,
+                graphProvider: this.graphProvider
+            });
+        }
+        return this.multiHop;
+    }
+
+    /**
+     * Heuristic to detect complex multi-hop queries that benefit from
+     * decomposition. Avoids the cost of an LLM classification call for
+     * simple questions.
+     */
+    _isComplexQuery(query) {
+        if ((query.match(/\?/g) || []).length > 1) return true;
+        const words = query.split(/\s+/).length;
+        if (words > 25 && /\b(e|and|também|also|além|besides|depois|then|comparar|compare)\b/i.test(query)) return true;
+        if (/\b(relação entre|relationship between|diferença|difference|comparar|compare|correlação|correlation)\b/i.test(query)) return true;
+        if (/\b(quais.*todos|which.*all|list all.*and|enumera|listar)\b/i.test(query) && words > 15) return true;
+        return false;
     }
 
     /**
@@ -244,6 +318,20 @@ class GraphRAGEngine {
                 return mentions;
             };
 
+            // Resolve a text name to a contact ID via fuzzy match
+            const allContacts = [...(data.contacts || []), ...(data.people || [])];
+            const resolveNameToContactId = (name) => {
+                if (!name || name.length < 2) return null;
+                const lower = name.trim().toLowerCase();
+                for (const c of allContacts) {
+                    const cName = (c.name || c.full_name || '').trim().toLowerCase();
+                    if (cName && (cName === lower || cName.includes(lower) || lower.includes(cName))) {
+                        return c.id;
+                    }
+                }
+                return null;
+            };
+
             // ==================== PHASE 1: NODES ====================
 
             // 1. Project Node
@@ -253,8 +341,22 @@ class GraphRAGEngine {
                     name: p.name,
                     status: p.status,
                     description: p.description,
+                    company_id: p.company_id,
                     ...p.metadata
-                }), 'id'); // Project ID is usually stable
+                }), 'id');
+            }
+
+            // 1b. Company Node (from project.company join)
+            if (data.project?.company) {
+                const c = data.project.company;
+                await syncNodes('Company', [c], co => ({
+                    id: co.id,
+                    name: co.name,
+                    domain: co.domain,
+                    industry: co.industry,
+                    description: co.description,
+                    ...co.metadata
+                }), 'name');
             }
 
             // 2. Sprint Nodes
@@ -263,8 +365,8 @@ class GraphRAGEngine {
                 name: s.name,
                 status: s.status,
                 goal: s.goal,
-                start_date: s.startDate,
-                end_date: s.endDate,
+                start_date: s.start_date,
+                end_date: s.end_date,
                 ...s.metadata
             }), 'name');
 
@@ -273,19 +375,26 @@ class GraphRAGEngine {
                 id: s.id,
                 title: s.title,
                 status: s.status,
-                story_points: s.storyPoints,
+                story_points: s.story_points,
                 description: s.description,
                 ...s.metadata
             }), 'title');
 
-            // 4. Task Nodes (mapped from Actions)
+            // 4. Task Nodes (mapped from action_items)
             await syncNodes('Task', data.actions, a => ({
                 id: a.id,
-                title: a.title,
+                title: a.task || a.title,
                 status: a.status,
                 priority: a.priority,
                 description: a.description,
-                dueDate: a.dueDate,
+                deadline: a.deadline,
+                sprint_id: a.sprint_id,
+                parent_story_id: a.parent_story_id,
+                requested_by_contact_id: a.requested_by_contact_id,
+                source_document_id: a.source_document_id,
+                source_email_id: a.source_email_id,
+                decision_id: a.decision_id,
+                owner: a.owner,
                 ...a.metadata
             }), 'title');
 
@@ -295,23 +404,11 @@ class GraphRAGEngine {
                 title: d.title,
                 type: d.type,
                 url: d.url,
-                lastModified: d.lastModified,
-                author_contact_id: d.author_contact_id, // Pass through for edge creation
+                last_modified: d.last_modified || d.updated_at,
+                sprint_id: d.sprint_id,
+                uploaded_by: d.uploaded_by,
                 ...d.metadata
-            }), 'url'); // URL is a better deterministic key for documents
-
-            // V3: Document Attribution (AUTHORED_BY)
-            // Assumption: `relationships` is intended to be declared here but is actually
-            // declared later in Phase 2. This block executes before that declaration,
-            // so `relationships` is undefined at this point -- likely a sequencing bug.
-            if (data.documents) {
-                for (const doc of data.documents) {
-                    if (doc.author_contact_id) {
-                        const rel = createRel(doc.id, doc.author_contact_id, 'AUTHORED_BY', { certainty: 'explicit' });
-                        if (rel) relationships.push(rel);
-                    }
-                }
-            }
+            }), 'url');
 
             // 6. Teams
             await syncNodes('Team', data.teams, t => ({
@@ -328,8 +425,24 @@ class GraphRAGEngine {
                 role: p.role,
                 email: p.email,
                 avatar: p.avatar,
+                source_label: p.label || 'Person',
                 ...p.metadata
-            }), 'email'); // Email is best deterministic key for people
+            }), 'email');
+
+            // 7b. Contacts (separate from People -- preserves Contact label in graph)
+            if (data.contacts) {
+                await syncNodes('Contact', data.contacts, c => ({
+                    id: c.id,
+                    name: c.name || c.full_name,
+                    email: c.email,
+                    phone: c.phone,
+                    company: c.company || c.organization,
+                    role: c.role || c.job_title,
+                    linked_person_id: c.linked_person_id,
+                    avatar: c.avatar_url || c.avatar,
+                    ...c.metadata
+                }), 'email');
+            }
 
             // 8. Facts
             await syncNodes('Fact', data.facts, f => ({
@@ -337,6 +450,7 @@ class GraphRAGEngine {
                 content: f.content,
                 source: f.source,
                 category: f.category,
+                source_document_id: f.source_document_id,
                 ...f.metadata
             }), 'content');
 
@@ -347,17 +461,20 @@ class GraphRAGEngine {
                 status: d.status,
                 impact: d.impact,
                 rationale: d.rationale,
+                made_by: d.made_by,
+                source_document_id: d.source_document_id,
                 ...d.metadata
             }), 'title');
 
             // 10. Risks
             await syncNodes('Risk', data.risks, r => ({
                 id: r.id,
-                title: r.title,
+                title: r.title || r.content,
                 status: r.status,
-                severity: r.severity,
+                severity: r.severity || r.impact,
                 probability: r.probability,
                 mitigation: r.mitigation,
+                source_document_id: r.source_document_id,
                 ...r.metadata
             }), 'title');
 
@@ -365,31 +482,41 @@ class GraphRAGEngine {
             await syncNodes('Email', data.emails, e => ({
                 id: e.id,
                 subject: e.subject,
-                from_name: e.fromName,
-                from_email: e.fromEmail,
-                date_sent: e.dateSent,
+                from_name: e.from_name,
+                from_email: e.from_email,
+                date_sent: e.date_sent,
+                sender_contact_id: e.sender_contact_id,
+                thread_id: e.thread_id,
+                in_reply_to: e.in_reply_to,
+                sprint_id: e.sprint_id,
                 ...e.metadata
-            }), 'id'); // Emails usually have unique IDs
+            }), 'id');
 
             // 12. CalendarEvents
             await syncNodes('CalendarEvent', data.events, e => ({
                 id: e.id,
                 title: e.title,
-                start_at: e.start,
-                end_at: e.end,
+                start_at: e.start_at || e.start,
+                end_at: e.end_at || e.end,
                 location: e.location,
                 type: e.type,
+                linked_document_id: e.linked_document_id,
+                linked_action_id: e.linked_action_id,
+                linked_contact_ids: e.linked_contact_ids,
                 ...e.metadata
             }), 'id');
 
             // 13. Questions
             await syncNodes('Question', data.questions, q => ({
                 id: q.id,
-                content: q.text, // Schema uses 'content', data uses 'text' often
+                content: q.content || q.text,
                 status: q.status,
                 answer: q.answer,
+                source_document_id: q.source_document_id,
+                requester_contact_id: q.requester_contact_id,
+                answered_by_contact_id: q.answered_by_contact_id,
                 ...q.metadata
-            }), 'text');
+            }), 'content');
 
 
             // ==================== PHASE 2: RELATIONSHIPS ====================
@@ -412,72 +539,163 @@ class GraphRAGEngine {
                 linkToProject(data.actions);
                 linkToProject(data.documents);
                 linkToProject(data.teams);
-                linkToProject(data.people); // Maybe? People might belong to Org, not Project directly. But for Project View it helps.
+                linkToProject(data.people);
                 linkToProject(data.risks);
                 linkToProject(data.decisions);
                 linkToProject(data.facts);
                 linkToProject(data.questions);
+                linkToProject(data.emails);
+                linkToProject(data.events);
+                linkToProject(data.contacts);
+
+                // BELONGS_TO_COMPANY (Project -> Company)
+                if (data.project.company_id && data.project.company) {
+                    const rel = createRel(data.project.id, data.project.company.id, 'BELONGS_TO_COMPANY');
+                    if (rel) relationships.push(rel);
+                }
             }
 
-            // 16: MEMBER_OF_TEAM (Person -> Team)
+            // Contact -> Person linkage (IS_CONTACT_OF)
+            if (data.contacts) {
+                const personIdSet = new Set((data.people || []).map(p => p.id));
+                for (const contact of data.contacts) {
+                    if (contact.linked_person_id && personIdSet.has(contact.linked_person_id)) {
+                        const rel = createRel(contact.id, contact.linked_person_id, 'IS_CONTACT_OF');
+                        if (rel) relationships.push(rel);
+                    }
+                }
+            }
+
+            // Contact -> Company (WORKS_AT) via text name matching
+            if (data.contacts && data.project?.company) {
+                const companyNode = data.project.company;
+                const companyNames = [companyNode.name, companyNode.domain].filter(Boolean).map(n => n.toLowerCase());
+                for (const contact of data.contacts) {
+                    const cCompany = (contact.company || contact.organization || '').toLowerCase().trim();
+                    if (cCompany && companyNames.some(cn => cn.includes(cCompany) || cCompany.includes(cn))) {
+                        const rel = createRel(contact.id, companyNode.id, 'WORKS_AT');
+                        if (rel) relationships.push(rel);
+                    }
+                }
+            }
+
+            // Document -> Sprint (if linked), Document -> Contact (author)
+            if (data.documents) {
+                for (const doc of data.documents) {
+                    if (doc.sprint_id) {
+                        const rel = createRel(doc.id, doc.sprint_id, 'PLANNED_IN');
+                        if (rel) relationships.push(rel);
+                    }
+                    // uploaded_by_contact_id links to contacts; uploaded_by links to auth.users (skip)
+                    if (doc.uploaded_by_contact_id) {
+                        const rel = createRel(doc.id, doc.uploaded_by_contact_id, 'AUTHORED_BY');
+                        if (rel) relationships.push(rel);
+                    }
+                }
+            }
+
+            // 16: MEMBER_OF_TEAM (Contact -> Team)
             if (data.teams) {
                 for (const team of data.teams) {
+                    // getTeams() returns members as: team_members(contact:contacts(id,name,...))
                     if (team.members && Array.isArray(team.members)) {
-                        for (const memberId of team.members) {
-                            const rel = createRel(memberId, team.id, 'MEMBER_OF_TEAM');
-                            if (rel) relationships.push(rel);
+                        for (const member of team.members) {
+                            const contactId = member?.contact?.id || member?.contact_id || (typeof member === 'string' ? member : null);
+                            if (contactId) {
+                                const rel = createRel(contactId, team.id, 'MEMBER_OF_TEAM');
+                                if (rel) relationships.push(rel);
+                            }
                         }
                     }
-                    if (team.leadId) {
-                        const rel = createRel(team.leadId, team.id, 'LEADS_TEAM');
+                    if (team.lead_id || team.leadId) {
+                        const rel = createRel(team.lead_id || team.leadId, team.id, 'LEADS_TEAM');
+                        if (rel) relationships.push(rel);
+                    }
+                    if (team.parent_team_id) {
+                        const rel = createRel(team.id, team.parent_team_id, 'PARENT_OF');
                         if (rel) relationships.push(rel);
                     }
                 }
             }
 
             // 17-20: Work Layer
-            // ASSIGNED_TO (Task -> Person)
+            // Task relationships (action_items table uses snake_case)
             if (data.actions) {
                 for (const task of data.actions) {
-                    if (task.assigneeId) {
-                        const rel = createRel(task.id, task.assigneeId, 'ASSIGNED_TO');
-                        if (rel) relationships.push(rel);
-                    }
                     // PLANNED_IN (Task -> Sprint)
-                    if (task.sprintId) {
-                        const rel = createRel(task.id, task.sprintId, 'PLANNED_IN');
-                        if (rel) relationships.push(rel);
-                    }
-                    // PARENT_OF (Task -> Task) - if subtasks supported
-                    if (task.parentId) {
-                        const rel = createRel(task.parentId, task.id, 'PARENT_OF'); // Parent -> Child
+                    if (task.sprint_id) {
+                        const rel = createRel(task.id, task.sprint_id, 'PLANNED_IN');
                         if (rel) relationships.push(rel);
                     }
                     // IMPLEMENTS (Task -> UserStory)
-                    if (task.storyId) {
-                        const rel = createRel(task.id, task.storyId, 'IMPLEMENTS');
+                    if (task.parent_story_id) {
+                        const rel = createRel(task.id, task.parent_story_id, 'IMPLEMENTS');
+                        if (rel) relationships.push(rel);
+                    }
+                    // EXTRACTED_FROM (Task -> Document)
+                    if (task.source_document_id) {
+                        const rel = createRel(task.id, task.source_document_id, 'EXTRACTED_FROM');
+                        if (rel) relationships.push(rel);
+                    }
+                    // DERIVED_FROM (Task -> Email)
+                    if (task.source_email_id) {
+                        const rel = createRel(task.id, task.source_email_id, 'DERIVED_FROM');
+                        if (rel) relationships.push(rel);
+                    }
+                    // REQUESTED_BY (Task -> Contact)
+                    if (task.requested_by_contact_id) {
+                        const rel = createRel(task.id, task.requested_by_contact_id, 'MENTIONS', { type: 'requested_by' });
+                        if (rel) relationships.push(rel);
+                    }
+                    // LINKED_TO (Task -> Decision)
+                    if (task.decision_id) {
+                        const rel = createRel(task.id, task.decision_id, 'LINKED_TO');
+                        if (rel) relationships.push(rel);
+                    }
+                    // DEPENDS_ON (Task -> Task) from task_dependencies join
+                    if (task.depends_on && Array.isArray(task.depends_on)) {
+                        for (const dep of task.depends_on) {
+                            const depId = dep?.depends_on_id || (typeof dep === 'string' ? dep : null);
+                            if (depId) {
+                                const rel = createRel(task.id, depId, 'DEPENDS_ON');
+                                if (rel) relationships.push(rel);
+                            }
+                        }
+                    }
+                    // ASSIGNED_TO (Task -> Contact) via FK or text name resolution
+                    const taskOwnerId = task.owner_contact_id || resolveNameToContactId(task.owner);
+                    if (taskOwnerId) {
+                        const rel = createRel(task.id, taskOwnerId, 'ASSIGNED_TO');
                         if (rel) relationships.push(rel);
                     }
                 }
             }
 
-            // UserStory -> Sprint
+            // UserStory relationships
             if (data.userStories) {
                 for (const story of data.userStories) {
-                    if (story.sprintId) {
-                        const rel = createRel(story.id, story.sprintId, 'PLANNED_IN');
+                    if (story.source_document_id) {
+                        const rel = createRel(story.id, story.source_document_id, 'EXTRACTED_FROM');
+                        if (rel) relationships.push(rel);
+                    }
+                    if (story.source_email_id) {
+                        const rel = createRel(story.id, story.source_email_id, 'DERIVED_FROM');
+                        if (rel) relationships.push(rel);
+                    }
+                    if (story.requested_by_contact_id) {
+                        const rel = createRel(story.id, story.requested_by_contact_id, 'MENTIONS', { type: 'requested_by' });
                         if (rel) relationships.push(rel);
                     }
                 }
             }
 
             // 21-23: Knowledge Layer
-            // EXTRACTED_FROM (Fact/Decision/Risk -> Document)
+            // EXTRACTED_FROM (Fact/Decision/Risk/Question -> Document)
             const linkExtraction = (items) => {
                 if (!items) return;
                 for (const item of items) {
-                    if (item.sourceDocId) {
-                        const rel = createRel(item.id, item.sourceDocId, 'EXTRACTED_FROM');
+                    if (item.source_document_id) {
+                        const rel = createRel(item.id, item.source_document_id, 'EXTRACTED_FROM');
                         if (rel) relationships.push(rel);
                     }
                 }
@@ -528,54 +746,134 @@ class GraphRAGEngine {
                     }
                 };
 
-                scanAndLink(data.actions, ['title', 'description'], 'assigneeId');
-                scanAndLink(data.decisions, ['title', 'rationale'], 'ownerId'); // ownerId/madeById
-                scanAndLink(data.risks, ['title', 'mitigation'], 'ownerId', 'reported_by_contact_id');
-                scanAndLink(data.questions, ['text', 'answer'], 'assignedToId');
-                scanAndLink(data.facts, ['content'], 'source', 'stated_by_contact_id');
+                scanAndLink(data.actions, ['task', 'description'], 'owner', 'owner_contact_id');
+                scanAndLink(data.decisions, ['title', 'rationale'], 'made_by', 'made_by_contact_id');
+                scanAndLink(data.risks, ['title', 'content', 'mitigation'], 'owner', 'owner_contact_id');
+                scanAndLink(data.questions, ['content', 'answer'], 'owner', 'assigned_to_contact_id');
+                scanAndLink(data.facts, ['content'], 'source');
             }
 
             // 24-27: Communication Layer
             if (data.emails) {
                 for (const email of data.emails) {
-                    if (email.fromPersonId) {
-                        const rel = createRel(email.id, email.fromPersonId, 'SENT_BY');
+                    // SENT_BY (Email -> Contact) -- sender_contact_id is the FK
+                    if (email.sender_contact_id) {
+                        const rel = createRel(email.id, email.sender_contact_id, 'SENT_BY');
                         if (rel) relationships.push(rel);
                     }
-                    // SENT_TO, HAS_ATTACHMENT...
+                    // Email -> Sprint
+                    if (email.sprint_id) {
+                        const rel = createRel(email.id, email.sprint_id, 'PLANNED_IN');
+                        if (rel) relationships.push(rel);
+                    }
+                    // Email threading: REPLY_TO
+                    if (email.in_reply_to) {
+                        const rel = createRel(email.id, email.in_reply_to, 'REPLY_TO');
+                        if (rel) relationships.push(rel);
+                    }
+                    // Email recipients (SENT_TO) -- fetched from email_recipients join
+                    if (email.recipients && Array.isArray(email.recipients)) {
+                        for (const recipient of email.recipients) {
+                            const contactId = recipient?.contact_id || (typeof recipient === 'string' ? recipient : null);
+                            if (contactId) {
+                                const rel = createRel(email.id, contactId, 'SENT_TO', { type: recipient?.recipient_type });
+                                if (rel) relationships.push(rel);
+                            }
+                        }
+                    }
+                    // Email attachments (HAS_ATTACHMENT) -- fetched from email_attachments join
+                    if (email.attachments && Array.isArray(email.attachments)) {
+                        for (const attachment of email.attachments) {
+                            const docId = attachment?.document_id || (typeof attachment === 'string' ? attachment : null);
+                            if (docId) {
+                                const rel = createRel(email.id, docId, 'HAS_ATTACHMENT');
+                                if (rel) relationships.push(rel);
+                            }
+                        }
+                    }
                 }
             }
 
+            // CalendarEvent relationships
             if (data.events) {
                 for (const event of data.events) {
-                    // LINKED_TO (CalendarEvent -> Document/Action)
-                    if (event.linkedDocId) {
-                        const rel = createRel(event.id, event.linkedDocId, 'LINKED_TO');
+                    // LINKED_TO (CalendarEvent -> Document)
+                    if (event.linked_document_id) {
+                        const rel = createRel(event.id, event.linked_document_id, 'LINKED_TO');
                         if (rel) relationships.push(rel);
                     }
-                    if (event.linkedActionId) {
-                        const rel = createRel(event.id, event.linkedActionId, 'LINKED_TO');
+                    // LINKED_TO (CalendarEvent -> Action)
+                    if (event.linked_action_id) {
+                        const rel = createRel(event.id, event.linked_action_id, 'LINKED_TO');
                         if (rel) relationships.push(rel);
                     }
 
-                    // INVOLVES (CalendarEvent -> Contact) - V3: Uses calendar_event_contacts
-                    if (event.calendar_event_contacts && Array.isArray(event.calendar_event_contacts)) {
-                        for (const contactLink of event.calendar_event_contacts) {
-                            const rel = createRel(event.id, contactLink.contact_id, 'INVOLVES', { role: contactLink.role });
-                            if (rel) relationships.push(rel);
+                    // INVOLVES (CalendarEvent -> Contact) -- linked_contact_ids is UUID[]
+                    if (event.linked_contact_ids && Array.isArray(event.linked_contact_ids)) {
+                        for (const contactId of event.linked_contact_ids) {
+                            if (contactId) {
+                                const rel = createRel(event.id, contactId, 'INVOLVES');
+                                if (rel) relationships.push(rel);
+                            }
                         }
-                    } else if (event.linkedContactIds && Array.isArray(event.linkedContactIds)) {
-                        // Fallback to legacy array if join table empty
-                        for (const contactId of event.linkedContactIds) {
-                            const rel = createRel(event.id, contactId, 'INVOLVES');
-                            if (rel) relationships.push(rel);
-                        }
-                    } else if (event.attendees && Array.isArray(event.attendees)) {
-                        // Fallback to attendees
-                        for (const personId of event.attendees) {
-                            const rel = createRel(event.id, personId, 'INVOLVES');
-                            if (rel) relationships.push(rel);
-                        }
+                    }
+                }
+            }
+
+            // Decision ownership edges (FK or text name resolution)
+            if (data.decisions) {
+                for (const dec of data.decisions) {
+                    const decOwnerId = dec.owner_contact_id || resolveNameToContactId(dec.made_by);
+                    if (decOwnerId) {
+                        const rel = createRel(dec.id, decOwnerId, 'OWNED_BY');
+                        if (rel) relationships.push(rel);
+                    }
+                    if (dec.made_by_contact_id && dec.made_by_contact_id !== decOwnerId) {
+                        const rel = createRel(dec.id, dec.made_by_contact_id, 'AUTHORED_BY');
+                        if (rel) relationships.push(rel);
+                    }
+                }
+            }
+
+            // Risk ownership edges (FK or text name resolution)
+            if (data.risks) {
+                for (const risk of data.risks) {
+                    const riskOwnerId = risk.owner_contact_id || resolveNameToContactId(risk.owner);
+                    if (riskOwnerId) {
+                        const rel = createRel(risk.id, riskOwnerId, 'OWNED_BY');
+                        if (rel) relationships.push(rel);
+                    }
+                }
+            }
+
+            // Question attribution and assignment edges
+            if (data.questions) {
+                for (const q of data.questions) {
+                    if (q.requester_contact_id) {
+                        const rel = createRel(q.id, q.requester_contact_id, 'MENTIONS', { type: 'requester' });
+                        if (rel) relationships.push(rel);
+                    }
+                    if (q.answered_by_contact_id) {
+                        const rel = createRel(q.id, q.answered_by_contact_id, 'MENTIONS', { type: 'answered_by' });
+                        if (rel) relationships.push(rel);
+                    }
+                    if (q.assigned_to_contact_id) {
+                        const rel = createRel(q.id, q.assigned_to_contact_id, 'ASSIGNED_TO');
+                        if (rel) relationships.push(rel);
+                    }
+                }
+            }
+
+            // Contact ↔ Contact explicit relationships from contact_relationships table
+            if (data.contactRelationships && Array.isArray(data.contactRelationships)) {
+                for (const cr of data.contactRelationships) {
+                    if (cr.from_contact_id && cr.to_contact_id && cr.relationship_type) {
+                        const relType = cr.relationship_type.toUpperCase().replace(/\s+/g, '_');
+                        const rel = createRel(cr.from_contact_id, cr.to_contact_id, relType, {
+                            strength: cr.strength,
+                            notes: cr.notes
+                        });
+                        if (rel) relationships.push(rel);
                     }
                 }
             }
@@ -594,18 +892,26 @@ class GraphRAGEngine {
             // ==================== PHASE 3: ENTITY LINKS (New V3) ====================
             if (data.entityLinks && data.entityLinks.length > 0) {
                 const entityLinks = [];
-                for (const link of data.entityLinks) {
-                    // Map link_type to UpperSnakeCase edge type
-                    const edgeType = link.link_type.toUpperCase();
-                    // Map from/to types to node labels (simple usually, but let's be safe)
-                    // The graph provider's createRelationshipsBatch handles ID resolution if we provide IDs
+                const seenLinkKeys = new Set();
+                let skippedLinks = 0;
 
-                    // We need to resolve the "Graph ID" for these entities.
-                    // Since we used deterministic IDs or original IDs in Phase 1, we can try to resolve them.
+                for (const link of data.entityLinks) {
+                    if (!link.link_type || !link.from_entity_id || !link.to_entity_id) {
+                        skippedLinks++;
+                        continue;
+                    }
+
+                    const edgeType = link.link_type.toUpperCase();
+
+                    // Deduplicate by from+to+type
+                    const linkKey = `${link.from_entity_id}:${link.to_entity_id}:${edgeType}`;
+                    if (seenLinkKeys.has(linkKey)) continue;
+                    seenLinkKeys.add(linkKey);
+
                     const rel = createRel(link.from_entity_id, link.to_entity_id, edgeType, {
                         source: link.source,
                         confidence: link.confidence,
-                        metadata: link.metadata
+                        ...(link.metadata && typeof link.metadata === 'object' ? link.metadata : {})
                     });
 
                     if (rel) {
@@ -613,34 +919,48 @@ class GraphRAGEngine {
                     }
                 }
 
+                if (skippedLinks > 0) {
+                    log.warn({ event: 'graphrag_entity_links_skipped', count: skippedLinks }, 'Skipped invalid entity links (missing type or IDs)');
+                }
+
                 if (entityLinks.length > 0) {
                     const linkResult = await this.graphProvider.createRelationshipsBatch(entityLinks);
                     if (linkResult.ok) {
                         results.edges += linkResult.created;
                         log.info({ event: 'graphrag_sync_entity_links', count: linkResult.created }, 'Synced entity links');
+                    } else {
+                        results.errors.push(...(linkResult.errors || []));
+                        log.warn({ event: 'graphrag_entity_links_error', errors: linkResult.errors }, 'Failed to sync entity links');
                     }
                 }
             }
 
-            // 28: SIMILAR_TO (Semantic)
-            if (options.computeSimilarity) {
-                const simResult = await this.computeSimilarityEdges();
-                results.edges += simResult.created;
-                log.info({ event: 'graphrag_similarity_edges', created: simResult.created }, 'Computed similarity edges');
+            // 28: SIMILAR_TO (Semantic) - auto-trigger unless explicitly disabled
+            if (options.computeSimilarity !== false) {
+                try {
+                    const simResult = await this.computeSimilarityEdges();
+                    results.edges += simResult.created;
+                    log.info({ event: 'graphrag_similarity_edges', created: simResult.created }, 'Computed similarity edges');
+                } catch (simError) {
+                    log.warn({ event: 'graphrag_similarity_error', reason: simError.message }, 'Similarity computation failed (non-blocking)');
+                }
             }
 
             // Reconcile Stale Entries (Full Resync Only)
             if (options.clear && this.graphProvider.pruneStale) {
-                // Since this was a full "clear" start, we don't strictly *need* pruneStale 
-                // because we wiped the graph.
-                // But if options.clear was FALSE, we might want to prune.
-                // However, the GraphProvider.clear() was called at start.
-                // So everything is fresh.
-                // If we implemented incremental sync, pruneStale would be used here.
+                // Full clear was called at start, so everything is fresh.
             } else if (!options.clear && this.graphProvider.pruneStale) {
-                // Incremental Sync: Prune anything not touched in this sync?
-                // That requires tracking what WAS touched.
-                // For now, let's skip complex reconciliation in this MVP step.
+                // Incremental sync reconciliation - not yet implemented.
+            }
+
+            // Embedding generation for semantic search
+            if (options.generateEmbeddings !== false) {
+                try {
+                    const embResult = await this._generateSyncEmbeddings(data);
+                    log.info({ event: 'graphrag_sync_embeddings', count: embResult.count, errors: embResult.errors }, 'Generated embeddings for graph entities');
+                } catch (embError) {
+                    log.warn({ event: 'graphrag_sync_embeddings_error', reason: embError.message }, 'Embedding generation failed (non-blocking)');
+                }
             }
 
         } catch (error) {
@@ -696,29 +1016,37 @@ class GraphRAGEngine {
 
         let createdCount = 0;
 
-        // Define mapping for similarity tables
         const mappings = [
-            { label: 'Fact', table: 'fact_similarities', fromCol: 'fact_id', toCol: 'similar_fact_id' },
-            { label: 'Decision', table: 'decision_similarities', fromCol: 'decision_id', toCol: 'similar_decision_id' },
-            { label: 'Question', table: 'question_similarities', fromCol: 'question_id', toCol: 'similar_question_id' }
+            { label: 'Fact', table: 'fact_similarities', fromCol: 'fact_id', toCol: 'similar_fact_id', hasProjectId: false },
+            { label: 'Decision', table: 'decision_similarities', fromCol: 'decision_id', toCol: 'similar_decision_id', hasProjectId: false },
+            { label: 'Question', table: 'question_similarities', fromCol: 'question_id', toCol: 'similar_question_id', hasProjectId: false },
+            { label: 'Risk', table: 'risk_similarities', fromCol: 'risk_id', toCol: 'similar_risk_id', hasProjectId: true }
         ];
 
         for (const map of mappings) {
             try {
-                // Query similarity table directly
-                const { data: similarities, error } = await this.graphProvider.supabase
+                let query = this.graphProvider.supabase
                     .from(map.table)
                     .select('*')
                     .gte('similarity_score', threshold);
 
+                if (this.currentProjectId && map.hasProjectId) {
+                    query = query.eq('project_id', this.currentProjectId);
+                }
+
+                const { data: similarities, error } = await query;
+
                 if (error) {
-                    log.error({ event: 'graphrag_similarity_error', table: map.table, error }, 'Failed to fetch similarities');
+                    if (error.code === '42P01' || error.message?.includes('does not exist') || error.message?.includes('column')) {
+                        log.debug({ event: 'graphrag_similarity_table_missing', table: map.table }, 'Similarity table not found, skipping');
+                    } else {
+                        log.error({ event: 'graphrag_similarity_error', table: map.table, error }, 'Failed to fetch similarities');
+                    }
                     continue;
                 }
 
                 if (!similarities || similarities.length === 0) continue;
 
-                // Prepare relationships batch
                 const relationships = similarities.map(s => ({
                     fromId: s[map.fromCol],
                     toId: s[map.toCol],
@@ -729,7 +1057,6 @@ class GraphRAGEngine {
                     }
                 }));
 
-                // Batch create
                 const result = await this.graphProvider.createRelationshipsBatch(relationships);
                 if (result.ok) {
                     createdCount += result.created;
@@ -741,6 +1068,94 @@ class GraphRAGEngine {
         }
 
         return { created: createdCount };
+    }
+
+    /**
+     * Batch-generate embeddings for entities created during syncToGraph().
+     * Uses the ontology EmbeddingEnricher for richer text, then calls the
+     * embedding LLM in batches of BATCH_SIZE to minimise API round-trips.
+     * Results are upserted into the Supabase `embeddings` table via storage.
+     */
+    async _generateSyncEmbeddings(data) {
+        const BATCH_SIZE = 50;
+        let count = 0;
+        let errorCount = 0;
+
+        // Ontology PascalCase -> DB lowercase mapping for composite IDs.
+        // The embeddings table stores lowercase entity_type values; graph/ontology
+        // uses PascalCase internally. We pass the PascalCase ontologyType to the
+        // EmbeddingEnricher (which needs ontology schema lookups) but store with
+        // the lowercase dbType.
+        const toEmbed = [];
+        const push = (ontologyType, dbType, items, textFn) => {
+            for (const item of items || []) {
+                if (!item.id) continue;
+                const enriched = this.embeddingEnricher
+                    ? this.embeddingEnricher.enrichEntity(ontologyType, item, {})
+                    : null;
+                const text = enriched || textFn(item);
+                if (text && text.length > 5) {
+                    toEmbed.push({ id: item.id, dbType, text });
+                }
+            }
+        };
+
+        push('Person',        'person',         data.people,                      p => `[Person] ${p.name || ''} ${p.role || ''}`);
+        push('Document',      'document',        data.documents,                  d => `[Document] ${d.title || d.filename || ''} ${(d.content || '').substring(0, 300)}`);
+        push('Email',         'email',           data.emails,                     e => `[Email] ${e.subject || ''} from ${e.from_name || e.from_email || ''} ${(e.body || '').substring(0, 300)}`);
+        push('Sprint',        'sprint',          data.sprints,                    s => `[Sprint] ${s.title || s.name || ''} ${s.goal || ''}`);
+        push('UserStory',     'user_story',      data.userStories,                s => `[UserStory] ${s.title || ''} ${s.description || ''}`);
+        push('Action',        'action',          data.actions,                    a => `[Task] ${a.task || a.title || ''} ${a.details || ''}`);
+        push('Decision',      'decision',        data.decisions,                  d => `[Decision] ${d.decision || d.title || ''} ${d.rationale || ''}`);
+        push('Risk',          'risk',            data.risks,                      r => `[Risk] ${r.title || r.risk || ''} ${r.mitigation || ''}`);
+        push('Fact',          'fact',            data.facts,                      f => `[Fact] ${f.fact || f.content || ''} ${f.category || ''}`);
+        push('Question',      'question',        data.questions,                  q => `[Question] ${q.question || q.text || ''} ${q.answer || ''}`);
+        push('Technology',    'technology',       data.technologies,               t => `[Technology] ${t.name || ''} ${t.category || ''} ${t.description || ''}`);
+        push('Contact',       'contact',         data.contacts,                   c => `[Contact] ${c.name || ''} ${c.email || ''} ${c.company || ''} ${c.role || ''}`);
+        push('CalendarEvent', 'calendar_event',  data.events,                     e => `[CalendarEvent] ${e.title || e.summary || ''} ${e.description || ''}`);
+        push('Meeting',       'meeting',         data.meetings,                   m => `[Meeting] ${m.title || ''} ${m.summary || ''} ${m.date || ''}`);
+        push('Team',          'team',            data.teams,                      t => `[Team] ${t.name || ''} ${t.description || ''}`);
+        push('Company',       'company',         data.companies || (data.company ? [data.company] : []),
+                                                                                  c => `[Company] ${c.name || ''} ${c.industry || ''} ${c.description || ''}`);
+        push('Conversation',  'conversation',    data.conversations,              c => `[Conversation] ${c.title || ''} ${c.conversation_type || ''} ${(c.participants || []).join(', ')}`);
+
+        if (toEmbed.length === 0) {
+            return { count: 0, errors: 0 };
+        }
+
+        log.info({ event: 'graphrag_embedding_start', total: toEmbed.length }, 'Starting embedding generation for synced entities');
+
+        for (let i = 0; i < toEmbed.length; i += BATCH_SIZE) {
+            const batch = toEmbed.slice(i, i + BATCH_SIZE);
+            const texts = batch.map(e => e.text);
+
+            try {
+                const embResult = await llmRouter.routeAndExecute('embeddings', 'embed', {
+                    texts,
+                    context: 'graphrag-sync-embed'
+                }, this._resolvedConfig);
+
+                if (embResult.success && embResult.result?.embeddings?.length > 0) {
+                    const items = batch.map((e, idx) => ({
+                        id: `${e.dbType}_${e.id}`,
+                        type: e.dbType,
+                        text: e.text,
+                        embedding: embResult.result.embeddings[idx] || null
+                    })).filter(item => item.embedding);
+
+                    if (items.length > 0 && this.storage?.saveEmbeddings) {
+                        await this.storage.saveEmbeddings(items);
+                        count += items.length;
+                    }
+                }
+            } catch (batchErr) {
+                errorCount++;
+                log.warn({ event: 'graphrag_embedding_batch_error', batch: i / BATCH_SIZE, reason: batchErr.message }, 'Embedding batch failed');
+            }
+        }
+
+        log.info({ event: 'graphrag_embedding_done', count, errors: errorCount, total: toEmbed.length }, 'Embedding generation complete');
+        return { count, errors: errorCount };
     }
 
     /**
@@ -772,11 +1187,32 @@ class GraphRAGEngine {
         // 2. Execute appropriate search strategy
         let results = [];
         let aiGeneratedCypher = null;
+        let multiHopResult = null;
+
+        // 2a. Multi-hop reasoning for complex multi-part queries
+        if (this.useMultiHop && this._isComplexQuery(userQuery)) {
+            try {
+                const multiHop = this._getMultiHop();
+                if (multiHop) {
+                    const retrieveFn = async (q) => {
+                        const subAnalysis = this.classifyQuery(q);
+                        return await this.hybridSearch(q, { queryAnalysis: subAnalysis });
+                    };
+                    multiHopResult = await multiHop.execute(userQuery, retrieveFn);
+                    if (multiHopResult.isMultiHop && multiHopResult.results?.length > 0) {
+                        results = multiHopResult.results;
+                        log.debug({ event: 'graphrag_multihop', subQueries: multiHopResult.subQueryCount, results: results.length }, 'Multi-hop reasoning produced results');
+                    }
+                }
+            } catch (error) {
+                log.warn({ event: 'graphrag_multihop_failed', reason: error.message }, 'Multi-hop reasoning failed, falling through');
+            }
+        }
 
         // Check if graph provider is available and connected
         const graphAvailable = this.graphProvider && this.graphProvider.connected;
 
-        if (graphAvailable) {
+        if (results.length === 0 && graphAvailable) {
             // ============ AI-POWERED CYPHER GENERATION ============
             // Try AI-generated Cypher query first (most intelligent approach)
             if (this.useCypherGenerator) {
@@ -831,7 +1267,7 @@ class GraphRAGEngine {
                     log.warn({ event: 'graphrag_ontology_pattern_failed', reason: error.message }, 'Ontology pattern query failed');
                 }
             }
-        } else {
+        } else if (results.length === 0) {
             log.debug({ event: 'graphrag_fallback_search' }, 'Graph provider not available, using fallback search');
         }
 
@@ -854,8 +1290,40 @@ class GraphRAGEngine {
 
         log.debug({ event: 'graphrag_found_items', count: results.length }, 'Found relevant items');
 
-        // 3. Generate response using LLM
-        const response = await this.generateResponse(userQuery, results, options);
+        // 3. Post-retrieval: Rerank, expand, and deduplicate
+        if (results.length > 0) {
+            // 3a. Community-based expansion (add related entities from same community)
+            if (this.useCommunityExpansion) {
+                try {
+                    const cd = this._getCommunityDetection();
+                    if (cd) {
+                        results = await cd.expandWithCommunity(results, { maxExpansion: 3 });
+                        log.debug({ event: 'graphrag_community_expanded', count: results.length }, 'Community expansion applied');
+                    }
+                } catch (e) {
+                    log.warn({ event: 'graphrag_community_error', reason: e.message }, 'Community expansion failed');
+                }
+            }
+
+            // 3b. Query-dependent reranking (lightweight heuristic boost by query type)
+            if (this.useReranker && this.reranker) {
+                try {
+                    results = this.reranker.queryDependentRerank(userQuery, results, queryAnalysis);
+                    log.debug({ event: 'graphrag_reranked', count: results.length }, 'Query-dependent reranking applied');
+                } catch (e) {
+                    log.warn({ event: 'graphrag_rerank_error', reason: e.message }, 'Reranking failed');
+                }
+            }
+
+            // 3c. Final deduplication -- merge results with same type + similar content
+            results = this._deduplicateResults(results);
+        }
+
+        // 4. Generate response using LLM
+        // If multi-hop produced a synthesized answer, prefer it
+        const response = (multiHopResult?.isMultiHop && multiHopResult.synthesis?.answer)
+            ? { answer: multiHopResult.synthesis.answer, sources: results.map(r => ({ type: r.type, content: r.content?.substring(0, 200) })) }
+            : await this.generateResponse(userQuery, results, options);
 
         const latencyMs = Date.now() - startTime;
         log.debug({ event: 'graphrag_latency', latencyMs }, 'Total latency');
@@ -869,12 +1337,16 @@ class GraphRAGEngine {
                 relationHints: queryAnalysis.relationHints,
                 matchedPattern: queryAnalysis.matchedPattern?.patternName || null
             },
-            // Include AI-generated Cypher info if used
             aiCypher: aiGeneratedCypher ? {
                 query: aiGeneratedCypher.cypher,
                 explanation: aiGeneratedCypher.explanation,
                 confidence: aiGeneratedCypher.confidence,
                 cached: aiGeneratedCypher.cached || false
+            } : null,
+            multiHop: multiHopResult?.isMultiHop ? {
+                subQueryCount: multiHopResult.subQueryCount,
+                reasoningChain: multiHopResult.reasoningChain,
+                confidence: multiHopResult.synthesis?.confidence
             } : null,
             graphAvailable,
             latencyMs
@@ -886,6 +1358,61 @@ class GraphRAGEngine {
         }
 
         return result;
+    }
+
+    /**
+     * Average multiple embedding vectors with L2 normalization.
+     * Used by HyDE to combine query + hypothetical document embeddings.
+     */
+    _averageEmbeddings(embeddings) {
+        if (!embeddings || embeddings.length === 0) return [];
+        if (embeddings.length === 1) return embeddings[0];
+
+        const dim = embeddings[0].length;
+        const avg = new Array(dim).fill(0);
+        for (const emb of embeddings) {
+            for (let i = 0; i < dim; i++) {
+                avg[i] += emb[i];
+            }
+        }
+        // L2 normalize
+        let norm = 0;
+        for (let i = 0; i < dim; i++) {
+            avg[i] /= embeddings.length;
+            norm += avg[i] * avg[i];
+        }
+        norm = Math.sqrt(norm);
+        if (norm > 0) {
+            for (let i = 0; i < dim; i++) avg[i] /= norm;
+        }
+        return avg;
+    }
+
+    /**
+     * Deduplicate results by type + content similarity.
+     * Keeps the first occurrence (highest rank) when duplicates are found.
+     */
+    _deduplicateResults(results) {
+        if (!results || results.length <= 1) return results;
+
+        const seen = new Map();
+        const deduped = [];
+
+        for (const r of results) {
+            const content = (r.content || '').toLowerCase().trim();
+            const dataId = r.data?.id || r.data?.name || r.data?.title || '';
+            // Prefer data ID for dedup (exact match), fall back to content prefix
+            const key = dataId
+                ? `${r.type}:${dataId}`
+                : `${r.type}:${content.substring(0, 80)}`;
+
+            if (!seen.has(key)) {
+                seen.set(key, true);
+                deduped.push(r);
+            }
+        }
+
+        return deduped;
     }
 
     /**
@@ -984,19 +1511,25 @@ class GraphRAGEngine {
 
         // If no ontology pattern matched, use rule-based classification
         if (!result.matchedPattern) {
-            // Structural patterns - relationship/graph queries
             const structuralPatterns = [
-                /quem (reporta|trabalha|lidera|gere|gerencia|são|sao)/i,
-                /who (reports|works|leads|manages|are|is)/i,
-                /hierarquia|organograma|estrutura/i,
-                /hierarchy|org.?chart|structure/i,
+                /quem (reporta|trabalha|lidera|gere|gerencia)/i,
+                /who (reports|works|leads|manages)/i,
+                /hierarquia|organograma|estrutura organizacional/i,
+                /hierarchy|org.?chart|organizational structure/i,
                 /relação entre|ligação entre|conexão entre/i,
-                /relationship between|connection between/i,
+                /relationship between|connection between|link between/i,
                 /quantos|quantas|total de|count of|how many/i,
-                /subordinados|diretos|equipa de/i,
-                /subordinates|direct reports|team of/i,
-                /lista|listar|list|show all/i,
-                /pessoas|people|members|team/i
+                /subordinados de|diretos de|equipa de|equipa do/i,
+                /subordinates of|direct reports of|team of/i,
+                /^lista(r|) (todos?|todas?|all|os |as )/i,
+                /^(show|list) all /i,
+                /sprints? (do|da|de |for |in )/i,
+                /tarefas? (do|da|de |for |in |atribuídas?)/i,
+                /tasks? (for|in|assigned|of) /i,
+                /documentos? (do|da|de |for )/i,
+                /emails? (do|da|de |from|to|sent) /i,
+                /decisões? (do|da|de |for |in )/i,
+                /riscos? (do|da|de |for |in )/i
             ];
 
             // Semantic patterns - meaning/content queries
@@ -1050,14 +1583,24 @@ class GraphRAGEngine {
 
         // Determine which entity types to search based on query
         let targetTypes = [];
-        if (/pessoas|people|quem|who|team|members|equipa/i.test(q)) targetTypes.push('Person');
+        if (/pessoas|people|quem|who|members|equipa/i.test(q)) targetTypes.push('Person');
+        if (/contactos?|contacts?/i.test(q)) targetTypes.push('Contact');
         if (/projetos?|projects?/i.test(q)) targetTypes.push('Project');
-        if (/reuniões?|meetings?/i.test(q)) targetTypes.push('Meeting');
-        if (/decisões?|decisions?/i.test(q)) targetTypes.push('Decision');
+        if (/decisões?|decisoes?|decisions?/i.test(q)) targetTypes.push('Decision');
         if (/riscos?|risks?/i.test(q)) targetTypes.push('Risk');
-        if (/tarefas?|tasks?|todos?/i.test(q)) targetTypes.push('Task');
+        if (/tarefas?|tasks?|ações?|acoes?|actions?/i.test(q)) targetTypes.push('Action');
+        if (/factos?|facts?|informações?|findings?/i.test(q)) targetTypes.push('Fact');
+        if (/questões?|questoes?|questions?|perguntas?/i.test(q)) targetTypes.push('Question');
+        if (/documentos?|documents?|ficheiros?|files?/i.test(q)) targetTypes.push('Document');
+        if (/emails?|e-mails?|correio/i.test(q)) targetTypes.push('Email');
+        if (/sprints?|iterações?|iteracoes?/i.test(q)) targetTypes.push('Sprint');
+        if (/equipas?|teams?/i.test(q)) targetTypes.push('Team');
+        if (/reuniões?|reunioes?|meetings?/i.test(q)) targetTypes.push('Meeting');
         if (/tecnologias?|tech|technologies?/i.test(q)) targetTypes.push('Technology');
         if (/clientes?|clients?/i.test(q)) targetTypes.push('Client');
+        if (/empresas?|compan(y|ies)|organiza(ção|tion|ções|tions)/i.test(q)) targetTypes.push('Company');
+        if (/eventos?|events?|calendário|calendar/i.test(q)) targetTypes.push('CalendarEvent');
+        if (/histórias?|stories?|user.?stories?/i.test(q)) targetTypes.push('UserStory');
 
         // If no specific type detected but it's a list query, default to Person
         if (targetTypes.length === 0 && isListQuery) {
@@ -1128,42 +1671,60 @@ class GraphRAGEngine {
             }
         }
 
-        if (this.graphProvider && this.graphProvider.connected) {
-            // Use graph database for structural queries
+        // Entity-name matching: fetch Person nodes once, match all entities against them
+        if (this.graphProvider && this.graphProvider.connected && entities.length > 0) {
+            const personResult = await this.graphProvider.findNodes('Person', {}, { limit: 200 });
+            const allPersonNodes = personResult.ok ? (personResult.nodes || []) : [];
+
+            const traversalPromises = [];
+            const matchedPersonIds = new Set();
+
             for (const entity of entities) {
-                // Find person nodes
-                const personResult = await this.graphProvider.findNodes('Person', {}, { limit: 100 });
+                const lowerEntity = entity.toLowerCase();
+                const matchingPerson = allPersonNodes.find(n =>
+                    n.properties.name?.toLowerCase().includes(lowerEntity) &&
+                    !matchedPersonIds.has(n.id)
+                );
 
-                if (personResult.ok) {
-                    const matchingPerson = personResult.nodes.find(n =>
-                        n.properties.name?.toLowerCase().includes(entity.toLowerCase())
-                    );
+                if (matchingPerson) {
+                    matchedPersonIds.add(matchingPerson.id);
+                    results.push({
+                        type: 'person',
+                        content: `${matchingPerson.properties.name} - ${matchingPerson.properties.role || 'Unknown role'}`,
+                        data: { ...matchingPerson.properties, id: matchingPerson.id },
+                        source: 'graph'
+                    });
 
-                    if (matchingPerson) {
-                        results.push({
-                            type: 'person',
-                            content: `${matchingPerson.properties.name} - ${matchingPerson.properties.role || 'Unknown role'}`,
-                            data: matchingPerson.properties,
-                            source: 'graph'
-                        });
-
-                        // Traverse relationships
-                        const pathResult = await this.graphProvider.traversePath(
+                    traversalPromises.push(
+                        this.graphProvider.traversePath(
                             matchingPerson.id,
-                            ['REPORTS_TO', 'MANAGES', 'LEADS', 'MEMBER_OF'],
+                            ['REPORTS_TO', 'MANAGES', 'LEADS_TEAM', 'MEMBER_OF_TEAM', 'ASSIGNED_TO', 'PARTICIPATES_IN', 'BELONGS_TO_PROJECT'],
                             2
-                        );
-
-                        if (pathResult.ok && pathResult.paths.length > 0) {
-                            results.push({
-                                type: 'relationship',
-                                content: `Relationships found for ${matchingPerson.properties.name}`,
-                                data: pathResult.paths,
-                                source: 'graph'
-                            });
-                        }
-                    }
+                        ).then(pathResult => {
+                            if (pathResult.ok && pathResult.paths?.length > 0) {
+                                const pathDescriptions = pathResult.paths.map(p => {
+                                    const from = p.from?.properties?.name || p.from?.id || '?';
+                                    const to = p.to?.properties?.name || p.to?.id || '?';
+                                    const rel = p.type || p.relationship?.type || '?';
+                                    return `${from} -[${rel}]-> ${to}`;
+                                }).join('; ');
+                                return {
+                                    type: 'relationship',
+                                    content: `Relationships for ${matchingPerson.properties.name}: ${pathDescriptions}`,
+                                    data: { person: matchingPerson.properties.name, paths: pathResult.paths },
+                                    source: 'graph'
+                                };
+                            }
+                            return null;
+                        }).catch(() => null)
+                    );
                 }
+            }
+
+            // Run all traversals in parallel
+            const traversalResults = await Promise.all(traversalPromises);
+            for (const tr of traversalResults) {
+                if (tr) results.push(tr);
             }
         }
 
@@ -1221,6 +1782,23 @@ class GraphRAGEngine {
             log.debug({ event: 'graphrag_enriched_query' }, 'Enriched query for semantic search');
         }
 
+        // HyDE: generate hypothetical documents to improve embedding quality
+        let hydeTexts = null;
+        if (this.useHyDE && this.hyde) {
+            try {
+                const hypotheticalDocs = await this.hyde.generateHypotheticalDocuments(enrichedQuery, {
+                    numDocs: 1,
+                    entityType: queryAnalysis.entityHints?.[0] || ''
+                });
+                if (hypotheticalDocs.length > 0) {
+                    hydeTexts = [enrichedQuery, ...hypotheticalDocs];
+                    log.debug({ event: 'graphrag_hyde_generated', count: hypotheticalDocs.length }, 'HyDE hypothetical documents generated');
+                }
+            } catch (e) {
+                log.warn({ event: 'graphrag_hyde_error', reason: e.message }, 'HyDE generation failed, using enriched query');
+            }
+        }
+
         if (!this.storage) {
             return results;
         }
@@ -1231,22 +1809,25 @@ class GraphRAGEngine {
 
         if (isSupabaseMode && this.storage.searchWithEmbedding) {
             // ==================== SUPABASE VECTOR SEARCH ====================
-            // Use Supabase match_embeddings RPC for vector search
             log.debug({ event: 'graphrag_supabase_vector' }, 'Using Supabase vector search');
 
             try {
-                // Generate query embedding
-                const embResult = await llm.embed({
-                    provider: this.embeddingProvider,
-                    model: this.embeddingModel,
-                    texts: [enrichedQuery],
-                    providerConfig: this.getProviderConfig(this.embeddingProvider)
-                });
+                // Embed all texts (original + HyDE hypothetical docs) and average
+                const textsToEmbed = hydeTexts || [enrichedQuery];
+                const embRouterResult = await llmRouter.routeAndExecute('embeddings', 'embed', {
+                    texts: textsToEmbed,
+                    context: 'graphrag-supabase-vector'
+                }, this._resolvedConfig);
 
-                if (embResult.success && embResult.embeddings?.[0]) {
-                    const queryEmbedding = embResult.embeddings[0];
+                if (embRouterResult.success && embRouterResult.result?.embeddings?.[0]) {
+                    let queryEmbedding;
+                    const allEmbeddings = embRouterResult.result.embeddings;
+                    if (allEmbeddings.length > 1) {
+                        queryEmbedding = this._averageEmbeddings(allEmbeddings);
+                    } else {
+                        queryEmbedding = allEmbeddings[0];
+                    }
 
-                    // Use Supabase hybrid search
                     const supabaseResults = await this.storage.searchWithEmbedding(
                         query,
                         queryEmbedding,
@@ -1270,16 +1851,17 @@ class GraphRAGEngine {
             }
         } else if (embeddingsData && embeddingsData.embeddings?.length > 0) {
             // ==================== LOCAL EMBEDDINGS (JSON) ====================
-            // Generate query embedding with enriched query
-            const embResult = await llm.embed({
-                provider: this.embeddingProvider,
-                model: this.embeddingModel,
-                texts: [enrichedQuery],
-                providerConfig: this.getProviderConfig(this.embeddingProvider)
-            });
+            const textsToEmbed = hydeTexts || [enrichedQuery];
+            const embRouterResult = await llmRouter.routeAndExecute('embeddings', 'embed', {
+                texts: textsToEmbed,
+                context: 'graphrag-local-vector'
+            }, this._resolvedConfig);
 
-            if (embResult.success && embResult.embeddings?.[0]) {
-                const queryEmbedding = embResult.embeddings[0];
+            if (embRouterResult.success && embRouterResult.result?.embeddings?.[0]) {
+                const allEmbeddings = embRouterResult.result.embeddings;
+                const queryEmbedding = allEmbeddings.length > 1
+                    ? this._averageEmbeddings(allEmbeddings)
+                    : allEmbeddings[0];
                 const { cosineSimilarity } = require('../utils/vectorSimilarity');
 
                 const scored = embeddingsData.embeddings
@@ -1351,36 +1933,43 @@ class GraphRAGEngine {
             this.semanticSearch(query, queryAnalysis)
         ]);
 
-        // Merge and deduplicate results
+        // Use Reciprocal Rank Fusion if Reranker is available
+        if (this.useReranker && this.reranker && (structuralResults.length > 0 || semanticResults.length > 0)) {
+            try {
+                const fused = this.reranker.reciprocalRankFusion(
+                    [structuralResults, semanticResults],
+                    60
+                );
+                log.debug({ event: 'graphrag_rrf_fused', structural: structuralResults.length, semantic: semanticResults.length, fused: fused.length }, 'RRF fusion applied');
+                return fused.slice(0, 15);
+            } catch (e) {
+                log.warn({ event: 'graphrag_rrf_error', reason: e.message }, 'RRF fusion failed, using naive merge');
+            }
+        }
+
+        // Fallback: naive merge with dedup
         const merged = [];
         const seen = new Set();
 
-        // Prioritize structural results
         for (const result of structuralResults) {
-            const key = `${result.type}:${result.content?.substring(0, 50)}`;
+            const key = result.data?.id || `${result.type}:${result.content?.substring(0, 80)}`;
             if (!seen.has(key)) {
                 seen.add(key);
                 merged.push({ ...result, searchType: 'structural' });
             }
         }
 
-        // Add semantic results
         for (const result of semanticResults) {
-            const key = `${result.type}:${result.content?.substring(0, 50)}`;
+            const key = result.data?.id || `${result.type}:${result.content?.substring(0, 80)}`;
             if (!seen.has(key)) {
                 seen.add(key);
                 merged.push({ ...result, searchType: 'semantic' });
             }
         }
 
-        // Sort by relevance (similarity if available, otherwise structural first)
         merged.sort((a, b) => {
-            if (a.similarity && b.similarity) {
-                return b.similarity - a.similarity;
-            }
-            if (a.searchType === 'structural' && b.searchType !== 'structural') {
-                return -1;
-            }
+            if (a.similarity && b.similarity) return b.similarity - a.similarity;
+            if (a.searchType === 'structural' && b.searchType !== 'structural') return -1;
             return 0;
         });
 
@@ -1410,28 +1999,44 @@ class GraphRAGEngine {
             groupedResults[type].push(r);
         }
 
-        // Build structured context
+        // Build structured context with character budget
+        const MAX_CONTEXT_CHARS = 8000;
         const contextParts = [];
         let sourceIndex = 1;
-        const sourceMap = new Map();
+        let totalChars = 0;
 
         for (const [type, items] of Object.entries(groupedResults)) {
             const typeLabel = this.getTypeLabel(type);
             contextParts.push(`\n### ${typeLabel}:`);
 
             for (const item of items) {
-                const tag = `[${sourceIndex}]`;
-                sourceMap.set(sourceIndex, item);
+                if (totalChars >= MAX_CONTEXT_CHARS) break;
 
-                // Format content based on type
-                let content = item.content;
+                const tag = `[${sourceIndex}]`;
+                let content = item.content || '';
+
+                // Enrich based on entity type
                 if (item.data) {
-                    if (type === 'person' && item.data.organization) {
-                        content = `${item.data.name} - ${item.data.role || 'sem cargo'} (${item.data.organization})`;
+                    if (type === 'person' || type === 'contact') {
+                        const d = item.data;
+                        content = `${d.name || content} - ${d.role || 'sem cargo'}${d.organization ? ` (${d.organization})` : ''}${d.email ? ` [${d.email}]` : ''}`;
+                    } else if (type === 'relationship' && item.data.paths) {
+                        content = item.content;
+                    } else if (type === 'risk' && item.data) {
+                        const d = item.data;
+                        content = `${d.title || d.content || content}${d.severity ? ` | Severidade: ${d.severity}` : ''}${d.status ? ` | Status: ${d.status}` : ''}`;
+                    } else if (type === 'action' || type === 'task') {
+                        const d = item.data;
+                        content = `${d.title || content}${d.priority ? ` | Prioridade: ${d.priority}` : ''}${d.status ? ` | Status: ${d.status}` : ''}`;
                     }
                 }
 
-                contextParts.push(`${tag} ${content}`);
+                // Truncate individual items to prevent one huge item from consuming all budget
+                if (content.length > 500) content = content.substring(0, 500) + '...';
+
+                const line = `${tag} ${content}`;
+                totalChars += line.length;
+                contextParts.push(line);
                 sourceIndex++;
             }
         }
@@ -1474,23 +2079,22 @@ ${isPortuguese ? 'Pergunta' : 'Question'}: ${query}
 
 ${isPortuguese ? 'Responda de forma completa e estruturada:' : 'Answer completely and structured:'}`;
 
-        const llmResult = await llm.generateText({
-            provider: this.llmProvider,
-            model: this.llmModel,
+        const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
             prompt: userPrompt,
             system: systemPrompt,
-            temperature: 0.2, // Lower temperature for more consistent responses
-            maxTokens: 1500, // More tokens for complete answers
-            providerConfig: this.getProviderConfig(this.llmProvider)
-        });
+            temperature: 0.2,
+            maxTokens: 1500,
+            context: 'graphrag-generate-response'
+        }, this._resolvedConfig);
 
-        if (!llmResult.success) {
-            log.warn({ event: 'graphrag_llm_error', reason: llmResult.error }, 'LLM error');
+        if (!routerResult.success) {
+            log.warn({ event: 'graphrag_llm_error', reason: routerResult.error?.message || routerResult.error }, 'LLM error');
             return {
-                answer: `Erro ao gerar resposta: ${llmResult.error}`,
+                answer: `Erro ao gerar resposta: ${routerResult.error?.message || routerResult.error}`,
                 sources: []
             };
         }
+        const llmResult = { success: true, text: routerResult.result?.text || routerResult.result?.response };
 
         // Build sources list
         const sources = results.map((r, i) => ({
@@ -1515,15 +2119,26 @@ ${isPortuguese ? 'Responda de forma completa e estruturada:' : 'Answer completel
     getTypeLabel(type) {
         const labels = {
             'person': 'Pessoas',
+            'contact': 'Contactos',
             'project': 'Projetos',
             'meeting': 'Reuniões',
             'decision': 'Decisões',
             'task': 'Tarefas',
+            'action': 'Ações',
             'risk': 'Riscos',
             'fact': 'Factos',
+            'question': 'Questões',
             'technology': 'Tecnologias',
             'client': 'Clientes',
-            'document': 'Documentos'
+            'company': 'Empresas',
+            'document': 'Documentos',
+            'email': 'Emails',
+            'sprint': 'Sprints',
+            'team': 'Equipas',
+            'userstory': 'User Stories',
+            'calendarevent': 'Eventos de Calendário',
+            'relationship': 'Relações',
+            'other': 'Outros'
         };
         return labels[type.toLowerCase()] || type;
     }
@@ -1657,19 +2272,17 @@ ${isPortuguese ? 'Responda de forma completa e estruturada:' : 'Answer completel
             try {
                 const enrichedText = this.embeddingEnricher.enrichEntity(entity._type, entity, {});
 
-                const embResult = await llm.embed({
-                    provider: this.embeddingProvider,
-                    model: this.embeddingModel,
+                const embRouterResult = await llmRouter.routeAndExecute('embeddings', 'embed', {
                     texts: [enrichedText],
-                    providerConfig: this.getProviderConfig(this.embeddingProvider)
-                });
+                    context: 'graphrag-enriched-embed'
+                }, this._resolvedConfig);
 
-                if (embResult.success && embResult.embeddings?.[0]) {
+                if (embRouterResult.success && embRouterResult.result?.embeddings?.[0]) {
                     embeddings.push({
                         id: entity.id,
                         type: entity._type,
                         text: enrichedText,
-                        embedding: embResult.embeddings[0],
+                        embedding: embRouterResult.result.embeddings[0],
                         data: entity
                     });
                 }

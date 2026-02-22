@@ -25,8 +25,7 @@
  *     swallowed so that storage-only summaries can still be produced.
  */
 
-const llm = require('../llm');
-const llmConfig = require('../llm/config');
+const llmRouter = require('../llm/router');
 
 /**
  * Generates LLM-powered summaries from graph + storage context.
@@ -82,28 +81,21 @@ Generate a structured summary with these sections:
 Keep it concise but informative. Use bullet points where appropriate.`;
 
         try {
-            const textCfg = this.appConfig ? llmConfig.getTextConfig(this.appConfig) : null;
-            const provider = textCfg?.provider ?? this.llmProvider;
-            const model = textCfg?.model ?? this.llmModel;
-            const providerConfig = textCfg?.providerConfig ?? this.llmConfig?.providers?.[provider] ?? {};
-            if (!provider || !model) return { error: 'No LLM configured' };
-            const result = await llm.generateText({
-                provider,
-                providerConfig,
-                model,
+            const config = this.appConfig || { llm: this.llmConfig || { provider: this.llmProvider, models: { text: this.llmModel }, providers: { [this.llmProvider]: this.llmConfig?.providers?.[this.llmProvider] || {} } } };
+            const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
                 prompt,
                 temperature: 0.3,
                 maxTokens: 1500
-            });
+            }, config);
 
-            if (result.success) {
+            if (routerResult.success) {
                 return {
-                    summary: result.text,
+                    summary: routerResult.result?.text || routerResult.result?.response,
                     context,
                     generatedAt: new Date().toISOString()
                 };
             }
-            return { error: result.error };
+            return { error: routerResult.error?.message || routerResult.error };
         } catch (e) {
             return { error: e.message };
         }
@@ -124,31 +116,35 @@ Keep it concise but informative. Use bullet points where appropriate.`;
 
         // From storage
         if (this.storage) {
-            context.people = this.storage.getPeople().slice(0, 20).map(p => ({
+            const allPeople = await this.storage.getPeople();
+            context.people = (allPeople || []).slice(0, 20).map(p => ({
                 name: p.name,
                 role: p.role,
                 organization: p.organization
             }));
 
-            context.decisions = this.storage.getDecisions({ limit: 10 }).map(d => ({
+            const allDecisions = await this.storage.getDecisions();
+            context.decisions = (allDecisions || []).slice(0, 10).map(d => ({
                 content: d.content,
                 owner: d.owner,
                 date: d.date
             }));
 
-            context.risks = this.storage.getRisks({ limit: 10 }).map(r => ({
+            const allRisks = await this.storage.getRisks();
+            context.risks = (allRisks || []).slice(0, 10).map(r => ({
                 content: r.content,
                 impact: r.impact,
                 status: r.status
             }));
 
-            context.questions = this.storage.getQuestions({ status: 'pending', limit: 10 }).map(q => ({
+            const allQuestions = await this.storage.getQuestions('pending');
+            context.questions = (allQuestions || []).slice(0, 10).map(q => ({
                 content: q.content,
                 priority: q.priority
             }));
 
             // Extract topics from facts
-            const facts = this.storage.getFacts({ limit: 30 });
+            const facts = await this.storage.getFacts();
             const topicSet = new Set();
             facts.forEach(f => {
                 if (f.category && f.category !== 'general') {
@@ -212,16 +208,14 @@ Format as a brief ${period} update email that highlights:
 Keep it under 300 words.`;
 
         try {
-            const result = await llm.generateText({
-                provider: this.llmProvider,
-                providerConfig: this.llmConfig?.providers?.[this.llmProvider] || {},
-                model: this.llmModel,
+            const config = this.appConfig || { llm: this.llmConfig || { provider: this.llmProvider, models: { text: this.llmModel }, providers: { [this.llmProvider]: this.llmConfig?.providers?.[this.llmProvider] || {} } } };
+            const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
                 prompt,
                 temperature: 0.4,
                 maxTokens: 600
-            });
+            }, config);
 
-            return result.success ? { digest: result.text, period } : { error: result.error };
+            return routerResult.success ? { digest: routerResult.result?.text || routerResult.result?.response, period } : { error: routerResult.error?.message || routerResult.error };
         } catch (e) {
             return { error: e.message };
         }
@@ -262,26 +256,19 @@ Relationships: ${JSON.stringify(entity.relationships || [])}
 
 Provide a brief 2-3 sentence summary of who/what this is and their role in the project.`;
 
-            const textCfg = this.appConfig ? llmConfig.getTextConfig(this.appConfig) : null;
-            const provider = textCfg?.provider ?? this.llmProvider;
-            const model = textCfg?.model ?? this.llmModel;
-            const providerConfig = textCfg?.providerConfig ?? this.llmConfig?.providers?.[provider] ?? {};
-            if (!provider || !model) return { error: 'No LLM configured' };
-            const llmResult = await llm.generateText({
-                provider,
-                providerConfig,
-                model,
+            const config = this.appConfig || { llm: this.llmConfig || { provider: this.llmProvider, models: { text: this.llmModel }, providers: { [this.llmProvider]: this.llmConfig?.providers?.[this.llmProvider] || {} } } };
+            const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
                 prompt,
                 temperature: 0.3,
                 maxTokens: 300
-            });
+            }, config);
 
-            return llmResult.success ? {
+            return routerResult.success ? {
                 entity: entityName,
                 type: entityType,
-                summary: llmResult.text,
+                summary: routerResult.result?.text || routerResult.result?.response,
                 relationships: entity.relationships
-            } : { error: llmResult.error };
+            } : { error: routerResult.error?.message || routerResult.error };
         } catch (e) {
             return { error: e.message };
         }

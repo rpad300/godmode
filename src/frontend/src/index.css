@@ -138,6 +138,49 @@
 
   --gm-accent-primary: var(--color-brand-500);
   --gm-accent-glow: 0 0 20px rgba(59, 130, 246, 0.4);
+
+  /* GODMODE Design System aliases (unprefixed) */
+  --bg-primary: var(--gm-bg-primary);
+  --bg-secondary: var(--gm-bg-secondary);
+  --bg-tertiary: var(--gm-bg-tertiary);
+  --bg-elevated: var(--gm-bg-elevated);
+  --bg-overlay: var(--gm-bg-overlay);
+  --bg-glass: var(--gm-bg-glass);
+  --surface-primary: var(--gm-surface-primary);
+  --surface-secondary: var(--gm-surface-secondary);
+  --surface-hover: var(--gm-surface-hover);
+  --surface-active: var(--gm-surface-active);
+  --border-primary: var(--gm-border-primary);
+  --border-secondary: var(--gm-border-secondary);
+  --border-focus: var(--gm-border-focus);
+  --text-primary: var(--gm-text-primary);
+  --text-secondary: var(--gm-text-secondary);
+  --text-tertiary: var(--gm-text-tertiary);
+  --text-placeholder: var(--gm-text-placeholder);
+  --text-on-brand: var(--gm-text-on-brand);
+  --interactive-primary: var(--gm-interactive-primary);
+  --interactive-primary-hover: var(--gm-interactive-primary-hover);
+  --interactive-secondary: var(--gm-interactive-secondary);
+  --interactive-secondary-hover: var(--gm-interactive-secondary-hover);
+  --status-success: var(--gm-status-success);
+  --status-success-bg: var(--gm-status-success-bg);
+  --status-warning: var(--gm-status-warning);
+  --status-warning-bg: var(--gm-status-warning-bg);
+  --status-danger: var(--gm-status-danger);
+  --status-danger-bg: var(--gm-status-danger-bg);
+  --status-info: var(--gm-status-info);
+  --status-info-bg: var(--gm-status-info-bg);
+  --accent-primary: var(--gm-accent-primary);
+  --accent-glow: var(--gm-accent-glow);
+
+  /* Radius tokens */
+  --radius-sm: 0.25rem;
+  --radius-base: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.5rem;
+  --radius-full: 9999px;
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -206,6 +249,40 @@
   --gm-accent-glow: 0 0 20px rgba(96, 165, 250, 0.5);
 
   --shadow-glass: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+
+  /* GODMODE Design System aliases — dark overrides */
+  --bg-primary: var(--gm-bg-primary);
+  --bg-secondary: var(--gm-bg-secondary);
+  --bg-tertiary: var(--gm-bg-tertiary);
+  --bg-elevated: var(--gm-bg-elevated);
+  --bg-overlay: var(--gm-bg-overlay);
+  --bg-glass: var(--gm-bg-glass);
+  --surface-primary: var(--gm-surface-primary);
+  --surface-secondary: var(--gm-surface-secondary);
+  --surface-hover: var(--gm-surface-hover);
+  --surface-active: var(--gm-surface-active);
+  --border-primary: var(--gm-border-primary);
+  --border-secondary: var(--gm-border-secondary);
+  --border-focus: var(--gm-border-focus);
+  --text-primary: var(--gm-text-primary);
+  --text-secondary: var(--gm-text-secondary);
+  --text-tertiary: var(--gm-text-tertiary);
+  --text-placeholder: var(--gm-text-placeholder);
+  --text-on-brand: var(--gm-text-on-brand);
+  --interactive-primary: var(--gm-interactive-primary);
+  --interactive-primary-hover: var(--gm-interactive-primary-hover);
+  --interactive-secondary: var(--gm-interactive-secondary);
+  --interactive-secondary-hover: var(--gm-interactive-secondary-hover);
+  --status-success: var(--gm-status-success);
+  --status-success-bg: var(--gm-status-success-bg);
+  --status-warning: var(--gm-status-warning);
+  --status-warning-bg: var(--gm-status-warning-bg);
+  --status-danger: var(--gm-status-danger);
+  --status-danger-bg: var(--gm-status-danger-bg);
+  --status-info: var(--gm-status-info);
+  --status-info-bg: var(--gm-status-info-bg);
+  --accent-primary: var(--gm-accent-primary);
+  --accent-glow: var(--gm-accent-glow);
 }
 
 /* ═══════════════════════════════════════════════════════

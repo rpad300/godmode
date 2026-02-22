@@ -30,10 +30,9 @@
  */
 
 const { logger } = require('../logger');
-const llm = require('../llm');
+const llmRouter = require('../llm/router');
 
 const log = logger.child({ module: 'decision-check' });
-const llmConfig = require('../llm/config');
 const promptsService = require('../supabase/prompts');
 
 /**
@@ -64,12 +63,6 @@ async function runDecisionCheck(storage, config, options = {}) {
         return { conflicts: [], analyzed_decisions: allDecisions.length, events_recorded: 0 };
     }
 
-    const llmCfg = llmConfig.getTextConfigForReasoning(config);
-    if (!llmCfg?.provider || !llmCfg?.model) {
-        log.debug({ event: 'decision_check_no_llm' }, 'No AI/LLM configured, skipping analysis');
-        return { conflicts: [], analyzed_decisions: allDecisions.length, events_recorded: 0 };
-    }
-
     const decisionsText = allDecisions.map((d, i) =>
         `[${i + 1}] ${d.content}${d.status ? ` (Status: ${d.status})` : ''}${d.owner ? ` (Owner: ${d.owner})` : ''}`
     ).join('\n');
@@ -92,20 +85,18 @@ IMPORTANT: Only output the JSON array, nothing else.`;
 
     let rawConflicts = [];
     try {
-        const result = await llm.generateText({
-            provider: llmCfg.provider,
-            providerConfig: llmCfg.providerConfig,
-            model: llmCfg.model,
+        const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
             prompt,
             temperature: 0.1,
             maxTokens: 2048,
             context: 'decision-check'
-        });
-        const raw = (result.text || result.response || '').trim();
-        if (!result.success) {
-            log.warn({ event: 'decision_check_ai_failed', reason: result.error }, 'AI request failed');
-            return { conflicts: [], analyzed_decisions: allDecisions.length, events_recorded: 0, error: result.error || 'AI request failed' };
+        }, config);
+        if (!routerResult.success) {
+            const errMsg = routerResult.error?.message || routerResult.error || 'AI request failed';
+            log.warn({ event: 'decision_check_ai_failed', reason: errMsg }, 'AI request failed');
+            return { conflicts: [], analyzed_decisions: allDecisions.length, events_recorded: 0, error: errMsg };
         }
+        const raw = (routerResult.result?.text || '').trim();
         const jsonMatch = raw.match(/\[[\s\S]*\]/);
         if (jsonMatch) {
             const parsed = JSON.parse(jsonMatch[0]);

@@ -66,6 +66,7 @@
 const { parseUrl, parseBody } = require('../../server/request');
 const { getLogger } = require('../../server/requestContext');
 const { jsonResponse } = require('../../server/response');
+const llmRouter = require('../../llm/router');
 
 /**
  * Check if pathname matches any knowledge route pattern
@@ -86,7 +87,7 @@ function isKnowledgeRoute(pathname) {
  * @returns {Promise<boolean>} - true if route was handled, false otherwise
  */
 async function handleKnowledge(ctx) {
-    const { req, res, pathname, storage, config, llm, llmConfig } = ctx;
+    const { req, res, pathname, storage, config } = ctx;
     const log = getLogger().child({ module: 'knowledge' });
     // Quick check - if not a knowledge route, return false immediately
     if (!isKnowledgeRoute(pathname)) {
@@ -102,7 +103,7 @@ async function handleKnowledge(ctx) {
             status: parsedUrl.query.status,
             priority: parsedUrl.query.priority
         };
-        const questions = storage.getQuestions(filters);
+        const questions = await storage.getQuestions(filters.status, filters.priority);
         jsonResponse(res, { questions });
         return true;
     }
@@ -117,7 +118,7 @@ async function handleKnowledge(ctx) {
             return true;
         }
 
-        const result = storage.addQuestion({
+        const result = await storage.addQuestion({
             content: content.trim(),
             priority: priority || 'medium',
             assigned_to: assigned_to || null,
@@ -179,7 +180,7 @@ async function handleKnowledge(ctx) {
         const reason = body.reason || 'deleted';
         
         try {
-            const questions = storage.getQuestions();
+            const questions = await storage.getQuestions();
             const question = questions.find(q => 
                 q.id === questionId || String(q.id) === String(questionId)
             );
@@ -217,14 +218,14 @@ async function handleKnowledge(ctx) {
 
     // GET /api/questions/by-person
     if (pathname === '/api/questions/by-person' && req.method === 'GET') {
-        const grouped = storage.getQuestionsByPerson();
+        const grouped = await storage.getQuestionsByPerson();
         jsonResponse(res, { questionsByPerson: grouped });
         return true;
     }
 
     // GET /api/questions/by-team
     if (pathname === '/api/questions/by-team' && req.method === 'GET') {
-        const grouped = storage.getQuestionsByTeam();
+        const grouped = await storage.getQuestionsByTeam();
         jsonResponse(res, { questionsByTeam: grouped });
         return true;
     }
@@ -269,7 +270,7 @@ async function handleKnowledge(ctx) {
             return true;
         }
 
-        const result = storage.addFact({
+        const result = await storage.addFact({
             content: content.trim(),
             category: category || 'General',
             source_file: 'quick_capture'
@@ -638,7 +639,7 @@ async function handleKnowledge(ctx) {
 
     // GET /api/risks/by-category
     if (pathname === '/api/risks/by-category' && req.method === 'GET') {
-        const grouped = storage.getRisksByCategory();
+        const grouped = await storage.getRisksByCategory();
         jsonResponse(res, grouped);
         return true;
     }
@@ -791,7 +792,7 @@ async function handleKnowledge(ctx) {
     // GET /api/actions/report – counts by status, by assignee, by sprint
     if (pathname === '/api/actions/report' && req.method === 'GET') {
         try {
-            const actions = storage.getActions ? await storage.getActions() : (storage.getActionItems ? storage.getActionItems() : []);
+            const actions = await storage.getActions();
             const byStatus = {};
             const byAssignee = {};
             const bySprint = {};
@@ -819,7 +820,7 @@ async function handleKnowledge(ctx) {
         const owner = parsedUrl.query.owner;
         const sprintId = parsedUrl.query.sprint_id || null;
         const decisionId = parsedUrl.query.decision_id || null;
-        const actions = storage.getActions ? await storage.getActions(status, owner, sprintId, decisionId) : (storage.getActionItems ? storage.getActionItems(status) : []);
+        const actions = await storage.getActions(status, owner, sprintId, decisionId);
         jsonResponse(res, { actions: Array.isArray(actions) ? actions : [] });
         return true;
     }
@@ -886,8 +887,6 @@ async function handleKnowledge(ctx) {
                 return true;
             }
             const promptsService = require('../../supabase/prompts');
-            const llm = require('../../llm');
-            const llmConfig = require('../../llm/config');
             const promptRecord = await promptsService.getPrompt('task_description_from_rules');
             const template = promptRecord?.prompt_template || null;
             if (!template) {
@@ -898,23 +897,15 @@ async function handleKnowledge(ctx) {
                 USER_INPUT: userInput,
                 PARENT_STORY_REF: body.parent_story_ref || body.parent_story || ''
             });
-            const llmCfg = llmConfig.getTextConfigForReasoning(config);
-            if (!llmCfg?.provider || !llmCfg?.model) {
-                jsonResponse(res, { error: 'No AI/LLM configured' }, 400);
-                return true;
-            }
-            const result = await llm.generateText({
-                provider: llmCfg.provider,
-                providerConfig: llmCfg.providerConfig,
-                model: llmCfg.model,
+            const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
                 prompt,
                 temperature: 0.3,
                 maxTokens: 1024,
                 context: 'task-description-from-rules'
-            });
-            const raw = (result.text || result.response || '').trim();
-            if (!result.success) {
-                jsonResponse(res, { error: result.error || 'AI request failed' }, 400);
+            }, config);
+            const raw = (routerResult.result?.text || routerResult.result?.response || '').trim();
+            if (!routerResult.success) {
+                jsonResponse(res, { error: routerResult.error || 'AI request failed' }, 400);
                 return true;
             }
             const jsonMatch = raw.match(/\{[\s\S]*\}/);
@@ -1069,7 +1060,7 @@ async function handleKnowledge(ctx) {
     if (actionSimilarMatch && req.method === 'GET') {
         try {
             const actionId = actionSimilarMatch[1];
-            const actions = storage.getActions ? await storage.getActions() : (storage.getActionItems ? storage.getActionItems() : []);
+            const actions = await storage.getActions();
             const action = (actions || []).find((a) => String(a.id) === String(actionId));
             if (!action) {
                 jsonResponse(res, { error: 'Action not found', similar: [] }, 404);
@@ -1080,21 +1071,15 @@ async function handleKnowledge(ctx) {
                 jsonResponse(res, { similar: [] });
                 return true;
             }
-            const embedCfg = llmConfig && llmConfig.getEmbeddingsConfig ? llmConfig.getEmbeddingsConfig(config) : null;
-            if (!embedCfg?.provider || !embedCfg?.model || !llm?.embed) {
-                jsonResponse(res, { similar: [], hint: 'Embeddings not configured' });
+            const embedRouterResult = await llmRouter.routeAndExecute('embeddings', 'embed', {
+                texts: [queryText],
+                context: 'actions-similar'
+            }, config);
+            if (!embedRouterResult.success || !embedRouterResult.result?.embeddings?.[0]) {
+                jsonResponse(res, { similar: [], hint: 'Embeddings not configured or failed' });
                 return true;
             }
-            const embedResult = await llm.embed({
-                provider: embedCfg.provider,
-                providerConfig: embedCfg.providerConfig,
-                model: embedCfg.model,
-                texts: [queryText]
-            });
-            if (!embedResult.success || !embedResult.embeddings?.[0]) {
-                jsonResponse(res, { similar: [], hint: 'Embedding failed' });
-                return true;
-            }
+            const embedResult = embedRouterResult.result;
             const results = await storage.searchWithEmbedding(queryText, embedResult.embeddings[0], {
                 entityTypes: ['action_item'],
                 limit: 7,
@@ -1240,7 +1225,7 @@ async function handleKnowledge(ctx) {
     
     // GET /api/people
     if (pathname === '/api/people' && req.method === 'GET') {
-        const people = storage.getPeople();
+        const people = await storage.getPeople();
         jsonResponse(res, { people });
         return true;
     }

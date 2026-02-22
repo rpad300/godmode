@@ -70,6 +70,7 @@ async function pathExists(p) {
     try { await fsp.access(p); return true; } catch { return false; }
 }
 const { jsonResponse } = require('../../server/response');
+const llmRouter = require('../../llm/router');
 
 function isRagRoute(pathname) {
     return pathname === '/api/export/knowledge' || pathname === '/api/export/questions' ||
@@ -137,7 +138,7 @@ async function handleRag(ctx) {
 
     // GET /api/knowledge/status
     if (pathname === '/api/knowledge/status' && req.method === 'GET') {
-        const status = storage.getEmbeddingStatus();
+        const status = await storage.getEmbeddingStatus();
         const embedCfg = llmConfig.getEmbeddingsConfig(config);
         const embedProvider = embedCfg?.provider;
         const providerConfig = embedCfg?.providerConfig || {};
@@ -173,7 +174,8 @@ async function handleRag(ctx) {
     // POST /api/knowledge/synthesize
     if (pathname === '/api/knowledge/synthesize' && req.method === 'POST') {
         const body = await parseBody(req);
-        const reasoningModel = body.model || config.ollama?.reasoningModel || config.ollama?.model || 'qwen3:30b';
+        const llmCfg = llmConfig?.getTextConfigForReasoning?.(config) || llmConfig?.getTextConfig?.(config);
+        const reasoningModel = body.model || llmCfg?.model || config.ollama?.reasoningModel || config.ollama?.model || null;
         log.debug({ event: 'rag_synthesis_start', reasoningModel }, 'Starting knowledge synthesis');
         try {
             const result = await processor.synthesizeKnowledge(reasoningModel, (progress, message) => {
@@ -333,7 +335,8 @@ async function handleRag(ctx) {
     // POST /api/knowledge/resynthesis
     if (pathname === '/api/knowledge/resynthesis' && req.method === 'POST') {
         const body = await parseBody(req);
-        const reasoningModel = body.model || config.ollama?.reasoningModel || config.ollama?.model || 'qwen3:30b';
+        const llmCfg2 = llmConfig?.getTextConfigForReasoning?.(config) || llmConfig?.getTextConfig?.(config);
+        const reasoningModel = body.model || llmCfg2?.model || config.ollama?.reasoningModel || config.ollama?.model || null;
         const force = body.force === true;
         const requestProvider = body.provider;
 
@@ -379,8 +382,8 @@ async function handleRag(ctx) {
     if (pathname === '/api/questions/enrich' && req.method === 'POST') {
         try {
             await processor.enrichQuestionsWithPeople();
-            const questions = storage.getQuestions();
-            const assigned = questions.filter(q => q.assigned_to && q.assigned_to.length > 2);
+            const questions = await storage.getQuestions();
+            const assigned = (questions || []).filter(q => q.assigned_to && q.assigned_to.length > 2);
             jsonResponse(res, {
                 success: true,
                 message: 'Enriched questions with person assignments',
@@ -476,9 +479,9 @@ async function handleRag(ctx) {
             }
         }
 
-        storage.saveKnowledgeJSON();
-        storage.saveQuestionsJSON();
-        const items = storage.getAllItemsForEmbedding();
+        await storage.saveKnowledgeJSON();
+        await storage.saveQuestionsJSON();
+        const items = await storage.getAllItemsForEmbedding();
 
         if (items.length === 0) {
             jsonResponse(res, { success: false, error: 'No items to embed. Process some documents first.' });
@@ -496,19 +499,17 @@ async function handleRag(ctx) {
             const progress = Math.round(((i + batch.length) / texts.length) * 100);
             log.debug({ event: 'rag_embed_progress', progress, current: i + batch.length, total: texts.length }, 'Embedding progress');
 
-            const result = await llm.embed({
-                provider: embedProvider,
-                providerConfig: embedProviderConfig,
-                model,
-                texts: batch
-            });
+            const embedRouterResult = await llmRouter.routeAndExecute('embeddings', 'embed', {
+                texts: batch,
+                context: 'rag-embed'
+            }, config);
 
-            if (result.success && result.embeddings) {
-                allEmbeddings.push(...result.embeddings);
+            if (embedRouterResult.success && embedRouterResult.result?.embeddings) {
+                allEmbeddings.push(...embedRouterResult.result.embeddings);
             } else {
                 for (let j = 0; j < batch.length; j++) {
                     allEmbeddings.push(null);
-                    errors.push({ index: i + j, error: result.error });
+                    errors.push({ index: i + j, error: embedRouterResult.error });
                 }
             }
         }
@@ -575,28 +576,26 @@ async function handleRag(ctx) {
                 jsonResponse(res, { error: 'No embeddings configured. Set in Settings > LLM.', results: [], fallback_text: true });
                 return true;
             }
-            const queryResult = await llm.embed({
-                provider: embedProvider,
-                providerConfig: embedProviderConfig,
-                model: embedModel,
-                texts: [query]
-            });
+            const searchEmbedResult = await llmRouter.routeAndExecute('embeddings', 'embed', {
+                texts: [query],
+                context: 'rag-search'
+            }, config);
 
-            if (!queryResult.success || !queryResult.embeddings?.[0]) {
+            if (!searchEmbedResult.success || !searchEmbedResult.result?.embeddings?.[0]) {
                 jsonResponse(res, {
-                    error: 'Failed to generate query embedding: ' + (queryResult.error || 'No embedding returned'),
+                    error: 'Failed to generate query embedding: ' + (searchEmbedResult.error || 'No embedding returned'),
                     results: []
                 });
                 return true;
             }
 
-            queryResult.embedding = queryResult.embeddings[0];
+            const queryResult = { embedding: searchEmbedResult.result.embeddings[0] };
             const itemsWithEmbeddings = embeddingsData.embeddings
                 .filter(e => e.embedding && (!types || types.includes(e.type)));
             const similar = vectorSimilarity.findSimilar(queryResult.embedding, itemsWithEmbeddings, topK);
 
             const resultIds = similar.map(s => s.id);
-            const items = storage.getItemsByIds(resultIds);
+            const items = await storage.getItemsByIds(resultIds);
             const results = similar.map(s => {
                 const item = items.find(i => i.id === s.id);
                 return { ...item, similarity: s.similarity };

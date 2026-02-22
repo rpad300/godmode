@@ -32,7 +32,9 @@ interface Project {
     name: string;
     description?: string;
     company_id?: string;
-    role?: string; // Member role
+    role?: string;
+    member_role?: string;
+    user_role?: string;
     isDefault?: boolean;
     settings?: any;
 }

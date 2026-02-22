@@ -43,11 +43,11 @@
 const { parseUrl } = require('../../server/request');
 const { getLogger } = require('../../server/requestContext');
 const { jsonResponse } = require('../../server/response');
-const llmConfig = require('../../llm/config');
+const llmRouter = require('../../llm/router');
 const comments = require('../../supabase/comments');
 
 async function handleBriefing(ctx) {
-    const { req, res, pathname, storage, config, llm, briefingCache, isBriefingCacheValid } = ctx;
+    const { req, res, pathname, storage, config, briefingCache, isBriefingCacheValid } = ctx;
     const log = getLogger().child({ module: 'briefing' });
 
     // GET /api/briefing/history - Must match before /api/briefing
@@ -102,22 +102,12 @@ async function handleBriefing(ctx) {
             return true;
         }
 
-        const briefingTextCfg = llmConfig.getTextConfig(config);
-        const llmProvider = briefingTextCfg.provider;
-        const model = briefingTextCfg.model;
-
-        if (!model) {
-            jsonResponse(res, { error: 'No model configured. Please configure a text model in Settings.', briefing: null });
-            return true;
-        }
-
-        log.debug({ event: 'briefing_provider', llmProvider, model }, 'Using provider and model');
-
-        const stats = storage.getStats();
-        const allQuestions = storage.getQuestions({});
-        const allRisks = storage.getRisks ? await storage.getRisks() : [];
-        const allActions = storage.getActionItems();
-        const currentProject = storage.getCurrentProject();
+        const [allQuestions, allRisks, allActions, currentProject] = await Promise.all([
+            storage.getQuestions(),
+            storage.getRisks(),
+            storage.getActions(),
+            storage.getCurrentProject(),
+        ]);
 
         const criticalQuestions = allQuestions.filter(q => q.priority === 'critical' && q.status !== 'resolved');
         const highRisks = allRisks.filter(r => (r.impact || '').toLowerCase() === 'high' && r.status !== 'mitigated');
@@ -145,7 +135,8 @@ async function handleBriefing(ctx) {
             roleContext += `\nRole Context: ${userRolePrompt}`;
         }
 
-        const recentFacts = storage.getFacts().slice(0, 5).map(f => f.content?.substring(0, 100)).join('; ');
+        const allFacts = await storage.getFacts();
+        const recentFacts = (allFacts || []).slice(0, 5).map(f => f.content?.substring(0, 100)).join('; ');
         const openRisksList = allRisks.filter(r => r.status !== 'mitigated').slice(0, 3).map(r => r.content?.substring(0, 80)).join('; ');
         const pendingQuestionsList = allQuestions.filter(q => q.status !== 'resolved').slice(0, 3).map(q => q.content?.substring(0, 80)).join('; ');
 
@@ -232,17 +223,14 @@ RESPOND WITH THIS EXACT FORMAT:
 START YOUR RESPONSE WITH THE FIRST BULLET POINT.`;
 
         try {
-            const providerConfig = config.llm?.providers?.[llmProvider] || {};
-            const result = await llm.generateText({
-                provider: llmProvider,
-                model: model,
+            const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
                 prompt: briefingPrompt,
                 temperature: 0.6,
                 maxTokens: 1000,
-                providerConfig: providerConfig,
-                context: 'briefing'
-            });
-            if (result.success) {
+                context: 'briefing-generate'
+            }, config);
+            if (routerResult.success) {
+                const result = routerResult.result || {};
                 let fullResponse = result.text || result.response || '';
 
                 fullResponse = fullResponse
@@ -322,8 +310,8 @@ START YOUR RESPONSE WITH THE FIRST BULLET POINT.`;
                 try {
                     const savedBriefing = await storage.saveBriefing(responseData, {
                         summary: cleanBriefing.substring(0, 500),
-                        provider: llmProvider,
-                        model: model,
+                    provider: routerResult.routing?.provider,
+                    model: routerResult.routing?.model,
                         tokensUsed: result.usage?.total || null,
                         generationTime: result.latency || null
                     });
@@ -351,7 +339,7 @@ START YOUR RESPONSE WITH THE FIRST BULLET POINT.`;
 
                 jsonResponse(res, responseData);
             } else {
-                jsonResponse(res, { error: result.error, briefing: null });
+                jsonResponse(res, { error: routerResult.error, briefing: null });
             }
         } catch (e) {
             jsonResponse(res, { error: e.message, briefing: null });

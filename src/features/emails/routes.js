@@ -55,10 +55,10 @@ const { getLogger } = require('../../server/requestContext');
 const { logError } = require('../../logger');
 const { jsonResponse } = require('../../server/response');
 const emailParser = require('../../emailParser');
-const llmConfig = require('../../llm/config');
+const llmRouter = require('../../llm/router');
 
 async function handleEmails(ctx) {
-    const { req, res, pathname, storage, config, llm } = ctx;
+    const { req, res, pathname, storage, config } = ctx;
     const log = getLogger().child({ module: 'emails' });
 
     // GET /api/emails - List emails for current project
@@ -289,14 +289,8 @@ async function handleEmails(ctx) {
 
             let aiAnalysis = null;
             let extractedEntities = { facts: 0, decisions: 0, risks: 0, actions: 0, questions: 0, people: 0 };
-            const emailTextCfg = llmConfig.getTextConfig(config);
-            const llmProvider = emailTextCfg.provider;
-            const model = emailTextCfg.model;
 
-            log.debug({ event: 'emails_llm_config', provider: llmProvider, model }, 'LLM config');
-
-            if (llmProvider && model) {
-                try {
+            try {
                     const promptsService = require('../../supabase/prompts');
                     const supabasePromptObj = await promptsService.getPrompt('email');
                     const supabasePrompt = supabasePromptObj?.prompt_template || null;
@@ -311,20 +305,16 @@ async function handleEmails(ctx) {
                         supabasePrompt: supabasePrompt,
                         contextVariables: contextVariables
                     });
-                    const providerConfig = config.llm?.providers?.[llmProvider] || {};
-
-                    const result = await llm.generateText({
-                        provider: llmProvider,
-                        model: model,
+                    const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
                         prompt: analysisPrompt,
                         temperature: 0.3,
                         maxTokens: 2500,
-                        context: 'email',
-                        providerConfig: providerConfig
-                    });
+                        context: 'email-analyze'
+                    }, config);
 
-                    if (result.success) {
+                    if (routerResult.success) {
                         try {
+                            const result = routerResult.result || {};
                             let jsonText = result.text || result.response || '';
                             const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
                             if (jsonMatch) {
@@ -469,11 +459,8 @@ async function handleEmails(ctx) {
                             log.warn({ event: 'emails_parse_analysis_failed', reason: parseError.message }, 'Failed to parse AI analysis');
                         }
                     }
-                } catch (aiError) {
-                    log.warn({ event: 'emails_ai_analysis_failed', reason: aiError.message }, 'AI analysis failed');
-                }
-            } else {
-                log.debug({ event: 'emails_skip_ai' }, 'Skipping AI analysis - no LLM configured');
+            } catch (aiError) {
+                log.warn({ event: 'emails_ai_analysis_failed', reason: aiError.message }, 'AI analysis failed');
             }
 
             try {
@@ -547,35 +534,21 @@ async function handleEmails(ctx) {
                 return true;
             }
 
-            const emailTextCfg = llmConfig.getTextConfig(config);
-            const llmProvider = emailTextCfg.provider;
-            const model = emailTextCfg.model;
-
-            if (!llmProvider || !model) {
-                jsonResponse(res, { ok: false, error: 'No LLM configured. Please configure an LLM in Settings.' }, 400);
-                return true;
-            }
-
-            log.debug({ event: 'emails_response_draft', provider: llmProvider, model }, 'Generating draft');
-
             const facts = (await storage.getFacts()).slice(0, 10);
             const questions = (await storage.getQuestions()).filter(q => q.status !== 'resolved').slice(0, 5);
             const decisions = (await storage.getDecisions()).slice(0, 5);
 
             const responsePrompt = emailParser.buildResponsePrompt(email, { facts, questions, decisions });
-            const providerConfig = config.llm?.providers?.[llmProvider] || {};
 
-            const result = await llm.generateText({
-                provider: llmProvider,
-                model: model,
+            const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
                 prompt: responsePrompt,
                 temperature: 0.7,
                 maxTokens: 1000,
-                context: 'email_draft',
-                providerConfig: providerConfig
-            });
+                context: 'email-draft'
+            }, config);
 
-            if (result.success) {
+            if (routerResult.success) {
+                const result = routerResult.result || {};
                 const draftResponse = result.text || result.response || '';
 
                 await storage.updateEmail(emailId, {
@@ -590,7 +563,7 @@ async function handleEmails(ctx) {
                     email: await storage.getEmail(emailId)
                 });
             } else {
-                jsonResponse(res, { ok: false, error: 'Failed to generate response' }, 500);
+                jsonResponse(res, { ok: false, error: routerResult.error || 'Failed to generate response' }, 500);
             }
         } catch (error) {
             log.warn({ event: 'emails_response_generation_error', reason: error?.message }, 'Response generation error');
@@ -760,15 +733,6 @@ async function handleEmails(ctx) {
                 return true;
             }
 
-            const emailTextCfg = llmConfig.getTextConfig(config);
-            const llmProvider = emailTextCfg.provider;
-            const model = emailTextCfg.model;
-
-            if (!llmProvider || !model) {
-                jsonResponse(res, { ok: false, error: 'No LLM configured' }, 400);
-                return true;
-            }
-
             const prompt = `/no_think
 Categorize this email. Return JSON only.
 
@@ -779,12 +743,12 @@ Body: ${(email.body_text || '').substring(0, 2000)}
 Output format:
 {"category": "meeting|project|sales|support|personal|newsletter|other", "priority": "urgent|high|medium|low", "sentiment": "positive|neutral|negative"}`;
 
-            const providerConfig = config.llm?.providers?.[llmProvider] || {};
-            const result = await llm.generateText({
-                provider: llmProvider, model, prompt, temperature: 0.2, maxTokens: 200, context: 'email_categorize', providerConfig,
-            });
+            const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
+                prompt, temperature: 0.2, maxTokens: 200, context: 'email-categorize',
+            }, config);
 
-            if (result.success) {
+            if (routerResult.success) {
+                const result = routerResult.result || {};
                 const jsonMatch = (result.text || '').match(/\{[\s\S]*\}/);
                 if (jsonMatch) {
                     const parsed = JSON.parse(jsonMatch[0]);
@@ -815,15 +779,6 @@ Output format:
                 return true;
             }
 
-            const emailTextCfg = llmConfig.getTextConfig(config);
-            const llmProvider = emailTextCfg.provider;
-            const model = emailTextCfg.model;
-
-            if (!llmProvider || !model) {
-                jsonResponse(res, { ok: false, error: 'No LLM configured' }, 400);
-                return true;
-            }
-
             const prompt = `/no_think
 Summarize this email in 2-3 sentences. Output only the summary text, no JSON.
 
@@ -831,17 +786,17 @@ Subject: ${email.subject || ''}
 From: ${email.from_name || email.from_email || ''}
 Body: ${(email.body_text || '').substring(0, 3000)}`;
 
-            const providerConfig = config.llm?.providers?.[llmProvider] || {};
-            const result = await llm.generateText({
-                provider: llmProvider, model, prompt, temperature: 0.3, maxTokens: 300, context: 'email_summarize', providerConfig,
-            });
+            const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
+                prompt, temperature: 0.3, maxTokens: 300, context: 'email-summarize',
+            }, config);
 
-            if (result.success) {
+            if (routerResult.success) {
+                const result = routerResult.result || {};
                 const summary = (result.text || '').trim();
                 await storage.updateEmail(emailId, { ai_summary: summary });
                 jsonResponse(res, { ok: true, summary });
             } else {
-                jsonResponse(res, { ok: false, error: 'Failed to summarize' }, 500);
+                jsonResponse(res, { ok: false, error: routerResult.error || 'Failed to summarize' }, 500);
             }
         } catch (error) {
             jsonResponse(res, { ok: false, error: error.message }, 500);

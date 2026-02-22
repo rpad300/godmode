@@ -34,8 +34,7 @@
  */
 
 const { logger } = require('../logger');
-const llm = require('../llm');
-const llmConfig = require('../llm/config');
+const llmRouter = require('../llm/router');
 
 const log = logger.child({ module: 'entity-resolver' });
 
@@ -57,7 +56,8 @@ class EntityResolver {
         this.llmModel = options.llmModel || null;
         this.llmConfig = options.llmConfig || {};
         this.appConfig = options.appConfig || null;
-        
+        this._resolvedConfig = this.appConfig || { llm: this.llmConfig };
+
         // Cache of resolved entities
         this.resolvedCache = new Map();
         
@@ -313,22 +313,16 @@ Entity 2:
 Respond with JSON: {"same_person": true/false, "confidence": 0.0-1.0, "reasoning": "brief explanation"}`;
 
         try {
-            const textCfg = this.appConfig ? llmConfig.getTextConfig(this.appConfig) : null;
-            const provider = textCfg?.provider ?? this.llmProvider;
-            const model = textCfg?.model ?? this.llmModel;
-            const providerConfig = textCfg?.providerConfig ?? this.llmConfig?.providers?.[provider] ?? {};
-            if (!provider || !model) return { same_person: false, confidence: 0, reasoning: 'No LLM configured' };
-            const result = await llm.generateText({
-                provider,
-                providerConfig,
-                model,
+            const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
                 prompt,
                 temperature: 0.1,
-                maxTokens: 200
-            });
+                maxTokens: 200,
+                context: 'entity-resolver'
+            }, this._resolvedConfig);
 
-            if (result.success) {
-                const match = result.text.match(/\{[\s\S]*\}/);
+            if (routerResult.success) {
+                const rText = routerResult.result?.text || routerResult.result?.response || '';
+                const match = rText.match(/\{[\s\S]*\}/);
                 if (match) {
                     return JSON.parse(match[0]);
                 }

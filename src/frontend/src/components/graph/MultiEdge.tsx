@@ -24,8 +24,7 @@
  *   - Label position formula uses t=0.5 on the quadratic Bezier:
  *     P = 0.25*P0 + 0.5*Ctrl + 0.25*P1.
  */
-import React from 'react';
-import { BaseEdge, EdgeProps, getBezierPath, EdgeLabelRenderer } from '@xyflow/react';
+import { BaseEdge, EdgeProps, EdgeLabelRenderer } from '@xyflow/react';
 
 export default function MultiEdge({
     id,

@@ -41,6 +41,7 @@ import { Plus, List, Layers, BookOpen, Filter, Target, ChevronDown, ChevronRight
 import { toast } from 'sonner';
 import type { Action, Sprint, UserStory } from '@/types/godmode';
 import { useSotChat } from '../../hooks/useGodMode';
+import { useSprints } from '../../hooks/useAdmin';
 import ActionModal from './ActionModal';
 import ActionDetailView from './ActionDetailView';
 import CreateSprintModal from './CreateSprintModal';
@@ -67,13 +68,14 @@ const sprintStatusColor = (s: string) =>
 
 const ActionsPanel = ({ initialData = [], initialSprints = [], onSave, onDelete }: { initialData?: Action[]; initialSprints?: Sprint[]; onSave?: (a: Action) => void; onDelete?: (id: string) => void }) => {
   const [actions, setActions] = useState<Action[]>(initialData);
-  const [sprints, setSprints] = useState<Sprint[]>(initialSprints);
   const chatMut = useSotChat();
+  const { data: sprintsData } = useSprints();
+  const apiSprints = (sprintsData as { sprints?: Sprint[] })?.sprints ?? [];
+  const sprints = apiSprints.length > 0 ? apiSprints : initialSprints;
 
   useEffect(() => {
     if (initialData) setActions(initialData);
-    if (initialSprints) setSprints(initialSprints);
-  }, [initialData, initialSprints]);
+  }, [initialData]);
   const [viewMode, setViewMode] = useState<ViewMode>('by_sprint');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [sprintFilter, setSprintFilter] = useState<string>('');
@@ -118,7 +120,7 @@ const ActionsPanel = ({ initialData = [], initialSprints = [], onSave, onDelete 
   const filtered = useMemo(() => {
     let result = actions;
     if (statusFilter !== 'all') result = result.filter(a => a.status === statusFilter);
-    if (sprintFilter) result = result.filter(a => a.sprintId === sprintFilter);
+    if (sprintFilter) result = result.filter(a => (a.sprint_id || a.sprintId) === sprintFilter);
     return result;
   }, [actions, statusFilter, sprintFilter]);
 
@@ -159,7 +161,6 @@ const ActionsPanel = ({ initialData = [], initialSprints = [], onSave, onDelete 
   };
 
   const handleCreateSprint = (sprint: Sprint) => {
-    setSprints(prev => [...prev, sprint]);
     setExpandedGroups(prev => new Set([...prev, sprint.id]));
   };
 

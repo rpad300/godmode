@@ -79,7 +79,7 @@ export default function GraphCopilot({ open, onClose }: Props) {
   if (!open) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 w-96 h-[600px] bg-gm-surface-primary border border-gm-border-primary rounded-2xl shadow-2xl z-50 flex flex-col overflow-hidden">
+    <div className="fixed bottom-4 right-4 w-[min(384px,calc(100vw-2rem))] h-[min(600px,calc(100vh-6rem))] bg-gm-surface-primary border border-gm-border-primary rounded-2xl shadow-2xl z-50 flex flex-col overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-blue-600/10 to-transparent border-b border-gm-border-primary shrink-0">
         <div className="flex items-center gap-2">
