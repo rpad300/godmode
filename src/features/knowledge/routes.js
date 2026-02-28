@@ -103,7 +103,8 @@ async function handleKnowledge(ctx) {
             status: parsedUrl.query.status,
             priority: parsedUrl.query.priority
         };
-        const questions = await storage.getQuestions(filters.status, filters.priority);
+        const sprintId = parsedUrl.query.sprint_id || null;
+        const questions = await storage.getQuestions(filters.status, filters.priority, sprintId);
         jsonResponse(res, { questions });
         return true;
     }
@@ -122,7 +123,8 @@ async function handleKnowledge(ctx) {
             content: content.trim(),
             priority: priority || 'medium',
             assigned_to: assigned_to || null,
-            source_file: 'quick_capture'
+            source_file: 'quick_capture',
+            sprint_id: body.sprint_id || null
         }, skipDedup === true);
 
         if (result.action === 'duplicate') {
@@ -248,10 +250,11 @@ async function handleKnowledge(ctx) {
         const parsedUrl = parseUrl(req.url);
         const category = parsedUrl.query.category;
         const documentId = parsedUrl.query.document_id || parsedUrl.query.documentId;
+        const sprintId = parsedUrl.query.sprint_id || null;
         try {
             const facts = documentId
                 ? (storage.getFactsByDocument && (await storage.getFactsByDocument(documentId))) || []
-                : await storage.getFacts(category);
+                : await storage.getFacts(category, sprintId);
             const total = Array.isArray(facts) ? facts.length : 0;
             jsonResponse(res, { facts: facts || [], total });
         } catch (e) {
@@ -273,7 +276,8 @@ async function handleKnowledge(ctx) {
         const result = await storage.addFact({
             content: content.trim(),
             category: category || 'General',
-            source_file: 'quick_capture'
+            source_file: 'quick_capture',
+            sprint_id: body.sprint_id || null
         }, skipDedup === true);
 
         if (result.action === 'duplicate') {
@@ -358,7 +362,8 @@ async function handleKnowledge(ctx) {
                 content: body.content,
                 category: body.category,
                 confidence: body.confidence,
-                verified: body.verified
+                verified: body.verified,
+                sprint_id: body.sprint_id
             });
             jsonResponse(res, { fact });
         } catch (e) {
@@ -411,7 +416,8 @@ async function handleKnowledge(ctx) {
         try {
             const parsedUrl = parseUrl(req.url);
             const status = parsedUrl.query.status || null;
-            const decisions = storage.getDecisions ? await storage.getDecisions(status) : [];
+            const sprintId = parsedUrl.query.sprint_id || null;
+            const decisions = storage.getDecisions ? await storage.getDecisions(status, sprintId) : [];
             jsonResponse(res, { decisions });
         } catch (e) {
             jsonResponse(res, { error: e.message, decisions: [] }, 500);
@@ -443,7 +449,8 @@ async function handleKnowledge(ctx) {
                 decided_at: body.decided_at,
                 impact: body.impact,
                 reversible: body.reversible,
-                summary: body.summary
+                summary: body.summary,
+                sprint_id: body.sprint_id || null
             };
             const created = storage.addDecision ? await storage.addDecision(decision) : null;
             if (!created) {
@@ -463,8 +470,13 @@ async function handleKnowledge(ctx) {
             const body = await parseBody(req);
             const content = (body.content || body.decision || '').trim();
             const rationale = (body.rationale || '').trim();
+            let docContext = '';
+            try {
+                const { DocumentContextBuilder } = require('../../docindex');
+                docContext = await DocumentContextBuilder.build(storage, { maxChars: 1000 });
+            } catch (_) {}
             const { runDecisionSuggest } = require('../../decision-suggest/DecisionSuggestFlow');
-            const result = await runDecisionSuggest(config, { content, rationale });
+            const result = await runDecisionSuggest(config, { content, rationale, docContext });
             if (result.error) {
                 jsonResponse(res, { error: result.error }, 400);
                 return true;
@@ -583,7 +595,8 @@ async function handleKnowledge(ctx) {
                 decided_at: body.decided_at,
                 impact: body.impact,
                 reversible: body.reversible,
-                summary: body.summary
+                summary: body.summary,
+                sprint_id: body.sprint_id
             };
             Object.keys(updates).forEach(k => updates[k] === undefined && delete updates[k]);
             const decision = storage.updateDecision ? await storage.updateDecision(decisionId, updates) : null;
@@ -629,7 +642,8 @@ async function handleKnowledge(ctx) {
         try {
             const parsedUrl = parseUrl(req.url);
             const status = parsedUrl.query.status || null;
-            const risks = storage.getRisks ? await storage.getRisks(status) : [];
+            const sprintId = parsedUrl.query.sprint_id || null;
+            const risks = storage.getRisks ? await storage.getRisks(status, sprintId) : [];
             jsonResponse(res, { risks });
         } catch (e) {
             jsonResponse(res, { error: e.message, risks: [] }, 500);
@@ -662,7 +676,8 @@ async function handleKnowledge(ctx) {
                 owner: body.owner,
                 source_document_id: body.source_document_id,
                 source_file: body.source_file,
-                generation_source: body.generation_source || 'manual'
+                generation_source: body.generation_source || 'manual',
+                sprint_id: body.sprint_id || null
             };
             const created = storage.addRisk ? await storage.addRisk(risk) : null;
             if (!created) {
@@ -684,8 +699,13 @@ async function handleKnowledge(ctx) {
             const impact = body.impact || 'medium';
             const likelihood = (body.likelihood ?? body.probability) || 'medium';
             const contacts = storage.getContacts ? await (Promise.resolve(storage.getContacts()).then(c => Array.isArray(c) ? c : [])) : [];
+            let riskDocContext = '';
+            try {
+                const { DocumentContextBuilder } = require('../../docindex');
+                riskDocContext = await DocumentContextBuilder.build(storage, { maxChars: 1000 });
+            } catch (_) {}
             const { runRiskSuggest } = require('../../risk-suggest/RiskSuggestFlow');
-            const result = await runRiskSuggest(config, { content, impact, likelihood, contacts });
+            const result = await runRiskSuggest(config, { content, impact, likelihood, contacts, docContext: riskDocContext });
             if (result.error) {
                 jsonResponse(res, { error: result.error }, 400);
                 return true;
@@ -760,7 +780,8 @@ async function handleKnowledge(ctx) {
                 mitigation: body.mitigation,
                 status: body.status,
                 owner: body.owner,
-                source_file: body.source_file
+                source_file: body.source_file,
+                sprint_id: body.sprint_id
             };
             Object.keys(updates).forEach(k => updates[k] === undefined && delete updates[k]);
             const risk = storage.updateRisk ? await storage.updateRisk(riskId, updates) : null;
@@ -893,9 +914,15 @@ async function handleKnowledge(ctx) {
                 jsonResponse(res, { error: 'Prompt task_description_from_rules not found. Add it in Admin > Prompts.' }, 400);
                 return true;
             }
+            let taskDocContext = '';
+            try {
+                const { DocumentContextBuilder } = require('../../docindex');
+                taskDocContext = await DocumentContextBuilder.build(storage, { maxChars: 1000 });
+            } catch (_) {}
             const prompt = promptsService.renderPrompt(template, {
                 USER_INPUT: userInput,
-                PARENT_STORY_REF: body.parent_story_ref || body.parent_story || ''
+                PARENT_STORY_REF: body.parent_story_ref || body.parent_story || '',
+                DOCUMENT_CONTEXT: taskDocContext
             });
             const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
                 prompt,

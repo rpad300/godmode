@@ -98,7 +98,7 @@ class DataExportImport {
                 
                 // Embeddings if requested
                 if (options.includeEmbeddings) {
-                    const embeddings = this.storage.loadEmbeddings?.();
+                    const embeddings = await this.storage.loadEmbeddings?.();
                     exportData.data.embeddings = embeddings?.embeddings || [];
                 }
             }

@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -6,7 +6,7 @@ import {
   ArrowLeft, CheckCircle, Circle, Clock, Target, Trash2,
   Edit3, Play, Square, Sparkles, AlertTriangle, X,
   Copy, LayoutGrid, GanttChartSquare, Activity, Users, MessageSquare, BarChart3,
-  PlusCircle, Unlink,
+  PlusCircle, Unlink, FileText, Presentation, Building2, Printer,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '../lib/utils';
@@ -22,7 +22,6 @@ import RetrospectivePanel from '../components/sprints/RetrospectivePanel';
 import StandupPanel from '../components/sprints/StandupPanel';
 import CapacityPanel from '../components/sprints/CapacityPanel';
 import EstimatePointsButton from '../components/sprints/EstimatePointsButton';
-import SprintReportModal from '../components/sprints/SprintReportModal';
 import {
   CARD, BTN_PRIMARY, BTN_SECONDARY, BTN_DANGER, INPUT, SECTION_TITLE,
 } from '../components/sprints/styles';
@@ -44,7 +43,40 @@ import {
   useSprintClone,
   useUpdateAction,
   useCreateAction,
+  useSprintReportDocument,
+  useSprintReportPresentation,
+  useDocuments,
+  useUpdateDocument,
+  type DocumentItem,
 } from '../hooks/useGodMode';
+
+const STYLE_OPTIONS = [
+  { key: 'sprint_report_style_corporate_classic', label: 'Corporate Classic' },
+  { key: 'sprint_report_style_modern_minimal', label: 'Modern Minimal' },
+  { key: 'sprint_report_style_startup_tech', label: 'Startup Tech' },
+  { key: 'sprint_report_style_consultancy', label: 'Consultancy' },
+];
+
+function downloadHtml(html: string, filename: string) {
+  const blob = new Blob([html], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function openHtmlForPdf(html: string) {
+  const blob = new Blob([html], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const win = window.open(url, '_blank');
+  if (win) {
+    win.addEventListener('load', () => {
+      setTimeout(() => win.print(), 600);
+    });
+  }
+}
 
 const statusConfig: Record<string, { color: string; bg: string; border: string; icon: typeof Circle }> = {
   planning: { color: 'text-[var(--text-tertiary)]', bg: 'bg-[var(--surface-secondary)]', border: 'border-[var(--border-secondary)]', icon: Circle },
@@ -149,7 +181,7 @@ function CreateSprintForm({ onCreated }: { onCreated: () => void }) {
   );
 }
 
-type DetailTab = 'overview' | 'kanban' | 'timeline' | 'burndown' | 'standup' | 'retro' | 'capacity';
+type DetailTab = 'overview' | 'kanban' | 'timeline' | 'burndown' | 'standup' | 'retro' | 'capacity' | 'documents' | 'report';
 
 const DETAIL_TABS: { id: DetailTab; label: string; icon: typeof Circle }[] = [
   { id: 'overview', label: 'Overview', icon: BarChart3 },
@@ -158,8 +190,68 @@ const DETAIL_TABS: { id: DetailTab; label: string; icon: typeof Circle }[] = [
   { id: 'burndown', label: 'Burndown', icon: Activity },
   { id: 'standup', label: 'Standup', icon: MessageSquare },
   { id: 'capacity', label: 'Capacity', icon: Users },
+  { id: 'documents', label: 'Documents', icon: FileText },
   { id: 'retro', label: 'Retro', icon: Target },
+  { id: 'report', label: 'Report & Export', icon: FileBarChart },
 ];
+
+function SprintDocumentsPanel({ sprintId }: { sprintId: string }) {
+  const docs = useDocuments({ sprint_id: sprintId, limit: 100 });
+  const updateDoc = useUpdateDocument();
+  const docList: DocumentItem[] = docs.data?.documents ?? [];
+
+  if (docs.isLoading) {
+    return <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-[var(--accent-primary)]" /></div>;
+  }
+
+  if (docList.length === 0) {
+    return (
+      <div className={CARD + ' p-8 text-center'}>
+        <FileText className="w-10 h-10 mx-auto mb-3 text-[var(--text-tertiary)]" />
+        <p className="text-sm text-[var(--text-tertiary)]">No documents associated with this sprint.</p>
+        <p className="text-xs text-[var(--text-tertiary)] mt-1">Import files from Krisp or assign existing documents to this sprint in the Files page.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs text-[var(--text-tertiary)]">{docList.length} document(s) in this sprint</p>
+      </div>
+      {docList.map(doc => {
+        const d = doc as Record<string, unknown>;
+        const fileSize = d.file_size as number | undefined;
+        return (
+          <div key={doc.id} className={CARD + ' p-3 flex items-center gap-3'}>
+            <FileText className="w-4 h-4 text-[var(--text-tertiary)] flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-[var(--text-primary)] truncate">{doc.original_filename || doc.filename}</p>
+              <div className="flex items-center gap-2 mt-0.5">
+                {doc.type && <span className="text-[10px] text-[var(--text-tertiary)] capitalize">{doc.type}</span>}
+                {doc.created_at && <span className="text-[10px] text-[var(--text-tertiary)]">{new Date(doc.created_at).toLocaleDateString()}</span>}
+                {fileSize && <span className="text-[10px] text-[var(--text-tertiary)]">{(fileSize / 1024).toFixed(1)} KB</span>}
+              </div>
+            </div>
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+              doc.status === 'processed' || doc.status === 'completed' ? 'bg-green-500/10 text-green-400' :
+              doc.status === 'processing' ? 'bg-blue-500/10 text-blue-400' : 'bg-yellow-500/10 text-yellow-400'
+            }`}>{doc.status || '—'}</span>
+            <button
+              onClick={() => updateDoc.mutate({ id: doc.id, sprint_id: null }, {
+                onSuccess: () => toast.success('Removed from sprint'),
+              })}
+              className="p-1.5 text-[var(--text-tertiary)] hover:text-red-400 transition-colors"
+              title="Remove from sprint"
+            >
+              <Unlink className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 function SprintDetail({ sprintId, onBack }: { sprintId: string; onBack: () => void }) {
   const queryClient = useQueryClient();
@@ -188,8 +280,30 @@ function SprintDetail({ sprintId, onBack }: { sprintId: string; onBack: () => vo
   const [businessText, setBusinessText] = useState('');
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState({ name: '', context: '', goals: '', start_date: '', end_date: '', analysis_start_date: '', analysis_end_date: '' });
-  const [reportModalOpen, setReportModalOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const docMut = useSprintReportDocument();
+  const presMut = useSprintReportPresentation();
+  const [includeAnalysis, setIncludeAnalysis] = useState(true);
+  const [includeBusiness, setIncludeBusiness] = useState(true);
+  const [selectedStyle, setSelectedStyle] = useState('sprint_report_style_corporate_classic');
+  const [lastDocHtml, setLastDocHtml] = useState<string | null>(null);
+  const [lastPresHtml, setLastPresHtml] = useState<string | null>(null);
+
+  useEffect(() => {
+    setActiveTab('overview');
+    setAnalysisText('');
+    setBusinessText('');
+    setEditing(false);
+    setConfirmDelete(false);
+    setIncludeAnalysis(true);
+    setIncludeBusiness(true);
+    setSelectedStyle('sprint_report_style_corporate_classic');
+    setLastDocHtml(null);
+    setLastPresHtml(null);
+    setGeneratedResult(null);
+    setShowAddTask(false);
+  }, [sprintId]);
 
   const sprint = useMemo<Sprint>(() => {
     const d = (sprintRaw as any)?.sprint ?? sprintRaw;
@@ -202,6 +316,9 @@ function SprintDetail({ sprintId, onBack }: { sprintId: string; onBack: () => vo
   const totalTasks = report?.total_tasks ?? actions.length;
   const graphContext = (report as any)?.graph_context as { sprint_name?: string; sprint_context?: string; assignees?: string[] } | null;
   const completedTasks = report?.completed_tasks ?? actions.filter(a => a.status === 'completed').length;
+  const totalPoints = report?.total_task_points ?? 0;
+  const completedPoints = report?.completed_task_points ?? 0;
+  const completionPct = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
   const groupedActions = useMemo(() => {
     const groups: Record<string, Action[]> = {};
@@ -301,6 +418,58 @@ function SprintDetail({ sprintId, onBack }: { sprintId: string; onBack: () => vo
       onSuccess: (d: any) => { setBusinessText(d?.business_report || d?.summary || ''); toast.success('Business report ready'); },
       onError: (e: Error) => toast.error(e.message),
     });
+  };
+
+  const handleExportDoc = () => {
+    docMut.mutate({ sprintId: sprint.id, style: selectedStyle, include_analysis: includeAnalysis, include_business: includeBusiness }, {
+      onSuccess: (d: any) => {
+        if (d?.html) {
+          setLastDocHtml(d.html);
+          downloadHtml(d.html, `sprint-${sprint.name || sprint.id}-report.html`);
+          toast.success('Document downloaded');
+        }
+      },
+      onError: (e: Error) => toast.error(e.message),
+    });
+  };
+
+  const handleExportPres = () => {
+    presMut.mutate({ sprintId: sprint.id, include_analysis: includeAnalysis, include_business: includeBusiness }, {
+      onSuccess: (d: any) => {
+        if (d?.html) {
+          setLastPresHtml(d.html);
+          downloadHtml(d.html, `sprint-${sprint.name || sprint.id}-presentation.html`);
+          toast.success('Presentation downloaded');
+        }
+      },
+      onError: (e: Error) => toast.error(e.message),
+    });
+  };
+
+  const handleOpenDocForPdf = () => {
+    if (lastDocHtml) {
+      openHtmlForPdf(lastDocHtml);
+    } else {
+      docMut.mutate({ sprintId: sprint.id, style: selectedStyle, include_analysis: includeAnalysis, include_business: includeBusiness }, {
+        onSuccess: (d: any) => {
+          if (d?.html) { setLastDocHtml(d.html); openHtmlForPdf(d.html); }
+        },
+        onError: (e: Error) => toast.error(e.message),
+      });
+    }
+  };
+
+  const handleOpenPresForPdf = () => {
+    if (lastPresHtml) {
+      openHtmlForPdf(lastPresHtml);
+    } else {
+      presMut.mutate({ sprintId: sprint.id, include_analysis: includeAnalysis, include_business: includeBusiness }, {
+        onSuccess: (d: any) => {
+          if (d?.html) { setLastPresHtml(d.html); openHtmlForPdf(d.html); }
+        },
+        onError: (e: Error) => toast.error(e.message),
+      });
+    }
   };
 
   const handleClone = () => {
@@ -491,9 +660,6 @@ function SprintDetail({ sprintId, onBack }: { sprintId: string; onBack: () => vo
           </button>
           <button onClick={handleBusiness} disabled={businessMut.isPending} className={cn(BTN_SECONDARY, 'text-emerald-400 border-emerald-400/30')}>
             {businessMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />} Business Report
-          </button>
-          <button onClick={() => setReportModalOpen(true)} className={BTN_SECONDARY}>
-            <FileBarChart className="w-3.5 h-3.5" /> Full Report & Export
           </button>
           <button onClick={handleClone} disabled={cloneSprint.isPending} className={BTN_SECONDARY}>
             {cloneSprint.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Copy className="w-3.5 h-3.5" />} Clone
@@ -791,6 +957,99 @@ function SprintDetail({ sprintId, onBack }: { sprintId: string; onBack: () => vo
                   </div>
                 </div>
               )}
+
+              {/* Sprint Knowledge Entities */}
+              {report?.knowledge_counts && (report.knowledge_counts.facts > 0 || report.knowledge_counts.decisions > 0 || report.knowledge_counts.risks > 0 || report.knowledge_counts.questions > 0) && (
+                <div className={cn(CARD, 'p-4')}>
+                  <h3 className={cn(SECTION_TITLE, 'mb-3 flex items-center gap-1.5')}>
+                    <Sparkles className="w-3.5 h-3.5" /> Knowledge Base
+                  </h3>
+                  <div className="grid grid-cols-4 gap-2 mb-3">
+                    {[
+                      { label: 'Facts', count: report.knowledge_counts.facts, color: 'text-blue-400' },
+                      { label: 'Decisions', count: report.knowledge_counts.decisions, color: 'text-emerald-400' },
+                      { label: 'Risks', count: report.knowledge_counts.risks, color: 'text-orange-400' },
+                      { label: 'Questions', count: report.knowledge_counts.questions, color: 'text-purple-400' },
+                    ].map(item => (
+                      <div key={item.label} className="text-center p-2 rounded-lg bg-[var(--surface-hover)]">
+                        <p className={cn('text-lg font-bold tabular-nums', item.color)}>{item.count}</p>
+                        <p className="text-[9px] text-[var(--text-tertiary)] uppercase tracking-wider">{item.label}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="space-y-3">
+                    {(report.facts?.length ?? 0) > 0 && (
+                      <details className="group">
+                        <summary className="flex items-center gap-1.5 cursor-pointer text-[10px] text-[var(--text-secondary)] uppercase tracking-wider hover:text-[var(--text-primary)]">
+                          <CheckCircle className="w-3 h-3 text-blue-400" /> Facts ({report.facts.length})
+                        </summary>
+                        <div className="mt-1.5 space-y-1 pl-4">
+                          {report.facts.slice(0, 15).map((f, i) => (
+                            <div key={f.id || i} className="text-xs text-[var(--text-secondary)] py-1 border-l-2 border-blue-400/30 pl-2">
+                              <span className="text-[9px] text-blue-400 mr-1">[{f.category || 'general'}]</span>
+                              {typeof f.content === 'string' ? f.content.slice(0, 200) : ''}
+                            </div>
+                          ))}
+                          {report.facts.length > 15 && <p className="text-[9px] text-[var(--text-tertiary)] pl-2">+{report.facts.length - 15} more</p>}
+                        </div>
+                      </details>
+                    )}
+                    {(report.decisions?.length ?? 0) > 0 && (
+                      <details className="group">
+                        <summary className="flex items-center gap-1.5 cursor-pointer text-[10px] text-[var(--text-secondary)] uppercase tracking-wider hover:text-[var(--text-primary)]">
+                          <Target className="w-3 h-3 text-emerald-400" /> Decisions ({report.decisions.length})
+                        </summary>
+                        <div className="mt-1.5 space-y-1 pl-4">
+                          {report.decisions.slice(0, 15).map((d, i) => (
+                            <div key={d.id || i} className="text-xs text-[var(--text-secondary)] py-1 border-l-2 border-emerald-400/30 pl-2">
+                              <span className="text-[9px] text-emerald-400 mr-1">[{(d as any).status || 'active'}]</span>
+                              {typeof d.content === 'string' ? d.content.slice(0, 200) : ''}
+                              {(d as any).owner && <span className="text-[9px] text-[var(--text-tertiary)] ml-1">({(d as any).owner})</span>}
+                            </div>
+                          ))}
+                          {report.decisions.length > 15 && <p className="text-[9px] text-[var(--text-tertiary)] pl-2">+{report.decisions.length - 15} more</p>}
+                        </div>
+                      </details>
+                    )}
+                    {(report.risks?.length ?? 0) > 0 && (
+                      <details className="group">
+                        <summary className="flex items-center gap-1.5 cursor-pointer text-[10px] text-[var(--text-secondary)] uppercase tracking-wider hover:text-[var(--text-primary)]">
+                          <AlertTriangle className="w-3 h-3 text-orange-400" /> Risks ({report.risks.length})
+                        </summary>
+                        <div className="mt-1.5 space-y-1 pl-4">
+                          {report.risks.slice(0, 15).map((r, i) => (
+                            <div key={r.id || i} className="text-xs text-[var(--text-secondary)] py-1 border-l-2 border-orange-400/30 pl-2">
+                              <span className={cn('text-[9px] mr-1', (r as any).status === 'open' ? 'text-orange-400' : 'text-[var(--text-tertiary)]')}>
+                                [{(r as any).impact || 'medium'}/{(r as any).status || 'open'}]
+                              </span>
+                              {typeof r.content === 'string' ? r.content.slice(0, 200) : ''}
+                            </div>
+                          ))}
+                          {report.risks.length > 15 && <p className="text-[9px] text-[var(--text-tertiary)] pl-2">+{report.risks.length - 15} more</p>}
+                        </div>
+                      </details>
+                    )}
+                    {(report.questions?.length ?? 0) > 0 && (
+                      <details className="group">
+                        <summary className="flex items-center gap-1.5 cursor-pointer text-[10px] text-[var(--text-secondary)] uppercase tracking-wider hover:text-[var(--text-primary)]">
+                          <MessageSquare className="w-3 h-3 text-purple-400" /> Questions ({report.questions.length})
+                        </summary>
+                        <div className="mt-1.5 space-y-1 pl-4">
+                          {report.questions.slice(0, 15).map((q, i) => (
+                            <div key={q.id || i} className="text-xs text-[var(--text-secondary)] py-1 border-l-2 border-purple-400/30 pl-2">
+                              <span className={cn('text-[9px] mr-1', (q as any).status === 'answered' || (q as any).status === 'closed' ? 'text-[var(--text-tertiary)]' : 'text-purple-400')}>
+                                [{(q as any).priority || 'medium'}/{(q as any).status || 'open'}]
+                              </span>
+                              {typeof q.content === 'string' ? q.content.slice(0, 200) : ''}
+                            </div>
+                          ))}
+                          {report.questions.length > 15 && <p className="text-[9px] text-[var(--text-tertiary)] pl-2">+{report.questions.length - 15} more</p>}
+                        </div>
+                      </details>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -843,11 +1102,182 @@ function SprintDetail({ sprintId, onBack }: { sprintId: string; onBack: () => vo
             <RetrospectivePanel sprintId={sprintId} />
           )}
 
+          {activeTab === 'documents' && (
+            <SprintDocumentsPanel sprintId={sprintId} />
+          )}
+
+          {activeTab === 'report' && (
+            <div className="space-y-5">
+              {reportLoading ? (
+                <div className="flex items-center justify-center h-32">
+                  <Loader2 className="w-6 h-6 animate-spin text-[var(--accent-primary)]" />
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {[
+                      { label: 'Total Tasks', value: totalTasks, sub: '' },
+                      { label: 'Completed', value: completedTasks, sub: `${completionPct}%` },
+                      { label: 'Total Points', value: totalPoints, sub: '' },
+                      { label: 'Done Points', value: completedPoints, sub: totalPoints > 0 ? `${Math.round((completedPoints / totalPoints) * 100)}%` : '' },
+                    ].map(s => (
+                      <div key={s.label} className={cn(CARD, 'p-3 text-center')}>
+                        <p className="text-2xl font-bold text-[var(--text-primary)]">{s.value}</p>
+                        <p className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wider">{s.label}</p>
+                        {s.sub && <p className="text-xs text-[var(--accent-primary)] mt-0.5">{s.sub}</p>}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className={cn(CARD, 'p-4')}>
+                      <BreakdownChart title="By Status" data={breakdown.by_status} />
+                    </div>
+                    <div className={cn(CARD, 'p-4')}>
+                      <BreakdownChart title="By Assignee" data={breakdown.by_assignee} />
+                    </div>
+                  </div>
+
+                  {graphContext && (graphContext.assignees?.length || graphContext.sprint_name) && (
+                    <div className={cn(CARD, 'p-4')}>
+                      <span className="text-[10px] font-bold text-purple-400 uppercase tracking-[0.1em]">Graph Context</span>
+                      <div className="mt-2 space-y-1.5">
+                        {graphContext.sprint_name && (
+                          <p className="text-xs text-[var(--text-secondary)]">
+                            <span className="text-[var(--text-tertiary)]">Sprint node:</span> {graphContext.sprint_name}
+                            {graphContext.sprint_context && <span className="text-[var(--text-tertiary)]"> — {graphContext.sprint_context}</span>}
+                          </p>
+                        )}
+                        {graphContext.assignees && graphContext.assignees.length > 0 && (
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[10px] text-[var(--text-tertiary)]">Assignees:</span>
+                            {graphContext.assignees.map(name => (
+                              <span key={name} className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400">{name}</span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {actions.length > 0 && (
+                    <div className={cn(CARD, 'p-4')}>
+                      <span className="text-[10px] font-bold text-[var(--accent-primary)] uppercase tracking-[0.1em]">
+                        Tasks ({actions.length})
+                      </span>
+                      <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
+                        {actions.map(a => {
+                          const done = a.status === 'completed';
+                          return (
+                            <div key={a.id} className="flex items-center gap-2 py-1 px-2 rounded hover:bg-[var(--surface-hover)]">
+                              {done
+                                ? <CheckCircle className="w-3.5 h-3.5 text-[var(--status-success)] shrink-0" />
+                                : <Circle className="w-3.5 h-3.5 text-[var(--text-tertiary)] shrink-0" />}
+                              <span className={cn('text-xs flex-1 truncate', done ? 'line-through text-[var(--text-tertiary)]' : 'text-[var(--text-primary)]')}>
+                                {a.task || a.title || '(untitled)'}
+                              </span>
+                              {a.owner && <span className="text-[10px] text-[var(--text-tertiary)] truncate max-w-[100px]">{a.owner}</span>}
+                              <span className="text-[9px] text-[var(--text-tertiary)] capitalize shrink-0">{a.status}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap gap-2">
+                    <button onClick={handleAnalyze} disabled={analyzeMut.isPending} className={cn(BTN_SECONDARY, 'text-purple-400 border-purple-400/30')}>
+                      {analyzeMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+                      AI Analysis
+                    </button>
+                    <button onClick={handleBusiness} disabled={businessMut.isPending} className={cn(BTN_SECONDARY, 'text-emerald-400 border-emerald-400/30')}>
+                      {businessMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Building2 className="w-3.5 h-3.5" />}
+                      Business Report
+                    </button>
+                  </div>
+
+                  {analysisText && (
+                    <div className={cn(CARD, 'p-4')}>
+                      <span className="text-[10px] font-bold text-purple-400 uppercase tracking-[0.1em]">AI Analysis</span>
+                      <div className="mt-2 text-xs text-[var(--text-secondary)] whitespace-pre-wrap leading-relaxed">
+                        {analysisText}
+                      </div>
+                    </div>
+                  )}
+
+                  {businessText && (
+                    <div className={cn(CARD, 'p-4')}>
+                      <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-[0.1em]">Business Report</span>
+                      <div className="mt-2 text-xs text-[var(--text-secondary)] whitespace-pre-wrap leading-relaxed">
+                        {businessText}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className={cn(CARD, 'p-4 space-y-3')}>
+                    <span className="text-[10px] font-bold text-[var(--accent-primary)] uppercase tracking-[0.1em]">Export</span>
+
+                    <div className="flex flex-wrap gap-3">
+                      <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)] cursor-pointer">
+                        <input type="checkbox" checked={includeAnalysis} onChange={e => setIncludeAnalysis(e.target.checked)} className="rounded border-[var(--border-primary)]" />
+                        Include AI Analysis
+                      </label>
+                      <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)] cursor-pointer">
+                        <input type="checkbox" checked={includeBusiness} onChange={e => setIncludeBusiness(e.target.checked)} className="rounded border-[var(--border-primary)]" />
+                        Include Business Report
+                      </label>
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-wider block mb-1">Document Style</label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {STYLE_OPTIONS.map(opt => (
+                          <button
+                            key={opt.key}
+                            onClick={() => setSelectedStyle(opt.key)}
+                            className={cn(
+                              'px-2.5 py-1 rounded-md text-[10px] font-medium border transition-colors',
+                              selectedStyle === opt.key
+                                ? 'bg-[var(--interactive-primary)]/20 text-[var(--accent-primary)] border-[var(--accent-primary)]/30'
+                                : 'bg-[var(--surface-secondary)] text-[var(--text-tertiary)] border-[var(--border-primary)] hover:text-[var(--text-primary)]'
+                            )}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <button onClick={handleExportDoc} disabled={docMut.isPending} className={cn(BTN_PRIMARY)}>
+                        {docMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />}
+                        Download A4 Document
+                      </button>
+                      <button onClick={handleExportPres} disabled={presMut.isPending} className={cn(BTN_SECONDARY, 'text-orange-400 border-orange-400/30')}>
+                        {presMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Presentation className="w-3.5 h-3.5" />}
+                        Download Presentation
+                      </button>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <button onClick={handleOpenDocForPdf} disabled={docMut.isPending} className={BTN_SECONDARY}>
+                        {docMut.isPending && !lastDocHtml ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Printer className="w-3.5 h-3.5" />}
+                        Open Document for PDF
+                      </button>
+                      <button onClick={handleOpenPresForPdf} disabled={presMut.isPending} className={BTN_SECONDARY}>
+                        {presMut.isPending && !lastPresHtml ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Printer className="w-3.5 h-3.5" />}
+                        Open Presentation for PDF
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
         </motion.div>
       </AnimatePresence>
 
-      {/* Report Modal */}
-      <SprintReportModal open={reportModalOpen} onClose={() => setReportModalOpen(false)} sprint={sprint} />
     </div>
   );
 }

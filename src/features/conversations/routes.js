@@ -190,7 +190,7 @@ SUMMARY: <summary here>`;
             }
 
             // Save to storage
-            const id = storage.addConversation(conversation);
+            const id = await storage.addConversation(conversation);
 
             // AI Content Processor - Extract entities, relationships and populate graph
             const graphProvider = storage.getGraphProvider();
@@ -236,7 +236,7 @@ SUMMARY: <summary here>`;
                         }
                     }
 
-                    storage.updateConversation(id, {
+                    await storage.updateConversation(id, {
                         extractedEntities: aiResult.entities || [],
                         extractedRelationships: aiResult.relationships || [],
                         extraction_result: aiResult,
@@ -421,6 +421,34 @@ ANSWERED: no`;
 
             storage.trackContactsFromConversation(conversation);
 
+            // Auto-generate embeddings for semantic search
+            try {
+                const conversations = require('../../conversations');
+                const convForEmbed = { ...conversation, id };
+                const chunks = conversations.getConversationEmbeddingItems([convForEmbed]);
+                if (chunks.length > 0) {
+                    const texts = chunks.map(c => c.text);
+                    const embedRouterResult = await llmRouter.routeAndExecute('embeddings', 'embed', {
+                        texts, context: 'conversation-auto-embed'
+                    }, config);
+                    if (embedRouterResult.success && embedRouterResult.result?.embeddings) {
+                        const existingEmbeddings = await storage.loadEmbeddings();
+                        const allEmbeddings = existingEmbeddings?.embeddings || [];
+                        for (let i = 0; i < chunks.length; i++) {
+                            allEmbeddings.push({
+                                id: chunks[i].id, type: 'conversation',
+                                text: chunks[i].text, embedding: embedRouterResult.result.embeddings[i],
+                                data: chunks[i].data
+                            });
+                        }
+                        await storage.saveEmbeddings(allEmbeddings);
+                        log.debug({ event: 'conversations_auto_embedded', convId: id, chunks: chunks.length }, 'Auto-embedded conversation');
+                    }
+                }
+            } catch (embedErr) {
+                log.debug({ event: 'conversations_auto_embed_failed', reason: embedErr.message }, 'Auto-embed failed (non-critical)');
+            }
+
             log.debug({ event: 'conversations_imported', id, format: parseResult.format, messageCount: parseResult.messages.length }, 'Imported conversation');
 
             jsonResponse(res, {
@@ -477,7 +505,7 @@ ANSWERED: no`;
     if (convGetMatch && req.method === 'GET') {
         const convId = convGetMatch[1];
         try {
-            const conversation = storage.getConversationById(convId);
+            const conversation = await storage.getConversationById(convId);
             if (!conversation) {
                 jsonResponse(res, { ok: false, error: 'Conversation not found' }, 404);
                 return true;
@@ -495,8 +523,13 @@ ANSWERED: no`;
         const convId = convPutMatch[1];
         const body = await parseBody(req);
 
+        // Whitelist allowed fields to prevent overwriting internal data
+        const allowed = ['title', 'summary', 'channelName', 'workspaceName', 'sourceApp'];
+        const safeUpdate = {};
+        for (const key of allowed) { if (body[key] !== undefined) safeUpdate[key] = body[key]; }
+
         try {
-            const success = storage.updateConversation(convId, body);
+            const success = await storage.updateConversation(convId, safeUpdate);
             if (!success) {
                 jsonResponse(res, { ok: false, error: 'Conversation not found' }, 404);
                 return true;
@@ -514,20 +547,20 @@ ANSWERED: no`;
         const convId = convDeleteMatch[1];
 
         try {
-            const conversation = storage.getConversationById(convId);
+            const conversation = await storage.getConversationById(convId);
 
-            const success = storage.deleteConversation(convId);
+            const success = await storage.deleteConversation(convId);
             if (!success) {
                 jsonResponse(res, { ok: false, error: 'Conversation not found' }, 404);
                 return true;
             }
 
-            const embeddings = storage.loadEmbeddings();
+            const embeddings = await storage.loadEmbeddings();
             if (embeddings && embeddings.embeddings) {
                 const filtered = embeddings.embeddings.filter(e => !e.id.startsWith(`conv_${convId}_`));
                 if (filtered.length < embeddings.embeddings.length) {
                     embeddings.embeddings = filtered;
-                    storage.saveEmbeddings(embeddings.embeddings);
+                    await storage.saveEmbeddings(embeddings.embeddings);
                     log.debug({ event: 'conversations_embeddings_removed', convId }, 'Removed embeddings');
                 }
             }
@@ -554,7 +587,7 @@ ANSWERED: no`;
         const convId = convReembedMatch[1];
 
         try {
-            const conversation = storage.getConversationById(convId);
+            const conversation = await storage.getConversationById(convId);
             if (!conversation) {
                 jsonResponse(res, { ok: false, error: 'Conversation not found' }, 404);
                 return true;
@@ -580,7 +613,7 @@ ANSWERED: no`;
             }
 
             const embedResult = embedRouterResult.result;
-            const existingEmbeddings = storage.loadEmbeddings();
+            const existingEmbeddings = await storage.loadEmbeddings();
             const allEmbeddings = existingEmbeddings?.embeddings || [];
 
             const filtered = allEmbeddings.filter(e => !e.id.startsWith(`conv_${convId}_`));
@@ -595,7 +628,7 @@ ANSWERED: no`;
                 });
             }
 
-            storage.saveEmbeddings(filtered);
+            await storage.saveEmbeddings(filtered);
             log.debug({ event: 'conversations_reembedded', convId, chunks: chunks.length }, 'Re-embedded conversation');
 
             jsonResponse(res, { ok: true, chunksEmbedded: chunks.length });
@@ -611,7 +644,7 @@ ANSWERED: no`;
     if (convSummarizeMatch && req.method === 'POST') {
         const convId = convSummarizeMatch[1];
         try {
-            const conversation = storage.getConversationById(convId);
+            const conversation = await storage.getConversationById(convId);
             if (!conversation) {
                 jsonResponse(res, { ok: false, error: 'Conversation not found' }, 404);
                 return true;
@@ -639,7 +672,7 @@ ${excerpt}`;
 
             if (routerResult.success) {
                 const summary = (routerResult.result?.text || '').trim();
-                storage.updateConversation(convId, { summary });
+                await storage.updateConversation(convId, { summary });
                 jsonResponse(res, { ok: true, summary });
             } else {
                 jsonResponse(res, { ok: false, error: routerResult.error || 'Failed to summarize' }, 500);

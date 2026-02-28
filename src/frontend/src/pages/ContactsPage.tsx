@@ -9,7 +9,7 @@
  *   - useContactDuplicates / useMergeContacts / useEnrichContact
  *   - useExportContacts / useImportContacts
  *   - useUnmatchedParticipants / useLinkParticipant / useSyncPeopleToContacts
- *   - ContactForm / ContactDetailModal
+ *   - ContactForm / ContactDetail
  */
 import { useState, useRef, useMemo } from 'react';
 import {
@@ -26,7 +26,7 @@ import {
   useUnmatchedParticipants, useLinkParticipant, useSyncPeopleToContacts,
 } from '../hooks/useGodMode';
 import ContactForm from '../components/contacts/ContactForm';
-import ContactDetailModal from '../components/contacts/ContactDetailModal';
+import ContactDetail from '../components/contacts/ContactDetail';
 import { cn, isValidAvatarUrl, getInitials, resolveAvatarUrl } from '../lib/utils';
 import type { Contact } from '../types/godmode';
 
@@ -177,10 +177,9 @@ export default function ContactsPage() {
     });
   };
 
-  const handleEditFromDetail = (contact: Contact) => {
-    setDetailContact(null);
-    setEditContact(contact);
-    setShowForm(true);
+  const handleEditFromDetail = (_contact: Contact) => {
+    // Refresh the contacts list to reflect inline edits from the detail modal
+    contactsQuery.refetch();
   };
 
   const toggleFavorite = (contact: Contact) => {
@@ -267,6 +266,18 @@ export default function ContactsPage() {
       onError: () => toast.error('Link failed'),
     });
   };
+
+  // Detail view (replaces list)
+  if (detailContact) {
+    return (
+      <ContactDetail
+        contact={detailContact}
+        onBack={() => setDetailContact(null)}
+        onEdit={handleEditFromDetail}
+        onDelete={handleDelete}
+      />
+    );
+  }
 
   // Form view (add or edit)
   if (showForm) {
@@ -673,14 +684,6 @@ export default function ContactsPage() {
         </div>
       )}
 
-      {/* Detail modal */}
-      <ContactDetailModal
-        contact={detailContact}
-        open={!!detailContact}
-        onClose={() => setDetailContact(null)}
-        onEdit={handleEditFromDetail}
-        onDelete={handleDelete}
-      />
     </div>
   );
 }

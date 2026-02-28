@@ -58,6 +58,32 @@ function isGraphragRoute(pathname) {
     return pathname.startsWith('/api/graphrag/');
 }
 
+/**
+ * Flatten a tree index into graph-ready section objects with parent references.
+ */
+function flattenTreeForGraph(tree, documentId, parentSectionId = null, depth = 0) {
+    const sections = [];
+    if (!tree.children) return sections;
+
+    for (const child of tree.children) {
+        const sectionId = `docsec_${documentId}_${child.charStart || 0}`;
+        sections.push({
+            id: sectionId,
+            title: child.title || 'Untitled',
+            summary: child.summary || '',
+            charStart: child.charStart || 0,
+            charEnd: child.charEnd || 0,
+            documentId,
+            parentSectionId,
+            depth
+        });
+        if (child.children && child.children.length > 0) {
+            sections.push(...flattenTreeForGraph(child, documentId, sectionId, depth + 1));
+        }
+    }
+    return sections;
+}
+
 async function handleGraphrag(ctx) {
     const { req, res, pathname, storage, config } = ctx;
 
@@ -419,6 +445,26 @@ async function handleGraphrag(ctx) {
                     }
                 }
 
+                // Load document sections from tree indexes
+                let documentSections = [];
+                let treeIndexes = [];
+                try {
+                    const treeStatus = await storage.getTreeIndexStatus(projectId);
+                    if (treeStatus.total > 0) {
+                        const treeDocIds = treeStatus.documents.map(d => d.document_id);
+                        treeIndexes = await storage.getTreeIndexesByDocumentIds(treeDocIds);
+                        for (const ti of treeIndexes) {
+                            const tree = typeof ti.tree_data === 'string' ? JSON.parse(ti.tree_data) : ti.tree_data;
+                            if (!tree || !tree.children) continue;
+                            const flatSections = flattenTreeForGraph(tree, ti.document_id);
+                            documentSections.push(...flatSections);
+                        }
+                        log.info({ event: 'tree_sections_loaded', count: documentSections.length }, 'Tree sections loaded for graph sync');
+                    }
+                } catch (treeErr) {
+                    log.warn({ event: 'tree_sections_load_failed', reason: treeErr.message }, 'Failed to load tree sections (non-blocking)');
+                }
+
                 // Sync
                 global.graphRAGEngine.setProjectContext(projectId);
                 const result = await global.graphRAGEngine.syncToGraph({
@@ -436,8 +482,35 @@ async function handleGraphrag(ctx) {
                     emails,
                     contacts,
                     events: calendarEvents,
-                    contactRelationships
+                    contactRelationships,
+                    documentSections
                 }, { clear: isResync });
+
+                // Entity-to-section mapping (EXTRACTED_FROM edges)
+                if (treeIndexes.length > 0) {
+                    try {
+                        const { TreeGraphSync } = require('../../docindex');
+                        const treeSync = new TreeGraphSync(config);
+                        const graphProvider = storage.getGraphProvider();
+                        if (graphProvider) {
+                            const allEntities = [
+                                ...(facts || []),
+                                ...(decisions || []),
+                                ...(risks || []),
+                                ...(questions || [])
+                            ];
+                            for (const ti of treeIndexes) {
+                                const docEntities = allEntities.filter(e => e.source_document_id === ti.document_id);
+                                if (docEntities.length > 0) {
+                                    await treeSync.syncToGraph(ti, graphProvider, docEntities);
+                                }
+                            }
+                            log.info({ event: 'tree_entity_mapping_done', treeCount: treeIndexes.length }, 'Entity-to-section EXTRACTED_FROM edges created');
+                        }
+                    } catch (mapErr) {
+                        log.warn({ event: 'tree_entity_mapping_failed', reason: mapErr.message }, 'Entity-to-section mapping failed (non-blocking)');
+                    }
+                }
 
                 // Update status
                 global.graphRagSyncStatus[projectId] = {
@@ -520,6 +593,67 @@ async function handleGraphrag(ctx) {
             jsonResponse(res, status);
         } else {
             jsonResponse(res, { status: 'unknown', details: 'Provider not connected or does not support status' });
+        }
+        return true;
+    }
+
+    // GET /api/graphrag/nodes - Return graph nodes via admin client (bypasses RLS)
+    if (pathname === '/api/graphrag/nodes' && req.method === 'GET') {
+        try {
+            const projectId = new URL(req.url, `http://${req.headers.host}`).searchParams.get('project_id')
+                || storage.getCurrentProject()?.id;
+            if (!projectId) {
+                jsonResponse(res, { nodes: [] });
+                return true;
+            }
+            const adminClient = require('../../supabase/client').getAdminClient();
+            // Try by project_id first, fallback to graph_name
+            let { data, error } = await adminClient
+                .from('graph_nodes')
+                .select('*')
+                .eq('project_id', projectId);
+            if (error) throw error;
+            if (!data || data.length === 0) {
+                const graphName = `godmode_${projectId}`;
+                const fallback = await adminClient
+                    .from('graph_nodes')
+                    .select('*')
+                    .eq('graph_name', graphName);
+                if (!fallback.error) data = fallback.data || [];
+            }
+            jsonResponse(res, { nodes: data || [] });
+        } catch (e) {
+            jsonResponse(res, { error: e.message, nodes: [] }, 500);
+        }
+        return true;
+    }
+
+    // GET /api/graphrag/edges - Return graph relationships via admin client
+    if (pathname === '/api/graphrag/edges' && req.method === 'GET') {
+        try {
+            const projectId = new URL(req.url, `http://${req.headers.host}`).searchParams.get('project_id')
+                || storage.getCurrentProject()?.id;
+            if (!projectId) {
+                jsonResponse(res, { edges: [] });
+                return true;
+            }
+            const adminClient = require('../../supabase/client').getAdminClient();
+            let { data, error } = await adminClient
+                .from('graph_relationships')
+                .select('*')
+                .eq('project_id', projectId);
+            if (error) throw error;
+            if (!data || data.length === 0) {
+                const graphName = `godmode_${projectId}`;
+                const fallback = await adminClient
+                    .from('graph_relationships')
+                    .select('*')
+                    .eq('graph_name', graphName);
+                if (!fallback.error) data = fallback.data || [];
+            }
+            jsonResponse(res, { edges: data || [] });
+        } catch (e) {
+            jsonResponse(res, { error: e.message, edges: [] }, 500);
         }
         return true;
     }

@@ -165,6 +165,7 @@ async function handleDocuments(ctx) {
         const order = parsedUrl.query.order === 'asc' ? true : false;
         const docType = parsedUrl.query.type || null;
         const search = parsedUrl.query.search || null;
+        const sprintId = parsedUrl.query.sprint_id || null;
         
         try {
             const projectId = storage._supabase.getProjectId();
@@ -172,7 +173,7 @@ async function handleDocuments(ctx) {
             // Build query with server-side filtering
             let query = storage._supabase.supabase
                 .from('documents')
-                .select('id, filename, filepath, file_type, doc_type, status, created_at, updated_at, processed_at, summary, facts_count, decisions_count, risks_count, actions_count, questions_count, file_size, deleted_at', { count: 'exact' })
+                .select('id, filename, filepath, file_type, doc_type, status, created_at, updated_at, processed_at, summary, facts_count, decisions_count, risks_count, actions_count, questions_count, file_size, deleted_at, sprint_id, action_id, project_id', { count: 'exact' })
                 .eq('project_id', projectId);
             
             // Apply status filter
@@ -209,6 +210,15 @@ async function handleDocuments(ctx) {
             // Apply search filter
             if (search && search.length >= 2) {
                 query = query.ilike('filename', `%${search}%`);
+            }
+
+            // Apply sprint filter
+            if (sprintId) {
+                if (sprintId === '_none') {
+                    query = query.is('sprint_id', null);
+                } else {
+                    query = query.eq('sprint_id', sprintId);
+                }
             }
             
             // Apply sorting and pagination
@@ -299,6 +309,52 @@ async function handleDocuments(ctx) {
         return true;
     }
 
+    // PATCH /api/documents/:id - Update document metadata (sprint, action, project)
+    const docPatchMatch = pathname.match(/^\/api\/documents\/([a-f0-9\-]+|\d+)$/i);
+    if (docPatchMatch && req.method === 'PATCH') {
+        const docId = docPatchMatch[1];
+        try {
+            const body = await parseBody(req);
+            const allowed = ['sprint_id', 'action_id', 'project_id', 'title'];
+            const updates = {};
+            for (const key of allowed) {
+                if (key in body) updates[key] = body[key] === '' ? null : body[key];
+            }
+            if (Object.keys(updates).length === 0) {
+                jsonResponse(res, { error: 'No valid fields to update' }, 400);
+                return true;
+            }
+            const result = await storage._supabase.updateDocument(docId, updates);
+            if (!result) {
+                jsonResponse(res, { error: 'Update failed or no changes' }, 400);
+                return true;
+            }
+
+            const userId = await getCurrentUserId(req, storage);
+            if (userId) {
+                const changedFields = Object.keys(updates);
+                try {
+                    await storage._supabase.supabase
+                        .from('document_activity')
+                        .insert({
+                            document_id: docId,
+                            project_id: result.project_id,
+                            user_id: userId,
+                            action: 'metadata_updated',
+                            metadata: { fields: changedFields, updates }
+                        });
+                } catch (actErr) {
+                    log.warn({ event: 'doc_patch_activity_log_failed', reason: actErr?.message }, 'PATCH: failed to log activity');
+                }
+            }
+
+            jsonResponse(res, { document: result, updated: true });
+        } catch (err) {
+            jsonResponse(res, { error: 'Failed to update document' }, 500);
+        }
+        return true;
+    }
+
     // DELETE /api/documents/:id - Delete a document with cascade
     const docDeleteMatch = pathname.match(/^\/api\/documents\/([a-f0-9\-]+|\d+)$/i);
     if (docDeleteMatch && req.method === 'DELETE') {
@@ -316,15 +372,17 @@ async function handleDocuments(ctx) {
             // Invalidate caches
             if (invalidateBriefingCache) invalidateBriefingCache();
             
-            // Delete from graph if connected
+            // Delete document and all linked entity nodes from graph
             const graphProvider = storage.getGraphProvider();
             if (graphProvider && graphProvider.connected) {
                 try {
                     await graphProvider.query(
-                        `MATCH (d:Document {id: $id}) DETACH DELETE d`,
+                        `MATCH (d:Document {id: $id})
+                         OPTIONAL MATCH (d)-[:HAS_FACT|HAS_DECISION|HAS_RISK|HAS_ACTION|HAS_QUESTION|HAS_STORY]->(entity)
+                         DETACH DELETE d, entity`,
                         { id: docId }
                     );
-                    log.debug({ event: 'doc_graph_deleted', docId }, 'Document deleted from graph');
+                    log.debug({ event: 'doc_graph_deleted', docId }, 'Document and linked entities deleted from graph');
                 } catch (graphErr) {
                     log.warn({ event: 'doc_graph_delete_error', docId, reason: graphErr.message }, 'Graph document delete error');
                 }
@@ -347,27 +405,40 @@ async function handleDocuments(ctx) {
     const restoreMatch = pathname.match(/^\/api\/documents\/([a-f0-9\-]+)\/restore$/i);
     if (restoreMatch && req.method === 'POST') {
         const docId = restoreMatch[1];
-        const doc = await storage.getDocumentById(docId);
-        
-        if (!doc) {
-            jsonResponse(res, { error: 'Document not found' }, 404);
-            return true;
+        try {
+            const { data: doc, error: fetchErr } = await storage._supabase.supabase
+                .from('documents')
+                .select('id, filename, deleted_at')
+                .eq('id', docId)
+                .single();
+
+            if (fetchErr || !doc) {
+                jsonResponse(res, { error: 'Document not found' }, 404);
+                return true;
+            }
+
+            if (!doc.deleted_at) {
+                jsonResponse(res, { error: 'Document is not deleted' }, 400);
+                return true;
+            }
+
+            const { data: restored, error: restoreErr } = await storage._supabase.supabase
+                .from('documents')
+                .update({ deleted_at: null, status: 'completed' })
+                .eq('id', docId)
+                .select()
+                .single();
+
+            if (restoreErr) throw restoreErr;
+
+            jsonResponse(res, {
+                success: true,
+                message: `Document "${restored.filename || docId}" restored`,
+                document: restored
+            });
+        } catch (err) {
+            jsonResponse(res, { error: err.message || 'Failed to restore document' }, 500);
         }
-        
-        if (doc.status !== 'deleted') {
-            jsonResponse(res, { error: 'Document is not deleted' }, 400);
-            return true;
-        }
-        
-        doc.status = 'processed';
-        delete doc.deleted_at;
-        storage.saveDocuments();
-        
-        jsonResponse(res, {
-            success: true,
-            message: `Document "${doc.name}" restored`,
-            document: doc
-        });
         return true;
     }
 
@@ -618,15 +689,13 @@ async function handleDocuments(ctx) {
         return true;
     }
 
-    // POST /api/documents/:id/versions - Upload new version
+    // POST /api/documents/:id/versions - Upload new version (not yet implemented)
     const versionsPostMatch = pathname.match(/^\/api\/documents\/([a-f0-9\-]+)\/versions$/i);
     if (versionsPostMatch && req.method === 'POST') {
-        const docId = versionsPostMatch[1];
         jsonResponse(res, { 
-            success: true, 
-            message: 'Version upload endpoint - implement with file handling',
-            document_id: docId 
-        });
+            success: false, 
+            error: 'Version upload is not yet implemented'
+        }, 501);
         return true;
     }
 
@@ -784,7 +853,7 @@ async function handleDocuments(ctx) {
             const hashMatch = previousHash && currentHash && previousHash === currentHash;
             
             const entityCounts = {};
-            for (const type of ['facts', 'decisions', 'risks', 'actions', 'questions']) {
+            for (const type of ['facts', 'decisions', 'risks', 'action_items', 'knowledge_questions']) {
                 try {
                     const { count } = await storage._supabase.supabase
                         .from(type)
@@ -935,6 +1004,55 @@ async function handleDocuments(ctx) {
         return true;
     }
 
+    // POST /api/documents/bulk/update - Bulk update metadata (sprint, action, project)
+    if (pathname === '/api/documents/bulk/update' && req.method === 'POST') {
+        try {
+            const body = await parseBody(req);
+            const { ids, updates: rawUpdates } = body;
+            if (!Array.isArray(ids) || ids.length === 0) {
+                jsonResponse(res, { error: 'ids array required' }, 400);
+                return true;
+            }
+            const allowed = ['sprint_id', 'action_id', 'project_id'];
+            const updates = {};
+            for (const key of allowed) {
+                if (key in (rawUpdates || {})) updates[key] = rawUpdates[key] === '' ? null : rawUpdates[key];
+            }
+            if (Object.keys(updates).length === 0) {
+                jsonResponse(res, { error: 'No valid fields to update' }, 400);
+                return true;
+            }
+            updates.updated_at = new Date().toISOString();
+
+            const { data, error } = await storage._supabase.supabase
+                .from('documents')
+                .update(updates)
+                .in('id', ids)
+                .select('id');
+
+            if (error) throw error;
+
+            const userId = await getCurrentUserId(req, storage);
+            if (userId) {
+                const activityRows = ids.map(docId => ({
+                    document_id: docId,
+                    project_id: storage._supabase.getProjectId(),
+                    user_id: userId,
+                    action: 'metadata_updated',
+                    metadata: { fields: Object.keys(updates).filter(k => k !== 'updated_at'), updates, bulk: true }
+                }));
+                try {
+                    await storage._supabase.supabase.from('document_activity').insert(activityRows);
+                } catch (_) { /* best effort */ }
+            }
+
+            jsonResponse(res, { updated: data?.length || 0, total: ids.length });
+        } catch (err) {
+            jsonResponse(res, { error: 'Bulk update failed' }, 500);
+        }
+        return true;
+    }
+
     // POST /api/documents/bulk/delete - Bulk delete documents with cascade
     if (pathname === '/api/documents/bulk/delete' && req.method === 'POST') {
         const rateLimitKey = getRateLimitKey(req, 'bulk-delete');
@@ -967,33 +1085,24 @@ async function handleDocuments(ctx) {
                 deleted: 0, 
                 entitiesDeactivated: 0 
             };
-            const timestamp = new Date().toISOString();
-            const entityTables = ['facts', 'decisions', 'risks', 'action_items', 'knowledge_questions'];
             
             for (const id of ids) {
                 try {
-                    const { error: deleteError } = await storage._supabase.supabase
-                        .from('documents')
-                        .update({ deleted_at: timestamp })
-                        .eq('id', id);
-                    
-                    if (deleteError) throw deleteError;
-                    
-                    let entitiesCount = 0;
-                    for (const table of entityTables) {
+                    const result = await storage.deleteDocument(id, { softDelete: true, backupData: true });
+                    const entitiesCount = Object.values(result.deleted || {}).reduce((a, b) => a + b, 0);
+
+                    // Also clean graph if connected
+                    const graphProvider = storage.getGraphProvider();
+                    if (graphProvider && graphProvider.connected) {
                         try {
-                            const { count } = await storage._supabase.supabase
-                                .from(table)
-                                .update({ is_active: false })
-                                .eq('source_document_id', id)
-                                .select('id', { count: 'exact', head: true });
-                            entitiesCount += count || 0;
-                        } catch (entityErr) {
-                            // Some tables may not have is_active column
-                        }
+                            await graphProvider.query(
+                                `MATCH (d:Document {id: $id}) DETACH DELETE d`,
+                                { id }
+                            );
+                        } catch (_) { /* best effort */ }
                     }
                     
-                    results.success.push({ id, entitiesDeactivated: entitiesCount });
+                    results.success.push({ id, entitiesDeactivated: entitiesCount, deleted: result.deleted });
                     results.deleted++;
                     results.entitiesDeactivated += entitiesCount;
                 } catch (err) {

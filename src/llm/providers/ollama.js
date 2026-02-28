@@ -109,7 +109,7 @@ class OllamaProvider extends BaseLLMProvider {
     }
 
     async generateText(options) {
-        const { model, prompt, system, temperature = 0.7, maxTokens = 4096 } = options;
+        const { model, prompt, system, temperature = 0.7, maxTokens = 4096, jsonMode = false } = options;
 
         try {
             // Ollama's generate API has no dedicated system-prompt field, so we
@@ -120,10 +120,16 @@ class OllamaProvider extends BaseLLMProvider {
                 fullPrompt = `${system}\n\n${prompt}`;
             }
 
-            const result = await this.client.generate(model, fullPrompt, {
+            const generateOptions = {
                 temperature,
                 maxTokens
-            });
+            };
+
+            if (jsonMode) {
+                generateOptions.format = 'json';
+            }
+
+            const result = await this.client.generate(model, fullPrompt, generateOptions);
 
             if (result.success) {
                 return {

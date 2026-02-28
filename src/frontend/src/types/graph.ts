@@ -1,31 +1,9 @@
 /**
- * Purpose:
- *   Type definitions for the knowledge graph visualisation layer. Extends
- *   React Flow's Node and Edge interfaces with GodMode-specific fields
- *   (tier, display metadata, sync status, filter state).
- *
- * Responsibilities:
- *   - GraphNodeData: payload carried by each graph node (tier, colour, display dimensions)
- *   - GraphNode: extends React Flow Node with optional label, width/height overrides
- *   - GraphEdge: extends React Flow Edge with optional weight/curvature data
- *   - GraphSyncStatus: server-reported state of the graph sync pipeline
- *   - GraphFilterState: UI filter controls (type toggles, search, tier, semantic, layout)
- *
- * Key dependencies:
- *   - @xyflow/react: base Node and Edge types
- *
- * Side effects:
- *   - None (pure type declarations)
- *
- * Notes:
- *   - GraphNodeData uses [key: string]: any for extensibility; consider narrowing
- *     as the ontology stabilises.
- *   - GraphFilterState.layout supports three modes: 'concentric' (default),
- *     'force', and 'hierarchical'.
+ * Type definitions for the knowledge graph visualisation layer.
+ * Independent types (no external graph library dependency) used across
+ * the data pipeline, transformer, hooks, and G6-based rendering.
  */
-import { Node, Edge } from '@xyflow/react';
 
-// Extend React Flow types directly to ensure compatibility
 export interface GraphNodeData {
     label?: string;
     type?: string;
@@ -43,27 +21,29 @@ export interface GraphNodeData {
     [key: string]: any;
 }
 
-export interface GraphNode extends Node {
+export interface GraphNode {
     id: string;
-    label?: string; // Optional because we use type 'card' usually
+    label?: string;
     width?: number;
     height?: number;
     data: GraphNodeData;
-    // Position is required in React Flow Node, but might be missing before layout
-    position: { x: number; y: number };
+    position?: { x: number; y: number };
+    style?: Record<string, any>;
+    combo?: string;
 }
 
-export interface GraphEdge extends Edge {
+export interface GraphEdge {
     id: string;
     source: string;
     target: string;
     label?: string;
     type?: string;
     animated?: boolean;
-    style?: any;
+    style?: Record<string, any>;
     data?: {
         weight?: number;
         curvature?: number;
+        originalLabel?: string;
         [key: string]: any;
     };
 }
@@ -72,23 +52,27 @@ export interface GraphSyncStatus {
     project_id: string;
     graph_name: string;
     last_synced_at: string;
-    last_connected_at?: string; // Added
+    last_connected_at?: string;
     sync_status: 'idle' | 'syncing' | 'failed';
     health_status: 'healthy' | 'degraded' | 'error';
-    is_connected?: boolean; // Added
-    avg_sync_time_ms?: number; // Added
+    is_connected?: boolean;
+    avg_sync_time_ms?: number;
     node_count: number;
     edge_count: number;
-    pending_count?: number; // Added
+    pending_count?: number;
     error?: string;
 }
 
+export type GraphLayoutType = 'force' | 'forceAtlas2' | 'concentric' | 'dagre' | 'radial';
+
 export interface GraphFilterState {
     toggles: {
-        [key: string]: boolean; // 'Person': true, 'Document': false
+        [key: string]: boolean;
     };
     searchQuery: string;
     minTier: number;
     showSemantic: boolean;
-    layout: 'concentric' | 'force' | 'hierarchical';
+    layout: GraphLayoutType;
+    collapsedTypes: Set<string>;
+    timeRange: [number, number] | null;
 }

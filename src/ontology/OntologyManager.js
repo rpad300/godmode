@@ -186,7 +186,7 @@ class OntologyManager {
                         source: 'auto_sync'
                     },
                     reason: 'Auto-sync from schema.json on ontology load',
-                    source: 'auto_sync'
+                    source: 'sync'
                 }).catch(() => {});
             })
             .catch(e => {

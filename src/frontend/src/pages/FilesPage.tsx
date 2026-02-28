@@ -11,9 +11,10 @@ import {
   useDocuments, useDeleteDocument, useReprocessDocument, useProcessStatus,
   useToggleDocumentFavorite, useRestoreDocument,
   useBulkDeleteDocuments, useBulkReprocessDocuments, useBulkExportDocuments,
+  useBulkUpdateDocuments, useSprints,
   type DocumentItem,
 } from '../hooks/useGodMode';
-import FileDetailModal from '../components/files/FileDetailModal';
+import FileDetail from '../components/files/FileDetail';
 
 const typeIcon: Record<string, typeof FileText> = {
   documents: FileText,
@@ -39,13 +40,18 @@ export default function FilesPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
   const [favOnly, setFavOnly] = useState(false);
+  const [sprintFilter, setSprintFilter] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [modalDoc, setModalDoc] = useState<DocumentItem | null>(null);
+
+  const { data: sprintsData } = useSprints();
+  const allSprints: any[] = (sprintsData as any)?.sprints ?? (Array.isArray(sprintsData) ? sprintsData : []);
 
   const documents = useDocuments({
     search: search || undefined,
     type: typeFilter || undefined,
     status: tab === 'deleted' ? 'deleted' : (statusFilter || undefined),
+    sprint_id: sprintFilter || undefined,
     limit: 100,
   });
   const pending = usePendingFiles();
@@ -61,6 +67,8 @@ export default function FilesPage() {
   const bulkDelete = useBulkDeleteDocuments();
   const bulkReprocess = useBulkReprocessDocuments();
   const bulkExport = useBulkExportDocuments();
+  const bulkUpdate = useBulkUpdateDocuments();
+  const [bulkSprintId, setBulkSprintId] = useState('');
 
   const isProcessing = processStatus?.status === 'processing' || processFiles.isPending;
   const rawDocList = documents.data?.documents ?? [];
@@ -124,6 +132,22 @@ export default function FilesPage() {
     });
   };
 
+  // Detail view (replaces list)
+  if (modalDoc) {
+    return (
+      <FileDetail
+        file={modalDoc}
+        onBack={() => setModalDoc(null)}
+        onReprocess={(id) => {
+          reprocessDocument.mutate(id, { onSuccess: () => toast.success('Reprocessing started') });
+        }}
+        onDelete={(id) => {
+          deleteDocument.mutate(id, { onSuccess: () => { toast.success('Document deleted'); setModalDoc(null); } });
+        }}
+      />
+    );
+  }
+
   const handleFavorite = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     toggleFavorite.mutate(id);
@@ -140,6 +164,8 @@ export default function FilesPage() {
     const Icon = typeIcon[doc.type || ''] || FileText;
     const isFav = !!(doc as Record<string, unknown>).is_favorite;
     const isSelected = selectedIds.has(doc.id);
+    const docSprintId = (doc as Record<string, unknown>).sprint_id as string | undefined;
+    const sprintName = docSprintId ? allSprints.find((s: any) => s.id === docSprintId)?.name : null;
 
     if (viewMode === 'grid') {
       return (
@@ -170,11 +196,16 @@ export default function FilesPage() {
               <Icon className="w-5 h-5 text-gm-interactive-primary" />
             </div>
             <p className="text-sm font-medium text-gm-text-primary truncate w-full text-center">{doc.original_filename || doc.filename}</p>
-            <div className="flex items-center gap-2 mt-1.5">
+            <div className="flex items-center gap-2 mt-1.5 flex-wrap justify-center">
               {doc.type && <span className="text-[10px] text-gm-text-tertiary capitalize">{doc.type}</span>}
               <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium ${sb.cls}`}>
                 <sb.icon className={`w-3 h-3 ${doc.status === 'processing' ? 'animate-spin' : ''}`} /> {doc.status || '—'}
               </span>
+              {sprintName && (
+                <span className="inline-flex items-center text-[10px] px-2 py-0.5 rounded-full font-medium bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                  {sprintName}
+                </span>
+              )}
             </div>
             {doc.size && <span className="text-[10px] text-gm-text-tertiary mt-1">{(Number(doc.size) / 1024).toFixed(1)} KB</span>}
           </div>
@@ -213,6 +244,11 @@ export default function FilesPage() {
               {doc.created_at && <span className="text-[10px] text-gm-text-tertiary">{new Date(doc.created_at).toLocaleDateString()}</span>}
             </div>
           </div>
+          {sprintName && (
+            <span className="inline-flex items-center text-[10px] px-2 py-0.5 rounded-full font-medium bg-purple-500/10 text-purple-400 border border-purple-500/20 whitespace-nowrap">
+              {sprintName}
+            </span>
+          )}
           <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium ${sb.cls}`}>
             <sb.icon className={`w-3 h-3 ${doc.status === 'processing' ? 'animate-spin' : ''}`} /> {doc.status || '—'}
           </span>
@@ -335,6 +371,13 @@ export default function FilesPage() {
                 <option value="pending">Pending</option>
                 <option value="failed">Failed</option>
               </select>
+              <select value={sprintFilter} onChange={e => setSprintFilter(e.target.value)} className="bg-gm-surface-secondary border border-gm-border-primary rounded-lg px-3 py-1.5 text-xs text-gm-text-primary focus:outline-none focus:ring-2 focus:ring-gm-border-focus">
+                <option value="">All sprints</option>
+                <option value="_none">No sprint</option>
+                {allSprints.map((s: any) => (
+                  <option key={s.id} value={s.id}>{s.name}{s.status === 'active' ? ' (active)' : ''}</option>
+                ))}
+              </select>
               <button
                 onClick={() => setFavOnly(!favOnly)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${favOnly ? 'bg-yellow-400/10 border-yellow-400/30 text-yellow-600' : 'bg-gm-surface-secondary border-gm-border-primary text-gm-text-tertiary hover:text-gm-text-primary'}`}
@@ -366,6 +409,35 @@ export default function FilesPage() {
             <span className="text-sm font-medium text-gm-text-primary">{selectedIds.size} selected</span>
             <button onClick={selectAll} className="text-xs text-gm-interactive-primary hover:underline">Select all</button>
             <button onClick={clearSelection} className="text-xs text-gm-text-tertiary hover:underline">Clear</button>
+            <div className="flex items-center gap-2 ml-3">
+              <select
+                value={bulkSprintId}
+                onChange={e => setBulkSprintId(e.target.value)}
+                className="bg-gm-surface-secondary border border-gm-border-primary rounded-lg px-2 py-1.5 text-xs text-gm-text-primary"
+              >
+                <option value="">Assign sprint...</option>
+                <option value="_none">Remove sprint</option>
+                {allSprints.map((s: any) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+              <button
+                onClick={() => {
+                  if (!bulkSprintId) return;
+                  const ids = Array.from(selectedIds);
+                  const sprintVal = bulkSprintId === '_none' ? null : bulkSprintId;
+                  bulkUpdate.mutate({ ids, updates: { sprint_id: sprintVal } }, {
+                    onSuccess: () => { toast.success(`Sprint updated on ${ids.length} document(s)`); clearSelection(); setBulkSprintId(''); },
+                    onError: () => toast.error('Bulk sprint update failed'),
+                  });
+                }}
+                disabled={!bulkSprintId || bulkUpdate.isPending}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-purple-500/10 text-purple-400 border border-purple-500/20 text-xs font-medium hover:bg-purple-500/20 transition-colors disabled:opacity-40"
+              >
+                {bulkUpdate.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                Apply
+              </button>
+            </div>
             <div className="ml-auto flex items-center gap-2">
               <button
                 onClick={handleBulkExport}
@@ -491,17 +563,6 @@ export default function FilesPage() {
         </motion.div>
       )}
 
-      <FileDetailModal
-        file={modalDoc}
-        open={!!modalDoc}
-        onClose={() => setModalDoc(null)}
-        onReprocess={(id) => {
-          reprocessDocument.mutate(id, { onSuccess: () => toast.success('Reprocessing started') });
-        }}
-        onDelete={(id) => {
-          deleteDocument.mutate(id, { onSuccess: () => { toast.success('Document deleted'); setModalDoc(null); } });
-        }}
-      />
     </div>
   );
 }

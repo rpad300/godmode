@@ -211,6 +211,21 @@ async function handleEmails(ctx) {
                 return true;
             }
 
+            // Auto-detect thread from In-Reply-To / References headers
+            if (!parsedEmail.thread_id && (parsedEmail.inReplyTo || parsedEmail.references)) {
+                try {
+                    const refMessageId = parsedEmail.inReplyTo || (parsedEmail.references || '').split(/\s+/)[0];
+                    if (refMessageId) {
+                        const parentEmail = await storage.findEmailByMessageId?.(refMessageId);
+                        if (parentEmail) {
+                            parsedEmail.thread_id = parentEmail.thread_id || parentEmail.id;
+                        }
+                    }
+                } catch (threadErr) {
+                    log.debug({ event: 'emails_thread_detect_failed', reason: threadErr.message }, 'Thread detection failed');
+                }
+            }
+
             log.debug({ event: 'emails_save_start' }, 'Saving email to database');
             const savedEmail = await storage.saveEmail(parsedEmail);
             log.debug({ event: 'emails_saved', emailId: savedEmail?.id }, 'Email saved');
@@ -298,6 +313,11 @@ async function handleEmails(ctx) {
                         ? await promptsService.buildContextVariables(savedEmail.project_id, 4000)
                         : {};
 
+                    try {
+                        const { DocumentContextBuilder } = require('../../docindex');
+                        contextVariables.DOCUMENT_CONTEXT = await DocumentContextBuilder.build(storage, { maxChars: 1200 });
+                    } catch (_) {}
+
                     const customEmailPrompt = config.prompts?.email || null;
                     const analysisPrompt = emailParser.buildEmailAnalysisPrompt(parsedEmail, {
                         customPrompt: customEmailPrompt,
@@ -330,17 +350,21 @@ async function handleEmails(ctx) {
                                 });
 
                                 const sourceRef = `Email: ${parsedEmail.subject || savedEmail.id}`;
+                                const emailSprintId = savedEmail.sprint_id || parsedEmail.sprint_id || null;
 
                                 if (aiAnalysis.facts && Array.isArray(aiAnalysis.facts)) {
                                     for (const fact of aiAnalysis.facts) {
                                         try {
+                                            const confMap = { high: 0.9, medium: 0.7, low: 0.4 };
+                                            const confValue = typeof fact.confidence === 'number' ? fact.confidence : (confMap[String(fact.confidence).toLowerCase()] ?? 0.7);
                                             await storage.addFact({
                                                 content: fact.content,
                                                 category: fact.category || 'general',
                                                 source: sourceRef,
                                                 source_document_id: null,
                                                 source_email_id: savedEmail.id,
-                                                confidence: typeof fact.confidence === 'number' ? fact.confidence : 0.8
+                                                confidence: confValue,
+                                                sprint_id: emailSprintId
                                             });
                                             extractedEntities.facts++;
                                         } catch (e) {
@@ -358,7 +382,8 @@ async function handleEmails(ctx) {
                                                 date: decision.date || new Date().toISOString().split('T')[0],
                                                 status: decision.status || 'made',
                                                 source: sourceRef,
-                                                source_email_id: savedEmail.id
+                                                source_email_id: savedEmail.id,
+                                                sprint_id: emailSprintId
                                             });
                                             extractedEntities.decisions++;
                                         } catch (e) {
@@ -377,7 +402,8 @@ async function handleEmails(ctx) {
                                                 mitigation: risk.mitigation || null,
                                                 status: 'open',
                                                 source: sourceRef,
-                                                source_email_id: savedEmail.id
+                                                source_email_id: savedEmail.id,
+                                                sprint_id: emailSprintId
                                             });
                                             extractedEntities.risks++;
                                         } catch (e) {
@@ -397,7 +423,8 @@ async function handleEmails(ctx) {
                                                 priority: action.priority || 'medium',
                                                 status: action.status || 'pending',
                                                 source: sourceRef,
-                                                source_email_id: savedEmail.id
+                                                source_email_id: savedEmail.id,
+                                                sprint_id: emailSprintId
                                             });
                                             extractedEntities.actions++;
                                         } catch (e) {
@@ -416,7 +443,8 @@ async function handleEmails(ctx) {
                                                 status: 'open',
                                                 assignee: question.assignee || null,
                                                 source: sourceRef,
-                                                source_email_id: savedEmail.id
+                                                source_email_id: savedEmail.id,
+                                                sprint_id: emailSprintId
                                             });
                                             extractedEntities.questions++;
                                         } catch (e) {
@@ -461,6 +489,8 @@ async function handleEmails(ctx) {
                     }
             } catch (aiError) {
                 log.warn({ event: 'emails_ai_analysis_failed', reason: aiError.message }, 'AI analysis failed');
+                // Mark as processed even on failure so it's not stuck in limbo
+                try { await storage.updateEmail(savedEmail.id, { processed_at: new Date().toISOString(), processing_error: aiError.message }); } catch (_) {}
             }
 
             try {
@@ -538,7 +568,13 @@ async function handleEmails(ctx) {
             const questions = (await storage.getQuestions()).filter(q => q.status !== 'resolved').slice(0, 5);
             const decisions = (await storage.getDecisions()).slice(0, 5);
 
-            const responsePrompt = emailParser.buildResponsePrompt(email, { facts, questions, decisions });
+            let docContext = '';
+            try {
+                const { DocumentContextBuilder } = require('../../docindex');
+                docContext = await DocumentContextBuilder.build(storage, { maxChars: 1500 });
+            } catch (_) {}
+
+            const responsePrompt = emailParser.buildResponsePrompt(email, { facts, questions, decisions, docContext });
 
             const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
                 prompt: responsePrompt,
@@ -572,6 +608,69 @@ async function handleEmails(ctx) {
         return true;
     }
 
+    // POST /api/emails/:id/reprocess - Re-run AI analysis on an email
+    const emailReprocessMatch = pathname.match(/^\/api\/emails\/([a-f0-9\-]+)\/reprocess$/);
+    if (emailReprocessMatch && req.method === 'POST') {
+        const emailId = emailReprocessMatch[1];
+        try {
+            const email = await storage.getEmail(emailId);
+            if (!email) { jsonResponse(res, { ok: false, error: 'Email not found' }, 404); return true; }
+
+            const parsedEmail = {
+                from: { email: email.from_email, name: email.from_name },
+                to: (email.to_emails || []).map((e, i) => ({ email: e, name: email.to_names?.[i] || '' })),
+                cc: (email.cc_emails || []).map((e, i) => ({ email: e, name: email.cc_names?.[i] || '' })),
+                subject: email.subject,
+                date: email.date_sent,
+                text: email.body_text,
+                html: email.body_html,
+                signature: email.signature
+            };
+
+            let reprocessDocCtx = '';
+            try {
+                const { DocumentContextBuilder } = require('../../docindex');
+                reprocessDocCtx = await DocumentContextBuilder.build(storage, { maxChars: 1200 });
+            } catch (_) {}
+
+            const customEmailPrompt = config.prompts?.email || null;
+            const analysisPrompt = emailParser.buildEmailAnalysisPrompt(parsedEmail, {
+                customPrompt: customEmailPrompt,
+                ontologyMode: !customEmailPrompt,
+                contextVariables: { DOCUMENT_CONTEXT: reprocessDocCtx }
+            });
+            const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
+                prompt: analysisPrompt, temperature: 0.3, maxTokens: 2500, context: 'email-reprocess'
+            }, config);
+
+            if (routerResult.success) {
+                const result = routerResult.result || {};
+                let jsonText = result.text || result.response || '';
+                const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
+                if (jsonMatch) {
+                    const aiAnalysis = JSON.parse(jsonMatch[0]);
+                    await storage.updateEmail(emailId, {
+                        extracted_entities: aiAnalysis,
+                        ai_summary: aiAnalysis.summary,
+                        detected_intent: aiAnalysis.intent,
+                        sentiment: aiAnalysis.sentiment,
+                        requires_response: aiAnalysis.requires_response || false,
+                        processed_at: new Date().toISOString(),
+                        processing_error: null
+                    });
+                    jsonResponse(res, { ok: true, message: 'Email reprocessed', analysis: aiAnalysis });
+                } else {
+                    jsonResponse(res, { ok: false, error: 'Could not parse AI response' }, 500);
+                }
+            } else {
+                jsonResponse(res, { ok: false, error: routerResult.error || 'LLM failed' }, 500);
+            }
+        } catch (error) {
+            jsonResponse(res, { ok: false, error: error.message }, 500);
+        }
+        return true;
+    }
+
     // POST /api/emails/:id/mark-responded - Mark email as responded
     const emailMarkRespondedMatch = pathname.match(/^\/api\/emails\/([a-f0-9\-]+)\/mark-responded$/);
     if (emailMarkRespondedMatch && req.method === 'POST') {
@@ -591,15 +690,16 @@ async function handleEmails(ctx) {
         return true;
     }
 
-    // GET /api/emails/stats - Email statistics summary
+    // GET /api/emails/stats - Email statistics summary (server-side counts)
     if (pathname === '/api/emails/stats' && req.method === 'GET') {
         try {
-            const allEmails = await storage.getEmails({ limit: 10000 });
-            const total = allEmails.length;
-            const unread = allEmails.filter(e => !e.is_read).length;
-            const starred = allEmails.filter(e => e.is_starred).length;
-            const needing_response = allEmails.filter(e => e.requires_response).length;
-            jsonResponse(res, { ok: true, total, unread, starred, needing_response });
+            if (storage.getEmailStats) {
+                const stats = await storage.getEmailStats();
+                jsonResponse(res, { ok: true, ...stats });
+            } else {
+                const allEmails = await storage.getEmails({ limit: 10000 });
+                jsonResponse(res, { ok: true, total: allEmails.length, unread: allEmails.filter(e => !e.is_read).length, starred: allEmails.filter(e => e.is_starred).length, needing_response: allEmails.filter(e => e.requires_response).length });
+            }
         } catch (error) {
             jsonResponse(res, { ok: false, error: error.message }, 500);
         }
@@ -671,10 +771,9 @@ async function handleEmails(ctx) {
     if (threadMatch && req.method === 'GET') {
         try {
             const threadId = threadMatch[1];
-            const allEmails = await storage.getEmails({ limit: 10000 });
-            const threadEmails = allEmails
-                .filter(e => e.thread_id === threadId)
-                .sort((a, b) => new Date(a.date || a.created_at || 0).getTime() - new Date(b.date || b.created_at || 0).getTime());
+            const threadEmails = storage.getEmailsByThread
+                ? await storage.getEmailsByThread(threadId)
+                : (await storage.getEmails({ limit: 10000 })).filter(e => e.thread_id === threadId).sort((a, b) => new Date(a.date || a.created_at || 0).getTime() - new Date(b.date || b.created_at || 0).getTime());
             jsonResponse(res, { ok: true, emails: threadEmails, count: threadEmails.length });
         } catch (error) {
             jsonResponse(res, { ok: false, error: error.message }, 500);

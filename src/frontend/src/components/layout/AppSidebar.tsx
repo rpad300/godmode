@@ -42,6 +42,7 @@ import {
   Users,
   Network,
   FolderOpen,
+  Briefcase,
   Mail,
   Share2,
   DollarSign,
@@ -94,6 +95,7 @@ import ImportDocumentModal from '../files/ImportDocumentModal';
 import ImportTranscriptModal from '../files/ImportTranscriptModal';
 import AddEmailModal from '../files/AddEmailModal';
 import ImportConversationModal from '../files/ImportConversationModal';
+import { useProject } from '../../hooks/useProject';
 
 interface AppSidebarProps {
   open: boolean;
@@ -127,8 +129,9 @@ const navSections: NavSection[] = [
     ],
   },
   {
-    title: 'User',
+    title: 'Manage',
     items: [
+      { to: '/projects', label: 'Projects', icon: Briefcase },
       { to: '/profile', label: 'Profile', icon: User },
     ],
   },
@@ -165,6 +168,9 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
   const [transcriptModalOpen, setTranscriptModalOpen] = useState(false);
   const [emailModalOpen, setEmailModalOpen] = useState(false);
   const [convModalOpen, setConvModalOpen] = useState(false);
+
+  const { projectId, projects } = useProject();
+  const hasProject = !!(projectId && projects.length > 0);
 
   // Queries & mutations
   const { data: pendingFiles = [] } = usePendingFiles();
@@ -461,8 +467,8 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
           open ? 'translate-x-0' : '-translate-x-full'
         )}
       >
-        {/* Drop Zones */}
-        <div className="p-3 border-b">
+        {/* Drop Zones - only when a project is active */}
+        {hasProject && <div className="p-3 border-b">
           <div className="text-xs font-semibold text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-2">
             Add Files
           </div>
@@ -500,9 +506,10 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
             className="hidden"
             onChange={handleFileInputChange}
           />
-        </div>
+        </div>}
 
         {/* Pending Files */}
+        {hasProject &&
         <div className="px-3 py-2 border-b">
           <div className="flex items-center justify-between mb-1">
             <span className="text-xs font-semibold text-[hsl(var(--muted-foreground))] uppercase tracking-wider">
@@ -541,11 +548,11 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
               </ul>
             )}
           </div>
-        </div>
+        </div>}
 
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto p-2 space-y-3">
-          {navSections.map((section) => (
+          {navSections.filter(s => hasProject || s.title !== 'Project').map((section) => (
             <div key={section.title}>
               <div className="text-[10px] font-bold text-[hsl(var(--primary))] uppercase tracking-widest px-2 mb-1">
                 {section.title}
@@ -575,8 +582,8 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
           ))}
         </nav>
 
-        {/* Action Buttons */}
-        <div className="p-3 border-t space-y-2">
+        {/* Action Buttons - only when a project is active */}
+        {hasProject && <div className="p-3 border-t space-y-2">
           <div className="text-xs font-semibold text-[hsl(var(--muted-foreground))] uppercase tracking-wider mb-1">
             Actions
           </div>
@@ -634,7 +641,7 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
             <Trash2 className="h-4 w-4" />
             Reset Data
           </Button>
-        </div>
+        </div>}
       </aside>
 
       {/* Mobile overlay */}

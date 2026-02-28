@@ -5,7 +5,7 @@ import {
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogTitle } from '../ui/Dialog';
 import { cn } from '../../lib/utils';
-import { useSendEmail, useImportEmail } from '../../hooks/useGodMode';
+import { useSendEmail, useImportEmail, useSprints } from '../../hooks/useGodMode';
 import { apiClient } from '../../lib/api-client';
 
 type Mode = 'compose' | 'reply' | 'forward';
@@ -41,13 +41,15 @@ export default function EmailComposeModal({ open, onClose, mode = 'compose', rep
   const fileObjRef = useRef<File | null>(null);
   const [aiDraft, setAiDraft] = useState('');
   const [generatingDraft, setGeneratingDraft] = useState(false);
+  const [sprintId, setSprintId] = useState('');
 
   const sendEmail = useSendEmail();
   const importEmail = useImportEmail();
+  const sprints = useSprints();
 
   const handleClose = () => {
     setTo(''); setCc(''); setSubject(''); setBody(''); setPasteContent('');
-    setFileName(''); fileObjRef.current = null; setAiDraft('');
+    setFileName(''); fileObjRef.current = null; setAiDraft(''); setSprintId('');
     onClose();
   };
 
@@ -87,7 +89,7 @@ export default function EmailComposeModal({ open, onClose, mode = 'compose', rep
       }
       setSending(true);
       try {
-        await importEmail.mutateAsync({ emailText: pasteContent });
+        await importEmail.mutateAsync({ emailText: pasteContent, ...(sprintId ? { sprintId } : {}) });
         toast.success('Email imported and analyzed');
         handleClose();
       } catch {
@@ -105,8 +107,9 @@ export default function EmailComposeModal({ open, onClose, mode = 'compose', rep
       try {
         const base64 = await fileToBase64(file);
         const isMsg = file.name.toLowerCase().endsWith('.msg');
+        const sprintPayload = sprintId ? { sprintId } : {};
         await importEmail.mutateAsync(
-          isMsg ? { msgBase64: base64, filename: file.name } : { emlBase64: base64, filename: file.name }
+          isMsg ? { msgBase64: base64, filename: file.name, ...sprintPayload } : { emlBase64: base64, filename: file.name, ...sprintPayload }
         );
         toast.success('Email file imported and analyzed');
         handleClose();
@@ -288,6 +291,20 @@ export default function EmailComposeModal({ open, onClose, mode = 'compose', rep
                 </div>
               )}
               <p className="text-[10px] text-gm-text-tertiary mt-3">Email will be parsed, analyzed with AI, and entities extracted automatically.</p>
+            </div>
+          )}
+
+          {/* Sprint association for import tabs */}
+          {inputTab !== 'compose' && (sprints.data || []).length > 0 && (
+            <div>
+              <label className="text-xs font-medium text-gm-text-primary mb-1.5 block">Associate with Sprint</label>
+              <select value={sprintId} onChange={e => setSprintId(e.target.value)}
+                className="w-full bg-gm-surface-secondary border border-gm-border-primary rounded-lg px-3 py-2 text-sm text-gm-text-primary focus:outline-none focus:ring-2 focus:ring-gm-border-focus">
+                <option value="">No sprint</option>
+                {(sprints.data || []).map((s: { id: string; name: string }) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
             </div>
           )}
         </div>

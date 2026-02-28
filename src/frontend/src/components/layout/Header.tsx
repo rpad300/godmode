@@ -25,8 +25,8 @@
  *     AppLayout. Assumption: one will be removed during consolidation.
  */
 import { useState } from 'react';
-import { Moon, Sun, Zap, Menu, LogOut, Bell } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { Moon, Sun, Zap, Menu, LogOut, Bell, Plus } from 'lucide-react';
+import { useNavigate, Link } from 'react-router-dom';
 import { Button } from '../ui/Button';
 import { useAuth } from '../../contexts/AuthContext';
 import type { Project } from '../../hooks/useGodMode';
@@ -97,18 +97,28 @@ export function Header({
           <span>GodMode</span>
         </a>
 
-        <select
-          value={currentProjectId ?? ''}
-          onChange={(e) => onSelectProject(e.target.value || null)}
-          className="ml-4 h-9 rounded-md border bg-transparent px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[hsl(var(--ring))]"
-        >
-          <option value="">Select Project...</option>
-          {projects.map((project) => (
-            <option key={project.id} value={project.id}>
-              {project.name}
-            </option>
-          ))}
-        </select>
+        {projects.length > 0 ? (
+          <select
+            value={currentProjectId ?? ''}
+            onChange={(e) => onSelectProject(e.target.value || null)}
+            className="ml-4 h-9 rounded-md border bg-[hsl(var(--card))] px-3 text-sm text-[hsl(var(--foreground))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--ring))]"
+          >
+            <option value="">Select Project...</option>
+            {projects.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.name}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <Link
+            to="/projects"
+            className="ml-4 inline-flex items-center gap-1.5 h-9 rounded-md border border-dashed border-[hsl(var(--primary))] bg-transparent px-3 text-sm font-medium text-[hsl(var(--primary))] hover:bg-[hsl(var(--accent))] transition-colors"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Create Project
+          </Link>
+        )}
       </div>
 
       <div className="flex items-center gap-2">

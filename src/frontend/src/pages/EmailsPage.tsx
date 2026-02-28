@@ -10,7 +10,7 @@ import {
 } from '../hooks/useGodMode';
 import { EmailsSkeleton } from '../components/shared/PageSkeleton';
 import { cn } from '../lib/utils';
-import EmailDetailModal from '../components/emails/EmailDetailModal';
+import EmailDetail from '../components/emails/EmailDetail';
 import EmailComposeModal from '../components/emails/EmailComposeModal';
 import { ErrorState } from '../components/shared/ErrorState';
 
@@ -59,6 +59,21 @@ export default function EmailsPage() {
   }, [emailList, search, directionFilter, filter]);
 
   const stats = emailStats.data as Record<string, unknown> | undefined;
+
+  // Detail view (replaces list)
+  if (selectedEmail) {
+    return (
+      <>
+        <EmailDetail
+          email={selectedEmail}
+          onBack={() => setSelectedEmail(null)}
+          onReply={(email) => { setSelectedEmail(null); setCompose({ open: true, mode: 'reply', replyTo: email }); }}
+          onForward={(email) => { setSelectedEmail(null); setCompose({ open: true, mode: 'forward', replyTo: email }); }}
+        />
+        <EmailComposeModal open={compose.open} onClose={() => setCompose({ open: false, mode: 'compose', replyTo: null })} mode={compose.mode} replyTo={compose.replyTo} />
+      </>
+    );
+  }
 
   const handleStar = (e: React.MouseEvent, id: string, currentlyStarred: boolean) => {
     e.stopPropagation();
@@ -251,15 +266,6 @@ export default function EmailsPage() {
           })}
         </div>
       )}
-
-      {/* Detail Modal */}
-      <EmailDetailModal
-        email={selectedEmail}
-        open={!!selectedEmail}
-        onClose={() => setSelectedEmail(null)}
-        onReply={(email) => { setSelectedEmail(null); setCompose({ open: true, mode: 'reply', replyTo: email }); }}
-        onForward={(email) => { setSelectedEmail(null); setCompose({ open: true, mode: 'forward', replyTo: email }); }}
-      />
 
       {/* Compose Modal */}
       <EmailComposeModal

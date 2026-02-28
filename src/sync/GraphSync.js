@@ -389,7 +389,7 @@ class GraphSync {
             if (contact.linked_person_id || contact.linkedPersonId) {
                 const personId = contact.linked_person_id || contact.linkedPersonId;
                 await this.graphProvider.createRelationship(
-                    contact.id, personId, 'REPRESENTS', {}
+                    contact.id, personId, 'IS_CONTACT_OF', {}
                 );
             }
 
@@ -404,11 +404,11 @@ class GraphSync {
                 teamIds.push(contact.teamId);
             }
 
-            // Create MEMBER_OF relationships for each team
+            // Create MEMBER_OF_TEAM relationships for each team
             for (const teamId of teamIds) {
                 try {
                     await this.graphProvider.createRelationship(
-                        contact.id, teamId, 'MEMBER_OF', {}
+                        contact.id, teamId, 'MEMBER_OF_TEAM', {}
                     );
                 } catch (e) {
                     // Team might not exist yet
@@ -763,6 +763,15 @@ class GraphSync {
             };
             
             await this.graphProvider.createNode('Fact', nodeData);
+
+            if (fact.sprint_id) {
+                try {
+                    await this.graphProvider.createRelationship(nodeData.id, fact.sprint_id, 'PART_OF_SPRINT', {});
+                } catch (relErr) {
+                    log.warn({ event: 'graph_sync_fact_part_of_sprint_failed', factId: nodeData.id, sprint_id: fact.sprint_id, reason: relErr.message }, 'PART_OF_SPRINT relationship failed');
+                }
+            }
+
             this._triggerBackgroundAnalysis();
             return { success: true, validation };
         } catch (e) {
@@ -805,16 +814,22 @@ class GraphSync {
 
             // Link to owner if exists - with relationship validation
             if (decision.owner && decision.owner !== 'Unknown') {
-                const relValidation = this.validateRelationship('MADE_DECISION', 'Person', 'Decision');
+                const relValidation = this.validateRelationship('OWNED_BY', 'Decision', 'Person');
                 if (relValidation.valid || !this.strictMode) {
-                    // Create Person node for owner
                     const ownerId = `person_${decision.owner.toLowerCase().replace(/\s+/g, '_')}`;
                     await this.graphProvider.createNode('Person', {
                         id: ownerId,
                         name: decision.owner
                     });
-                    // Create relationship
-                    await this.graphProvider.createRelationship(ownerId, decisionId, 'MADE_DECISION', {});
+                    await this.graphProvider.createRelationship(decisionId, ownerId, 'OWNED_BY', {});
+                }
+            }
+
+            if (decision.sprint_id) {
+                try {
+                    await this.graphProvider.createRelationship(decisionId, decision.sprint_id, 'PART_OF_SPRINT', {});
+                } catch (relErr) {
+                    log.warn({ event: 'graph_sync_decision_part_of_sprint_failed', decisionId, sprint_id: decision.sprint_id, reason: relErr.message }, 'PART_OF_SPRINT relationship failed');
                 }
             }
 
@@ -896,6 +911,15 @@ class GraphSync {
             };
             
             await this.graphProvider.createNode('Risk', nodeData);
+
+            if (risk.sprint_id) {
+                try {
+                    await this.graphProvider.createRelationship(nodeData.id, risk.sprint_id, 'PART_OF_SPRINT', {});
+                } catch (relErr) {
+                    log.warn({ event: 'graph_sync_risk_part_of_sprint_failed', riskId: nodeData.id, sprint_id: risk.sprint_id, reason: relErr.message }, 'PART_OF_SPRINT relationship failed');
+                }
+            }
+
             this._triggerBackgroundAnalysis();
             return { success: true, validation };
         } catch (e) {
@@ -971,12 +995,12 @@ class GraphSync {
             
             await this.graphProvider.createNode('Action', nodeData);
 
-            // PART_OF: link task to user story if parent_story_id set
+            // IMPLEMENTS: link task to user story if parent_story_id set
             if (action.parent_story_id) {
                 try {
-                    await this.graphProvider.createRelationship(actionId, action.parent_story_id, 'PART_OF', {});
+                    await this.graphProvider.createRelationship(actionId, action.parent_story_id, 'IMPLEMENTS', {});
                 } catch (relErr) {
-                    log.warn({ event: 'graph_sync_action_part_of_failed', actionId, parent_story_id: action.parent_story_id, reason: relErr.message });
+                    log.warn({ event: 'graph_sync_action_implements_failed', actionId, parent_story_id: action.parent_story_id, reason: relErr.message });
                 }
             }
 
@@ -1005,12 +1029,12 @@ class GraphSync {
                 }
             }
 
-            // IN_SPRINT: link task to sprint when sprint_id set
+            // PART_OF_SPRINT: link task to sprint when sprint_id set
             if (action.sprint_id) {
                 try {
-                    await this.graphProvider.createRelationship(actionId, action.sprint_id, 'IN_SPRINT', {});
+                    await this.graphProvider.createRelationship(actionId, action.sprint_id, 'PART_OF_SPRINT', {});
                 } catch (relErr) {
-                    log.warn({ event: 'graph_sync_action_in_sprint_failed', actionId, sprint_id: action.sprint_id, reason: relErr.message }, 'IN_SPRINT relationship failed');
+                    log.warn({ event: 'graph_sync_action_part_of_sprint_failed', actionId, sprint_id: action.sprint_id, reason: relErr.message }, 'PART_OF_SPRINT relationship failed');
                 }
             }
 
@@ -1149,6 +1173,14 @@ class GraphSync {
             // Sync answer provenance if available
             if (question.answer_provenance && question.answer_provenance.sources) {
                 await this.syncAnswerProvenance(question.id, question.answer_provenance.sources);
+            }
+
+            if (question.sprint_id) {
+                try {
+                    await this.graphProvider.createRelationship(questionId, question.sprint_id, 'PART_OF_SPRINT', {});
+                } catch (relErr) {
+                    log.warn({ event: 'graph_sync_question_part_of_sprint_failed', questionId, sprint_id: question.sprint_id, reason: relErr.message }, 'PART_OF_SPRINT relationship failed');
+                }
             }
 
             return { success: true };
@@ -1688,9 +1720,17 @@ class GraphSync {
             return { skipped: true, reason: 'Graph not connected' };
         }
 
-        const results = { facts: 0, decisions: 0, people: 0, risks: 0, actions: 0, documents: 0, questions: 0, errors: [] };
+        const results = { sprints: 0, facts: 0, decisions: 0, people: 0, risks: 0, actions: 0, documents: 0, questions: 0, errors: [] };
 
         try {
+            // Sync sprints first (so PART_OF_SPRINT edges from other entities can reference them)
+            const sprints = storage.getSprints ? await storage.getSprints() : [];
+            for (const sprint of sprints) {
+                const r = await this.syncSprint(sprint);
+                if (r.success) results.sprints++;
+                if (r.error) results.errors.push(`Sprint: ${r.error}`);
+            }
+
             // Sync facts
             const facts = storage.getFacts?.() || [];
             for (const fact of facts) {

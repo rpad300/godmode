@@ -792,6 +792,26 @@ function buildEmailContent(email) {
  * @param {Object} options - customPrompt, ontologyMode, supabasePrompt, contextVariables
  * @returns {string} The complete prompt string to send to the LLM
  */
+function _htmlToPlainText(html) {
+    if (!html) return '';
+    return html
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/p>/gi, '\n\n')
+        .replace(/<\/div>/gi, '\n')
+        .replace(/<\/li>/gi, '\n')
+        .replace(/<style[\s\S]*?<\/style>/gi, '')
+        .replace(/<script[\s\S]*?<\/script>/gi, '')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;/gi, "'")
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+}
+
 function buildEmailAnalysisPrompt(email, options = {}) {
     const { customPrompt, ontologyMode = true, supabasePrompt, contextVariables = {} } = options;
     
@@ -825,7 +845,8 @@ function buildEmailAnalysisPrompt(email, options = {}) {
             ORG_INDEX: contextVariables.ORG_INDEX || '',
             PROJECT_INDEX: contextVariables.PROJECT_INDEX || '',
             USERNAME_MAP: contextVariables.USERNAME_MAP || '',
-            DOMAIN_MAP: contextVariables.DOMAIN_MAP || ''
+            DOMAIN_MAP: contextVariables.DOMAIN_MAP || '',
+            DOCUMENT_CONTEXT: contextVariables.DOCUMENT_CONTEXT || ''
         });
     }
     
@@ -841,7 +862,7 @@ Subject: ${email.subject || '(no subject)'}
 Date: ${email.date || 'unknown'}
 
 EMAIL BODY:
-${email.text || email.body_text || ''}
+${email.text || email.body_text || _htmlToPlainText(email.html || email.body_html || '') || '(empty body)'}
 
 ${email.signature ? `SENDER SIGNATURE:\n${email.signature}` : ''}
 
@@ -954,7 +975,7 @@ IMPORTANT:
  * @returns {string}
  */
 function buildResponsePrompt(email, context = {}) {
-    const { facts = [], questions = [], decisions = [], contacts = [] } = context;
+    const { facts = [], questions = [], decisions = [], contacts = [], docContext = '' } = context;
     
     return `/no_think
 TASK: Draft a professional response to this email.
@@ -973,6 +994,7 @@ ${facts.length > 0 ? `Recent Facts:\n${facts.slice(0, 5).map(f => `- ${f.content
 ${questions.length > 0 ? `Open Questions:\n${questions.slice(0, 3).map(q => `- ${q.content}`).join('\n')}` : ''}
 
 ${decisions.length > 0 ? `Recent Decisions:\n${decisions.slice(0, 3).map(d => `- ${d.content}`).join('\n')}` : ''}
+${docContext ? '\n' + docContext : ''}
 
 INSTRUCTIONS:
 1. Address all points raised in the email

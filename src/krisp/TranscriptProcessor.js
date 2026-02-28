@@ -70,7 +70,7 @@ async function processTranscript(transcriptId, options = {}) {
         return { success: false, error: 'Database not configured' };
     }
 
-    const { storage = null, forceReprocess = false } = options;
+    const { storage = null, forceReprocess = false, sprint_id = null } = options;
 
     try {
         // 1. Load transcript
@@ -210,6 +210,7 @@ async function processTranscript(transcriptId, options = {}) {
             userId: transcript.user_id,
             title: displayTitle,
             content: transcript.transcript_text,
+            sprint_id,
             metadata: {
                 source: 'krisp',
                 krisp_meeting_id: transcript.krisp_meeting_id,
@@ -292,7 +293,7 @@ async function updateTranscriptStatus(supabase, transcriptId, status, extra = {}
  * Create document in GodMode
  * Uses existing document creation logic
  */
-async function createDocument(supabase, { projectId, userId, title, content, metadata }) {
+async function createDocument(supabase, { projectId, userId, title, content, metadata, sprint_id }) {
     try {
         // Check if content exists
         if (!content) {
@@ -320,9 +321,10 @@ async function createDocument(supabase, { projectId, userId, title, content, met
                 file_size: content.length,
                 content: content,
                 summary: metadata?.key_points?.join('; ') || null,
-                doc_type: 'transcript',  // Mark as transcript for proper categorization
+                doc_type: 'transcript',
                 status: 'processed',
-                processed_at: new Date().toISOString()
+                processed_at: new Date().toISOString(),
+                sprint_id: sprint_id || null
             })
             .select('id')
             .single();

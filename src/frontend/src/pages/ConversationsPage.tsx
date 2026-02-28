@@ -10,7 +10,7 @@ import {
   useReembedConversation,
 } from '../hooks/useGodMode';
 import { cn } from '../lib/utils';
-import ConversationDetailModal from '../components/conversations/ConversationDetailModal';
+import ConversationDetail from '../components/conversations/ConversationDetail';
 import ConversationImportModal from '../components/conversations/ConversationImportModal';
 import { ErrorState } from '../components/shared/ErrorState';
 
@@ -56,6 +56,19 @@ export default function ConversationsPage() {
 
   const stats = statsQuery.data as Record<string, unknown> | undefined;
   const bySource = (stats?.bySource || {}) as Record<string, number>;
+
+  // Detail view (replaces list)
+  if (selectedId) {
+    return (
+      <>
+        <ConversationDetail
+          conversationId={selectedId}
+          onBack={() => setSelectedId(null)}
+        />
+        <ConversationImportModal open={showImport} onClose={() => setShowImport(false)} />
+      </>
+    );
+  }
 
   const handleDelete = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
@@ -256,13 +269,6 @@ export default function ConversationsPage() {
           })}
         </div>
       )}
-
-      {/* Detail Modal */}
-      <ConversationDetailModal
-        conversationId={selectedId}
-        open={!!selectedId}
-        onClose={() => setSelectedId(null)}
-      />
 
       {/* Import Modal */}
       <ConversationImportModal

@@ -229,10 +229,14 @@ ${roleContext}${projectCtx}
 ## CONTENT:
 ${content}
 
+## LANGUAGE RULE
+Preserve the original language of the source content. Do NOT translate terms, names, or descriptions.
+
 ## EXTRACTION MANDATE
 Extract ALL information following the ontology schema above.
 For each entity extracted, identify its TYPE from the ontology.
 For each relationship, use the correct RELATION TYPE from the ontology.
+Include a "title" (max 60 chars) and "summary" (max 200 chars) in the output.
 
 ### ENTITY EXTRACTION (use ontology types):
 1. **People (Person)**: Extract name, role, organization, email if mentioned
@@ -255,6 +259,8 @@ For each entity, identify how it connects to other entities:
 
 ### OUTPUT FORMAT (JSON only):
 {
+    "title": "short descriptive title (max 60 chars)",
+    "summary": "concise summary of main topics and outcomes (max 200 chars)",
     "entities": [
         {"type": "Person", "name": "...", "properties": {"role": "...", "organization": "...", "email": "..."}},
         {"type": "Project", "name": "...", "properties": {"status": "...", "description": "..."}},
@@ -270,7 +276,6 @@ For each entity, identify how it connects to other entities:
     "risks": [{"content": "...", "impact": "high|medium|low", "likelihood": "high|medium|low", "mitigation": "..."}],
     "action_items": [{"task": "...", "owner": "...", "deadline": null, "status": "pending"}],
     "questions": [{"content": "...", "context": "...", "priority": "critical|high|medium", "assigned_to": "..."}],
-    "summary": "2-3 sentence summary",
     "key_topics": ["topic1", "topic2"],
     "extraction_coverage": {"entities_found": 0, "relationships_found": 0, "confidence": 0.95}
 }
@@ -328,9 +333,13 @@ ${roleContext}${projectCtx}
 ## TRANSCRIPT:
 ${content}
 
+## LANGUAGE RULE
+Preserve the original language of the source content. Do NOT translate terms, names, or descriptions.
+
 ## EXTRACTION MANDATE
 Extract ALL meeting information following the ontology schema.
 Meetings are rich sources of relationships - extract who works with whom, who decided what, etc.
+Include a "title" (max 60 chars) and "summary" (max 200 chars) in the output.
 
 ### MEETING-SPECIFIC EXTRACTION:
 
@@ -362,11 +371,9 @@ Meetings are rich sources of relationships - extract who works with whom, who de
 
 ### OUTPUT FORMAT (JSON only):
 {
-    "meeting": {
-        "title": "inferred meeting title",
-        "date": "${today}",
-        "type": "planning|status|technical|decision|review|other"
-    },
+    "title": "short descriptive title (max 60 chars)",
+    "date": "${today}",
+    "meeting_type": "planning|status|technical|decision|review|other",
     "entities": [
         {"type": "Person", "name": "...", "properties": {"role": "...", "organization": "..."}, "spoke": true},
         {"type": "Project", "name": "...", "properties": {"status": "..."}},
@@ -388,7 +395,7 @@ Meetings are rich sources of relationships - extract who works with whom, who de
     "questions": [{"content": "...", "priority": "...", "assigned_to": "..."}],
     "summary": "2-3 sentence summary of the meeting",
     "key_topics": ["topic1", "topic2"],
-    "extraction_coverage": {"participants": 0, "decisions": 0, "actions": 0, "confidence": 0.95}
+    "extraction_coverage": {"items_found": 0, "confidence": 0.95}
 }
 
 CRITICAL: Map all extracted information to ontology types for graph consistency.`;
@@ -416,6 +423,8 @@ CRITICAL: Map all extracted information to ontology types for graph consistency.
     buildConversationPrompt(content, conversationTitle, options = {}) {
         const today = new Date().toISOString().split('T')[0];
         const ontology = this.getOntologyContext();
+        const roleContext = options.roleContext ? `\nUser Role: ${options.roleContext}` : '';
+        const contentLength = content ? content.length : 0;
 
         return `/no_think
 You are an expert at extracting knowledge from chat conversations.
@@ -430,13 +439,17 @@ ${ontology.relationTypes}
 ## CONVERSATION CONTEXT
 - Date: ${today}
 - Conversation: ${conversationTitle}
+- Content length: ${contentLength} chars${roleContext}
 
 ## MESSAGES:
 ${content}
 
+## LANGUAGE RULE
+Preserve the original language of the source content. Do NOT translate terms, names, or descriptions.
+
 ## EXTRACTION MANDATE
 Extract entities and relationships from this conversation.
-Chat conversations often reveal working relationships and informal decisions.
+Chat conversations often reveal working relationships, informal decisions, and risks/blockers.
 
 ### EXTRACT:
 1. **Participants** → Person entities
@@ -444,10 +457,13 @@ Chat conversations often reveal working relationships and informal decisions.
 3. **Decisions made** → Decision entities (even informal ones)
 4. **Tasks mentioned** → Task entities
 5. **Technologies/tools** → Technology entities
-6. **Working relationships** → WORKS_WITH, COLLABORATES relationships
+6. **Risks/blockers** → Risk entities (concerns, issues, problems)
+7. **Working relationships** → WORKS_WITH, COLLABORATES relationships
 
 ### OUTPUT FORMAT (JSON only):
 {
+    "title": "short descriptive title (max 60 chars)",
+    "summary": "concise summary of main topics and outcomes (max 200 chars)",
     "entities": [
         {"type": "Person", "name": "...", "properties": {"role": "...", "organization": "..."}},
         {"type": "Topic", "name": "...", "properties": {"category": "..."}},
@@ -457,13 +473,14 @@ Chat conversations often reveal working relationships and informal decisions.
         {"from": "Person1", "fromType": "Person", "relation": "WORKS_WITH", "to": "Person2", "toType": "Person"},
         {"from": "Person", "fromType": "Person", "relation": "DISCUSSED", "to": "Topic", "toType": "Topic"}
     ],
-    "facts": [{"content": "...", "confidence": 0.8}],
+    "facts": [{"content": "...", "category": "technical|business|process", "confidence": 0.8}],
     "decisions": [{"content": "...", "owner": "...", "informal": true}],
-    "action_items": [{"task": "...", "owner": "..."}],
-    "questions": [{"content": "...", "priority": "..."}],
+    "risks": [{"content": "...", "impact": "high|medium|low", "mitigation": null}],
+    "action_items": [{"task": "...", "owner": "...", "deadline": null, "status": "pending"}],
+    "questions": [{"content": "...", "context": "why it matters", "priority": "high|medium|low", "assigned_to": null}],
     "sentiment": "positive|neutral|negative|mixed",
-    "summary": "Brief summary of the conversation",
-    "key_topics": ["topic1", "topic2"]
+    "key_topics": ["topic1", "topic2"],
+    "extraction_coverage": {"items_found": 0, "confidence": 0.95}
 }`;
     }
 
@@ -485,11 +502,15 @@ Chat conversations often reveal working relationships and informal decisions.
     buildVisionPrompt(filename, options = {}) {
         const ontology = this.getOntologyContext();
 
-        return `Analyze this image/document for knowledge extraction.
+        return `/no_think
+Analyze this image/document for knowledge extraction.
 
 ## ONTOLOGY CONTEXT
 Extract entities of these types if visible:
 ${ontology.entityTypes}
+
+## LANGUAGE RULE
+Preserve the original language of the source content. Do NOT translate.
 
 ## ANALYSIS APPROACH:
 1. **IDENTIFY** the type: table, diagram, chart, org chart, architecture, text, form, or mixed
@@ -501,6 +522,7 @@ ${ontology.entityTypes}
 
 ## OUTPUT FORMAT (JSON only):
 {
+    "title": "short descriptive title (max 60 chars)",
     "image_type": "org_chart|architecture|table|chart|diagram|text|form|other",
     "entities": [
         {"type": "...", "name": "...", "properties": {...}}
@@ -509,7 +531,8 @@ ${ontology.entityTypes}
         {"from": "...", "fromType": "...", "relation": "...", "to": "...", "toType": "..."}
     ],
     "data_extracted": [...],
-    "summary": "What this image shows"
+    "summary": "What this image shows",
+    "extraction_coverage": {"items_found": 0, "confidence": 0.95}
 }
 
 Map all extracted information to the ontology types for graph consistency.`;

@@ -554,7 +554,7 @@ export interface DocumentsResponse {
   statusCounts?: { processed?: number; pending?: number; processing?: number; failed?: number; deleted?: number };
 }
 
-export function useDocuments(params?: { status?: string; limit?: number; offset?: number; search?: string; type?: string; sort?: string; order?: string }) {
+export function useDocuments(params?: { status?: string; limit?: number; offset?: number; search?: string; type?: string; sort?: string; order?: string; sprint_id?: string }) {
   const qs = new URLSearchParams();
   if (params?.status) qs.set('status', params.status);
   if (params?.limit) qs.set('limit', String(params.limit));
@@ -563,6 +563,7 @@ export function useDocuments(params?: { status?: string; limit?: number; offset?
   if (params?.type) qs.set('type', params.type);
   if (params?.sort) qs.set('sort', params.sort);
   if (params?.order) qs.set('order', params.order);
+  if (params?.sprint_id) qs.set('sprint_id', params.sprint_id);
   const queryString = qs.toString();
   return useQuery({
     queryKey: [...queryKeys.documents, queryString],
@@ -665,6 +666,18 @@ export function useRestoreDocument() {
   });
 }
 
+export function useUpdateDocument() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...updates }: { id: string; sprint_id?: string | null; action_id?: string | null; project_id?: string | null; title?: string }) =>
+      apiClient.patch(`/api/documents/${id}`, updates),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.documents });
+      queryClient.invalidateQueries({ queryKey: [...queryKeys.documents, 'detail', variables.id] });
+    },
+  });
+}
+
 export function useReprocessCheck(id: string | null) {
   return useQuery({
     queryKey: [...queryKeys.documents, 'reprocess-check', id],
@@ -681,6 +694,17 @@ export function useShareDocument() {
 }
 
 // ── Bulk Document Operations ─────────────────────────────────────────────────
+
+export function useBulkUpdateDocuments() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { ids: string[]; updates: { sprint_id?: string | null; action_id?: string | null; project_id?: string | null } }) =>
+      apiClient.post('/api/documents/bulk/update', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.documents });
+    },
+  });
+}
 
 export function useBulkDeleteDocuments() {
   const queryClient = useQueryClient();
@@ -1825,8 +1849,12 @@ export function useMarkEmailResponded() {
 }
 
 export function useGenerateEmailResponse() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => apiClient.post<{ response: string; draft?: string }>(`/api/emails/${id}/response`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.emails });
+    },
   });
 }
 

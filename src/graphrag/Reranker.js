@@ -45,7 +45,7 @@ class Reranker {
         this._resolvedConfig = options.config || { llm: this.llmConfig };
         
         if (!this.llmProvider) {
-            log.warn({ event: 'reranker_no_llm' }, 'No LLM provider specified');
+            log.debug({ event: 'reranker_no_llm' }, 'No LLM provider specified - will be resolved on demand');
         }
         
         // RRF parameter (typical values: 60-100)
@@ -374,6 +374,11 @@ let instance = null;
 function getReranker(options = {}) {
     if (!instance) {
         instance = new Reranker(options);
+    } else if (options.llmProvider && !instance.llmProvider) {
+        instance.llmProvider = options.llmProvider;
+        instance.llmModel = options.llmModel || instance.llmModel;
+        instance.llmConfig = options.llmConfig || instance.llmConfig;
+        instance._resolvedConfig = options.config || instance._resolvedConfig;
     }
     return instance;
 }

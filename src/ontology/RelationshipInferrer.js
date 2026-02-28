@@ -1484,24 +1484,22 @@ class RelationshipInferrer {
      * @param {object} rel - Relationship with fromId, toId, type, confidence, reason, source
      */
     async saveSuggestion(rel) {
-        // Store in ontology suggestions for user review
         if (this.storage?._supabase) {
             try {
                 await this.storage._supabase.supabase
                     .from('ontology_changes')
                     .insert({
                         project_id: this.storage.currentProjectId,
-                        change_type: 'relationship_suggestion',
-                        target_type: rel.type,
+                        change_type: 'relation_added',
+                        target_type: 'relation',
                         target_name: `${rel.fromName} -> ${rel.toName}`,
                         old_definition: null,
                         new_definition: rel,
-                        diff: { confidence: rel.confidence },
+                        diff: { confidence: rel.confidence, inference_source: rel.source },
                         reason: rel.reason,
-                        source: rel.source || 'ai_inference'
+                        source: 'llm_suggestion'
                     });
             } catch (e) {
-                // Ignore duplicates or errors
                 log.warn({ event: 'relationship_inferrer_suggestion_save_error', reason: e.message }, 'Suggestion save error');
             }
         }

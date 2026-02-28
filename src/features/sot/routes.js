@@ -407,11 +407,17 @@ async function handleSot(ctx) {
                 log.debug({ event: 'sot_chat_embed_skip', reason: embErr.message }, 'Embedding search skipped');
             }
 
+            let docContext = '';
+            try {
+                const { DocumentContextBuilder } = require('../../docindex');
+                docContext = await DocumentContextBuilder.build(storage, { maxChars: 2000 });
+            } catch (_) {}
+
             const sotContext = `You are an AI assistant with access to this project's Source of Truth knowledge base.
 
 PROJECT HEALTH: ${health.score}/100 (${health.status})
 ${semanticContext}
-
+${docContext ? '\n' + docContext + '\n' : ''}
 FACTS (${facts.length} total):
 ${facts.slice(0, 25).map(f => `- [${f.category || 'general'}] ${f.content}`).join('\n')}
 

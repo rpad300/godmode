@@ -64,10 +64,19 @@ class AutoSummary {
     async generateProjectSummary() {
         const context = await this.gatherContext();
         
+        let docContext = '';
+        try {
+            const { DocumentContextBuilder } = require('../docindex');
+            if (this.storage) {
+                docContext = await DocumentContextBuilder.build(this.storage, { maxChars: 2000 });
+            }
+        } catch (_) {}
+
         const prompt = `Based on the following project knowledge, generate a comprehensive executive summary.
 
 PROJECT CONTEXT:
 ${JSON.stringify(context, null, 2)}
+${docContext ? '\n' + docContext : ''}
 
 Generate a structured summary with these sections:
 1. **Project Overview** (2-3 sentences)

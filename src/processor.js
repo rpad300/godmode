@@ -88,6 +88,18 @@ class DocumentProcessor {
     }
 
     /**
+     * Update the data directory when the active project changes.
+     * Propagates to sub-components so file path resolution stays correct.
+     * @param {string} newDataDir - Absolute path to the new project data directory
+     */
+    updateDataDir(newDataDir) {
+        this.config.dataDir = newDataDir;
+        if (this.extractor) this.extractor.config.dataDir = newDataDir;
+        if (this.analyzer) this.analyzer.config.dataDir = newDataDir;
+        if (this.synthesizer) this.synthesizer.config.dataDir = newDataDir;
+    }
+
+    /**
      * Initialize processor (load prompts, check tools)
      */
     async initialize() {
@@ -245,19 +257,48 @@ class DocumentProcessor {
      * @returns {Object} { success, documentId, stats, resolvedQuestions, completedActions }
      *                   or { success: false, error }
      */
-    async processFile(filePath, textModel, visionModel = null, isTranscript = false) {
-        const filename = path.basename(filePath);
+    async processFile(filePath, textModel, visionModel = null, isTranscript = false, options = {}) {
+        const filename = filePath ? path.basename(filePath) : (options.filename || 'inline-document');
+        const MIN_CONFIDENCE = this.config.processing?.minConfidence ?? 0.4;
 
+        // Dynamic chunk size: use model context window if known, else config/default
+        let MAX_CHUNK_CHARS = this.config.processing?.maxChunkChars ?? 60000;
         try {
-            // 1. Extract content (readFileContent returns a raw string)
-            const extractResult = await this.extractor.readFileContent(filePath);
-            const content = typeof extractResult === 'string' ? extractResult : extractResult?.content;
+            const modelMeta = require('./llm/modelMetadata');
+            const resolvedModel = textModel || this.config.llm?.models?.text;
+            const resolvedProvider = this.config.llm?.perTask?.text?.provider || this.config.llm?.provider;
+            if (resolvedModel && resolvedProvider) {
+                const meta = modelMeta.getModelMetadata(resolvedProvider, resolvedModel);
+                if (meta?.contextTokens) {
+                    // Reserve ~4K tokens for prompt template + output, convert rest to chars
+                    const availableTokens = meta.contextTokens - 4096;
+                    const dynamicChars = Math.floor(availableTokens * 3.5);
+                    MAX_CHUNK_CHARS = Math.max(10000, Math.min(dynamicChars, 500000));
+                }
+            }
+        } catch (_) { /* modelMetadata not available, use default */ }
+
+        let extractResult = null;
+        try {
+            // 1. Extract content (accept inline content to avoid temp file IO)
+            let content;
+            if (options.inlineContent) {
+                content = options.inlineContent;
+            } else {
+                extractResult = await this.extractor.readFileContent(filePath);
+                content = typeof extractResult === 'string' ? extractResult : extractResult?.content;
+            }
+
+            // 1b. Image files: delegate to vision model instead of text extraction
+            if (typeof content === 'string' && content.startsWith('[IMAGE:')) {
+                return this._processImageFile(filePath, textModel, visionModel, options);
+            }
 
             if (!content || content.length < 50) {
                 return { success: false, error: 'Empty or too short content' };
             }
 
-            // 2. Content deduplication: skip if identical content already processed
+            // 2. Content deduplication
             const contentHash = this.synthesizer._getContentHash(content);
             if (this.storage.findDocumentByHash) {
                 try {
@@ -271,110 +312,220 @@ class DocumentProcessor {
                 }
             }
 
-            // 3. Build prompts
-            const extractionPrompt = this.analyzer.buildExtractionPrompt(content, filename, isTranscript);
+            // 3. Chunk large documents and process each chunk
+            const chunks = this._chunkContent(content, MAX_CHUNK_CHARS);
+            log.debug({ event: 'processor_chunks', filename, totalChars: content.length, chunks: chunks.length }, 'Content chunked');
 
-            // 4. Run LLM
-            const llmResult = await this.analyzer.llmGenerateText(textModel, extractionPrompt);
-            if (!llmResult.success) {
-                return { success: false, error: `LLM failed: ${llmResult.error}` };
+            let mergedExtraction = { facts: [], decisions: [], questions: [], risks: [], action_items: [], people: [], relationships: [], key_topics: [], title: null, summary: null };
+
+            for (let i = 0; i < chunks.length; i++) {
+                const chunk = chunks[i];
+                const chunkLabel = chunks.length > 1 ? ` (part ${i + 1}/${chunks.length})` : '';
+
+                // 3a. Build prompt
+                const extractionPrompt = this.analyzer.buildExtractionPrompt(chunk, filename + chunkLabel, isTranscript);
+
+                // 3b. Run LLM with JSON mode
+                const llmResult = await this.analyzer.llmGenerateText(textModel, extractionPrompt, { jsonMode: true });
+                if (!llmResult.success) {
+                    log.warn({ event: 'processor_llm_chunk_failed', filename, chunk: i, error: llmResult.error }, 'LLM failed for chunk');
+                    continue;
+                }
+
+                // 3c. Parse response and validate success
+                const extracted = this.analyzer.parseAIResponse(llmResult.response);
+                if (extracted.success === false || extracted.error) {
+                    log.warn({ event: 'processor_parse_failed', filename, chunk: i, error: extracted.error, raw: extracted.raw }, 'Extraction parse failed');
+                    continue;
+                }
+
+                // 3d. Merge chunk results
+                if (extracted.facts) mergedExtraction.facts.push(...extracted.facts);
+                if (extracted.decisions) mergedExtraction.decisions.push(...extracted.decisions);
+                if (extracted.questions) mergedExtraction.questions.push(...extracted.questions);
+                if (extracted.risks) mergedExtraction.risks.push(...extracted.risks);
+                if (extracted.action_items) mergedExtraction.action_items.push(...extracted.action_items);
+                if (extracted.people) mergedExtraction.people.push(...extracted.people);
+                if (extracted.relationships) mergedExtraction.relationships.push(...extracted.relationships);
+                if (extracted.key_topics) mergedExtraction.key_topics.push(...extracted.key_topics);
+                if (!mergedExtraction.title && extracted.title) mergedExtraction.title = extracted.title;
+                if (!mergedExtraction.summary && extracted.summary) mergedExtraction.summary = extracted.summary;
             }
 
-            // 5. Parse response
-            const extracted = this.analyzer.parseAIResponse(llmResult.response);
+            const extracted = mergedExtraction;
 
-            // 6. Store extracted data
-            let docId = null;
-            if (this.storage.addDocument) {
-                docId = await this.storage.addDocument({
+            // 4. Validate we got something useful
+            const totalEntities = (extracted.facts?.length || 0) + (extracted.decisions?.length || 0) +
+                (extracted.questions?.length || 0) + (extracted.risks?.length || 0) +
+                (extracted.action_items?.length || 0) + (extracted.people?.length || 0);
+
+            if (totalEntities === 0 && !extracted.summary) {
+                log.warn({ event: 'processor_empty_extraction', filename }, 'No entities extracted from any chunk');
+                return { success: false, error: 'Extraction produced no entities' };
+            }
+
+            // 5. Filter by confidence threshold (all entity types that carry confidence)
+            if (MIN_CONFIDENCE > 0) {
+                const confFilter = item => (item.confidence ?? 1) >= MIN_CONFIDENCE;
+                extracted.facts = (extracted.facts || []).filter(confFilter);
+                extracted.decisions = (extracted.decisions || []).filter(confFilter);
+                extracted.risks = (extracted.risks || []).filter(confFilter);
+            }
+
+            // 6. Deduplicate entities within this document
+            extracted.facts = this._deduplicateByContent(extracted.facts, 'content');
+            extracted.decisions = this._deduplicateByContent(extracted.decisions, 'content');
+            extracted.risks = this._deduplicateByContent(extracted.risks, 'content');
+            extracted.people = this._deduplicatePeople(extracted.people);
+            extracted.key_topics = [...new Set((extracted.key_topics || []).map(t => t.toLowerCase()))];
+
+            // 7. Store or update document record
+            let docRecord = null;
+            let docId = options.documentId || null;
+            if (docId && this.storage.updateDocument) {
+                // Document already exists (e.g. Krisp import, reprocess) — update it
+                try {
+                    docRecord = await this.storage.updateDocument(docId, {
+                        content_hash: contentHash,
+                        metadata: {
+                            extracted_at: new Date().toISOString(),
+                            model: textModel,
+                            chunks: chunks.length,
+                            key_topics: extracted.key_topics
+                        }
+                    });
+                } catch (e) {
+                    log.debug({ event: 'processor_update_existing_doc_failed', docId, reason: e.message }, 'Update failed, will create new');
+                    docId = null;
+                }
+            }
+            if (!docId && this.storage.addDocument) {
+                docRecord = await this.storage.addDocument({
                     filename: filename,
                     content_hash: contentHash,
                     metadata: {
                         extracted_at: new Date().toISOString(),
-                        model: textModel
+                        model: textModel,
+                        chunks: chunks.length,
+                        key_topics: extracted.key_topics
                     }
                 });
-            } else {
-                // Fallback or assume storage handles it via addFact with 'source_file'
-                docId = extractResult.id || null; // Mock
+                docId = docRecord?.id || docRecord;
+            } else if (!docId) {
+                docId = extractResult?.id || null;
             }
 
-            const stats = {
-                facts: 0, decisions: 0, questions: 0, risks: 0, actions: 0, people: 0
-            };
+            const docSprintId = docRecord?.sprint_id || null;
+            const sourceFields = { source_file: filename, source_document_id: docId, sprint_id: docSprintId };
 
-            // Store Facts
-            if (extracted.facts && extracted.facts.length > 0 && this.storage.addFacts) {
-                const facts = extracted.facts.map(f => ({
-                    ...f,
-                    source_file: filename,
-                    source_document_id: docId
-                }));
+            // 7b. Persist extracted content to raw_content (enables backfill/tree index later)
+            if (docId && this.storage.saveRawContent) {
+                this.storage.saveRawContent(docId, filename, content, 'processor').catch(err =>
+                    log.debug({ event: 'raw_content_save_failed', reason: err.message }, 'Non-blocking')
+                );
+            }
+
+            const stats = { facts: 0, decisions: 0, questions: 0, risks: 0, actions: 0, people: 0, relationships: 0 };
+
+            // 8. Batch-store all entity types
+            if (extracted.facts?.length > 0 && this.storage.addFacts) {
+                const facts = extracted.facts.map(f => ({ ...f, ...sourceFields }));
                 const res = await this.storage.addFacts(facts);
                 stats.facts = res.inserted || facts.length;
             }
 
-            // Store Decisions
-            if (extracted.decisions && extracted.decisions.length > 0 && this.storage.addDecision) {
-                for (const d of extracted.decisions) {
-                    await this.storage.addDecision({
-                        ...d,
-                        source_file: filename,
-                        source_document_id: docId
-                    });
-                    stats.decisions++;
+            if (extracted.decisions?.length > 0) {
+                const items = extracted.decisions.map(d => ({ ...d, ...sourceFields }));
+                if (this.storage.addDecisions) {
+                    const res = await this.storage.addDecisions(items);
+                    stats.decisions = res.inserted || items.length;
+                } else if (this.storage.addDecision) {
+                    await Promise.all(items.map(d => this.storage.addDecision(d)));
+                    stats.decisions = items.length;
                 }
             }
 
-            // Store Questions
-            if (extracted.questions && extracted.questions.length > 0 && this.storage.addQuestion) {
-                for (const q of extracted.questions) {
-                    await this.storage.addQuestion({
-                        ...q,
-                        source_file: filename,
-                        source_document_id: docId
-                    });
-                    stats.questions++;
+            if (extracted.questions?.length > 0) {
+                const items = extracted.questions.map(q => ({ ...q, ...sourceFields }));
+                if (this.storage.addQuestions) {
+                    const res = await this.storage.addQuestions(items);
+                    stats.questions = res.inserted || items.length;
+                } else if (this.storage.addQuestion) {
+                    await Promise.all(items.map(q => this.storage.addQuestion(q)));
+                    stats.questions = items.length;
                 }
             }
 
-            // Store Risks
-            if (extracted.risks && extracted.risks.length > 0 && this.storage.addRisk) {
-                for (const r of extracted.risks) {
-                    await this.storage.addRisk({
-                        ...r,
-                        source_file: filename,
-                        source_document_id: docId
-                    });
-                    stats.risks++;
+            if (extracted.risks?.length > 0) {
+                const items = extracted.risks.map(r => ({ ...r, ...sourceFields }));
+                if (this.storage.addRisks) {
+                    const res = await this.storage.addRisks(items);
+                    stats.risks = res.inserted || items.length;
+                } else if (this.storage.addRisk) {
+                    await Promise.all(items.map(r => this.storage.addRisk(r)));
+                    stats.risks = items.length;
                 }
             }
 
-            // Store Action Items
-            if (extracted.action_items && extracted.action_items.length > 0 && this.storage.addActionItem) {
-                for (const a of extracted.action_items) {
-                    await this.storage.addActionItem({
-                        ...a,
-                        source_file: filename,
-                        source_document_id: docId
-                    });
-                    stats.actions++;
+            if (extracted.action_items?.length > 0) {
+                const items = extracted.action_items.map(a => ({ ...a, ...sourceFields }));
+                if (this.storage.addActionItems) {
+                    const res = await this.storage.addActionItems(items);
+                    stats.actions = res.inserted || items.length;
+                } else if (this.storage.addActionItem) {
+                    await Promise.all(items.map(a => this.storage.addActionItem(a)));
+                    stats.actions = items.length;
                 }
             }
 
-            // Store People
-            if (extracted.people && extracted.people.length > 0 && this.storage.addPerson) {
-                for (const p of extracted.people) {
-                    await this.storage.addPerson({
-                        ...p,
-                        source_file: filename,
-                        source_document_id: docId
-                    });
-                    stats.people++;
+            if (extracted.people?.length > 0) {
+                const items = extracted.people.map(p => ({ ...p, ...sourceFields }));
+                if (this.storage.addPeople) {
+                    const res = await this.storage.addPeople(items);
+                    stats.people = res.inserted || items.length;
+                } else if (this.storage.addPerson) {
+                    await Promise.all(items.map(p => this.storage.addPerson(p)));
+                    stats.people = items.length;
                 }
             }
 
-            // 7. Post-processing (Resolution & Completion)
+            // 9. Store relationships (previously discarded)
+            if (extracted.relationships?.length > 0 && this.storage.addRelationships) {
+                try {
+                    const rels = extracted.relationships.map(r => ({ ...r, ...sourceFields }));
+                    const res = await this.storage.addRelationships(rels);
+                    stats.relationships = res.inserted || rels.length;
+                } catch (relErr) {
+                    log.debug({ event: 'processor_relationships_store_error', reason: relErr.message }, 'Relationship storage skipped');
+                }
+            }
+
+            // 10. Use extraction title/summary instead of separate LLM call
+            let summaryTitle = extracted.title || null;
+            let summarySummary = extracted.summary || null;
+
+            if (!summaryTitle || !summarySummary) {
+                try {
+                    const fallback = await this.analyzer.generateFileSummary(
+                        filename, extracted, stats.facts, stats.decisions, stats.risks, stats.people
+                    );
+                    if (fallback) {
+                        summaryTitle = summaryTitle || fallback.title;
+                        summarySummary = summarySummary || fallback.summary;
+                    }
+                } catch (sumErr) {
+                    log.debug({ event: 'processor_summary_fallback_error', reason: sumErr.message }, 'Summary fallback failed');
+                }
+            }
+
+            if ((summaryTitle || summarySummary) && docId && this.storage.updateDocument) {
+                await this.storage.updateDocument(docId, {
+                    ai_title: (summaryTitle || '').substring(0, 60),
+                    ai_summary: (summarySummary || '').substring(0, 200)
+                });
+            }
+
+            // 11. Post-processing (question resolution & action completion)
             let resolvedCount = 0;
             try {
                 resolvedCount = await this.analyzer.detectAndResolveQuestionsWithAI(this.storage, this.config) || 0;
@@ -383,22 +534,41 @@ class DocumentProcessor {
             }
             const completedActions = this.analyzer.checkAndCompleteActions(this.storage, extracted);
 
-            // 8. Generate Summary
-            const summary = await this.analyzer.generateFileSummary(
-                filename, extracted, stats.facts, stats.decisions, stats.risks, stats.people
-            );
+            // 12. Trigger GraphSync to update knowledge graph
+            try {
+                const { getGraphSync } = require('./sync');
+                const graphSync = getGraphSync({});
+                if (graphSync && typeof graphSync.onDocumentProcessed === 'function') {
+                    graphSync.onDocumentProcessed({ id: docId, filename }, extracted).catch(gErr =>
+                        log.debug({ event: 'processor_graph_sync_error', reason: gErr.message }, 'Graph sync after processing failed')
+                    );
+                }
+            } catch (_) { /* GraphSync not available */ }
 
-            if (summary && docId && this.storage.updateDocument) {
-                await this.storage.updateDocument(docId, {
-                    ai_title: summary.title,
-                    ai_summary: summary.summary
-                });
-            }
+            // 13. Generate tree index for long documents (fire-and-forget)
+            try {
+                const minChars = this.config.docindex?.minChars || 20000;
+                const docType = docRecord?.doc_type || options.docType || 'document';
+                const isLongDoc = docType === 'document' && content.length >= minChars;
+
+                if (isLongDoc) {
+                    const { TreeIndexBuilder } = require('./docindex');
+                    const builder = new TreeIndexBuilder(this.config);
+                    builder.buildAndStore(docId, content, this.storage).catch(err =>
+                        log.warn({ event: 'tree_index_failed', documentId: docId, reason: err.message }, 'Tree index generation failed')
+                    );
+                }
+            } catch (_) { /* Tree index module not available */ }
+
+            log.info({
+                event: 'processor_file_done', filename, docId, stats,
+                title: summaryTitle, chunks: chunks.length
+            }, 'File processed');
 
             return {
                 success: true,
                 documentId: docId,
-                stats: stats,
+                stats,
                 resolvedQuestions: resolvedCount,
                 completedActions: completedActions
             };
@@ -410,43 +580,258 @@ class DocumentProcessor {
     }
 
     /**
+     * Split content into chunks that fit within the LLM context window.
+     * Splits on paragraph boundaries to avoid cutting mid-sentence.
+     */
+    _chunkContent(content, maxChars) {
+        if (content.length <= maxChars) return [content];
+
+        const chunks = [];
+        const paragraphs = content.split(/\n\s*\n/);
+        let current = '';
+
+        for (const para of paragraphs) {
+            if (current.length + para.length + 2 > maxChars && current.length > 0) {
+                chunks.push(current.trim());
+                current = para;
+            } else {
+                current += (current ? '\n\n' : '') + para;
+            }
+        }
+        if (current.trim()) chunks.push(current.trim());
+
+        // If a single paragraph exceeds maxChars, split on sentence boundaries
+        const result = [];
+        for (const chunk of chunks) {
+            if (chunk.length <= maxChars) {
+                result.push(chunk);
+            } else {
+                const sentences = chunk.split(/(?<=[.!?])\s+/);
+                let seg = '';
+                for (const s of sentences) {
+                    if (s.length > maxChars) {
+                        // Hard-split: no sentence boundary can fit within limit
+                        if (seg.trim()) { result.push(seg.trim()); seg = ''; }
+                        for (let off = 0; off < s.length; off += maxChars) {
+                            result.push(s.substring(off, off + maxChars));
+                        }
+                    } else if (seg.length + s.length + 1 > maxChars && seg.length > 0) {
+                        result.push(seg.trim());
+                        seg = s;
+                    } else {
+                        seg += (seg ? ' ' : '') + s;
+                    }
+                }
+                if (seg.trim()) result.push(seg.trim());
+            }
+        }
+
+        return result.length > 0 ? result : [content.substring(0, maxChars)];
+    }
+
+    /**
+     * Process an image file using the vision model pipeline.
+     * Called when the extractor returns [IMAGE:path] sentinel.
+     */
+    async _processImageFile(filePath, textModel, visionModel, options = {}) {
+        const filename = filePath ? path.basename(filePath) : (options.filename || 'image');
+        log.info({ event: 'processor_vision_start', filename }, 'Processing image via vision model');
+
+        try {
+            const visionPrompt = this.analyzer.buildVisionPrompt(filename, visionModel || textModel || '');
+            const result = await this.analyzer.llmGenerateVision(visionModel || textModel, visionPrompt, filePath);
+
+            if (!result.success) {
+                log.warn({ event: 'processor_vision_failed', filename, error: result.error }, 'Vision processing failed');
+                return { success: false, error: result.error || 'Vision model failed' };
+            }
+
+            const extracted = this.analyzer.parseAIResponse(result.response);
+            if (extracted.success === false || extracted.error) {
+                return { success: false, error: 'Vision extraction parse failed' };
+            }
+
+            // Store document record
+            let docId = null;
+            if (this.storage.addDocument) {
+                const docRecord = await this.storage.addDocument({
+                    filename,
+                    metadata: { extracted_at: new Date().toISOString(), model: visionModel || textModel, type: 'image' }
+                });
+                docId = docRecord?.id || docRecord;
+            }
+
+            const sourceFields = { source_file: filename, source_document_id: docId };
+            const stats = { facts: 0, decisions: 0, questions: 0, risks: 0, actions: 0, people: 0 };
+
+            if (extracted.facts?.length > 0 && this.storage.addFacts) {
+                const facts = extracted.facts.map(f => ({ ...f, ...sourceFields }));
+                await this.storage.addFacts(facts);
+                stats.facts = facts.length;
+            }
+            if (extracted.decisions?.length > 0 && this.storage.addDecision) {
+                for (const d of extracted.decisions) { await this.storage.addDecision({ ...d, ...sourceFields }); stats.decisions++; }
+            }
+            if (extracted.risks?.length > 0 && this.storage.addRisk) {
+                for (const r of extracted.risks) { await this.storage.addRisk({ ...r, ...sourceFields }); stats.risks++; }
+            }
+            if (extracted.people?.length > 0 && this.storage.addPeople) {
+                await this.storage.addPeople(extracted.people.map(p => ({ ...p, ...sourceFields })));
+                stats.people = extracted.people.length;
+            }
+
+            if (docId && this.storage.updateDocument) {
+                await this.storage.updateDocument(docId, {
+                    title: extracted.title || filename,
+                    summary: extracted.summary || '',
+                    status: 'completed'
+                });
+            }
+
+            return { success: true, documentId: docId, stats };
+        } catch (e) {
+            log.error({ event: 'processor_vision_error', filename, error: e.message }, 'Vision processing error');
+            return { success: false, error: e.message };
+        }
+    }
+
+    /**
+     * Deduplicate entities by a text field using normalized comparison.
+     */
+    _deduplicateByContent(items, field) {
+        if (!items || items.length === 0) return items;
+        const seen = new Set();
+        return items.filter(item => {
+            const key = (item[field] || '').toLowerCase().trim().replace(/\s+/g, ' ');
+            if (!key || seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+    }
+
+    /**
+     * Deduplicate people by fuzzy name matching.
+     * Handles variations like "Rui Dias" vs "Rui P Dias" vs "rui.dias".
+     */
+    _deduplicatePeople(people) {
+        if (!people || people.length === 0) return people;
+        const result = [];
+        const normalizePersonName = (name) => {
+            return (name || '').toLowerCase().replace(/[._-]/g, ' ').replace(/\s+/g, ' ').trim();
+        };
+
+        for (const person of people) {
+            const norm = normalizePersonName(person.name);
+            if (!norm) continue;
+            const normParts = norm.split(' ').filter(p => p.length > 1);
+
+            const existing = result.find(p => {
+                const existNorm = normalizePersonName(p.name);
+                if (existNorm === norm) return true;
+                const existParts = existNorm.split(' ').filter(pt => pt.length > 1);
+                // Match if first and last name tokens overlap
+                const overlap = normParts.filter(t => existParts.includes(t));
+                return overlap.length >= 2 || (normParts.length === 1 && existParts.includes(normParts[0]));
+            });
+
+            if (existing) {
+                // Merge: prefer longer name, fill in missing fields
+                if ((person.name || '').length > (existing.name || '').length) existing.name = person.name;
+                if (person.role && !existing.role) existing.role = person.role;
+                if (person.organization && !existing.organization) existing.organization = person.organization;
+            } else {
+                result.push({ ...person });
+            }
+        }
+        return result;
+    }
+
+    /**
      * Reprocess a specific document
      * Clears existing facts/metadata and re-runs extraction
      */
-    async reprocessDocument(filename, textModel, visionModel = null) {
-        log.info({ event: 'processor_reprocess_start', file: filename }, 'Reprocessing document');
+    async reprocessDocument(docIdOrFilename, textModel, visionModel = null) {
+        log.info({ event: 'processor_reprocess_start', file: docIdOrFilename }, 'Reprocessing document');
+
+        // Resolve document: accept either UUID or filename
+        let docId = null;
+        let doc = null;
+        try {
+            if (this.storage.getDocumentById) {
+                doc = await Promise.resolve(this.storage.getDocumentById(docIdOrFilename));
+            }
+            if (!doc && this.storage.getDocuments) {
+                const docs = await Promise.resolve(this.storage.getDocuments());
+                doc = (docs || []).find(d =>
+                    d.id === docIdOrFilename || d.filename === docIdOrFilename || d.name === docIdOrFilename
+                );
+            }
+            if (doc) docId = doc.id;
+        } catch (e) {
+            log.debug({ event: 'processor_reprocess_lookup_failed', reason: e.message }, 'Document lookup failed');
+        }
 
         try {
-            // Find document ID by filename to clear data
-            // We need a storage method for this, or simple getDocuments
-            let docId = null;
-            if (this.storage.getDocuments) {
-                const docs = await Promise.resolve(this.storage.getDocuments());
-                const doc = (docs || []).find(d => d.filename === filename || d.name === filename);
-                if (doc) docId = doc.id;
-            }
-
             if (docId) {
-                // Clear existing data
-                // This assumes storage has methods to delete by source_document_id or source_file
                 const tasks = [];
                 if (this.storage.deleteFactsByDocument) tasks.push(this.storage.deleteFactsByDocument(docId));
+                if (this.storage.deleteDecisionsByDocument) tasks.push(this.storage.deleteDecisionsByDocument(docId));
                 if (this.storage.deleteRisksByDocument) tasks.push(this.storage.deleteRisksByDocument(docId));
-                // Add more deletions as needed
+                if (this.storage.deleteQuestionsByDocument) tasks.push(this.storage.deleteQuestionsByDocument(docId));
+                if (this.storage.deleteActionsByDocument) tasks.push(this.storage.deleteActionsByDocument(docId));
                 await Promise.allSettled(tasks);
+
+                if (this.storage.updateDocument) {
+                    await this.storage.updateDocument(docId, { file_hash: null, status: 'pending' });
+                }
                 log.debug({ event: 'processor_reprocess_cleared', docId }, 'Cleared existing document data');
             }
         } catch (e) {
             log.warn({ event: 'processor_reprocess_clear_failed', reason: e.message }, 'Failed to clear document data, proceeding with reprocessing');
         }
 
-        // 2. Process file again
-        // We use absolute path if filename is relative
-        let filePath = filename;
-        if (!path.isAbsolute(filename)) {
-            filePath = path.join(this.config.dataDir, 'content', filename);
+        // Resolve file path from the document record or the input
+        const resolvedModel = textModel || this.config.llm?.models?.text || 'gpt-4o';
+        const filename = doc?.filename || doc?.name || docIdOrFilename;
+        let filePath = doc?.filepath || doc?.path || filename;
+
+        // Handle inline content documents (e.g. Krisp imports)
+        const isInlineDoc = !filePath || filePath === 'krisp-mcp-import' || filePath === 'inline';
+        let inlineContent = doc?.content;
+
+        // If content is missing but should be inline, fetch from DB directly
+        if (isInlineDoc && !inlineContent && docId && this.storage.getDocumentById) {
+            try {
+                const freshDoc = await Promise.resolve(this.storage.getDocumentById(docId));
+                if (freshDoc?.content) {
+                    inlineContent = freshDoc.content;
+                    log.debug({ event: 'processor_reprocess_inline_fetched', docId }, 'Fetched inline content from DB for reprocess');
+                }
+            } catch (e) {
+                log.debug({ event: 'processor_reprocess_inline_fetch_failed', docId, reason: e.message }, 'Inline content fetch failed');
+            }
         }
-        return this.processFile(filePath, textModel, visionModel);
+
+        const processOpts = { documentId: docId };
+        if (isInlineDoc && inlineContent) {
+            return this.processFile(null, resolvedModel, visionModel, false, {
+                ...processOpts,
+                inlineContent: inlineContent,
+                filename: filename
+            });
+        }
+
+        if (isInlineDoc && !inlineContent) {
+            return { success: false, error: 'Inline content document has no content stored — cannot reprocess' };
+        }
+
+        if (filePath && !path.isAbsolute(filePath)) {
+            filePath = path.join(this.config.dataDir, 'content', filePath);
+        }
+        if (!filePath) {
+            return { success: false, error: 'Could not resolve file path for document' };
+        }
+        return this.processFile(filePath, resolvedModel, visionModel, false, processOpts);
     }
 
     // Alias for backward compatibility
@@ -502,14 +887,28 @@ class DocumentProcessor {
                 return;
             }
 
-            // 2. Get pending documents
-            // We need a method to get pending docs from storage
             if (!this.storage.getDocuments) return;
 
-            // Get all documents and filter for pending
-            // In a real DB we would use a specialized query
-            const allDocs = await this.storage.getDocuments();
-            const pendingDocs = allDocs.filter(d => d.status === 'pending');
+            // 1b. Recover stuck documents: reset 'processing' docs older than 15 min
+            const STUCK_TIMEOUT_MS = 15 * 60 * 1000;
+            try {
+                const processingDocs = await this.storage.getDocuments('processing');
+                for (const doc of processingDocs || []) {
+                    const updatedAt = doc.updated_at || doc.created_at;
+                    if (updatedAt && (Date.now() - new Date(updatedAt).getTime()) > STUCK_TIMEOUT_MS) {
+                        if (!this.filesInProgress.has(doc.id)) {
+                            log.warn({ event: 'processor_stuck_recovery', docId: doc.id, filename: doc.filename }, 'Resetting stuck document to pending');
+                            if (this.storage.updateDocumentStatus) {
+                                await this.storage.updateDocumentStatus(doc.id, 'pending', null);
+                            }
+                        }
+                    }
+                }
+            } catch (e) {
+                log.debug({ event: 'processor_stuck_check_failed', reason: e.message }, 'Stuck doc check failed');
+            }
+
+            const pendingDocs = await this.storage.getDocuments('pending');
 
             if (pendingDocs.length === 0) return;
 
@@ -523,7 +922,7 @@ class DocumentProcessor {
             // For now, let's assume we can derive it or iterate.
 
             for (const doc of pendingDocs) {
-                if (this.filesInProgress.has(doc.name) || this.filesInProgress.has(doc.id)) continue;
+                if (this.filesInProgress.has(doc.filename) || this.filesInProgress.has(doc.id)) continue;
 
                 // Determine provider for this doc
                 // Use default text provider per config
@@ -557,38 +956,64 @@ class DocumentProcessor {
      * @param {string} provider - LLM provider identifier (e.g. "openai", "ollama")
      */
     async _startJob(doc, provider) {
-        const id = doc.id || doc.name;
+        const id = doc.id || doc.filename;
+        const docName = doc.filename || doc.title || doc.name || id;
         this.filesInProgress.add(id);
         this.providerJobs[provider] = (this.providerJobs[provider] || 0) + 1;
 
-        log.info({ event: 'processor_job_start', file: doc.name, provider }, 'Starting background job');
+        log.info({ event: 'processor_job_start', file: docName, provider, filepath: doc.filepath, hasContent: !!doc.content, contentLength: doc.content?.length || 0 }, 'Starting background job');
 
-        // Update status to processing
         if (this.storage.updateDocumentStatus) {
             await this.storage.updateDocumentStatus(id, 'processing');
         }
 
         try {
-            // Determine models
             const textModel = this.config.llm?.models?.text || 'gpt-4o';
 
-            // Process
-            // Resolving path - assumes doc.name is relative to content dir or is absolute
-            let filePath = doc.path || doc.name;
-            if (!path.isAbsolute(filePath)) {
-                filePath = path.join(this.config.dataDir, 'content', filePath);
+            let filePath = doc.filepath || doc.path || doc.filename || doc.name;
+            const isInlineContent = !filePath || filePath === 'krisp-mcp-import' || filePath === 'inline';
+
+            // For inline content docs, fetch content from DB if missing in the passed object
+            let inlineContent = doc.content;
+            if (isInlineContent && !inlineContent && doc.id && this.storage.getDocumentById) {
+                try {
+                    const freshDoc = await Promise.resolve(this.storage.getDocumentById(doc.id));
+                    if (freshDoc?.content) {
+                        inlineContent = freshDoc.content;
+                        log.debug({ event: 'processor_inline_content_fetched', docId: doc.id }, 'Fetched inline content from DB');
+                    }
+                } catch (e) {
+                    log.debug({ event: 'processor_inline_content_fetch_failed', docId: doc.id, reason: e.message }, 'Failed to fetch inline content');
+                }
             }
 
-            const result = await this.processFile(filePath, textModel);
+            let result;
+            const processOpts = { documentId: doc.id };
+            if (isInlineContent && inlineContent) {
+                result = await this.processFile(null, textModel, null, false, {
+                    ...processOpts,
+                    inlineContent: inlineContent,
+                    filename: docName
+                });
+            } else if (isInlineContent && !inlineContent) {
+                throw new Error(`Inline content document ${id} has no content — cannot process without file path`);
+            } else {
+                if (filePath && !path.isAbsolute(filePath)) {
+                    filePath = path.join(this.config.dataDir, 'content', filePath);
+                }
+                if (!filePath) {
+                    throw new Error('No file path or inline content available for processing');
+                }
+                result = await this.processFile(filePath, textModel, null, false, processOpts);
+            }
 
-            // Update status
             const status = result.success ? 'completed' : 'failed';
             if (this.storage.updateDocumentStatus) {
                 await this.storage.updateDocumentStatus(id, status, result.error);
             }
 
         } catch (e) {
-            log.error({ event: 'processor_job_error', file: doc.name, error: e.message }, 'Job failed');
+            log.error({ event: 'processor_job_error', file: docName, error: e.message }, 'Job failed');
             if (this.storage.updateDocumentStatus) {
                 await this.storage.updateDocumentStatus(id, 'failed', e.message);
             }

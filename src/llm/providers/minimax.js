@@ -127,7 +127,7 @@ class MiniMaxProvider extends BaseLLMProvider {
     }
 
     async generateText(options) {
-        const { model, prompt, system, temperature = 0.7, maxTokens = 4096 } = options;
+        const { model, prompt, system, temperature = 0.7, maxTokens = 4096, jsonMode = false } = options;
 
         if (!this.apiKey) {
             return { success: false, error: 'API key not configured' };
@@ -146,6 +146,10 @@ class MiniMaxProvider extends BaseLLMProvider {
                 temperature,
                 max_tokens: maxTokens
             };
+
+            if (jsonMode) {
+                body.response_format = { type: 'json_object' };
+            }
 
             const response = await this.fetchWithTimeout(
                 `${this.baseUrl}/chat/completions`,

@@ -348,6 +348,10 @@ class OllamaClient {
                 }
             };
 
+            if (options.format) {
+                requestBody.format = options.format;
+            }
+
             // Add images for vision models
             const hasImages = options.images && options.images.length > 0;
             if (hasImages) {

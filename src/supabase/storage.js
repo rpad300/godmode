@@ -960,7 +960,7 @@ class SupabaseStorage {
      * Update a document with AI-generated metadata (title, summary)
      */
     async updateDocument(id, updates) {
-        const allowedFields = ['title', 'summary', 'ai_title', 'ai_summary', 'status', 'extraction_result', 'content', 'content_path'];
+        const allowedFields = ['title', 'summary', 'ai_title', 'ai_summary', 'status', 'extraction_result', 'content', 'content_path', 'sprint_id', 'action_id', 'project_id', 'file_hash', 'content_hash'];
         const updateData = {};
 
         for (const [key, value] of Object.entries(updates)) {
@@ -1046,7 +1046,13 @@ class SupabaseStorage {
             throw new Error(`Document not found: ${documentId}`);
         }
 
-        const results = { deleted: { facts: 0, decisions: 0, risks: 0, actions: 0, questions: 0, people: 0, embeddings: 0 } };
+        const results = {
+            deleted: {
+                facts: 0, decisions: 0, risks: 0, actions: 0, questions: 0,
+                people: 0, relationships: 0, user_stories: 0, embeddings: 0,
+                activity: 0, favorites: 0, shares: 0, views: 0, llm_requests: 0
+            }
+        };
 
         // Backup before delete
         if (backupData) {
@@ -1056,40 +1062,116 @@ class SupabaseStorage {
                 entity_type: 'document',
                 entity_id: documentId,
                 backup_data: backupContent,
-                expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days
+                expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
                 created_by: user?.id
             });
         }
 
-        // Delete related entities (parallel)
-        const entitiesToDelete = ['facts', 'decisions', 'risks', 'action_items', 'knowledge_questions', 'people'];
-        const entityPromises = entitiesToDelete.map(async (entity) => {
-            const key = entity.replace('action_items', 'actions').replace('knowledge_questions', 'questions');
-            if (softDelete) {
+        const now = new Date().toISOString();
+
+        // Delete entities linked via source_document_id (soft or hard)
+        const sourceDocEntities = [
+            { table: 'facts', key: 'facts' },
+            { table: 'decisions', key: 'decisions' },
+            { table: 'risks', key: 'risks' },
+            { table: 'action_items', key: 'actions' },
+            { table: 'knowledge_questions', key: 'questions' },
+            { table: 'people', key: 'people' },
+            { table: 'relationships', key: 'relationships' },
+            { table: 'user_stories', key: 'user_stories' }
+        ];
+
+        const entityPromises = sourceDocEntities.map(async ({ table, key }) => {
+            try {
+                if (softDelete) {
+                    const { count } = await this.supabase
+                        .from(table)
+                        .update({ deleted_at: now })
+                        .eq('source_document_id', documentId)
+                        .is('deleted_at', null)
+                        .select('id', { count: 'exact', head: true });
+                    return { key, count: count || 0 };
+                }
                 const { count } = await this.supabase
-                    .from(entity)
-                    .update({ deleted_at: new Date().toISOString() })
+                    .from(table)
+                    .delete()
                     .eq('source_document_id', documentId)
                     .select('id', { count: 'exact', head: true });
                 return { key, count: count || 0 };
+            } catch (e) {
+                log.debug({ event: 'delete_cascade_entity_skip', table, reason: e.message }, 'Entity cascade skip');
+                return { key, count: 0 };
             }
-            const { count } = await this.supabase
-                .from(entity)
-                .delete()
-                .eq('source_document_id', documentId)
-                .select('id', { count: 'exact', head: true });
-            return { key, count: count || 0 };
         });
         const entityResults = await Promise.all(entityPromises);
         entityResults.forEach(({ key, count }) => { results.deleted[key] = count; });
 
-        // Delete embeddings
-        const { count: embeddingsCount } = await this.supabase
-            .from('embeddings')
-            .delete()
-            .eq('entity_type', 'document')
-            .eq('entity_id', documentId);
-        results.deleted.embeddings = embeddingsCount || 0;
+        // Delete auxiliary document records linked via document_id (always hard-delete, these are metadata)
+        const docLinkedTables = [
+            { table: 'document_activity', key: 'activity' },
+            { table: 'document_favorites', key: 'favorites' },
+            { table: 'document_shares', key: 'shares' },
+            { table: 'document_views', key: 'views' }
+        ];
+        const auxPromises = docLinkedTables.map(async ({ table, key }) => {
+            try {
+                const { count } = await this.supabase
+                    .from(table)
+                    .delete()
+                    .eq('document_id', documentId)
+                    .select('id', { count: 'exact', head: true });
+                return { key, count: count || 0 };
+            } catch (e) {
+                log.debug({ event: 'delete_cascade_aux_skip', table, reason: e.message }, 'Aux cascade skip');
+                return { key, count: 0 };
+            }
+        });
+        const auxResults = await Promise.all(auxPromises);
+        auxResults.forEach(({ key, count }) => { results.deleted[key] = count; });
+
+        // Cancel pending LLM requests for this document
+        try {
+            const { count: llmCount } = await this.supabase
+                .from('llm_requests')
+                .update({ status: 'cancelled', completed_at: now })
+                .eq('document_id', documentId)
+                .in('status', ['pending', 'processing'])
+                .select('id', { count: 'exact', head: true });
+            results.deleted.llm_requests = llmCount || 0;
+        } catch (e) {
+            log.debug({ event: 'delete_cascade_llm_skip', reason: e.message }, 'LLM requests cascade skip');
+        }
+
+        // Delete embeddings for the document itself and for all entities from this document
+        try {
+            const { count: docEmbCount } = await this.supabase
+                .from('embeddings')
+                .delete()
+                .eq('entity_type', 'document')
+                .eq('entity_id', documentId);
+
+            let entityEmbCount = 0;
+            const entityIds = [];
+            for (const { table } of sourceDocEntities) {
+                try {
+                    const { data } = await this.supabase
+                        .from(table)
+                        .select('id')
+                        .eq('source_document_id', documentId);
+                    if (data) entityIds.push(...data.map(d => d.id));
+                } catch (_) { /* table might not exist */ }
+            }
+            if (entityIds.length > 0) {
+                const { count } = await this.supabase
+                    .from('embeddings')
+                    .delete()
+                    .in('entity_id', entityIds);
+                entityEmbCount = count || 0;
+            }
+            results.deleted.embeddings = (docEmbCount || 0) + entityEmbCount;
+        } catch (e) {
+            log.debug({ event: 'delete_cascade_embeddings_skip', reason: e.message }, 'Embeddings cascade skip');
+        }
 
         // Delete/soft delete the document
         if (softDelete) {
@@ -1126,7 +1208,42 @@ class SupabaseStorage {
             performed_by: user?.id
         });
 
-        // Sync to graph
+        // Clean graph tables directly (graph_nodes + graph_relationships referencing this document or its entities)
+        try {
+            const docNodeRes = await this.supabase
+                .from('graph_nodes')
+                .select('id')
+                .eq('project_id', projectId)
+                .eq('properties->>source_document_id', documentId);
+            const docNodeIds = (docNodeRes.data || []).map(n => n.id);
+
+            // Also find the Document node itself
+            const { data: docNodes } = await this.supabase
+                .from('graph_nodes')
+                .select('id')
+                .eq('project_id', projectId)
+                .eq('label', 'Document')
+                .eq('properties->>id', documentId);
+            if (docNodes) docNodeIds.push(...docNodes.map(n => n.id));
+
+            if (docNodeIds.length > 0) {
+                await this.supabase
+                    .from('graph_relationships')
+                    .delete()
+                    .eq('project_id', projectId)
+                    .or(docNodeIds.map(id => `from_node.eq.${id},to_node.eq.${id}`).join(','));
+                const { count: graphNodeCount } = await this.supabase
+                    .from('graph_nodes')
+                    .delete()
+                    .in('id', docNodeIds)
+                    .select('id', { count: 'exact', head: true });
+                results.deleted.graph_nodes = graphNodeCount || 0;
+            }
+        } catch (e) {
+            log.debug({ event: 'delete_cascade_graph_skip', reason: e.message }, 'Graph cascade skip');
+        }
+
+        // Sync to graph outbox
         await this._addToOutbox('document.deleted', 'DELETE', 'Document', documentId, { id: documentId });
 
         return results;
@@ -1180,7 +1297,8 @@ class SupabaseStorage {
                 created_by: user?.id,
                 verified: fact.verified === true,
                 verified_by: fact.verified === true ? user?.id : null,
-                verified_at: fact.verified === true ? new Date().toISOString() : null
+                verified_at: fact.verified === true ? new Date().toISOString() : null,
+                sprint_id: fact.sprint_id ?? null
             })
             .select()
             .single();
@@ -1237,7 +1355,8 @@ class SupabaseStorage {
                 created_by: user?.id,
                 verified: fact.verified === true,
                 verified_by: fact.verified === true ? user?.id : null,
-                verified_at: fact.verified === true ? new Date().toISOString() : null
+                verified_at: fact.verified === true ? new Date().toISOString() : null,
+                sprint_id: fact.sprint_id ?? null
             });
         }
 
@@ -1275,7 +1394,7 @@ class SupabaseStorage {
     /**
      * Get facts with optional category filter
      */
-    async getFacts(category = null) {
+    async getFacts(category = null, sprintId = null) {
         const projectId = this.getProjectId();
 
         let query = this.supabase
@@ -1287,6 +1406,9 @@ class SupabaseStorage {
 
         if (category) {
             query = query.eq('category', this._normalizeCategory(category));
+        }
+        if (sprintId) {
+            query = query.eq('sprint_id', sprintId);
         }
 
         const { data, error } = await query;
@@ -1431,7 +1553,8 @@ class SupabaseStorage {
             content: updates.content,
             category: updates.category ? this._normalizeCategory(updates.category) : undefined,
             confidence: updates.confidence,
-            metadata: updates.metadata
+            metadata: updates.metadata,
+            sprint_id: updates.sprint_id
         };
         if (updates.verified !== undefined) {
             updatePayload.verified = updates.verified === true;
@@ -1599,7 +1722,8 @@ class SupabaseStorage {
             decided_at: decision.decided_at,
             impact: decision.impact,
             reversible: decision.reversible,
-            summary: decision.summary
+            summary: decision.summary,
+            sprint_id: decision.sprint_id ?? null
         };
         const { data, error } = await this.supabase
             .from('decisions')
@@ -1640,7 +1764,8 @@ class SupabaseStorage {
             decided_at: d.decided_at ?? null,
             impact: d.impact ?? null,
             reversible: d.reversible ?? null,
-            summary: d.summary ?? null
+            summary: d.summary ?? null,
+            sprint_id: d.sprint_id ?? null
         })).filter(r => r.content);
         if (rows.length === 0) return { data: [], inserted: 0 };
         const { data: inserted, error } = await this.supabase.from('decisions').insert(rows).select();
@@ -1652,7 +1777,7 @@ class SupabaseStorage {
     /**
      * Get decisions
      */
-    async getDecisions(status = null) {
+    async getDecisions(status = null, sprintId = null) {
         const projectId = this.getProjectId();
 
         let query = this.supabase
@@ -1664,6 +1789,9 @@ class SupabaseStorage {
 
         if (status) {
             query = query.eq('status', status);
+        }
+        if (sprintId) {
+            query = query.eq('sprint_id', sprintId);
         }
 
         const { data, error } = await query;
@@ -1788,7 +1916,8 @@ class SupabaseStorage {
             decided_at: updates.decided_at,
             impact: updates.impact,
             reversible: updates.reversible,
-            summary: updates.summary
+            summary: updates.summary,
+            sprint_id: updates.sprint_id
         };
         Object.keys(updatePayload).forEach(k => updatePayload[k] === undefined && delete updatePayload[k]);
 
@@ -1909,7 +2038,8 @@ class SupabaseStorage {
                 source_document_id: risk.source_document_id || risk.document_id || null,
                 source_file: risk.source_file,
                 generation_source: risk.generation_source || 'manual',
-                created_by: user?.id
+                created_by: user?.id,
+                sprint_id: risk.sprint_id ?? null
             })
             .select()
             .single();
@@ -1919,6 +2049,37 @@ class SupabaseStorage {
         await this._addRiskEvent(data.id, 'created', {}, user?.id, user?.user_metadata?.name || user?.email);
         await this._addToOutbox('risk.created', 'CREATE', 'Risk', data.id, data);
         return data;
+    }
+
+    /**
+     * Batch-insert multiple risks. Skips per-item events/outbox for performance.
+     */
+    async addRisks(risks) {
+        if (!Array.isArray(risks) || risks.length === 0) return { data: [], inserted: 0 };
+        const projectId = this.getProjectId();
+        const user = await this.getCurrentUser();
+
+        const rows = risks.map(risk => ({
+            project_id: projectId,
+            content: risk.content?.trim(),
+            impact: risk.impact || 'medium',
+            likelihood: risk.likelihood || 'medium',
+            mitigation: risk.mitigation,
+            status: risk.status || 'open',
+            owner: risk.owner,
+            source_document_id: risk.source_document_id || risk.document_id || null,
+            source_file: risk.source_file,
+            generation_source: risk.generation_source || 'manual',
+            created_by: user?.id,
+            sprint_id: risk.sprint_id ?? null
+        }));
+
+        const { data, error } = await this.supabase.from('risks').insert(rows).select();
+        if (error) {
+            log.warn({ event: 'add_risks_batch_error', reason: error.message, count: rows.length }, 'Batch risk insert failed');
+            return { data: [], inserted: 0 };
+        }
+        return { data: data || [], inserted: (data || []).length };
     }
 
     /**
@@ -2024,7 +2185,7 @@ class SupabaseStorage {
     /**
      * Get risks
      */
-    async getRisks(status = null) {
+    async getRisks(status = null, sprintId = null) {
         const projectId = this.getProjectId();
 
         let query = this.supabase
@@ -2036,6 +2197,9 @@ class SupabaseStorage {
 
         if (status) {
             query = query.eq('status', status);
+        }
+        if (sprintId) {
+            query = query.eq('sprint_id', sprintId);
         }
 
         const { data, error } = await query;
@@ -2056,7 +2220,8 @@ class SupabaseStorage {
             mitigation: updates.mitigation,
             status: updates.status,
             owner: updates.owner,
-            source_file: updates.source_file
+            source_file: updates.source_file,
+            sprint_id: updates.sprint_id
         };
         Object.keys(updatePayload).forEach(k => updatePayload[k] === undefined && delete updatePayload[k]);
 
@@ -2209,6 +2374,37 @@ class SupabaseStorage {
 
     async addActionItem(data) {
         return this.addAction(data);
+    }
+
+    /**
+     * Batch-insert multiple action items. Skips per-item events/outbox for performance.
+     */
+    async addActionItems(actions) {
+        if (!Array.isArray(actions) || actions.length === 0) return { data: [], inserted: 0 };
+        const projectId = this.getProjectId();
+        const user = await this.getCurrentUser();
+
+        const rows = actions.map(action => ({
+            project_id: projectId,
+            task: action.task?.trim() || action.content?.trim(),
+            owner: action.owner,
+            deadline: action.deadline,
+            priority: action.priority || 'medium',
+            status: action.status || 'pending',
+            source_document_id: action.source_document_id || action.document_id || null,
+            source_file: action.source_file,
+            source_type: action.source_type || (action.source_document_id ? 'transcript' : 'manual'),
+            generation_source: action.generation_source || (action.source_document_id ? 'extracted' : 'manual'),
+            created_by: user?.id,
+            sprint_id: action.sprint_id ?? null
+        }));
+
+        const { data, error } = await this.supabase.from('action_items').insert(rows).select();
+        if (error) {
+            log.warn({ event: 'add_actions_batch_error', reason: error.message, count: rows.length }, 'Batch action insert failed');
+            return { data: [], inserted: 0 };
+        }
+        return { data: data || [], inserted: (data || []).length };
     }
 
     /**
@@ -2876,7 +3072,8 @@ class SupabaseStorage {
                 requester_name: question.requester_name || null,
                 ai_generated: question.ai_generated || false,
                 generation_source: question.generation_source || null,
-                generated_for_role: question.generated_for_role || null
+                generated_for_role: question.generated_for_role || null,
+                sprint_id: question.sprint_id ?? null
             })
             .select()
             .single();
@@ -2919,7 +3116,8 @@ class SupabaseStorage {
                 requester_name: q.requester_name ?? null,
                 ai_generated: q.ai_generated || false,
                 generation_source: q.generation_source ?? null,
-                generated_for_role: q.generated_for_role ?? null
+                generated_for_role: q.generated_for_role ?? null,
+                sprint_id: q.sprint_id ?? null
             });
         }
         if (rows.length === 0) return { data: [], inserted: 0 };
@@ -2932,7 +3130,7 @@ class SupabaseStorage {
     /**
      * Get questions
      */
-    async getQuestions(status = null, priority = null) {
+    async getQuestions(status = null, priority = null, sprintId = null) {
         const projectId = this.getProjectId();
 
         let query = this.supabase
@@ -2947,6 +3145,9 @@ class SupabaseStorage {
         }
         if (priority) {
             query = query.eq('priority', priority);
+        }
+        if (sprintId) {
+            query = query.eq('sprint_id', sprintId);
         }
 
         const { data, error } = await query;
@@ -2989,6 +3190,7 @@ class SupabaseStorage {
         if (updates.answered_by !== undefined) updateData.answered_by = updates.answered_by;
         if (updates.answered_at !== undefined) updateData.answered_at = updates.answered_at;
         if (updates.follow_up_to !== undefined) updateData.follow_up_to = updates.follow_up_to;
+        if (updates.sprint_id !== undefined) updateData.sprint_id = updates.sprint_id;
 
         if (updates.status === 'answered' || updates.status === 'closed') {
             updateData.resolved_at = new Date().toISOString();
@@ -3102,6 +3304,47 @@ class SupabaseStorage {
 
         await this._addToOutbox('person.created', 'CREATE', 'Person', data.id, data);
         return data;
+    }
+
+    /**
+     * Batch-insert multiple people. Uses upsert by name to avoid duplicates.
+     */
+    async addPeople(people) {
+        if (!Array.isArray(people) || people.length === 0) return { data: [], inserted: 0 };
+        const projectId = this.getProjectId();
+        const user = await this.getCurrentUser();
+
+        const rows = people.map(person => ({
+            project_id: projectId,
+            name: person.name?.trim(),
+            role: person.role,
+            organization: person.organization,
+            email: person.email,
+            notes: person.notes,
+            source_document_id: person.source_document_id || person.document_id || null,
+            source_file: person.source_file,
+            first_seen_in: person.source_file || person.first_seen_in,
+            role_context: person.role_context || person.roleContext,
+            context_snippets: [],
+            created_by: user?.id
+        })).filter(r => r.name);
+
+        if (rows.length === 0) return { data: [], inserted: 0 };
+
+        const { data, error } = await this.supabase.from('people').insert(rows).select();
+        if (error) {
+            if (error.code === '23505') {
+                // Duplicate names - fall back to individual addPerson for upsert behavior
+                let inserted = 0;
+                for (const person of people) {
+                    try { await this.addPerson(person); inserted++; } catch (_) {}
+                }
+                return { data: [], inserted };
+            }
+            log.warn({ event: 'add_people_batch_error', reason: error.message, count: rows.length }, 'Batch people insert failed');
+            return { data: [], inserted: 0 };
+        }
+        return { data: data || [], inserted: (data || []).length };
     }
 
     /**
@@ -3238,6 +3481,39 @@ class SupabaseStorage {
 
         await this._addToOutbox('relationship.created', 'CREATE', 'Relationship', data.id, data);
         return data;
+    }
+
+    /**
+     * Add multiple relationships from extraction output (name-based, not ID-based).
+     * Each item has { from, to, type, source_file?, source_document_id? }.
+     * Stores directly with from_name/to_name; person ID resolution is best-effort.
+     */
+    async addRelationships(relationships) {
+        if (!Array.isArray(relationships) || relationships.length === 0) return { data: [], inserted: 0 };
+        const projectId = this.getProjectId();
+
+        const rows = relationships.map(r => ({
+            project_id: projectId,
+            from_name: r.from || r.from_name || null,
+            to_name: r.to || r.to_name || null,
+            relationship_type: r.type || r.relationship_type || 'works_with',
+            context: r.context || r.source_file || null,
+            source_document_id: r.source_document_id || null
+        })).filter(r => r.from_name && r.to_name);
+
+        if (rows.length === 0) return { data: [], inserted: 0 };
+
+        const { data, error } = await this.supabase
+            .from('relationships')
+            .insert(rows)
+            .select();
+
+        if (error) {
+            log.warn({ event: 'add_relationships_error', reason: error.message, count: rows.length }, 'Batch relationship insert failed');
+            return { data: [], inserted: 0 };
+        }
+
+        return { data: data || [], inserted: (data || []).length };
     }
 
     /**
@@ -6856,13 +7132,16 @@ class SupabaseStorage {
      */
     async _getDocumentFullData(documentId) {
         const projectId = this.getProjectId();
-        const [doc, facts, decisions, risks, actions, questions] = await Promise.all([
+        const [doc, facts, decisions, risks, actions, questions, people, relationships, userStories] = await Promise.all([
             this.getDocumentById(documentId),
             this.supabase.from('facts').select('*').eq('source_document_id', documentId).eq('project_id', projectId),
             this.supabase.from('decisions').select('*').eq('source_document_id', documentId).eq('project_id', projectId),
             this.supabase.from('risks').select('*').eq('source_document_id', documentId).eq('project_id', projectId),
             this.supabase.from('action_items').select('*').eq('source_document_id', documentId).eq('project_id', projectId),
-            this.supabase.from('knowledge_questions').select('*').eq('source_document_id', documentId).eq('project_id', projectId)
+            this.supabase.from('knowledge_questions').select('*').eq('source_document_id', documentId).eq('project_id', projectId),
+            this.supabase.from('people').select('*').eq('source_document_id', documentId).eq('project_id', projectId).then(r => r, () => ({ data: [] })),
+            this.supabase.from('relationships').select('*').eq('source_document_id', documentId).eq('project_id', projectId).then(r => r, () => ({ data: [] })),
+            this.supabase.from('user_stories').select('*').eq('source_document_id', documentId).eq('project_id', projectId).then(r => r, () => ({ data: [] }))
         ]);
 
         return {
@@ -6871,7 +7150,10 @@ class SupabaseStorage {
             decisions: decisions.data || [],
             risks: risks.data || [],
             actions: actions.data || [],
-            questions: questions.data || []
+            questions: questions.data || [],
+            people: people.data || [],
+            relationships: relationships.data || [],
+            user_stories: userStories.data || []
         };
     }
 
@@ -7661,6 +7943,8 @@ class SupabaseStorage {
             attachment_count: emailData.attachments?.length || 0,
             sprint_id: emailData.sprint_id || null,
             action_id: emailData.action_id || null,
+            content_hash: emailData.content_hash || null,
+            thread_id: emailData.thread_id || null,
         };
 
         const { data, error } = await this.supabase
@@ -7689,8 +7973,8 @@ class SupabaseStorage {
             'extracted_entities', 'ai_summary', 'detected_intent', 'sentiment',
             'requires_response', 'response_drafted', 'response_sent',
             'draft_response', 'draft_generated_at', 'sender_contact_id',
-            'processed_at', 'thread_id', 'sprint_id', 'action_id',
-            'is_starred', 'is_read', 'is_archived'
+            'processed_at', 'processing_error', 'thread_id', 'sprint_id', 'action_id',
+            'is_starred', 'is_read', 'is_archived', 'deleted_at'
         ];
 
         const updateData = {};
@@ -7782,6 +8066,45 @@ class SupabaseStorage {
     }
 
     /**
+     * Get emails in a specific thread
+     */
+    async getEmailsByThread(threadId) {
+        const projectId = this.getProjectId();
+        const { data, error } = await this.supabase
+            .from('emails')
+            .select('*')
+            .eq('project_id', projectId)
+            .eq('thread_id', threadId)
+            .is('deleted_at', null)
+            .order('date_sent', { ascending: true });
+
+        if (error) { log.warn({ event: 'emails_get_thread_failed', reason: error.message }, 'Failed'); return []; }
+        return data;
+    }
+
+    /**
+     * Get email statistics using server-side counts
+     */
+    async getEmailStats() {
+        const projectId = this.getProjectId();
+        const base = this.supabase.from('emails').select('id', { count: 'exact', head: true }).eq('project_id', projectId).is('deleted_at', null);
+
+        const [totalRes, unreadRes, starredRes, needingRes] = await Promise.all([
+            base,
+            this.supabase.from('emails').select('id', { count: 'exact', head: true }).eq('project_id', projectId).is('deleted_at', null).eq('is_read', false),
+            this.supabase.from('emails').select('id', { count: 'exact', head: true }).eq('project_id', projectId).is('deleted_at', null).eq('is_starred', true),
+            this.supabase.from('emails').select('id', { count: 'exact', head: true }).eq('project_id', projectId).is('deleted_at', null).eq('requires_response', true),
+        ]);
+
+        return {
+            total: totalRes.count || 0,
+            unread: unreadRes.count || 0,
+            starred: starredRes.count || 0,
+            needing_response: needingRes.count || 0
+        };
+    }
+
+    /**
      * Get a single email by ID
      * @param {string} id - Email ID
      * @returns {Promise<Object|null>}
@@ -7821,6 +8144,25 @@ class SupabaseStorage {
             log.warn({ event: 'email_find_by_hash_failed', reason: error.message }, 'Failed to find email by hash');
         }
 
+        return data || null;
+    }
+
+    /**
+     * Find an email by its Message-ID header (for thread detection)
+     */
+    async findEmailByMessageId(messageId) {
+        const projectId = this.getProjectId();
+        const { data, error } = await this.supabase
+            .from('emails')
+            .select('id, thread_id, subject')
+            .eq('project_id', projectId)
+            .eq('message_id', messageId)
+            .is('deleted_at', null)
+            .limit(1)
+            .single();
+        if (error && error.code !== 'PGRST116') {
+            log.warn({ event: 'email_find_by_message_id_failed', reason: error.message }, 'Failed');
+        }
         return data || null;
     }
 
@@ -8973,6 +9315,162 @@ class SupabaseStorage {
             }
         };
     }
+    // ==================== Document Tree Indexes ====================
+
+    async saveTreeIndex(documentId, treeData, fullContent, metadata = {}) {
+        const projectId = this.getProjectId();
+        if (!projectId || !documentId) throw new Error('project_id and document_id required');
+
+        const row = {
+            project_id: projectId,
+            document_id: documentId,
+            tree_data: treeData,
+            full_content: fullContent || null,
+            doc_description: metadata.description || null,
+            total_chars: metadata.totalChars || (fullContent ? fullContent.length : 0),
+            node_count: metadata.nodeCount || 0,
+            model: metadata.model || 'unknown',
+            provider: metadata.provider || 'unknown',
+            version: metadata.version || '1.0'
+        };
+
+        const { data, error } = await this.supabase
+            .from('document_tree_indexes')
+            .upsert(row, { onConflict: 'document_id' })
+            .select()
+            .single();
+
+        if (error) throw error;
+        return data;
+    }
+
+    async getTreeIndex(documentId) {
+        if (!documentId) return null;
+        const { data, error } = await this.supabase
+            .from('document_tree_indexes')
+            .select('*')
+            .eq('document_id', documentId)
+            .maybeSingle();
+
+        if (error) throw error;
+        return data;
+    }
+
+    async getTreeIndexesByDocumentIds(documentIds) {
+        if (!documentIds || documentIds.length === 0) return [];
+        const unique = [...new Set(documentIds.filter(Boolean))];
+        if (unique.length === 0) return [];
+
+        const { data, error } = await this.supabase
+            .from('document_tree_indexes')
+            .select('*')
+            .in('document_id', unique);
+
+        if (error) throw error;
+        return data || [];
+    }
+
+    async deleteTreeIndex(documentId) {
+        if (!documentId) return;
+        const { error } = await this.supabase
+            .from('document_tree_indexes')
+            .delete()
+            .eq('document_id', documentId);
+
+        if (error) throw error;
+    }
+
+    async getTreeIndexStatus(projectId) {
+        const pid = projectId || this.getProjectId();
+        if (!pid) return { total: 0, totalChars: 0, totalNodes: 0, documents: [] };
+
+        const { data, error } = await this.supabase
+            .from('document_tree_indexes')
+            .select('id, document_id, doc_description, total_chars, node_count, model, provider, version, created_at, updated_at')
+            .eq('project_id', pid)
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        const docs = data || [];
+        return {
+            total: docs.length,
+            totalChars: docs.reduce((sum, d) => sum + (d.total_chars || 0), 0),
+            totalNodes: docs.reduce((sum, d) => sum + (d.node_count || 0), 0),
+            documents: docs
+        };
+    }
+
+    /**
+     * Get the full text content for a document.
+     * Checks: 1) tree index full_content, 2) raw_content table, 3) local filepath.
+     * Returns null if content not available anywhere.
+     */
+    async getDocumentFullContent(documentId) {
+        if (!documentId) return null;
+
+        // 1. Check tree index (content already stored alongside tree)
+        const { data: treeData } = await this.supabase
+            .from('document_tree_indexes')
+            .select('full_content')
+            .eq('document_id', documentId)
+            .maybeSingle();
+
+        if (treeData?.full_content) return treeData.full_content;
+
+        // 2. Check raw_content table
+        const { data: rawData } = await this.supabase
+            .from('raw_content')
+            .select('content')
+            .eq('document_id', documentId)
+            .maybeSingle();
+
+        if (rawData?.content) return rawData.content;
+
+        // 3. Try reading from local filepath (for legacy documents)
+        try {
+            const doc = await this.getDocumentById(documentId);
+            if (doc?.filepath && typeof doc.filepath === 'string') {
+                const fs = require('fs');
+                const filePath = doc.filepath;
+                if (fs.existsSync(filePath)) {
+                    const ext = (filePath.split('.').pop() || '').toLowerCase();
+                    if (['md', 'txt', 'text', 'csv'].includes(ext)) {
+                        return fs.readFileSync(filePath, 'utf-8');
+                    }
+                }
+            }
+        } catch (_) {}
+
+        return null;
+    }
+
+    /**
+     * Save extracted document content to the raw_content table.
+     * Upserts on (project_id, document_id) to avoid duplicates.
+     */
+    async saveRawContent(documentId, filename, content, extractionMethod = 'processor') {
+        const projectId = this.getProjectId();
+        if (!projectId || !documentId || !content) return null;
+
+        const { data, error } = await this.supabase
+            .from('raw_content')
+            .upsert({
+                project_id: projectId,
+                document_id: documentId,
+                filename: filename || 'unknown',
+                content,
+                extraction_method: extractionMethod,
+                extracted_at: new Date().toISOString()
+            }, { onConflict: 'project_id,document_id' })
+            .select()
+            .maybeSingle();
+
+        if (error) {
+            // Non-blocking: log but don't throw
+            return null;
+        }
+        return data;
+    }
 }
 
 // =============================================================================
@@ -9037,6 +9535,7 @@ SupabaseStorage.RESET_DELETE_STEPS = [
     { op: 'delete', table: 'document_versions' },
     { op: 'delete', table: 'document_activity' },
     { op: 'delete', table: 'document_shares' },
+    { op: 'delete', table: 'document_tree_indexes' },
     { op: 'delete', table: 'raw_content' },
     { op: 'delete', table: 'document_metadata' },
     { op: 'delete', table: 'processing_history' },

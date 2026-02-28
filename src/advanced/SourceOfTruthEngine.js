@@ -847,7 +847,12 @@ Generated: ${new Date().toISOString()}
         // If AI summary requested and LLM provider available
         if (includeAISummary && llmProvider && typeof llmProvider.generateText === 'function') {
             try {
-                const prompt = `Summarize this project status in 2-3 sentences:\n${executiveSummary}`;
+                let docContext = '';
+                try {
+                    const { DocumentContextBuilder } = require('../docindex');
+                    docContext = await DocumentContextBuilder.build(this.storage, { maxChars: 1500 });
+                } catch (_) {}
+                const prompt = `Summarize this project status in 2-3 sentences:\n${executiveSummary}${docContext ? '\n\n' + docContext : ''}`;
                 const aiSummary = await llmProvider.generateText(prompt);
                 enhanced.aiSummary = aiSummary;
             } catch (e) {

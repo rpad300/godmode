@@ -62,7 +62,17 @@ async function getAvailableMeetings(userId, params = {}) {
         d.setDate(d.getDate() - 90);
         searchParams.after = d.toISOString().split('T')[0];
     }
-    if (params.before) searchParams.before = params.before;
+    if (params.before) {
+        // Krisp MCP treats "before" as exclusive of the day; bump to next day
+        // so that meetings ON the selected date are included.
+        if (/^\d{4}-\d{2}-\d{2}$/.test(params.before)) {
+            const d = new Date(params.before + 'T00:00:00Z');
+            d.setUTCDate(d.getUTCDate() + 1);
+            searchParams.before = d.toISOString().split('T')[0];
+        } else {
+            searchParams.before = params.before;
+        }
+    }
 
     log.info({ event: 'krisp_meetings_fetch', userId, params: searchParams }, 'Fetching meetings from MCP');
 
@@ -79,8 +89,9 @@ async function getAvailableMeetings(userId, params = {}) {
 
     const { data: existing } = await supabase
         .from('documents')
-        .select('metadata, project_id, projects(name)')
+        .select('metadata, project_id, sprint_id, projects(name), sprints(name)')
         .eq('doc_type', 'transcript')
+        .is('deleted_at', null)
         .not('metadata', 'is', null)
         .filter('metadata->>krisp_meeting_id', 'in', `(${meetingIds.join(',')})`)
         .filter('metadata->>is_audio', 'is', null);
@@ -90,10 +101,13 @@ async function getAvailableMeetings(userId, params = {}) {
         const mid = row.metadata?.krisp_meeting_id;
         if (!mid) continue;
         if (!importMap[mid]) importMap[mid] = [];
-        if (!importMap[mid].find(p => p.projectId === row.project_id)) {
+        const key = `${row.project_id}:${row.sprint_id || ''}`;
+        if (!importMap[mid].find(p => `${p.projectId}:${p.sprintId || ''}` === key)) {
             importMap[mid].push({
                 projectId: row.project_id,
-                projectName: row.projects?.name || 'Unknown'
+                projectName: row.projects?.name || 'Unknown',
+                sprintId: row.sprint_id || null,
+                sprintName: row.sprints?.name || null
             });
         }
     }
@@ -133,17 +147,19 @@ async function importMeeting(userId, meetingId, projectId, options = {}) {
         keyPoints: options.keyPoints !== false,
         actionItems: options.actionItems !== false,
         outline: options.outline !== false,
-        audio: options.audio !== false
+        audio: options.audio !== false,
+        sprint_id: options.sprint_id || null
     };
 
     const supabase = getAdminClient();
 
-    // Check if already imported to this project
+    // Check if already imported to this project (exclude soft-deleted documents)
     const { data: existing } = await supabase
         .from('documents')
         .select('id')
         .eq('project_id', projectId)
         .eq('doc_type', 'transcript')
+        .is('deleted_at', null)
         .not('metadata', 'is', null)
         .filter('metadata->>krisp_meeting_id', 'eq', meetingId)
         .filter('metadata->>is_audio', 'is', null)
@@ -153,16 +169,7 @@ async function importMeeting(userId, meetingId, projectId, options = {}) {
         return { success: false, error: 'Meeting already imported to this project' };
     }
 
-    // Fetch full document from Krisp MCP
-    let fullDoc;
-    try {
-        fullDoc = await mcpClient.getDocument(userId, meetingId);
-    } catch (err) {
-        log.warn({ event: 'krisp_import_fetch_failed', meetingId, reason: err.message }, 'Failed to fetch from MCP');
-        return { success: false, error: `Failed to fetch meeting: ${err.message}` };
-    }
-
-    // Also get meeting metadata for title/speakers/notes
+    // Fetch meeting metadata first (always available via search_meetings)
     let meetingMeta;
     try {
         const searchResult = await mcpClient.searchMeetings(userId, {
@@ -174,6 +181,24 @@ async function importMeeting(userId, meetingId, projectId, options = {}) {
         meetingMeta = {};
     }
 
+    // Fetch full transcript via get_multiple_documents (replaces deprecated get_document)
+    let fullDoc = null;
+    try {
+        const results = await mcpClient.getMultipleDocuments(userId, [meetingId]);
+        if (Array.isArray(results) && results.length > 0) {
+            const doc = results[0];
+            fullDoc = doc?.document || doc?.content || (typeof doc === 'string' ? doc : null);
+        } else if (typeof results === 'string' && results.length > 50 && !results.includes('MCP error')) {
+            fullDoc = results;
+        }
+        if (fullDoc) {
+            log.debug({ event: 'krisp_transcript_fetched', meetingId, length: typeof fullDoc === 'string' ? fullDoc.length : 0 }, 'Full transcript fetched');
+        }
+    } catch (err) {
+        log.info({ event: 'krisp_transcript_fetch_failed', meetingId, reason: err.message }, 'Full transcript unavailable, using search_meetings data');
+        fullDoc = null;
+    }
+
     const meetingName = meetingMeta?.name || 'Krisp Meeting';
     const meetingDate = meetingMeta?.date || new Date().toISOString();
     const speakers = meetingMeta?.speakers || [];
@@ -182,7 +207,7 @@ async function importMeeting(userId, meetingId, projectId, options = {}) {
     // Build content based on import options
     const sections = [];
 
-    if (opts.transcript) {
+    if (opts.transcript && fullDoc) {
         const transcriptText = convertDocumentToText(fullDoc, meetingName, speakers);
         if (transcriptText && transcriptText.length > 10) {
             sections.push(transcriptText);
@@ -238,6 +263,7 @@ async function importMeeting(userId, meetingId, projectId, options = {}) {
             doc_type: 'transcript',
             status: 'pending',
             document_date: meetingDate.split('T')[0] || null,
+            sprint_id: opts.sprint_id || null,
             metadata: {
                 krisp_meeting_id: meetingId,
                 source: 'krisp-mcp',
@@ -544,15 +570,25 @@ function sanitizeFilename(name) {
  * Used for the expanded preview in the UI.
  */
 async function getMeetingPreview(userId, meetingId) {
-    let fullDoc;
+    let fullDoc = null;
     try {
-        fullDoc = await mcpClient.getDocument(userId, meetingId);
+        const results = await mcpClient.getMultipleDocuments(userId, [meetingId]);
+        if (Array.isArray(results) && results.length > 0) {
+            const doc = results[0];
+            fullDoc = doc?.document || doc?.content || (typeof doc === 'string' ? doc : null);
+        } else if (typeof results === 'string' && results.length > 50) {
+            fullDoc = results;
+        }
     } catch (err) {
         log.warn({ event: 'krisp_preview_fetch_failed', meetingId, reason: err.message }, 'Preview fetch failed');
         return { transcript: null, audioUrl: null, error: err.message };
     }
 
-    const content = typeof fullDoc === 'string' ? fullDoc : (fullDoc?.document || fullDoc?.content || '');
+    if (!fullDoc) {
+        return { transcript: null, audioUrl: null, error: 'No transcript content available' };
+    }
+
+    const content = typeof fullDoc === 'string' ? fullDoc : '';
     const transcript = convertDocumentToText(fullDoc, '', []) || content;
     const audioUrl = extractAudioUrl(content);
 

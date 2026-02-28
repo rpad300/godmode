@@ -79,6 +79,33 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'src/index.html'),
       },
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('react-dom') || (id.includes('/react/') && !id.includes('react-'))) {
+              return 'vendor-react';
+            }
+            if (id.includes('react-router')) {
+              return 'vendor-router';
+            }
+            if (id.includes('@radix-ui') || id.includes('framer-motion') || id.includes('class-variance-authority') || id.includes('sonner')) {
+              return 'vendor-ui';
+            }
+            if (id.includes('chart.js') || id.includes('d3-') || id.includes('vis-network') || id.includes('vis-data')) {
+              return 'vendor-viz';
+            }
+            if (id.includes('@supabase')) {
+              return 'vendor-supabase';
+            }
+            if (id.includes('react-markdown') || id.includes('remark-') || id.includes('marked') || id.includes('dompurify') || id.includes('prismjs')) {
+              return 'vendor-markdown';
+            }
+            if (id.includes('@tanstack')) {
+              return 'vendor-query';
+            }
+          }
+        },
+      },
     },
     // Generate source maps for debugging
     sourcemap: true,

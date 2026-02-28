@@ -1,0 +1,2 @@
+import{p as e}from"./vendor-markdown-Cu8AM8lU.js";function s(t){return e.sanitize(t,{ALLOWED_TAGS:["h1","h2","h3","h4","h5","h6","p","br","hr","ul","ol","li","strong","em","b","i","u","a","code","pre","blockquote","table","thead","tbody","tr","th","td","div","span","img","sub","sup"],ALLOWED_ATTR:["href","target","rel","src","alt","class","title"],ALLOW_DATA_ATTR:!1})}export{s};
+//# sourceMappingURL=sanitize-BByI7rMw.js.map

@@ -556,6 +556,22 @@ class StorageCompat {
         return this._cache.risks[0];
     }
 
+    async addRisks(risks) {
+        if (this._supabase && typeof this._supabase.addRisks === 'function') {
+            const result = await this._supabase.addRisks(risks);
+            if (result.data?.length) {
+                this._cache.risks = (result.data || []).concat(this._cache.risks);
+            }
+            return result;
+        }
+        let inserted = 0;
+        for (const r of risks) {
+            await this.addRisk(r);
+            inserted++;
+        }
+        return { data: [], inserted };
+    }
+
     async updateRisk(id, updates) {
         if (this._supabase) {
             const result = await this._supabase.updateRisk(id, updates);
@@ -637,6 +653,22 @@ class StorageCompat {
     // Alias for addAction
     async addActionItem(action) {
         return this.addAction(action);
+    }
+
+    async addActionItems(actions) {
+        if (this._supabase && typeof this._supabase.addActionItems === 'function') {
+            const result = await this._supabase.addActionItems(actions);
+            if (result.data?.length) {
+                this._cache.actions = (result.data || []).concat(this._cache.actions);
+            }
+            return result;
+        }
+        let inserted = 0;
+        for (const a of actions) {
+            await this.addAction(a);
+            inserted++;
+        }
+        return { data: [], inserted };
     }
 
     async updateAction(id, updates) {
@@ -912,6 +944,29 @@ class StorageCompat {
         return this._cache.people[this._cache.people.length - 1];
     }
 
+    async addPeople(people) {
+        if (this._supabase && typeof this._supabase.addPeople === 'function') {
+            const result = await this._supabase.addPeople(people);
+            if (result.data?.length) {
+                this._cache.people = this._cache.people.concat(result.data || []);
+            }
+            return result;
+        }
+        let inserted = 0;
+        for (const p of people) {
+            await this.addPerson(p);
+            inserted++;
+        }
+        return { data: [], inserted };
+    }
+
+    async addRelationships(relationships) {
+        if (this._supabase && typeof this._supabase.addRelationships === 'function') {
+            return this._supabase.addRelationships(relationships);
+        }
+        return { data: [], inserted: 0 };
+    }
+
     // ==================== Documents ====================
 
     /**
@@ -919,11 +974,19 @@ class StorageCompat {
      * Handles the legacy/Supabase status mismatch: code uses 'processed',
      * Supabase uses 'completed'. Filtering for 'processed' matches both.
      */
-    getDocuments(status = null) {
+    async getDocuments(status = null) {
+        // For status-specific queries (e.g. 'pending' from polling), hit Supabase directly
+        // to avoid stale cache issues with newly uploaded documents
+        if (status && this._supabase && typeof this._supabase.getDocuments === 'function') {
+            try {
+                return await this._supabase.getDocuments(status);
+            } catch (e) {
+                // Fall through to cache on error
+            }
+        }
+
         let docs = this._cache.documents;
         if (status) {
-            // Handle different status values between code and database
-            // Code uses: 'processed' / Database uses: 'completed'
             if (status === 'processed') {
                 docs = docs.filter(d => d.status === 'processed' || d.status === 'completed');
             } else {
@@ -933,11 +996,26 @@ class StorageCompat {
         return docs;
     }
 
-    getDocumentById(id) {
+    async getDocumentById(id) {
         // Support both UUID and numeric IDs
-        return this._cache.documents.find(d =>
+        const cached = this._cache.documents.find(d =>
             d.id === id || String(d.id) === String(id)
         );
+        if (cached) return cached;
+
+        // Fall back to Supabase if not found in cache (e.g. Krisp imports bypass cache)
+        if (this._supabase) {
+            try {
+                const doc = await this._supabase.getDocumentById(id);
+                if (doc) {
+                    this._cache.documents.unshift(doc);
+                    return doc;
+                }
+            } catch (e) {
+                log.debug({ event: 'get_document_by_id_fallback_failed', id, reason: e.message }, 'Supabase fallback failed');
+            }
+        }
+        return null;
     }
 
     /**
@@ -2787,21 +2865,159 @@ class StorageCompat {
             const graphRAG = new GraphRAGEngine({
                 storage: this,
                 graphProvider: this.graphProvider,
-                projectId: this.currentProjectId
+                projectId: this.currentProjectId,
+                llmProvider: options.llmProvider,
+                llmModel: options.llmModel,
+                llmConfig: options.llmConfig,
+                embeddingProvider: options.embeddingProvider,
+                embeddingModel: options.embeddingModel
             });
 
-            const graphResult = await graphRAG.syncToGraph({
-                useOntology: options.useOntology !== false,
-                projectId: this.currentProjectId
-            });
+            const sb = this._supabase;
+            const effectiveProjectId = this.currentProjectId || this.graphProvider?.projectId || options?.projectId;
+            // Ensure supabase sub-storage has project context for data queries
+            if (sb && effectiveProjectId && typeof sb.setProject === 'function') {
+                try { await sb.setProject(effectiveProjectId); } catch (_) {}
+            }
+            // Ensure graph provider has project context for writes
+            if (this.graphProvider && effectiveProjectId && !this.graphProvider.projectId) {
+                this.graphProvider.setProjectContext(effectiveProjectId);
+                this.graphProvider.currentGraphName = `godmode_${effectiveProjectId}`;
+            }
+            const safe = (p) => Promise.resolve(p).catch(() => []);
+            const [facts, decisions, risks, actions, questions, people, documents, contacts, teams, sprints, userStories, emails, conversations] = await Promise.all([
+                safe(sb?.getFacts?.()          || this.getFacts?.()         || []),
+                safe(sb?.getDecisions?.()      || this.getDecisions?.()    || []),
+                safe(sb?.getRisks?.()          || this.getRisks?.()        || []),
+                safe(sb?.getActions?.()        || this.getActionItems?.()  || []),
+                safe(sb?.getQuestions?.()       || this.getQuestions?.()    || []),
+                safe(sb?.getPeople?.()         || this.getPeople?.()       || []),
+                safe(sb?.getDocuments?.()       || this.getDocuments?.()   || []),
+                safe(this.getContacts?.()                                  || []),
+                safe(this.getTeams?.()                                     || []),
+                safe(sb?.getSprints?.()        || this.getSprints?.()      || []),
+                safe(sb?.getUserStories?.()    || this.getUserStories?.()  || []),
+                safe(sb?.getEmails?.()                                     || []),
+                safe(sb?.getConversations?.()                              || []),
+            ]);
 
-            if (graphResult.synced) {
-                synced.nodes += graphResult.synced.nodes || 0;
-                synced.relationships += graphResult.synced.relationships || 0;
+            // Fetch current project + company + members for graph root nodes
+            let project = null;
+            let projectMembers = [];
+            try {
+                const adminClient = require('./supabase/client').getAdminClient();
+                if (adminClient && effectiveProjectId) {
+                    const { data: projData, error: projErr } = await adminClient
+                        .from('projects')
+                        .select('*, companies(*)')
+                        .eq('id', effectiveProjectId)
+                        .single();
+                    if (!projErr && projData) {
+                        project = { ...projData, company: projData.companies || null };
+                    }
+
+                    // Fetch project members with their profiles to add as Person nodes
+                    // Use !inner hint on user_id FK to disambiguate from invited_by FK
+                    const { data: members } = await adminClient
+                        .from('project_members')
+                        .select('user_id, role, user_profiles!project_members_user_id_fkey(id, username, display_name, avatar_url)')
+                        .eq('project_id', effectiveProjectId);
+                    if (members) {
+                        projectMembers = members
+                            .filter(m => m.user_profiles)
+                            .map(m => ({
+                                id: m.user_id,
+                                name: m.user_profiles.display_name || m.user_profiles.username || 'Unknown',
+                                role: m.role || 'member',
+                                avatar: m.user_profiles.avatar_url || null,
+                                source: 'project_member'
+                            }));
+                    }
+                }
+            } catch (e) {
+                log.debug({ event: 'sync_project_fetch_skip', reason: e.message }, 'Could not fetch project for graph');
             }
 
+            // Merge project members into people (avoid duplicates by ID)
+            const existingPeopleIds = new Set((people || []).map(p => p.id));
+            const mergedPeople = [...(people || [])];
+            for (const member of projectMembers) {
+                if (!existingPeopleIds.has(member.id)) {
+                    mergedPeople.push(member);
+                    existingPeopleIds.add(member.id);
+                }
+            }
+
+            // Auto-create Contact + Team for project owner if missing
+            try {
+                const adminClient = require('./supabase/client').getAdminClient();
+                if (adminClient && effectiveProjectId) {
+                    const existingContactNames = new Set((contacts || []).map(c => (c.name || '').toLowerCase().trim()));
+
+                    for (const member of projectMembers) {
+                        if (member.role !== 'owner') continue;
+                        if (existingContactNames.has((member.name || '').toLowerCase().trim())) continue;
+
+                        const { data: newContact, error: contactErr } = await adminClient
+                            .from('contacts')
+                            .insert({
+                                project_id: effectiveProjectId,
+                                name: member.name,
+                                role: 'Owner',
+                                organization: project?.company?.name || null,
+                                photo_url: member.avatar || null,
+                                is_favorite: true,
+                                notes: 'Auto-created from project owner',
+                                created_by: member.id
+                            })
+                            .select()
+                            .single();
+
+                        if (contactErr) {
+                            log.warn({ event: 'auto_contact_error', err: contactErr.message }, 'Failed to auto-create contact');
+                        }
+
+                        if (newContact) {
+                            contacts.push(newContact);
+                            log.info({ event: 'auto_contact_owner', contactId: newContact.id, name: member.name }, 'Auto-created Contact for owner');
+                        }
+                    }
+
+                    // Auto-create default Team if none exist
+                    if ((!teams || teams.length === 0) && project) {
+                        const teamName = project.company?.name ? `${project.company.name} Team` : 'Core Team';
+                        const { data: newTeam } = await adminClient
+                            .from('teams')
+                            .insert({
+                                project_id: effectiveProjectId,
+                                name: teamName,
+                                description: `Default team for ${project.name || 'this project'}`
+                            })
+                            .select()
+                            .single();
+
+                        if (newTeam) {
+                            teams.push(newTeam);
+                            log.info({ event: 'auto_team_created', teamId: newTeam.id, name: teamName }, 'Auto-created default Team');
+                        }
+                    }
+                }
+            } catch (autoCreateErr) {
+                log.debug({ event: 'auto_create_contact_team_skip', reason: autoCreateErr.message }, 'Auto-create skip');
+            }
+
+            const data = { project, facts, decisions, risks, actions, questions, people: mergedPeople, documents, contacts, teams, sprints, userStories, emails, conversations };
+
+            const graphResult = await graphRAG.syncToGraph(data, {
+                useOntology: options.useOntology !== false,
+                projectId: this.currentProjectId,
+                generateEmbeddings: options.generateEmbeddings !== false
+            });
+
+            synced.nodes += graphResult.nodes || 0;
+            synced.relationships += graphResult.edges || 0;
+
             // 2. Sync Contacts directly to graph
-            const contacts = await this.getContacts?.() || this.contacts?.items || [];
             for (const contact of contacts) {
                 try {
                     await this.graphProvider.createNode('Contact', {
@@ -2824,7 +3040,6 @@ class StorageCompat {
             }
 
             // 3. Sync Teams directly to graph
-            const teams = await this.getTeams?.() || [];
             for (const team of teams) {
                 try {
                     await this.graphProvider.createNode('Team', {
@@ -2890,22 +3105,31 @@ class StorageCompat {
                 log.warn({ event: 'sync_contact_relationships_warning', reason: e.message }, 'Contact relationships sync warning');
             }
 
-            // 6. Sync Facts to graph (use prefixed IDs for consistency)
-            const facts = this.knowledge?.facts || [];
-            for (const fact of facts) {
-                try {
-                    await this.graphProvider.createNode('Fact', {
-                        id: `fact_${fact.id}`,  // Prefixed ID for consistency
-                        content: fact.content || fact.text,
-                        category: fact.category,
-                        source: fact.source_file || fact.source,
-                        confidence: fact.confidence,
-                        updated_at: new Date().toISOString()
-                    });
-                    synced.nodes++;
-                } catch (e) {
-                    // Ignore
+            // 6. Auto-link owner Contact -> Team and Contact -> Person
+            try {
+                const ownerContacts = contacts.filter(c => c.role === 'Owner' || c.role === 'owner');
+                const personByName = new Map(mergedPeople.map(p => [(p.name || '').toLowerCase().trim(), p]));
+
+                for (const oc of ownerContacts) {
+                    // MEMBER_OF all teams
+                    for (const team of teams) {
+                        try {
+                            await this.graphProvider.createRelationship(oc.id, team.id, 'MEMBER_OF', {});
+                            synced.relationships++;
+                        } catch (_) {}
+                    }
+
+                    // IS_CONTACT_OF matching Person by name
+                    const matchedPerson = personByName.get((oc.name || '').toLowerCase().trim());
+                    if (matchedPerson) {
+                        try {
+                            await this.graphProvider.createRelationship(oc.id, matchedPerson.id, 'IS_CONTACT_OF', {});
+                            synced.relationships++;
+                        } catch (_) {}
+                    }
                 }
+            } catch (e) {
+                log.debug({ event: 'auto_link_owner_skip', reason: e.message }, 'Owner link skip');
             }
 
             log.info({ event: 'sync_to_graph_done', nodes: synced.nodes, relationships: synced.relationships }, 'syncToGraph completed');
@@ -3195,6 +3419,59 @@ class StorageCompat {
      */
     getConversations() {
         return this._cache.conversations || [];
+    }
+
+    /**
+     * Add a conversation (delegates to Supabase or in-memory)
+     */
+    async addConversation(conversation) {
+        if (this._isSupabaseMode && this._supabase) {
+            const result = await this._supabase.addConversation(conversation);
+            return result?.id || result;
+        }
+        const id = conversation.id || require('crypto').randomUUID();
+        conversation.id = id;
+        this._cache.conversations = this._cache.conversations || [];
+        this._cache.conversations.push(conversation);
+        return id;
+    }
+
+    /**
+     * Get conversation by ID
+     */
+    async getConversationById(id) {
+        if (this._isSupabaseMode && this._supabase) {
+            return await this._supabase.getConversationById(id);
+        }
+        return (this._cache.conversations || []).find(c => c.id === id) || null;
+    }
+
+    /**
+     * Update a conversation
+     */
+    async updateConversation(id, updates) {
+        if (this._isSupabaseMode && this._supabase) {
+            return await this._supabase.updateConversation(id, updates);
+        }
+        const convs = this._cache.conversations || [];
+        const idx = convs.findIndex(c => c.id === id);
+        if (idx === -1) return false;
+        Object.assign(convs[idx], updates);
+        return true;
+    }
+
+    /**
+     * Delete a conversation
+     */
+    async deleteConversation(id) {
+        if (this._isSupabaseMode && this._supabase) {
+            return await this._supabase.deleteConversation(id);
+        }
+        const convs = this._cache.conversations || [];
+        const idx = convs.findIndex(c => c.id === id);
+        if (idx === -1) return false;
+        convs.splice(idx, 1);
+        return true;
     }
 
     /**
@@ -4537,6 +4814,56 @@ class StorageCompat {
             legacy.switchProject(this.currentProjectId);
         }
         legacy.reset();
+    }
+
+    // ==================== Document Tree Indexes ====================
+
+    async saveTreeIndex(documentId, treeData, fullContent, metadata = {}) {
+        if (this._isSupabaseMode && this._supabase) {
+            return this._supabase.saveTreeIndex(documentId, treeData, fullContent, metadata);
+        }
+        throw new Error('Tree indexes require Supabase storage');
+    }
+
+    async getTreeIndex(documentId) {
+        if (this._isSupabaseMode && this._supabase) {
+            return this._supabase.getTreeIndex(documentId);
+        }
+        return null;
+    }
+
+    async getTreeIndexesByDocumentIds(documentIds) {
+        if (this._isSupabaseMode && this._supabase) {
+            return this._supabase.getTreeIndexesByDocumentIds(documentIds);
+        }
+        return [];
+    }
+
+    async deleteTreeIndex(documentId) {
+        if (this._isSupabaseMode && this._supabase) {
+            return this._supabase.deleteTreeIndex(documentId);
+        }
+    }
+
+    async getTreeIndexStatus(projectId) {
+        if (this._isSupabaseMode && this._supabase) {
+            return this._supabase.getTreeIndexStatus(projectId);
+        }
+        return { total: 0, totalChars: 0, totalNodes: 0, documents: [] };
+    }
+
+    async getDocumentFullContent(documentId) {
+        if (this._isSupabaseMode && this._supabase) {
+            return this._supabase.getDocumentFullContent(documentId);
+        }
+        return null;
+    }
+
+    async saveRawContent(documentId, filename, content, extractionMethod) {
+        if (this._isSupabaseMode && this._supabase) {
+            return this._supabase.saveRawContent(documentId, filename, content, extractionMethod);
+        }
+        return null;
     }
 
     /**

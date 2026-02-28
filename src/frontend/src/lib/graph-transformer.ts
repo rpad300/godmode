@@ -1,33 +1,10 @@
 /**
- * Purpose:
- *   Transforms raw graph data from the database into a styled, de-duplicated,
- *   and layout-ready format for the React Flow visualisation. Implements the
- *   graph display specification rules for tier assignment, edge styling,
- *   Person/Contact merging, and edge bundling.
+ * Transforms raw graph data from the database into a styled, de-duplicated,
+ * and display-ready format. Handles tier assignment, edge styling,
+ * Person/Contact merging, and parallel-edge curvature offsets.
  *
- * Responsibilities:
- *   - Assign tiers (0 = Project centre, 1 = entities, 2 = details) via TIER_CONFIG
- *   - Assign node dimensions and colour tokens via NODE_DIMENSIONS and getNodeColorToken
- *   - Merge Person nodes into their linked Contact nodes (by ID, name, or alias)
- *     and redirect edges accordingly
- *   - Apply edge colour/width/opacity/dash styles from EDGE_STYLES
- *   - Hide "hairball" edges (WORKS_WITH, BELONGS_TO_PROJECT) via HIDDEN_EDGE_TYPES
- *   - Bundle duplicate WORKS_WITH edges between the same pair into one representative
- *
- * Key dependencies:
- *   - @/types/graph: GraphNode, GraphEdge
- *
- * Side effects:
- *   - None (pure function)
- *
- * Notes:
- *   - Person/Contact merging prevents duplicate nodes when both a Person and a
- *     Contact record exist for the same individual. Matching cascades:
- *     linked_person_id > normalised name > aliases.
- *   - BELONGS_TO_PROJECT edges have opacity 0 by default and are also in the
- *     hidden set -- double-guarded to keep the graph clean.
- *   - Edge labels are set to undefined to avoid visual clutter; the original
- *     label is preserved in edge.data.originalLabel for tooltips.
+ * Also provides `toSigmaGraph()` to convert the internal GraphNode/GraphEdge
+ * arrays into a Graphology Graph for Sigma.js rendering.
  */
 import { GraphNode, GraphEdge } from '@/types/graph';
 
@@ -90,10 +67,13 @@ const EDGE_STYLES: Record<string, { stroke: string, width: number, opacity: numb
     'DEPENDS_ON': { stroke: '#3b82f6', width: 2, opacity: 0.9 },
     // Attribution
     'ASSIGNED_TO': { stroke: '#10b981', width: 1.5, opacity: 0.7 }, // emerald-500
+    'OWNS': { stroke: '#22c55e', width: 2.5, opacity: 0.9 }, // green-500, prominent
     'OWNED_BY': { stroke: '#10b981', width: 1.5, opacity: 0.7 },
     'AUTHORED_BY': { stroke: '#10b981', width: 1.5, opacity: 0.7 },
     // People
     'MEMBER_OF_TEAM': { stroke: '#a855f7', width: 1.5, opacity: 0.7 }, // purple-500
+    'MEMBER_OF': { stroke: '#a855f7', width: 2, opacity: 0.8 }, // purple-500
+    'PART_OF': { stroke: '#8b5cf6', width: 2, opacity: 0.8 }, // violet-500
     'WORKS_WITH': { stroke: '#4ade80', width: 1, opacity: 0.4 }, // green-400, thinner, transparent
     'IS_CONTACT_OF': { stroke: '#22d3ee', width: 1.5, opacity: 0.6, dash: '4 4' }, // cyan-400
     'WORKS_AT': { stroke: '#0d9488', width: 1.5, opacity: 0.7 }, // teal-600
@@ -143,13 +123,8 @@ const HIDDEN_EDGE_TYPES = new Set([
 ]);
 
 /**
- * Transforms raw graph nodes and edges into styled, de-duplicated structures
- * ready for React Flow rendering. Handles Person/Contact merging, tier
- * assignment, edge styling, and edge bundling.
- *
- * @param rawNodes - unprocessed nodes from the database
- * @param rawEdges - unprocessed edges from the database
- * @returns {{ nodes: GraphNode[], edges: GraphEdge[] }} styled and filtered graph data
+ * Transforms raw graph nodes and edges into styled, de-duplicated structures.
+ * Handles Person/Contact merging, tier assignment, edge styling, and edge bundling.
  */
 export function transformGraphData(rawNodes: GraphNode[], rawEdges: GraphEdge[]) {
 
@@ -309,6 +284,39 @@ export function transformGraphData(rawNodes: GraphNode[], rawEdges: GraphEdge[])
         });
     });
 
+    // 3. Enrich Team nodes with computed member counts from edges
+    const MEMBERSHIP_EDGES = new Set(['MEMBER_OF_TEAM', 'MEMBER_OF', 'PART_OF', 'LEADS_TEAM']);
+    const teamNodeIds = new Set(nodes.filter(n => n.label === 'Team').map(n => n.id));
+    if (teamNodeIds.size > 0) {
+        const teamMemberCounts = new Map<string, number>();
+        for (const edge of processedEdges) {
+            if (!MEMBERSHIP_EDGES.has(edge.data?.originalLabel || edge.label || '')) continue;
+            if (teamNodeIds.has(edge.target)) {
+                teamMemberCounts.set(edge.target, (teamMemberCounts.get(edge.target) || 0) + 1);
+            }
+            if (teamNodeIds.has(edge.source)) {
+                teamMemberCounts.set(edge.source, (teamMemberCounts.get(edge.source) || 0) + 1);
+            }
+        }
+        // Also count from ALL raw edges (including hidden ones) so we don't miss members
+        for (const edge of rawEdges) {
+            if (!MEMBERSHIP_EDGES.has(edge.label || '')) continue;
+            const src = resolveId(edge.source);
+            const tgt = resolveId(edge.target);
+            if (teamNodeIds.has(tgt) && !teamMemberCounts.has(tgt)) {
+                teamMemberCounts.set(tgt, (teamMemberCounts.get(tgt) || 0) + 1);
+            }
+            if (teamNodeIds.has(src) && !teamMemberCounts.has(src)) {
+                teamMemberCounts.set(src, (teamMemberCounts.get(src) || 0) + 1);
+            }
+        }
+        for (const node of nodes) {
+            if (node.label === 'Team' && teamMemberCounts.has(node.id)) {
+                node.data = { ...node.data, memberCount: teamMemberCounts.get(node.id)! };
+            }
+        }
+    }
+
     // 4. Compute curvature offsets for parallel edges between the same node pair
     const pairCounts = new Map<string, number>();
     const pairIndex = new Map<string, number>();
@@ -351,4 +359,78 @@ export function getNodeColorToken(type: string): string {
         case 'Task': return 'emerald';
         default: return 'slate';
     }
+}
+
+// ---------------------------------------------------------------------------
+// SIGMA / GRAPHOLOGY DATA CONVERSION
+// ---------------------------------------------------------------------------
+
+import Graph from 'graphology';
+import pagerank from 'graphology-metrics/centrality/pagerank';
+
+const TIER_SIZES: Record<number, number> = { 0: 18, 1: 10, 2: 6 };
+
+/**
+ * Converts internal GraphNode/GraphEdge arrays into a Graphology Graph
+ * with node attributes (x, y, size, color, label) and edge attributes
+ * (color, size, type) ready for Sigma.js rendering.
+ *
+ * When `useImportance` is true, node sizes are scaled by PageRank centrality.
+ */
+export function toSigmaGraph(nodes: GraphNode[], edges: GraphEdge[], useImportance = false): Graph {
+    const graph = new Graph();
+
+    for (const n of nodes) {
+        const type = n.label || 'default';
+        const tier = n.data.tier ?? 2;
+        const isGroup = !!n.data._isGroup;
+        graph.addNode(n.id, {
+            label: n.data.label || n.label || n.id,
+            size: isGroup ? 22 : (TIER_SIZES[tier] ?? 6),
+            color: NODE_COLORS[type] || '#64748b',
+            x: Math.random() * 1000,
+            y: Math.random() * 1000,
+            nodeType: type,
+            tier,
+            isGroup,
+            groupCount: n.data._groupCount || 0,
+            createdAt: n.data.created_at || n.data.date || null,
+        });
+    }
+
+    for (const e of edges) {
+        const style = EDGE_STYLES[e.data?.originalLabel || e.label || ''] || EDGE_STYLES['default'];
+        const key = e.id || `${e.source}-${e.target}-${e.data?.originalLabel || e.label || 'rel'}`;
+        if (!graph.hasNode(e.source) || !graph.hasNode(e.target)) continue;
+        try {
+            graph.addEdgeWithKey(key, e.source, e.target, {
+                color: style.stroke,
+                size: Math.max(0.5, style.width * 0.4),
+                relationType: e.data?.originalLabel || e.label,
+                type: 'curved',
+            });
+        } catch {
+            // skip duplicate edges
+        }
+    }
+
+    if (useImportance && graph.order > 1) {
+        try {
+            const scores = pagerank(graph);
+            const values = Object.values(scores);
+            const maxPR = Math.max(...values, 0.001);
+            const minPR = Math.min(...values, 0);
+            const MIN_SIZE = 4;
+            const MAX_SIZE = 30;
+            for (const [node, score] of Object.entries(scores)) {
+                const normalized = maxPR > minPR ? (score - minPR) / (maxPR - minPR) : 0.5;
+                const size = MIN_SIZE + normalized * (MAX_SIZE - MIN_SIZE);
+                graph.setNodeAttribute(node, 'size', size);
+            }
+        } catch {
+            // PageRank may fail on disconnected graphs; fall back to tier sizing
+        }
+    }
+
+    return graph;
 }

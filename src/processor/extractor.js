@@ -110,8 +110,8 @@ class DocumentExtractor {
             return fsp.readFile(filePath, 'utf8');
         }
 
-        // For PDFs, DOCX, XLSX, PPTX, HTML - try MarkItDown first
-        if (['.pdf', '.docx', '.xlsx', '.pptx', '.html', '.htm'].includes(ext)) {
+        // For PDFs, Office docs, HTML, email files, ODF - try MarkItDown first
+        if (['.pdf', '.docx', '.xlsx', '.pptx', '.html', '.htm', '.eml', '.msg', '.rtf', '.odt', '.ods', '.odp'].includes(ext)) {
             const markitResult = await this.extractWithMarkItDown(filePath);
             if (markitResult.success && markitResult.content.length > 100) {
                 return markitResult.content;
@@ -134,7 +134,7 @@ class DocumentExtractor {
         }
 
         // For images - always use vision model (handled by Analyzer/Processor), skip MarkItDown here
-        if (['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp'].includes(ext)) {
+        if (['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.tiff', '.tif'].includes(ext)) {
             return `[IMAGE:${filePath}]`;
         }
 

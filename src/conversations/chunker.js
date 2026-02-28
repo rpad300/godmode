@@ -155,8 +155,8 @@ function generateConversationSummary(conversation, maxLength = 500) {
     }
     
     if (conversation.dateRange) {
-        const start = conversation.dateRange.start?.substring(0, 10) || '';
-        const end = conversation.dateRange.end?.substring(0, 10) || '';
+        const start = (conversation.dateRange.first || conversation.dateRange.start || '').substring(0, 10);
+        const end = (conversation.dateRange.last || conversation.dateRange.end || '').substring(0, 10);
         if (start && end) {
             parts.push(`Date range: ${start} to ${end}`);
         }

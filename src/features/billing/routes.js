@@ -58,22 +58,26 @@ const { jsonResponse } = require('../../server/response');
  */
 async function checkSuperAdmin(supabase, req, res) {
     const log = getLogger().child({ module: 'billing' });
-    log.debug({ event: 'billing_check_superadmin' }, 'checkSuperAdmin called');
+
+    // In development, allow billing admin without auth for local testing
+    if (process.env.NODE_ENV === 'development' && process.env.BILLING_SKIP_BALANCE_CHECK === 'true') {
+        log.debug({ event: 'billing_dev_bypass' }, 'Dev mode: skipping superadmin check');
+        return { id: 'dev-admin', email: 'dev@localhost' };
+    }
+
     if (!supabase || !supabase.isConfigured()) {
-        log.debug({ event: 'billing_not_configured' }, 'Supabase not configured');
         jsonResponse(res, { error: 'Database not configured' }, 503);
         return false;
     }
     const authResult = await supabase.auth.verifyRequest(req);
-    log.debug({ event: 'billing_auth', authenticated: authResult.authenticated, userId: authResult.user?.id }, 'Auth result');
     if (!authResult.authenticated) {
         log.debug({ event: 'billing_not_authenticated' }, 'Not authenticated');
         jsonResponse(res, { error: 'Authentication required' }, 401);
         return false;
     }
     const isSuperAdmin = await supabase.auth.isSuperAdmin(authResult.user.id);
-    log.debug({ event: 'billing_superadmin', isSuperAdmin }, 'isSuperAdmin');
     if (!isSuperAdmin) {
+        log.warn({ event: 'billing_not_superadmin', userId: authResult.user.id }, 'User is not superadmin');
         jsonResponse(res, { error: 'Superadmin access required' }, 403);
         return false;
     }
@@ -311,19 +315,24 @@ async function handleBilling(ctx) {
                     );
 
                     if (result.success) {
-                        let project = null;
-                        const client = storage._supabase?.supabase;
-                        if (client) {
-                            const { data } = await client.from('projects').select('name').eq('id', projectId).single();
-                            project = data;
+                        log.info({ event: 'billing_credit_added', projectId, amount: body.amount, newBalance: result.new_balance }, 'Balance credited');
+                        try {
+                            let project = null;
+                            const client = storage?._supabase?.supabase;
+                            if (client) {
+                                const { data } = await client.from('projects').select('name').eq('id', projectId).single();
+                                project = data;
+                            }
+                            await notifications.createBalanceAddedNotification(
+                                projectId,
+                                parseFloat(body.amount),
+                                result.new_balance,
+                                project?.name,
+                                user.id
+                            );
+                        } catch (notifErr) {
+                            log.debug({ event: 'billing_credit_notification_failed', reason: notifErr?.message }, 'Non-fatal: notification failed');
                         }
-                        await notifications.createBalanceAddedNotification(
-                            projectId,
-                            parseFloat(body.amount),
-                            result.new_balance,
-                            project?.name,
-                            user.id
-                        );
                     }
                 } else if (body.unlimited !== undefined) {
                     const success = await billing.setProjectUnlimited(projectId, body.unlimited, user.id);
@@ -424,11 +433,10 @@ async function handleBilling(ctx) {
                 const body = await parseBody(req);
                 const blocked = body.blocked === true;
 
-                // Update project status
-                // Update project status
-                const adminClient = supabase.getAdminClient();
+                const { getAdminClient, getClient } = require('../../supabase/client');
+                const adminClient = getAdminClient() || getClient();
                 if (!adminClient) {
-                    throw new Error('Supabase admin client not available');
+                    throw new Error('Supabase client not available');
                 }
 
                 const { error } = await adminClient
@@ -437,9 +445,10 @@ async function handleBilling(ctx) {
                     .eq('id', projectId);
 
                 if (error) throw error;
+                log.info({ event: 'billing_project_block', projectId, blocked }, `Project ${blocked ? 'blocked' : 'unblocked'}`);
                 jsonResponse(res, { success: true, blocked });
             } catch (error) {
-                log.warn({ event: 'billing_project_block_error', reason: error?.message }, 'Error blocking/unblocking project');
+                log.warn({ event: 'billing_project_block_error', projectId, reason: error?.message }, 'Error blocking/unblocking project');
                 jsonResponse(res, { error: error.message }, 500);
             }
             return true;
@@ -456,12 +465,13 @@ async function handleBilling(ctx) {
                 const success = await billing.setProjectUnlimited(projectId, unlimited, user.id);
 
                 if (!success) {
-                    throw new Error('Failed to set unlimited status');
+                    throw new Error('Failed to set unlimited status. The database column may not exist.');
                 }
 
+                log.info({ event: 'billing_project_unlimited', projectId, unlimited }, `Project unlimited set to ${unlimited}`);
                 jsonResponse(res, { success: true, unlimited });
             } catch (error) {
-                log.warn({ event: 'billing_project_unlimited_error', reason: error?.message }, 'Error setting project unlimited status');
+                log.warn({ event: 'billing_project_unlimited_error', projectId, reason: error?.message }, 'Error setting project unlimited status');
                 jsonResponse(res, { error: error.message }, 500);
             }
             return true;

@@ -538,45 +538,23 @@ async function handleProjects({ req, res, pathname, supabase, storage, config, s
     if (pathname === '/api/projects' && req.method === 'GET') {
         try {
             if (supabase && supabase.isConfigured()) {
-                console.log('DEBUG: Supabase is configured, verifying request...');
                 const authResult = await supabase.auth.verifyRequest(req);
-                console.log('DEBUG: Verify result:', { authenticated: authResult.authenticated, user: authResult.user?.id, error: authResult.error });
 
                 if (authResult.authenticated) {
                     const userId = authResult.user.id;
                     const client = supabase.getAdminClient();
                     if (!client) {
-                        const errorMsg = 'Supabase admin client is null (check SUPABASE_SERVICE_KEY)';
-                        console.error('CRITICAL:', errorMsg);
-                        require('fs').appendFileSync('debug_error.log', new Date().toISOString() + ' ' + errorMsg + '\n');
-                        jsonResponse(res, { error: errorMsg }, 500);
+                        log.error({ event: 'projects_admin_no_client' }, 'Supabase admin client is null (check SUPABASE_SERVICE_KEY)');
+                        jsonResponse(res, { error: 'Supabase admin client is null' }, 500);
                         return true;
                     }
                     const isSuperAdmin = await supabase.auth.isSuperAdmin(userId);
                     if (isSuperAdmin) {
-                        console.log('DEBUG: Handling GET /api/projects for SUPERADMIN');
                         const { data: allProjects, error } = await client.from('projects').select('*').order('name', { ascending: true });
                         if (error) {
-                            console.error('DEBUG: Error listing all projects', error);
+                            log.warn({ event: 'projects_admin_list_error', reason: error.message }, 'Error listing all projects');
                             jsonResponse(res, { projects: [] });
                             return true;
-                        }
-
-                        // DEBUG LOGGING SUPER ADMIN
-                        if (allProjects && allProjects.length > 0) {
-                            const debugProj = allProjects.find(p => p.id === '0c82618c-7e1a-4e41-87cf-22643e148715'); // specific project
-                            if (debugProj) {
-                                console.log('DEBUG: Found specific project', {
-                                    id: debugProj.id,
-                                    hasSettings: !!debugProj.settings,
-                                    rolesCount: debugProj.settings?.roles?.length
-                                });
-                            } else {
-                                console.log('DEBUG: Specific project NOT FOUND in list', allProjects.map(p => p.id));
-                            }
-
-                        } else {
-                            console.log('DEBUG: No projects found for SuperAdmin');
                         }
 
                         // Safe response with fallback
@@ -605,7 +583,6 @@ async function handleProjects({ req, res, pathname, supabase, storage, config, s
                     }
 
 
-                    console.log('DEBUG: Handling GET /api/projects for Regular Member');
                     if (!client) {
                         const errorMsg = 'Supabase admin client is null despite being configured';
                         console.error('CRITICAL:', errorMsg);
@@ -676,9 +653,7 @@ async function handleProjects({ req, res, pathname, supabase, storage, config, s
                     return true;
                 }
             }
-            console.log('DEBUG: Falling back to storage.listProjects() (Not authenticated or not configured)');
             const projects = await storage.listProjects();
-            console.log('DEBUG: storage.listProjects returned count:', projects?.length);
             jsonResponse(res, { projects: projects || [] });
         } catch (e) {
             const fs = require('fs');
@@ -708,13 +683,36 @@ async function handleProjects({ req, res, pathname, supabase, storage, config, s
         const body = await parseBody(req);
         const name = body.name;
         const userRole = body.userRole || '';
-        const companyId = body.company_id || body.companyId || null;
+        let companyId = body.company_id || body.companyId || null;
+        const newCompanyName = body.new_company_name || null;
         if (!name || name.trim().length === 0) {
             jsonResponse(res, { error: 'Project name is required' }, 400);
             return true;
         }
         try {
+            if (!companyId && newCompanyName) {
+                const adminClient = require('../../supabase/client').getAdminClient();
+                const { data: newCo, error: coErr } = await adminClient
+                    .from('companies')
+                    .insert({ name: newCompanyName.trim(), owner_id: userResult.user.id })
+                    .select('id')
+                    .single();
+                if (coErr) throw new Error(`Failed to create company: ${coErr.message}`);
+                companyId = newCo.id;
+            }
             const project = await storage.createProject(name.trim(), userRole.trim(), companyId, userResult.user.id, token);
+            // Auto-activate and sync graph so Project + Company nodes appear immediately
+            try {
+                storage.switchProject(project.id);
+                const newDataDir = await storage.getProjectDataDir();
+                processor.updateDataDir(newDataDir);
+                config.dataDir = newDataDir;
+                saveConfig(config);
+                storage.syncToGraph({ useOntology: true }).catch(e =>
+                    log.debug({ event: 'projects_create_sync_skip', reason: e.message }, 'Post-create graph sync skipped'));
+            } catch (syncErr) {
+                log.debug({ event: 'projects_create_activate_skip', reason: syncErr.message }, 'Post-create activate skipped');
+            }
             jsonResponse(res, { success: true, project });
         } catch (e) {
             log.warn({ event: 'projects_create_error', reason: e.message }, 'Error creating project');
@@ -897,6 +895,9 @@ async function handleProjects({ req, res, pathname, supabase, storage, config, s
                     if (graphResult.ok) log.debug({ event: 'projects_graph_switched', projectGraphName }, 'Switched to graph');
                 } catch (e) { log.warn({ event: 'projects_graph_switch_error', reason: e.message }, 'Error switching graph'); }
             }
+            // Auto-sync graph to ensure Project + Company nodes exist
+            storage.syncToGraph({ useOntology: true }).catch(e =>
+                log.debug({ event: 'projects_activate_sync_skip', reason: e.message }, 'Post-activate sync skipped'));
             jsonResponse(res, { success: true, project });
         } else {
             jsonResponse(res, { error: 'Project not found' }, 404);

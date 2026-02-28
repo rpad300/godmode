@@ -273,9 +273,10 @@ function buildCreateQuery(label, id, properties) {
         .map(k => `${k}: $${k}`)
         .join(', ');
 
-    if (label === 'Action' && sprintId) {
+    const sprintableTypes = ['Action', 'Fact', 'Decision', 'Risk', 'Question'];
+    if (sprintableTypes.includes(label) && sprintId) {
         return {
-            query: `CREATE (n:Action {${propsString}}) WITH n MERGE (s:Sprint {id: $sprint_id}) CREATE (n)-[:IN_SPRINT]->(s) RETURN n`,
+            query: `CREATE (n:${label} {${propsString}}) WITH n MERGE (s:Sprint {id: $sprint_id}) CREATE (n)-[:PART_OF_SPRINT]->(s) RETURN n`,
             params: props
         };
     }

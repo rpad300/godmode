@@ -1043,6 +1043,7 @@ loadConfigAsync().then((c) => {
     const { handleOntology } = require('./features/ontology/routes');
     const { handleGraph } = require('./features/graph/routes');
     const { handleGraphrag } = require('./features/graphrag/routes');
+    const { handleDocindex } = require('./features/docindex/routes');
     const { handleOptimizations } = require('./features/optimizations/routes');
     const { handleRolesApi } = require('./features/roles-api/routes');
     const { handleTeamAnalysis } = require('./features/team-analysis/routes');
@@ -1201,6 +1202,7 @@ loadConfigAsync().then((c) => {
             if (await handleOntology({ req, res, pathname, storage, config, supabase })) return;
             if (await handleGraph({ req, res, pathname, storage, config, supabase, saveConfig })) return;
             if (await handleGraphrag({ req, res, pathname, storage, config })) return;
+            if (await handleDocindex({ req, res, pathname, storage, config })) return;
             if (await handleOptimizations({ req, res, pathname, storage, config })) return;
             if (await handleRolesApi({ req, res, pathname, storage, config, supabase })) return;
             if (await handleTeamAnalysis({ req, res, pathname, storage, config })) return;

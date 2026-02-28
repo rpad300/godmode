@@ -87,6 +87,7 @@ export interface Fact {
   source: string;
   confidence: number;
   createdAt: string;
+  sprint_id?: string;
 }
 
 export interface Question {
@@ -97,6 +98,7 @@ export interface Question {
   status: 'open' | 'answered' | 'dismissed';
   answer?: string;
   source: string;
+  sprint_id?: string;
 }
 
 export interface Risk {
@@ -108,6 +110,7 @@ export interface Risk {
   owner?: string;
   status: 'open' | 'mitigated' | 'accepted';
   reported_by?: string;
+  sprint_id?: string;
 }
 
 export interface Sprint {
@@ -186,11 +189,26 @@ export interface SprintBreakdown {
 export interface SprintReport {
   sprint: Sprint;
   actions: Action[];
+  facts: Fact[];
+  decisions: Decision[];
+  risks: Risk[];
+  questions: Question[];
   breakdown: SprintBreakdown;
   total_task_points: number;
   completed_task_points: number;
   total_tasks: number;
   completed_tasks: number;
+  knowledge_counts: {
+    facts: number;
+    decisions: number;
+    risks: number;
+    questions: number;
+  };
+  graph_context?: {
+    sprint_name?: string;
+    sprint_context?: string;
+    assignees?: string[];
+  };
 }
 
 export interface SprintGenerateResult {
@@ -209,6 +227,12 @@ export interface SprintVelocity {
   total_tasks: number;
   completed_tasks: number;
   daily_progress: Array<{ date: string; completed_tasks: number; completed_points: number; remaining_tasks: number; remaining_points: number }>;
+  knowledge_counts?: {
+    facts: number;
+    decisions: number;
+    risks: number;
+    questions: number;
+  };
 }
 
 export interface SprintRetrospective {
@@ -229,6 +253,10 @@ export interface SprintHealthScore {
     velocity_trend: number;
     overdue_ratio: number;
     distribution_balance: number;
+    knowledge_health?: number;
+    open_risks?: number;
+    high_impact_risks?: number;
+    unresolved_questions?: number;
   };
   risk_level: 'low' | 'medium' | 'high' | 'critical';
   alerts: string[];
@@ -285,6 +313,7 @@ export interface Decision {
   made_by?: string;
   approved_by?: string;
   summary?: string;
+  sprint_id?: string;
 }
 
 export interface Contact {

@@ -564,7 +564,7 @@ IMPORTANT RULES:
             llmConfig: config.llm
         });
 
-        const embeddingsData = storage.loadEmbeddings();
+        const embeddingsData = await storage.loadEmbeddings();
         let hybridResults = [];
         let vectorResults = [];
         let useHyDE = false;
@@ -689,11 +689,42 @@ IMPORTANT RULES:
             });
         }
 
+        // ==================== TREE INDEX SEARCH ====================
+        let treeResults = [];
+        if (config.docindex?.useInChat !== false) {
+            const treeTimeoutMs = config.docindex?.chatTimeoutMs || 10000;
+            try {
+                const sourceDocIds = [...new Set(
+                    hybridResults
+                        .map(r => r.data?.source_document_id || r.source_document_id)
+                        .filter(Boolean)
+                )];
+
+                if (sourceDocIds.length > 0) {
+                    const treeIndexes = await storage.getTreeIndexesByDocumentIds(sourceDocIds);
+                    if (treeIndexes.length > 0) {
+                        const { TreeSearcher } = require('../../docindex');
+                        const treeSearcher = new TreeSearcher(config);
+
+                        const treePromise = treeSearcher.search(searchQuery, treeIndexes, { maxSections: 3 });
+                        const timeoutPromise = new Promise((_, reject) =>
+                            setTimeout(() => reject(new Error('Tree search timeout')), treeTimeoutMs)
+                        );
+
+                        treeResults = await Promise.race([treePromise, timeoutPromise]);
+                        log.debug({ event: 'chat_tree_search', docCount: treeIndexes.length, results: treeResults.length }, 'Tree search completed');
+                    }
+                }
+            } catch (treeErr) {
+                log.warn({ event: 'chat_tree_search_failed', reason: treeErr.message }, 'Tree search failed (non-blocking)');
+            }
+        }
+
         // ==================== SOTA: RRF FUSION + RERANKING ====================
         let finalResults = hybridResults;
 
         if (graphRAGResults && graphRAGResults.length > 0 && hybridResults.length > 0) {
-            log.debug({ event: 'chat_rrf_fuse', graphCount: graphRAGResults.length, hybridCount: hybridResults.length }, 'Fusing results with RRF');
+            log.debug({ event: 'chat_rrf_fuse', graphCount: graphRAGResults.length, hybridCount: hybridResults.length, treeCount: treeResults.length }, 'Fusing results with RRF');
 
             const normalizedGraphResults = graphRAGResults.map(r => ({
                 id: r.id || `graph_${Math.random().toString(36).substr(2, 9)}`,
@@ -704,7 +735,10 @@ IMPORTANT RULES:
                 source: 'graph'
             }));
 
-            finalResults = reranker.reciprocalRankFusion([hybridResults, normalizedGraphResults]);
+            const fusionLists = [hybridResults, normalizedGraphResults];
+            if (treeResults.length > 0) fusionLists.push(treeResults);
+
+            finalResults = reranker.reciprocalRankFusion(fusionLists);
             log.debug({ event: 'chat_rrf_done', count: finalResults.length }, 'RRF fusion produced unique results');
 
             const queryAnalysis = { type: queryType };

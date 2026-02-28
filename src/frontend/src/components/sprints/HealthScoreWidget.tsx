@@ -22,6 +22,14 @@ const factorLabels: Record<string, string> = {
   velocity_trend: 'Velocity',
   overdue_ratio: 'On-time',
   distribution_balance: 'Balance',
+  knowledge_health: 'Knowledge',
+};
+
+const countFactors = new Set(['open_risks', 'high_impact_risks', 'unresolved_questions']);
+const countLabels: Record<string, string> = {
+  open_risks: 'Open Risks',
+  high_impact_risks: 'High-Impact Risks',
+  unresolved_questions: 'Unresolved Questions',
 };
 
 function ScoreRing({ score, size = 64, strokeWidth = 5, color }: { score: number; size?: number; strokeWidth?: number; color: string }) {
@@ -89,24 +97,42 @@ export default function HealthScoreWidget({ health, isLoading, compact }: Health
           </span>
         </div>
         <div className="flex-1 space-y-1.5">
-          {Object.entries(health.factors).map(([key, val]) => {
-            const isInverse = key === 'overdue_ratio';
-            const displayVal = isInverse ? 100 - val : val;
-            const barColor = displayVal >= 70 ? '#22c55e' : displayVal >= 40 ? '#eab308' : '#ef4444';
-            return (
-              <div key={key}>
-                <div className="flex justify-between text-[9px] mb-0.5">
-                  <span className="text-[var(--text-tertiary)]">{factorLabels[key] || key}</span>
-                  <span className="text-[var(--text-secondary)] tabular-nums">{displayVal}%</span>
+          {Object.entries(health.factors)
+            .filter(([key]) => !countFactors.has(key))
+            .map(([key, val]) => {
+              const isInverse = key === 'overdue_ratio';
+              const displayVal = isInverse ? 100 - (val as number) : (val as number);
+              const barColor = displayVal >= 70 ? '#22c55e' : displayVal >= 40 ? '#eab308' : '#ef4444';
+              return (
+                <div key={key}>
+                  <div className="flex justify-between text-[9px] mb-0.5">
+                    <span className="text-[var(--text-tertiary)]">{factorLabels[key] || key}</span>
+                    <span className="text-[var(--text-secondary)] tabular-nums">{displayVal}%</span>
+                  </div>
+                  <div className="h-1 rounded-full bg-[var(--surface-hover)] overflow-hidden">
+                    <div className="h-full rounded-full transition-all duration-500" style={{ width: `${displayVal}%`, backgroundColor: barColor }} />
+                  </div>
                 </div>
-                <div className="h-1 rounded-full bg-[var(--surface-hover)] overflow-hidden">
-                  <div className="h-full rounded-full transition-all duration-500" style={{ width: `${displayVal}%`, backgroundColor: barColor }} />
-                </div>
-              </div>
-            );
-          })}
+              );
+            })}
         </div>
       </div>
+
+      {Object.entries(health.factors).some(([key]) => countFactors.has(key) && (health.factors as any)[key] > 0) && (
+        <div className="flex flex-wrap gap-2">
+          {Object.entries(health.factors)
+            .filter(([key, val]) => countFactors.has(key) && (val as number) > 0)
+            .map(([key, val]) => {
+              const isHighRisk = key === 'high_impact_risks';
+              const color = isHighRisk ? 'text-orange-400 bg-orange-500/10 border-orange-500/20' : 'text-[var(--status-warning)] bg-[var(--status-warning-bg)] border-[var(--status-warning)]/20';
+              return (
+                <span key={key} className={cn('text-[9px] px-2 py-0.5 rounded-full border font-medium tabular-nums', color)}>
+                  {val as number} {countLabels[key] || key}
+                </span>
+              );
+            })}
+        </div>
+      )}
 
       {health.alerts.length > 0 && (
         <div className="space-y-1">

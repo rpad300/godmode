@@ -1734,12 +1734,18 @@
       "label": "Part of Sprint",
       "fromTypes": [
         "Task",
-        "UserStory"
+        "UserStory",
+        "Document",
+        "Email",
+        "Fact",
+        "Decision",
+        "Risk",
+        "Question"
       ],
       "toTypes": [
         "Sprint"
       ],
-      "description": "A task or user story is planned for a sprint",
+      "description": "An entity is associated with a sprint (task, story, document, email, or knowledge entity)",
       "properties": {}
     },
     "EMPLOYS": {
@@ -1795,7 +1801,7 @@
       }
     },
     "PLANNED_IN": {
-      "label": "Planned In",
+      "label": "Planned In (deprecated, use PART_OF_SPRINT)",
       "fromTypes": [
         "Task",
         "UserStory",
@@ -1805,8 +1811,9 @@
       "toTypes": [
         "Sprint"
       ],
-      "description": "An entity is planned or scheduled within a sprint",
-      "properties": {}
+      "description": "DEPRECATED: Use PART_OF_SPRINT instead. Kept for backward compatibility with existing graph data.",
+      "properties": {},
+      "deprecated": true
     },
     "IMPLEMENTS": {
       "label": "Implements",

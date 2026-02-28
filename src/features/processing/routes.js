@@ -109,7 +109,7 @@ async function handleProcessing(ctx) {
                     if (allEmbeddings.some(e => e !== null)) {
                         const embeddings = items.map((item, idx) => ({ id: item.id, type: item.type, text: item.text, embedding: allEmbeddings[idx] }));
                         embeddings.model = embedModel;
-                        storage.saveEmbeddings(embeddings);
+                        await storage.saveEmbeddings(embeddings);
                         log.debug({ event: 'processing_rag_rebuilt', count: embeddings.length }, 'RAG index rebuilt');
                     }
                 }

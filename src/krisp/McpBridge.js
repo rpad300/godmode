@@ -83,7 +83,7 @@ async function importMeeting(userId, meetingData, options = {}) {
         return { success: false, error: 'Database not configured' };
     }
 
-    const { skipDuplicateCheck = false, forceReimport = false } = options;
+    const { skipDuplicateCheck = false, forceReimport = false, sprint_id = null } = options;
 
     try {
         const meetingId = meetingData.meeting_id || meetingData.id;
@@ -139,7 +139,7 @@ async function importMeeting(userId, meetingData, options = {}) {
         }
 
         // Process the transcript (speaker matching, project identification)
-        const processResult = await processTranscript(created.id);
+        const processResult = await processTranscript(created.id, { sprint_id });
 
         return {
             success: true,

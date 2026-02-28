@@ -11,7 +11,7 @@ import {
   useSyncTeamGraph, useContacts,
 } from '../hooks/useGodMode';
 import { Dialog, DialogContent, DialogTitle } from '../components/ui/Dialog';
-import ProfileDetailModal, { stringToColor, adjustColor } from '../components/team/ProfileDetailModal';
+import ProfileDetail, { stringToColor, adjustColor } from '../components/team/ProfileDetail';
 import { ErrorState } from '../components/shared/ErrorState';
 import { isValidAvatarUrl, getInitials } from '../lib/utils';
 
@@ -164,6 +164,16 @@ export default function TeamAnalysisPage() {
     return <div className="p-6"><ErrorState message="Failed to load team profiles." onRetry={() => profiles.refetch()} /></div>;
   }
 
+  // Detail view (replaces list)
+  if (selectedProfile) {
+    return (
+      <ProfileDetail
+        profile={selectedProfile}
+        onBack={() => setSelectedProfile(null)}
+      />
+    );
+  }
+
   const tabs: { key: Tab; label: string; icon: typeof Users }[] = [
     { key: 'profiles', label: 'Profiles', icon: Users },
     { key: 'team', label: 'Team Dynamics', icon: BarChart3 },
@@ -236,7 +246,6 @@ export default function TeamAnalysisPage() {
         <NetworkGraphTab data={graphQuery.data} isLoading={graphQuery.isLoading} profiles={profileList} resolveName={resolveName} />
       )}
 
-      <ProfileDetailModal profile={selectedProfile} open={!!selectedProfile} onClose={() => setSelectedProfile(null)} />
       <AnalyzeContactsModal
         open={showAnalyzeModal}
         onClose={() => setShowAnalyzeModal(false)}

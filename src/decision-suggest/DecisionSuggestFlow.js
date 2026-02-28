@@ -42,6 +42,7 @@ const promptsService = require('../supabase/prompts');
 async function runDecisionSuggest(config, options = {}) {
     const content = (options.content || '').trim();
     const rationale = (options.rationale || '').trim();
+    const docContext = options.docContext || '';
 
     if (!content) {
         return { error: 'Content is required' };
@@ -52,9 +53,10 @@ async function runDecisionSuggest(config, options = {}) {
     const prompt = template
         ? promptsService.renderPrompt(template, {
             CONTENT: content,
-            RATIONALE: rationale
+            RATIONALE: rationale,
+            DOCUMENT_CONTEXT: docContext
         })
-        : `You are a decision-documentation assistant. Given this decision, suggest: 1) a brief rationale (1-3 sentences), 2) impact level (high/medium/low), 3) short impact_summary (1-2 sentences), 4) one-line summary (max 80 chars). Decision: ${content}\n\nRespond with a single JSON object: {"rationale": "...", "impact": "high|medium|low", "impact_summary": "...", "summary": "..."}`;
+        : `You are a decision-documentation assistant. Given this decision, suggest: 1) a brief rationale (1-3 sentences), 2) impact level (high/medium/low), 3) short impact_summary (1-2 sentences), 4) one-line summary (max 80 chars). Decision: ${content}${docContext ? '\n\nProject document context:\n' + docContext : ''}\n\nRespond with a single JSON object: {"rationale": "...", "impact": "high|medium|low", "impact_summary": "...", "summary": "..."}`;
 
     let routerResult;
     try {

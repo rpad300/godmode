@@ -109,19 +109,21 @@ async function callTool(userId, toolName, args = {}, options = { retry: true }) 
 
 /**
  * Parse an SSE (Server-Sent Events) response stream.
- * Collects all events and returns the final tool result.
+ * Collects all JSON-RPC events and extracts the best tool result —
+ * preferring the event whose content carries actual data (array/object)
+ * over one that only carries a human-readable summary string.
  */
 async function parseSSEResponse(response) {
     const text = await response.text();
     const lines = text.split('\n');
-    let lastData = null;
+    const events = [];
 
     for (const line of lines) {
         if (line.startsWith('data: ')) {
             const data = line.substring(6).trim();
             if (data && data !== '[DONE]') {
                 try {
-                    lastData = JSON.parse(data);
+                    events.push(JSON.parse(data));
                 } catch {
                     // Non-JSON event data, skip
                 }
@@ -129,15 +131,33 @@ async function parseSSEResponse(response) {
         }
     }
 
-    if (lastData) {
-        return extractToolResult(lastData);
+    log.debug({ event: 'krisp_mcp_sse_events', count: events.length }, 'SSE events collected');
+
+    if (events.length === 0) {
+        throw new Error('No valid data received from SSE stream');
     }
 
-    throw new Error('No valid data received from SSE stream');
+    // Try each event (last first, since JSON-RPC response is usually last),
+    // but prefer the one whose extracted result is a real data structure
+    let bestResult = null;
+
+    for (let i = events.length - 1; i >= 0; i--) {
+        const extracted = extractToolResult(events[i]);
+        if (Array.isArray(extracted) || (typeof extracted === 'object' && extracted !== null)) {
+            return extracted;
+        }
+        if (bestResult === null) bestResult = extracted;
+    }
+
+    return bestResult;
 }
 
 /**
  * Extract the tool result content from a JSON-RPC response.
+ * Strategy:
+ *   1. If any single text part is a complete JSON array/object, return it.
+ *   2. Scan text parts for embedded JSON objects.
+ *   3. If no JSON found, parse Krisp's markdown-formatted meeting text.
  */
 function extractToolResult(rpcResponse) {
     log.debug({ event: 'krisp_mcp_extract', hasResult: !!rpcResponse.result, keys: Object.keys(rpcResponse) }, 'Extracting tool result');
@@ -145,16 +165,49 @@ function extractToolResult(rpcResponse) {
     if (rpcResponse.result) {
         const content = rpcResponse.result.content;
         if (Array.isArray(content) && content.length > 0) {
-            const textPart = content.find(c => c.type === 'text');
-            if (textPart && textPart.text) {
-                log.debug({ event: 'krisp_mcp_text_content', textLength: textPart.text.length, preview: textPart.text.substring(0, 200) }, 'Found text content');
+            const textParts = content.filter(c => c.type === 'text' && c.text);
+            log.debug({ event: 'krisp_mcp_text_parts', count: textParts.length, lengths: textParts.map(p => p.text.length) }, 'Text content parts');
+
+            // Pass 1: look for a text part that IS a complete JSON structure
+            for (const part of textParts) {
                 try {
-                    return JSON.parse(textPart.text);
-                } catch {
-                    // MCP often returns human-readable text with embedded JSON
-                    return extractJsonFromText(textPart.text);
+                    const parsed = JSON.parse(part.text);
+                    if (isNonEmpty(parsed)) {
+                        log.debug({ event: 'krisp_mcp_json_found', length: part.text.length, isArray: Array.isArray(parsed) }, 'Found complete JSON in content part');
+                        return parsed;
+                    }
+                } catch { /* not pure JSON, continue */ }
+            }
+
+            // Pass 2: look for embedded JSON in text parts
+            const jsonCollected = [];
+            for (const part of textParts) {
+                const extracted = extractJsonFromText(part.text);
+                if (extracted !== null && isNonEmpty(extracted)) {
+                    if (Array.isArray(extracted)) jsonCollected.push(...extracted);
+                    else if (typeof extracted === 'object') jsonCollected.push(extracted);
                 }
             }
+            if (jsonCollected.length > 0) {
+                log.debug({ event: 'krisp_mcp_json_collected', count: jsonCollected.length }, 'Collected JSON objects from text parts');
+                return jsonCollected;
+            }
+
+            // Pass 3: Krisp MCP returns meetings as markdown text, one per content part.
+            // Parse the structured markdown into meeting objects.
+            const meetings = [];
+            for (const part of textParts) {
+                const meeting = parseMeetingMarkdown(part.text);
+                if (meeting) meetings.push(meeting);
+            }
+            if (meetings.length > 0) {
+                log.debug({ event: 'krisp_mcp_markdown_parsed', count: meetings.length }, 'Parsed meetings from markdown text parts');
+                return meetings;
+            }
+
+            // Fallback: return longest text
+            const sorted = [...textParts].sort((a, b) => b.text.length - a.text.length);
+            if (sorted.length > 0) return sorted[0].text;
         }
         log.debug({ event: 'krisp_mcp_fallback_result', resultKeys: Object.keys(rpcResponse.result) }, 'Using result directly');
         return rpcResponse.result;
@@ -163,29 +216,255 @@ function extractToolResult(rpcResponse) {
     return rpcResponse;
 }
 
+/** Check that a parsed value is not an empty array/object */
+function isNonEmpty(val) {
+    if (val === null || val === undefined) return false;
+    if (Array.isArray(val)) return val.length > 0;
+    if (typeof val === 'object') return Object.keys(val).length > 0;
+    return true;
+}
+
+/**
+ * Parse a Krisp MCP markdown text part into a structured meeting object.
+ * Format:
+ *   ## Meeting Name (ISO-Date)
+ *   meeting_id: 32-char-hex
+ *   speakers: Name1, Name2
+ *   attendees: Name1, Name2
+ *
+ *   ### Key Points
+ *   - point 1
+ *
+ *   ### Action Items
+ *   - [ ] task (assignee)
+ *   - [x] completed task
+ *
+ *   ### Detailed Summary
+ *   #### Section Title
+ *   Description text
+ */
+function parseMeetingMarkdown(text) {
+    if (!text || text.length < 30) return null;
+
+    // Extract meeting_id — required to be a valid meeting
+    const idMatch = text.match(/meeting_id:\s*([a-f0-9]{32})/);
+    if (!idMatch) return null;
+
+    const meetingId = idMatch[1];
+
+    // Extract name and date from the ## header
+    // Format: ## Name (ISO-Date) or ## HH:MM AM/PM - source meeting Month Day (ISO-Date)
+    const headerMatch = text.match(/^##\s+(.+?)\s*\((\d{4}-\d{2}-\d{2}T[^)]+)\)/m);
+    let name = 'Untitled Meeting';
+    let date = null;
+
+    if (headerMatch) {
+        name = headerMatch[1].trim();
+        date = headerMatch[2];
+    } else {
+        // Try simpler header
+        const simpleHeader = text.match(/^##\s+(.+)/m);
+        if (simpleHeader) name = simpleHeader[1].trim();
+        // Try date from meeting_id line context
+        const dateMatch = text.match(/\((\d{4}-\d{2}-\d{2}T[\d:.Z]+)\)/);
+        if (dateMatch) date = dateMatch[1];
+    }
+
+    // Extract speakers
+    const speakersMatch = text.match(/^speakers?:\s*(.+)/mi);
+    const speakers = speakersMatch
+        ? speakersMatch[1].split(',').map(s => s.trim()).filter(Boolean)
+        : [];
+
+    // Extract attendees
+    const attendeesMatch = text.match(/^attendees?:\s*(.+)/mi);
+    const attendees = attendeesMatch
+        ? attendeesMatch[1].split(',').map(s => s.trim()).filter(Boolean)
+        : [];
+
+    // Extract key points
+    const keyPoints = extractMarkdownList(text, 'Key Points');
+
+    // Extract action items
+    const actionItemsRaw = extractMarkdownList(text, 'Action Items');
+    const action_items = actionItemsRaw.map(item => {
+        const completed = item.startsWith('[x]') || item.startsWith('[X]');
+        const title = item.replace(/^\[[ xX]\]\s*/, '');
+        const assigneeMatch = title.match(/\(([^)]+)\)\s*$/);
+        return {
+            title: assigneeMatch ? title.replace(assigneeMatch[0], '').trim() : title,
+            completed,
+            assignee: assigneeMatch ? assigneeMatch[1] : undefined
+        };
+    });
+
+    // Extract detailed summary sections
+    const detailed_summary = extractDetailedSummary(text);
+
+    return {
+        meeting_id: meetingId,
+        name,
+        date,
+        speakers,
+        attendees,
+        meeting_notes: {
+            key_points: keyPoints,
+            action_items,
+            detailed_summary
+        }
+    };
+}
+
+/** Extract a bulleted list under a ### heading */
+function extractMarkdownList(text, heading) {
+    const regex = new RegExp(`###\\s+${heading}[\\s\\S]*?(?=###|$)`, 'i');
+    const section = text.match(regex);
+    if (!section) return [];
+
+    const items = [];
+    const lines = section[0].split('\n');
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('- ')) {
+            items.push(trimmed.substring(2).trim());
+        }
+    }
+    return items;
+}
+
+/** Extract #### sub-sections from a ### Detailed Summary section */
+function extractDetailedSummary(text) {
+    const sectionMatch = text.match(/###\s+Detailed Summary([\s\S]*?)(?=###\s+[^#]|$)/i);
+    if (!sectionMatch) return [];
+
+    const sections = [];
+    const parts = sectionMatch[1].split(/####\s+/);
+    for (const part of parts) {
+        const trimmed = part.trim();
+        if (!trimmed) continue;
+        const nlIdx = trimmed.indexOf('\n');
+        if (nlIdx === -1) {
+            sections.push({ title: trimmed, description: '' });
+        } else {
+            sections.push({
+                title: trimmed.substring(0, nlIdx).trim(),
+                description: trimmed.substring(nlIdx + 1).trim()
+            });
+        }
+    }
+    return sections;
+}
+
 /**
  * Extract JSON array or object embedded in human-readable MCP text.
  * Krisp MCP responses often look like: "Found 5 meeting(s)...\n\nResults:\n[{...}]"
+ * Handles trailing text after the JSON by finding matched brackets.
  */
 function extractJsonFromText(text) {
     // Try to find a JSON array
     const arrStart = text.indexOf('[');
     if (arrStart !== -1) {
-        const candidate = text.substring(arrStart);
-        try {
-            return JSON.parse(candidate);
-        } catch { /* try object next */ }
+        const extracted = extractBalancedJson(text, arrStart, '[', ']');
+        if (extracted) return extracted;
     }
     // Try to find a JSON object
     const objStart = text.indexOf('{');
     if (objStart !== -1) {
-        const candidate = text.substring(objStart);
-        try {
-            return JSON.parse(candidate);
-        } catch { /* fall through */ }
+        const extracted = extractBalancedJson(text, objStart, '{', '}');
+        if (extracted) return extracted;
     }
     log.debug({ event: 'krisp_mcp_no_json_in_text', preview: text.substring(0, 200) }, 'No JSON found in text');
-    return text;
+    return null;
+}
+
+/**
+ * Find balanced brackets from startIdx and try to parse as JSON.
+ * Falls back to parsing from startIdx to end if bracket counting fails.
+ */
+function extractBalancedJson(text, startIdx, openChar, closeChar) {
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+
+    for (let i = startIdx; i < text.length; i++) {
+        const ch = text[i];
+        if (escape) { escape = false; continue; }
+        if (ch === '\\' && inString) { escape = true; continue; }
+        if (ch === '"') { inString = !inString; continue; }
+        if (inString) continue;
+        if (ch === openChar) depth++;
+        if (ch === closeChar) {
+            depth--;
+            if (depth === 0) {
+                const candidate = text.substring(startIdx, i + 1);
+                try {
+                    return JSON.parse(candidate);
+                } catch {
+                    return null;
+                }
+            }
+        }
+    }
+
+    // Fallback: try from startIdx to end
+    try {
+        return JSON.parse(text.substring(startIdx));
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * List available MCP tools from the Krisp server.
+ * Uses the JSON-RPC `tools/list` method (not a tool call).
+ */
+async function listTools(userId) {
+    const token = await oauth.getAccessToken(userId);
+    if (!token) throw new Error('Krisp not connected');
+
+    const body = JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'tools/list',
+        id: crypto.randomUUID()
+    });
+
+    const response = await fetch(MCP_URL, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json, text/event-stream',
+            'Authorization': `Bearer ${token}`
+        },
+        body
+    });
+
+    if (!response.ok) {
+        throw new Error(`Krisp MCP error (${response.status})`);
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    let rawText;
+
+    if (contentType.includes('text/event-stream')) {
+        const text = await response.text();
+        const lines = text.split('\n');
+        for (const line of lines) {
+            if (line.startsWith('data: ')) {
+                const data = line.substring(6).trim();
+                if (data && data !== '[DONE]') {
+                    try {
+                        const parsed = JSON.parse(data);
+                        if (parsed.result?.tools) return parsed.result.tools;
+                    } catch {}
+                }
+            }
+        }
+        return [];
+    }
+
+    rawText = await response.text();
+    const result = JSON.parse(rawText);
+    return result?.result?.tools || [];
 }
 
 // ── Typed MCP Tool Wrappers ─────────────────────────────────────────────────
@@ -256,6 +535,7 @@ async function listActivities(userId, params = {}) {
 
 module.exports = {
     callTool,
+    listTools,
     searchMeetings,
     getDocument,
     getMultipleDocuments,

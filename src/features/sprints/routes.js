@@ -63,12 +63,13 @@ const DEFAULT_SPRINT_PROMPT = `You are helping plan a sprint. Given:
 - Emails in the analysis period (subject, snippet, date)
 - Meeting transcripts in the analysis period (title, summary/snippet, date)
 - Existing action items (id, task, status)
+- Known facts, decisions, open risks and unresolved questions from the knowledge base
 
 Output a JSON object with exactly two keys:
 1. "new_tasks": array of new tasks to create. Each object must have: task (string), description (string), size_estimate (string e.g. "2h"), definition_of_done (array of strings), acceptance_criteria (array of strings). Optionally: priority ("low"|"medium"|"high"|"urgent").
 2. "existing_action_ids": array of UUID strings – ids of existing actions that should belong to this sprint.
 
-Rules: Only suggest tasks that fit the sprint context. Keep new_tasks concise. Use existing_action_ids to link already-existing work to this sprint. Output only valid JSON, no markdown.`;
+Rules: Only suggest tasks that fit the sprint context. Keep new_tasks concise. Use existing_action_ids to link already-existing work to this sprint. Create tasks to mitigate open risks, resolve pending decisions, and answer unresolved questions when relevant. Output only valid JSON, no markdown.`;
 
 /** Fast prefix check to short-circuit non-sprint paths. */
 function isSprintsRoute(pathname) {
@@ -262,10 +263,14 @@ async function handleSprints(ctx) {
             const sinceDate = new Date(analysisStart).toISOString().slice(0, 10);
             const untilDate = new Date(analysisEnd).toISOString().slice(0, 10);
 
-            const [emails, transcripts, existingActions] = await Promise.all([
+            const [emails, transcripts, existingActions, sprintFacts, sprintDecisions, sprintRisks, sprintQuestions] = await Promise.all([
                 storage.getEmails?.({ sinceDate, untilDate, limit: 200 }) ?? [],
                 getTranscriptsForProject(projectId, { sinceDate, untilDate, limit: 100 }),
-                storage.getActions?.() ?? []
+                storage.getActions?.() ?? [],
+                storage.getFacts?.(null, sprintId) ?? [],
+                storage.getDecisions?.(null, sprintId) ?? [],
+                storage.getRisks?.(null, sprintId) ?? [],
+                storage.getQuestions?.(null, null, sprintId) ?? []
             ]);
 
             const emailBlob = emails.length
@@ -277,6 +282,24 @@ async function handleSprints(ctx) {
             const actionsBlob = existingActions.length
                 ? existingActions.map(a => `id: ${a.id}\ntask: ${a.task}\nstatus: ${a.status}`).join('\n---\n')
                 : '(No existing actions)';
+            const factsBlob = sprintFacts.length
+                ? sprintFacts.slice(0, 30).map(f => `[${f.category || 'general'}] ${(f.content || '').slice(0, 200)}`).join('\n')
+                : '(No facts)';
+            const decisionsBlob = sprintDecisions.length
+                ? sprintDecisions.slice(0, 20).map(d => `[${d.status || 'active'}] ${(d.content || '').slice(0, 200)}${d.owner ? ' (owner: ' + d.owner + ')' : ''}`).join('\n')
+                : '(No decisions)';
+            const risksBlob = sprintRisks.length
+                ? sprintRisks.filter(r => r.status === 'open').slice(0, 20).map(r => `[${r.impact}/${r.likelihood}] ${(r.content || '').slice(0, 200)}${r.mitigation ? ' | mitigation: ' + r.mitigation.slice(0, 100) : ''}`).join('\n')
+                : '(No open risks)';
+            const questionsBlob = sprintQuestions.length
+                ? sprintQuestions.filter(q => q.status !== 'answered' && q.status !== 'closed').slice(0, 20).map(q => `[${q.priority || 'medium'}] ${(q.content || '').slice(0, 200)}`).join('\n')
+                : '(No unresolved questions)';
+
+            let docContext = '';
+            try {
+                const { DocumentContextBuilder } = require('../../docindex');
+                docContext = await DocumentContextBuilder.build(storage, { maxChars: 1500 });
+            } catch (_) {}
 
             const promptRecord = await promptsService.getPrompt('sprint_task_generation');
             const template = promptRecord?.prompt_template || DEFAULT_SPRINT_PROMPT;
@@ -287,8 +310,13 @@ async function handleSprints(ctx) {
                 SPRINT_CONTEXT: sprint.context || '',
                 EMAILS: emailBlob,
                 TRANSCRIPTS: transcriptBlob,
-                EXISTING_ACTIONS: actionsBlob
-            }) || (DEFAULT_SPRINT_PROMPT + `\n\nSprint: ${sprint.name} (${sprint.start_date} to ${sprint.end_date}). Context: ${sprint.context || 'None'}\n\nEmails:\n${emailBlob}\n\nTranscripts:\n${transcriptBlob}\n\nExisting actions:\n${actionsBlob}\n\nOutput JSON with new_tasks and existing_action_ids:`);
+                EXISTING_ACTIONS: actionsBlob,
+                FACTS: factsBlob,
+                DECISIONS: decisionsBlob,
+                RISKS: risksBlob,
+                QUESTIONS: questionsBlob,
+                DOCUMENT_CONTEXT: docContext
+            }) || (DEFAULT_SPRINT_PROMPT + `\n\nSprint: ${sprint.name} (${sprint.start_date} to ${sprint.end_date}). Context: ${sprint.context || 'None'}\n\nEmails:\n${emailBlob}\n\nTranscripts:\n${transcriptBlob}\n\nExisting actions:\n${actionsBlob}\n\nKnown facts:\n${factsBlob}\n\nDecisions:\n${decisionsBlob}\n\nOpen risks:\n${risksBlob}\n\nUnresolved questions:\n${questionsBlob}${docContext ? '\n\n' + docContext : ''}\n\nOutput JSON with new_tasks and existing_action_ids:`);
 
             const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
                 projectId,
@@ -376,7 +404,7 @@ async function handleSprints(ctx) {
         return true;
     }
 
-    // GET /api/sprints/:id/report – full report data (sprint, actions, breakdown for chart)
+    // GET /api/sprints/:id/report – full report data (sprint, actions, knowledge, breakdown for chart)
     const reportMatch = pathname.match(/^\/api\/sprints\/([^/]+)\/report$/);
     if (reportMatch && req.method === 'GET') {
         try {
@@ -386,7 +414,13 @@ async function handleSprints(ctx) {
                 jsonResponse(res, { error: 'Sprint not found' }, 404);
                 return true;
             }
-            const actions = await storage.getActions(null, null, sprintId);
+            const [actions, facts, decisions, risks, questions] = await Promise.all([
+                storage.getActions(null, null, sprintId),
+                storage.getFacts ? storage.getFacts(null, sprintId) : [],
+                storage.getDecisions ? storage.getDecisions(null, sprintId) : [],
+                storage.getRisks ? storage.getRisks(null, sprintId) : [],
+                storage.getQuestions ? storage.getQuestions(null, null, sprintId) : [],
+            ]);
             const byStatus = {};
             const byAssignee = {};
             let totalPoints = 0;
@@ -417,11 +451,21 @@ async function handleSprints(ctx) {
             jsonResponse(res, {
                 sprint,
                 actions: actions || [],
+                facts: facts || [],
+                decisions: decisions || [],
+                risks: risks || [],
+                questions: questions || [],
                 breakdown: { by_status: byStatus, by_assignee: byAssignee },
                 total_task_points: totalPoints,
                 completed_task_points: completedPoints,
                 total_tasks: (actions || []).length,
                 completed_tasks: (actions || []).filter(a => a.status === 'completed').length,
+                knowledge_counts: {
+                    facts: (facts || []).length,
+                    decisions: (decisions || []).length,
+                    risks: (risks || []).length,
+                    questions: (questions || []).length,
+                },
                 graph_context,
             });
         } catch (e) {
@@ -526,7 +570,13 @@ async function handleSprints(ctx) {
         const { include_analysis = false, include_business = false } = options;
         const sprint = await storage.getSprint(sprintId, projectId);
         if (!sprint) return null;
-        const actions = await storage.getActions(null, null, sprintId);
+        const [actions, sprintFacts, sprintDecisions, sprintRisks, sprintQuestions] = await Promise.all([
+            storage.getActions(null, null, sprintId),
+            storage.getFacts ? storage.getFacts(null, sprintId) : [],
+            storage.getDecisions ? storage.getDecisions(null, sprintId) : [],
+            storage.getRisks ? storage.getRisks(null, sprintId) : [],
+            storage.getQuestions ? storage.getQuestions(null, null, sprintId) : [],
+        ]);
         const byStatus = {};
         const byAssignee = {};
         let totalPoints = 0;
@@ -568,9 +618,10 @@ async function handleSprints(ctx) {
             '',
             `## Resumo`,
             `Tarefas: ${completedCount}/${totalCount} concluídas${totalPoints > 0 ? ` | Pontos: ${completedPoints}/${totalPoints}` : ''}`,
+            `Conhecimento: ${(sprintFacts || []).length} factos, ${(sprintDecisions || []).length} decisões, ${(sprintRisks || []).length} riscos, ${(sprintQuestions || []).length} perguntas`,
             '',
             '## Ontologia (modelo do grafo)',
-            'Entidades: Sprint, Action/Task, Person, UserStory. Relações: IN_SPRINT (Task→Sprint), ASSIGNED_TO (Person→Task), PART_OF (Task→UserStory), DEPENDS_ON (Task→Task). Use esta terminologia quando relevante.',
+            'Entidades: Sprint, Action/Task, Person, UserStory, Fact, Decision, Risk, Question. Relações: PART_OF_SPRINT (Entity→Sprint), ASSIGNED_TO (Task→Person), IMPLEMENTS (Task→UserStory), DEPENDS_ON (Task→Task), EXTRACTED_FROM (Entity→Document). Use esta terminologia quando relevante.',
             '',
             '## Breakdown por estado',
             ...Object.entries(byStatus).map(([k, v]) => `- ${k}: ${v}`),
@@ -584,6 +635,19 @@ async function handleSprints(ctx) {
             '## Tarefas do sprint',
             ...taskLines,
             (actions || []).length > 50 ? `... e mais ${(actions || []).length - 50} tarefas` : '',
+            (sprintFacts || []).length > 0 ? '' : null,
+            (sprintFacts || []).length > 0 ? '## Factos extraídos neste sprint' : null,
+            ...((sprintFacts || []).slice(0, 30).map(f => `- [${f.category || 'general'}] ${(f.content || '').substring(0, 150)}`)),
+            (sprintFacts || []).length > 30 ? `... e mais ${(sprintFacts || []).length - 30} factos` : null,
+            (sprintDecisions || []).length > 0 ? '' : null,
+            (sprintDecisions || []).length > 0 ? '## Decisões deste sprint' : null,
+            ...((sprintDecisions || []).slice(0, 20).map(d => `- [${d.status || 'active'}] ${(d.content || '').substring(0, 150)}${d.owner ? ` (por: ${d.owner})` : ''}`)),
+            (sprintRisks || []).length > 0 ? '' : null,
+            (sprintRisks || []).length > 0 ? '## Riscos identificados neste sprint' : null,
+            ...((sprintRisks || []).slice(0, 20).map(r => `- [${r.impact || 'medium'}/${r.status || 'open'}] ${(r.content || '').substring(0, 150)}`)),
+            (sprintQuestions || []).length > 0 ? '' : null,
+            (sprintQuestions || []).length > 0 ? '## Perguntas em aberto neste sprint' : null,
+            ...((sprintQuestions || []).slice(0, 20).map(q => `- [${q.status || 'open'}] ${(q.content || '').substring(0, 150)}`)),
         ].filter(Boolean).join('\n');
 
         // Graph context (Supabase-native): sprint node and assignees from graph_relationships
@@ -825,7 +889,13 @@ async function handleSprints(ctx) {
             const sprintId = velocityMatch[1];
             const sprint = await storage.getSprint(sprintId, projectId);
             if (!sprint) { jsonResponse(res, { error: 'Sprint not found' }, 404); return true; }
-            const actions = await storage.getActions(null, null, sprintId);
+            const [actions, vFacts, vDecisions, vRisks, vQuestions] = await Promise.all([
+                storage.getActions(null, null, sprintId),
+                storage.getFacts?.(null, sprintId) ?? [],
+                storage.getDecisions?.(null, sprintId) ?? [],
+                storage.getRisks?.(null, sprintId) ?? [],
+                storage.getQuestions?.(null, null, sprintId) ?? []
+            ]);
             const startDate = new Date(sprint.start_date);
             const endDate = new Date(sprint.end_date);
             const totalTasks = (actions || []).length;
@@ -879,6 +949,12 @@ async function handleSprints(ctx) {
                 completed_tasks: (actions || []).filter(a => a.status === 'completed').length,
                 daily_progress: dailyProgress,
                 velocity_history: velocityHistory,
+                knowledge_counts: {
+                    facts: (vFacts || []).length,
+                    decisions: (vDecisions || []).length,
+                    risks: (vRisks || []).length,
+                    questions: (vQuestions || []).length,
+                },
             });
         } catch (e) {
             jsonResponse(res, { error: e.message }, 500);
@@ -893,7 +969,11 @@ async function handleSprints(ctx) {
             const sprintId = healthMatch[1];
             const sprint = await storage.getSprint(sprintId, projectId);
             if (!sprint) { jsonResponse(res, { error: 'Sprint not found' }, 404); return true; }
-            const actions = await storage.getActions(null, null, sprintId);
+            const [actions, sprintRisks, sprintQuestions] = await Promise.all([
+                storage.getActions(null, null, sprintId),
+                storage.getRisks?.(null, sprintId) ?? [],
+                storage.getQuestions?.(null, null, sprintId) ?? []
+            ]);
             const total = (actions || []).length;
             const completed = (actions || []).filter(a => a.status === 'completed').length;
             const overdue = (actions || []).filter(a => a.status === 'overdue').length;
@@ -923,12 +1003,21 @@ async function handleSprints(ctx) {
             const expectedCompletion = timeProgress;
             const velocityTrend = expectedCompletion > 0 ? Math.min(1.5, completionRate / expectedCompletion) : (completionRate > 0 ? 1.5 : 0.5);
 
+            const openRisks = (sprintRisks || []).filter(r => r.status === 'open');
+            const highImpactRisks = openRisks.filter(r => r.impact === 'high' || r.impact === 'critical');
+            const unresolvedQuestions = (sprintQuestions || []).filter(q => q.status !== 'answered' && q.status !== 'closed');
+
+            const riskPenalty = Math.min(1, highImpactRisks.length * 0.15 + Math.max(0, openRisks.length - 2) * 0.05);
+            const questionPenalty = Math.min(0.5, unresolvedQuestions.length * 0.03);
+            const knowledgeHealthFactor = Math.max(0, 1 - riskPenalty - questionPenalty);
+
             const score = Math.round(
-                (completionRate * 30) +
-                (Math.min(1, velocityTrend) * 25) +
+                (completionRate * 25) +
+                (Math.min(1, velocityTrend) * 20) +
                 ((1 - overdueRatio) * 20) +
-                (distributionBalance * 15) +
-                ((total > 0 ? 1 : 0) * 10)
+                (distributionBalance * 10) +
+                ((total > 0 ? 1 : 0) * 10) +
+                (knowledgeHealthFactor * 15)
             );
             const clampedScore = Math.max(0, Math.min(100, score));
 
@@ -938,6 +1027,8 @@ async function handleSprints(ctx) {
             if (timeProgress > 0.9 && completionRate < 0.5) alerts.push('Sprint ending soon with less than 50% completion');
             if (counts.length > 1 && distributionBalance < 0.5) alerts.push('Task distribution is uneven across team members');
             if (inProgress === 0 && completed < total && sprint.status === 'active') alerts.push('No tasks currently in progress');
+            if (highImpactRisks.length > 0) alerts.push(`${highImpactRisks.length} high-impact risk${highImpactRisks.length > 1 ? 's' : ''} unresolved`);
+            if (unresolvedQuestions.length >= 5) alerts.push(`${unresolvedQuestions.length} questions remain unanswered`);
 
             const riskLevel = clampedScore >= 75 ? 'low' : clampedScore >= 50 ? 'medium' : clampedScore >= 25 ? 'high' : 'critical';
 
@@ -949,6 +1040,10 @@ async function handleSprints(ctx) {
                     velocity_trend: Math.round(Math.min(1, velocityTrend) * 100),
                     overdue_ratio: Math.round(overdueRatio * 100),
                     distribution_balance: Math.round(distributionBalance * 100),
+                    knowledge_health: Math.round(knowledgeHealthFactor * 100),
+                    open_risks: openRisks.length,
+                    high_impact_risks: highImpactRisks.length,
+                    unresolved_questions: unresolvedQuestions.length,
                 },
                 risk_level: riskLevel,
                 alerts,
@@ -979,7 +1074,13 @@ async function handleSprints(ctx) {
             const sprintId = retroMatch[1];
             const sprint = await storage.getSprint(sprintId, projectId);
             if (!sprint) { jsonResponse(res, { error: 'Sprint not found' }, 404); return true; }
-            const actions = await storage.getActions(null, null, sprintId);
+            const [actions, sprintFacts, sprintDecisions, sprintRisks, sprintQuestions] = await Promise.all([
+                storage.getActions(null, null, sprintId),
+                storage.getFacts?.(null, sprintId) ?? [],
+                storage.getDecisions?.(null, sprintId) ?? [],
+                storage.getRisks?.(null, sprintId) ?? [],
+                storage.getQuestions?.(null, null, sprintId) ?? []
+            ]);
             const completed = (actions || []).filter(a => a.status === 'completed');
             const overdue = (actions || []).filter(a => a.status === 'overdue');
             const pending = (actions || []).filter(a => a.status === 'pending');
@@ -990,19 +1091,30 @@ async function handleSprints(ctx) {
             const wentWrong = Array.isArray(body.went_wrong) ? body.went_wrong : [];
             const actionItemsInput = Array.isArray(body.action_items) ? body.action_items : [];
 
+            const resolvedRisks = (sprintRisks || []).filter(r => r.status === 'mitigated' || r.status === 'resolved' || r.status === 'closed');
+            const openRisks = (sprintRisks || []).filter(r => r.status === 'open');
+            const answeredQuestions = (sprintQuestions || []).filter(q => q.status === 'answered' || q.status === 'closed');
+            const pendingQuestions = (sprintQuestions || []).filter(q => q.status !== 'answered' && q.status !== 'closed');
+
             const sprintSummary = [
                 `Sprint: ${sprint.name} (${sprint.start_date} to ${sprint.end_date}). Context: ${sprint.context || 'N/A'}.`,
                 `Results: ${completed.length}/${total} completed, ${overdue.length} overdue, ${pending.length} pending.`,
+                `Knowledge: ${(sprintFacts || []).length} facts, ${(sprintDecisions || []).length} decisions, ${(sprintRisks || []).length} risks, ${(sprintQuestions || []).length} questions.`,
                 completed.length ? `Completed: ${completed.map(a => a.task || a.content).slice(0, 10).join('; ')}` : '',
                 overdue.length ? `Overdue: ${overdue.map(a => a.task || a.content).slice(0, 5).join('; ')}` : '',
                 wentWell.length ? `Team says went well: ${wentWell.join('; ')}` : '',
                 wentWrong.length ? `Team says needs improvement: ${wentWrong.join('; ')}` : '',
+                (sprintDecisions || []).length ? `Key decisions made: ${sprintDecisions.slice(0, 8).map(d => (d.content || '').slice(0, 100)).join('; ')}` : '',
+                resolvedRisks.length ? `Risks mitigated: ${resolvedRisks.slice(0, 5).map(r => (r.content || '').slice(0, 80)).join('; ')}` : '',
+                openRisks.length ? `Risks still open: ${openRisks.slice(0, 5).map(r => `[${r.impact}] ${(r.content || '').slice(0, 80)}`).join('; ')}` : '',
+                answeredQuestions.length ? `Questions answered: ${answeredQuestions.length}` : '',
+                pendingQuestions.length ? `Questions still open: ${pendingQuestions.slice(0, 5).map(q => (q.content || '').slice(0, 80)).join('; ')}` : '',
             ].filter(Boolean).join('\n');
 
             let aiSuggestions = null;
             const retroTemplate = await loadPromptTemplate(
                 'sprint_retrospective',
-                'You are a Scrum Master facilitating a sprint retrospective. Based on the sprint data and team feedback, provide:\n1. Key insights about what went well (2-3 points)\n2. Root causes for what didn\'t go well (2-3 points)\n3. Specific, actionable improvement suggestions for the next sprint (3-5 points)\nKeep it concise and practical.\n\n{{SPRINT_SUMMARY}}'
+                'You are a Scrum Master facilitating a sprint retrospective. Based on the sprint data, knowledge base insights, and team feedback, provide:\n1. Key insights about what went well (2-3 points)\n2. Root causes for what didn\'t go well (2-3 points)\n3. Knowledge management assessment: decisions made, risks handled, questions resolved (1-2 points)\n4. Specific, actionable improvement suggestions for the next sprint (3-5 points)\nKeep it concise and practical.\n\n{{SPRINT_SUMMARY}}'
             );
             const retroPrompt = promptsService.renderPrompt(retroTemplate, { SPRINT_SUMMARY: sprintSummary });
             const retroResult = await llmRouter.routeAndExecute('processing', 'generateText', {
@@ -1072,7 +1184,55 @@ async function handleSprints(ctx) {
                 }
             }
 
-            jsonResponse(res, { ok: true, sprint: newSprint, tasks_cloned: tasksCloned });
+            let knowledgeLinked = { facts: 0, decisions: 0, risks: 0, questions: 0 };
+            if (body.clone_knowledge && newSprint?.id) {
+                const entityTable = { facts: 'facts', decisions: 'decisions', risks: 'risks', questions: 'knowledge_questions' };
+                for (const [key, table] of Object.entries(entityTable)) {
+                    const { data, error: err } = await storage.supabase
+                        .from(table)
+                        .update({ sprint_id: newSprint.id })
+                        .eq('sprint_id', sourceId)
+                        .eq('project_id', projectId)
+                        .select('id');
+                    if (!err && data) knowledgeLinked[key] = data.length;
+                }
+            }
+
+            jsonResponse(res, { ok: true, sprint: newSprint, tasks_cloned: tasksCloned, knowledge_linked: knowledgeLinked });
+        } catch (e) {
+            jsonResponse(res, { error: e.message }, 500);
+        }
+        return true;
+    }
+
+    // POST /api/sprints/:id/bulk-assign — assign multiple entities to a sprint at once
+    const bulkAssignMatch = pathname.match(/^\/api\/sprints\/([^/]+)\/bulk-assign$/);
+    if (bulkAssignMatch && req.method === 'POST') {
+        try {
+            const sprintId = bulkAssignMatch[1];
+            const sprint = await storage.getSprint(sprintId, projectId);
+            if (!sprint) { jsonResponse(res, { error: 'Sprint not found' }, 404); return true; }
+            const body = await parseBody(req);
+            const entityType = body.entity_type;
+            const entityIds = body.entity_ids;
+            if (!entityType || !Array.isArray(entityIds) || entityIds.length === 0) {
+                jsonResponse(res, { error: 'entity_type and entity_ids[] are required' }, 400);
+                return true;
+            }
+            const tableMap = { fact: 'facts', decision: 'decisions', risk: 'risks', question: 'knowledge_questions', action: 'action_items' };
+            const table = tableMap[entityType];
+            if (!table) {
+                jsonResponse(res, { error: `Invalid entity_type "${entityType}". Must be one of: ${Object.keys(tableMap).join(', ')}` }, 400);
+                return true;
+            }
+            const { data, error: err } = await storage.supabase
+                .from(table)
+                .update({ sprint_id: sprintId })
+                .eq('project_id', projectId)
+                .in('id', entityIds)
+                .select('id');
+            if (err) throw err;
+            jsonResponse(res, { ok: true, entity_type: entityType, assigned: (data || []).length, sprint_id: sprintId });
         } catch (e) {
             jsonResponse(res, { error: e.message }, 500);
         }
@@ -1086,7 +1246,11 @@ async function handleSprints(ctx) {
             const sprintId = standupMatch[1];
             const sprint = await storage.getSprint(sprintId, projectId);
             if (!sprint) { jsonResponse(res, { error: 'Sprint not found' }, 404); return true; }
-            const actions = await storage.getActions(null, null, sprintId);
+            const [actions, openRisks, openQuestions] = await Promise.all([
+                storage.getActions(null, null, sprintId),
+                storage.getRisks?.(null, sprintId) ?? [],
+                storage.getQuestions?.(null, null, sprintId) ?? []
+            ]);
             const today = new Date().toISOString().slice(0, 10);
             const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
 
@@ -1110,15 +1274,22 @@ async function handleSprints(ctx) {
             const total = (actions || []).length;
             const pct = total > 0 ? Math.round((completed.length / total) * 100) : 0;
 
+            const activeRisks = (openRisks || []).filter(r => r.status === 'open');
+            const pendingQuestions = (openQuestions || []).filter(q => q.status !== 'answered' && q.status !== 'closed');
+
             const standupBlob = entries.map(e =>
                 `${e.person}:\n  Done: ${e.done.join(', ') || 'None'}\n  Doing: ${e.doing.join(', ') || 'None'}\n  Blockers: ${e.blockers.join(', ') || 'None'}`
             ).join('\n');
+            const knowledgeBlob = [
+                activeRisks.length > 0 ? `\nOpen risks (${activeRisks.length}):\n${activeRisks.slice(0, 10).map(r => `- [${r.impact}] ${(r.content || '').slice(0, 120)}`).join('\n')}` : '',
+                pendingQuestions.length > 0 ? `\nUnresolved questions (${pendingQuestions.length}):\n${pendingQuestions.slice(0, 10).map(q => `- [${q.priority || 'medium'}] ${(q.content || '').slice(0, 120)}`).join('\n')}` : ''
+            ].filter(Boolean).join('\n');
             const standupTemplate = await loadPromptTemplate(
                 'sprint_standup',
-                'Daily standup summary for sprint "{{SPRINT_NAME}}" ({{PCT}}% complete, {{COMPLETED}}/{{TOTAL}} tasks done).\n\n{{STANDUP_BLOB}}\n\nProvide a brief 2-3 sentence summary of team progress, highlight any blockers, and suggest focus areas for today. Be concise.'
+                'Daily standup summary for sprint "{{SPRINT_NAME}}" ({{PCT}}% complete, {{COMPLETED}}/{{TOTAL}} tasks done).\n\n{{STANDUP_BLOB}}{{KNOWLEDGE_BLOB}}\n\nProvide a brief 2-3 sentence summary of team progress, highlight any blockers (including open risks and unresolved questions), and suggest focus areas for today. Be concise.'
             );
             const standupPrompt = promptsService.renderPrompt(standupTemplate, {
-                SPRINT_NAME: sprint.name, PCT: String(pct), COMPLETED: String(completed.length), TOTAL: String(total), STANDUP_BLOB: standupBlob,
+                SPRINT_NAME: sprint.name, PCT: String(pct), COMPLETED: String(completed.length), TOTAL: String(total), STANDUP_BLOB: standupBlob, KNOWLEDGE_BLOB: knowledgeBlob,
             });
             const standupResult = await llmRouter.routeAndExecute('processing', 'generateText', {
                 projectId, prompt: standupPrompt, temperature: 0.3, maxTokens: 512, context: 'sprint-standup',

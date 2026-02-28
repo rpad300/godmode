@@ -167,13 +167,13 @@ class CascadeDelete {
 
     async removeRelatedEmbeddings(conversation) {
         if (!this.storage) return;
-        const embeddings = this.storage.loadEmbeddings?.();
+        const embeddings = await this.storage.loadEmbeddings?.();
         if (embeddings && embeddings.embeddings) {
             const filtered = embeddings.embeddings.filter(e => 
                 !e.id?.startsWith(`conv_${conversation.id}_`)
             );
             if (filtered.length < embeddings.embeddings.length) {
-                this.storage.saveEmbeddings?.(filtered);
+                await this.storage.saveEmbeddings?.(filtered);
             }
         }
     }

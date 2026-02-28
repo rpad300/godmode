@@ -204,7 +204,7 @@ function UsersSection() {
                 <td className="px-4 py-3">
                   <select value={user.role} onChange={e => updateUser.mutate({ id: user.id, role: e.target.value }, { onSuccess: () => toast.success('Role updated'), onError: (err: Error) => toast.error(err.message) })}
                     className={cn('text-[10px] px-2 py-0.5 rounded-full font-medium border-0',
-                      user.role === 'superadmin' ? 'bg-red-500/20 text-red-400' : user.role === 'admin' ? 'bg-blue-500/20 text-blue-400' : 'bg-[var(--gm-bg-tertiary)] text-[var(--gm-text-primary)]')}>
+                      user.role === 'superadmin' ? 'bg-red-500 text-white' : user.role === 'admin' ? 'bg-blue-500 text-white' : 'bg-[var(--gm-bg-tertiary)] text-[var(--gm-text-primary)]')}>
                     <option value="user">user</option><option value="admin">admin</option><option value="superadmin">superadmin</option>
                   </select>
                 </td>
@@ -1910,7 +1910,7 @@ function PromptEditorDialog({ prompt, onClose, onSave, isSaving }: {
                 {prompt.variables.length === 0 && <p className="text-[9px] text-[var(--gm-text-tertiary)] italic">No variables detected</p>}
                 <div className={cn(SECTION_TITLE, 'mt-4 mb-2')}>Common Variables</div>
                 <div className="space-y-1">
-                  {['CONTENT', 'FILENAME', 'ONTOLOGY_CONTEXT', 'CONTACTS_INDEX', 'ORG_INDEX', 'PROJECT_INDEX'].filter(v => !prompt.variables.includes(v)).map(v => (
+                  {['CONTENT', 'FILENAME', 'ONTOLOGY_CONTEXT', 'CONTACTS_INDEX', 'ORG_INDEX', 'PROJECT_INDEX', 'DOCUMENT_CONTEXT'].filter(v => !prompt.variables.includes(v)).map(v => (
                     <button key={v} onClick={() => insertVariable(v)}
                       className="w-full text-left px-2 py-1.5 rounded-lg text-[10px] font-mono bg-[var(--gm-bg-tertiary)] text-[var(--gm-text-tertiary)] hover:bg-[var(--gm-accent-primary)]/10 border border-[var(--gm-border-primary)] transition-colors truncate">
                       {`{{${v}}}`}
@@ -2935,6 +2935,8 @@ function BillingSection() {
 
   const [pricingForm, setPricingForm] = useState<Record<string, unknown>>({});
   const pricingInit = useRef(false);
+  const [creditProjectId, setCreditProjectId] = useState<string | null>(null);
+  const [creditAmount, setCreditAmount] = useState(50);
 
   const rate = r(exData);
   const pricingConfig = r(r(pricingData).config);
@@ -2992,73 +2994,133 @@ function BillingSection() {
         </button>
       </div>
 
-      <div className={cn(CARD, 'overflow-hidden')}>
-        <div className="px-5 py-3 border-b border-[var(--gm-border-primary)] flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-semibold text-[var(--gm-text-primary)]">Projects Billing</h3>
-            <p className="text-[10px] text-[var(--gm-text-tertiary)]">{projects.length} projects · {projects.filter(p => p.blocked).length} blocked · {projects.filter(p => p.unlimited).length} unlimited</p>
-          </div>
-          <button onClick={() => refetchProjects()} className={BTN_SECONDARY}><RefreshCw className="w-3 h-3" /> Refresh</button>
-        </div>
-        <table className="w-full">
-          <thead><tr className="border-b border-[var(--gm-border-primary)]">
-            {['PROJECT', 'BALANCE', 'STATUS', 'KEY SOURCE', 'TOKENS (PERIOD)', 'COST (PERIOD)', 'ACTIONS'].map(h => <th key={h} className={cn(TABLE_HEAD, 'px-4 py-2.5 text-left')}>{h}</th>)}
-          </tr></thead>
-          <tbody>
-            {projects.map((p, i) => {
-              const keySources = (p.key_sources ?? {}) as Record<string, string>;
-              const usesOwnKeys = !!(p.uses_own_keys);
-              const allOwnKeys = !!(p.all_own_keys);
-              const configuredSources = Object.entries(keySources);
-              return (
-                <tr key={i} className="border-b border-[var(--gm-border-primary)] last:border-0 hover:bg-[var(--gm-surface-hover)]">
-                  <td className="px-4 py-2.5 text-xs font-semibold text-[var(--gm-text-primary)]">{(p.name || p.project_name || p.project_id) as string}</td>
-                  <td className="px-4 py-2.5 text-xs text-[var(--gm-text-secondary)] tabular-nums">{p.unlimited_balance ? '∞ Unlimited' : `${(p.balance_eur ?? p.balance ?? 0)} €`}</td>
-                  <td className="px-4 py-2.5">
-                    <span className={cn('text-[10px] px-2 py-0.5 rounded-full font-semibold',
-                      p.is_blocked ? 'bg-red-500/15 text-red-400' : p.unlimited_balance ? 'bg-green-500/15 text-green-400' : 'bg-blue-500/15 text-blue-400')}>
-                      {p.is_blocked ? 'BLOCKED' : p.unlimited_balance ? 'UNLIMITED' : 'ACTIVE'}
+      {projects.map((p, i) => {
+        const pid = (p.project_id || p.id) as string;
+        const keySources = (p.key_sources ?? {}) as Record<string, string>;
+        const allOwnKeys = !!(p.all_own_keys);
+        const usesOwnKeys = !!(p.uses_own_keys);
+        const configuredSources = Object.entries(keySources);
+        const isBlocked = !!(p.is_blocked || p.status === 'blocked');
+        const isUnlimited = !!(p.unlimited_balance);
+        const balance = Number(p.balance_eur ?? p.balance ?? 0);
+
+        return (
+          <div key={i} className={cn(CARD, 'p-5 space-y-4')}>
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-[var(--gm-text-primary)]">{(p.name || p.project_name || pid) as string}</h3>
+                <div className="flex items-center gap-2 mt-1">
+                  {isBlocked ? (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-red-500/15 text-red-400">BLOCKED</span>
+                  ) : isUnlimited ? (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-green-500/15 text-green-400">UNLIMITED</span>
+                  ) : balance <= 0 ? (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-amber-500/15 text-amber-400">NO BALANCE</span>
+                  ) : (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-blue-500/15 text-blue-400">ACTIVE</span>
+                  )}
+                  {configuredSources.length > 0 && (
+                    allOwnKeys ? <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-400 font-semibold">BYOK</span>
+                    : usesOwnKeys ? <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400 font-semibold">MIXED</span>
+                    : <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-400 font-semibold">SYSTEM</span>
+                  )}
+                  {configuredSources.map(([prov, src]) => (
+                    <span key={prov} className={cn('text-[9px] px-1 py-px rounded', src === 'project' ? 'bg-purple-500/10 text-purple-300' : 'bg-blue-500/10 text-blue-300')}>
+                      {prov}:{src[0]?.toUpperCase()}
                     </span>
-                  </td>
-                  <td className="px-4 py-2.5">
-                    {configuredSources.length === 0 ? (
-                      <span className="text-[10px] text-[var(--gm-text-tertiary)]">No keys</span>
-                    ) : allOwnKeys ? (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-400 font-semibold" title="BYOK: billing skipped">BYOK</span>
-                    ) : usesOwnKeys ? (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400 font-semibold" title="Mixed: some own keys, some system keys">MIXED</span>
-                    ) : (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-400 font-semibold" title="Using system keys: billing active">SYSTEM</span>
-                    )}
-                    {configuredSources.length > 0 && (
-                      <div className="mt-0.5 flex flex-wrap gap-1">
-                        {configuredSources.map(([prov, src]) => (
-                          <span key={prov} className={cn('text-[9px] px-1 py-px rounded', src === 'project' ? 'bg-purple-500/10 text-purple-300' : 'bg-blue-500/10 text-blue-300')}>
-                            {prov}:{src[0]?.toUpperCase()}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-4 py-2.5 text-xs text-[var(--gm-text-tertiary)] tabular-nums">{p.tokens_this_period != null ? `${(Number(p.tokens_this_period) / 1000).toFixed(1)}K` : '—'}</td>
-                  <td className="px-4 py-2.5 text-xs text-[var(--gm-text-tertiary)] tabular-nums">{p.billable_cost_this_period != null ? `${Number(p.billable_cost_this_period).toFixed(2)} €` : '—'}</td>
-                  <td className="px-4 py-2.5">
-                    <div className="flex gap-1">
-                      <button onClick={() => projectAction.mutate({ projectId: (p.project_id || p.id) as string, action: 'block', data: { blocked: !p.is_blocked } }, { onSuccess: () => { toast.success(p.is_blocked ? 'Unblocked' : 'Blocked'); refetchProjects(); }, onError: (e: Error) => toast.error(e.message) })} className="p-1 rounded hover:bg-[var(--gm-surface-hover)]" title={p.is_blocked ? 'Unblock' : 'Block'}>
-                        <Ban className="w-3.5 h-3.5 text-amber-400" />
-                      </button>
-                      <button onClick={() => projectAction.mutate({ projectId: (p.project_id || p.id) as string, action: 'unlimited', data: { unlimited: !p.unlimited_balance } }, { onSuccess: () => { toast.success(p.unlimited_balance ? 'Limited' : 'Set unlimited'); refetchProjects(); }, onError: (e: Error) => toast.error(e.message) })} className="p-1 rounded hover:bg-[var(--gm-surface-hover)]" title={p.unlimited_balance ? 'Remove unlimited' : 'Set unlimited'}>
-                        <span className="text-[10px]">{p.unlimited_balance ? '∞' : '$'}</span>
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        {projects.length === 0 && <div className="p-8 text-center text-sm text-[var(--gm-text-tertiary)]">No projects found.</div>}
-      </div>
+                  ))}
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-lg font-bold text-[var(--gm-text-primary)] tabular-nums">{isUnlimited ? '∞' : `${balance.toFixed(2)} €`}</div>
+                <div className="text-[10px] text-[var(--gm-text-tertiary)] tabular-nums">
+                  {p.tokens_this_period != null ? `${(Number(p.tokens_this_period) / 1000).toFixed(1)}K tokens` : '—'} · {p.billable_cost_this_period != null ? `${Number(p.billable_cost_this_period).toFixed(2)} € spent` : '—'}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-[var(--gm-border-primary)]">
+              {/* Block / Unblock toggle */}
+              <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg bg-[var(--gm-surface-secondary)]">
+                <div>
+                  <div className="text-[11px] font-semibold text-[var(--gm-text-primary)]">Active</div>
+                  <div className="text-[9px] text-[var(--gm-text-tertiary)]">{isBlocked ? 'Blocked by admin' : 'Accepting requests'}</div>
+                </div>
+                <button
+                  onClick={() => {
+                    projectAction.mutate({ projectId: pid, action: 'block', data: { blocked: !isBlocked } }, {
+                      onSuccess: () => { toast.success(isBlocked ? 'Project unblocked' : 'Project blocked'); refetchProjects(); },
+                      onError: (e: Error) => toast.error(`Failed: ${e.message}`)
+                    });
+                  }}
+                  disabled={projectAction.isPending}
+                  className={cn(
+                    'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none',
+                    !isBlocked ? 'bg-green-500' : 'bg-red-500/60'
+                  )}
+                >
+                  <span className={cn(
+                    'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-lg transform transition-transform duration-200',
+                    !isBlocked ? 'translate-x-4' : 'translate-x-0'
+                  )} />
+                </button>
+              </div>
+
+              {/* Unlimited toggle */}
+              <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg bg-[var(--gm-surface-secondary)]">
+                <div>
+                  <div className="text-[11px] font-semibold text-[var(--gm-text-primary)]">Unlimited</div>
+                  <div className="text-[9px] text-[var(--gm-text-tertiary)]">{isUnlimited ? 'No balance limits' : 'Uses balance'}</div>
+                </div>
+                <button
+                  onClick={() => {
+                    projectAction.mutate({ projectId: pid, action: 'unlimited', data: { unlimited: !isUnlimited } }, {
+                      onSuccess: () => { toast.success(isUnlimited ? 'Unlimited removed' : 'Set to unlimited'); refetchProjects(); },
+                      onError: (e: Error) => toast.error(`Failed: ${e.message}`)
+                    });
+                  }}
+                  disabled={projectAction.isPending}
+                  className={cn(
+                    'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none',
+                    isUnlimited ? 'bg-green-500' : 'bg-[var(--gm-border-primary)]'
+                  )}
+                >
+                  <span className={cn(
+                    'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-lg transform transition-transform duration-200',
+                    isUnlimited ? 'translate-x-4' : 'translate-x-0'
+                  )} />
+                </button>
+              </div>
+
+              {/* Add Credit */}
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--gm-surface-secondary)]">
+                <div className="text-[11px] font-semibold text-[var(--gm-text-primary)] whitespace-nowrap">Add Credit</div>
+                <input
+                  type="number" min={1} step={10} value={creditAmount}
+                  onChange={e => setCreditAmount(Number(e.target.value))}
+                  className={cn(INPUT, 'w-20 text-xs py-1')}
+                />
+                <span className="text-[10px] text-[var(--gm-text-tertiary)]">EUR</span>
+                <button
+                  onClick={() => {
+                    projectAction.mutate({ projectId: pid, action: 'balance', data: { amount: creditAmount, description: 'Admin credit' } }, {
+                      onSuccess: () => { toast.success(`Added ${creditAmount} EUR credit`); refetchProjects(); },
+                      onError: (e: Error) => toast.error(`Credit failed: ${e.message}`)
+                    });
+                  }}
+                  disabled={projectAction.isPending || creditAmount <= 0}
+                  className={cn(BTN_PRIMARY, 'text-[10px] py-1 px-3')}
+                >
+                  {projectAction.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+      {projects.length === 0 && <div className={cn(CARD, 'p-8 text-center text-sm text-[var(--gm-text-tertiary)]')}>No projects found.</div>}
+
+      <button onClick={() => refetchProjects()} className={BTN_SECONDARY}><RefreshCw className="w-3 h-3" /> Refresh Projects</button>
     </div>
   );
 }

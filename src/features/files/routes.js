@@ -296,7 +296,7 @@ async function handleFiles(ctx) {
                         sprintId: sprintId || null,
                         actionId: actionId || null
                     }, null, 2));
-                    if (emailId && storage._supabase) {
+                    if (storage._supabase) {
                         try {
                             const docResult = await storage._supabase.addDocument({
                                 filename: safeName,
@@ -304,11 +304,11 @@ async function handleFiles(ctx) {
                                 type: fileType,
                                 size: file.data.length,
                                 status: 'pending',
-                                doc_type: 'email_attachment',
+                                doc_type: emailId ? 'email_attachment' : 'upload',
                                 sprint_id: sprintId,
                                 action_id: actionId
                             });
-                            if (docResult && docResult.id) {
+                            if (emailId && docResult && docResult.id) {
                                 await storage._supabase.addEmailAttachment(emailId, docResult.id, {
                                     filename: safeName,
                                     size: file.data.length,
@@ -316,7 +316,7 @@ async function handleFiles(ctx) {
                                 });
                             }
                         } catch (e2) {
-                            log.warn({ event: 'files_upload_email_attachment_failed', reason: e2.message }, 'Failed to save email attachment');
+                            log.warn({ event: 'files_upload_db_record_failed', reason: e2.message }, 'Failed to create DB document record');
                         }
                     }
                     savedFiles.push({ name: safeName, size: file.data.length, documentDate, emailId });
@@ -335,7 +335,8 @@ async function handleFiles(ctx) {
                     actionId: actionId || null
                 };
                 await fsp.writeFile(metaPath, JSON.stringify(metadata, null, 2));
-                if (emailId && storage._supabase) {
+                // Always create a DB document record so the processor can pick it up
+                if (storage._supabase) {
                     try {
                         const docResult = await storage._supabase.addDocument({
                             filename: safeName,
@@ -343,11 +344,11 @@ async function handleFiles(ctx) {
                             type: fileType,
                             size: file.data.length,
                             status: 'pending',
-                            doc_type: 'email_attachment',
+                            doc_type: emailId ? 'email_attachment' : 'upload',
                             sprint_id: sprintId,
                             action_id: actionId
                         });
-                        if (docResult && docResult.id) {
+                        if (emailId && docResult && docResult.id) {
                             await storage._supabase.addEmailAttachment(emailId, docResult.id, {
                                 filename: safeName,
                                 size: file.data.length,
@@ -355,7 +356,7 @@ async function handleFiles(ctx) {
                             });
                         }
                     } catch (e) {
-                        log.warn({ event: 'files_upload_email_attachment_failed', reason: e.message }, 'Failed to save email attachment');
+                        log.warn({ event: 'files_upload_db_record_failed', reason: e.message }, 'Failed to create DB document record');
                     }
                 }
                 savedFiles.push({ name: safeName, size: file.data.length, documentDate, emailId });

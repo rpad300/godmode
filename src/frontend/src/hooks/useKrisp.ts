@@ -32,7 +32,7 @@ export interface KrispMeeting {
   detailed_summary: KrispSummarySection[];
   key_points: string[];
   action_items: KrispActionItem[];
-  importedTo: Array<{ projectId: string; projectName: string }>;
+  importedTo: Array<{ projectId: string; projectName: string; sprintId?: string | null; sprintName?: string | null }>;
   isImported: boolean;
 }
 
@@ -42,6 +42,7 @@ export interface KrispImportOptions {
   actionItems: boolean;
   outline: boolean;
   audio: boolean;
+  sprint_id?: string | null;
 }
 
 export interface KrispImportResult {
@@ -71,7 +72,7 @@ export function useKrispOAuthAuthorize() {
 export function useKrispOAuthDisconnect() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => apiClient.post<{ success: boolean }>('/api/krisp/oauth/disconnect', {}),
+    mutationFn: () => apiClient.delete<{ success: boolean }>('/api/krisp/oauth/disconnect'),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['krispOAuthStatus'] });
       qc.invalidateQueries({ queryKey: ['krispOAuthMeetings'] });

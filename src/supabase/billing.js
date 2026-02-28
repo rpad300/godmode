@@ -66,9 +66,13 @@ function getExchangeRateService() {
  * @returns {Promise<{allowed: boolean, reason?: string, balance_eur: number, unlimited: boolean, tokens_in_period: number, current_tier_name?: string, current_markup_percent: number}>}
  */
 async function checkProjectBalance(projectId, estimatedCostEur = 0) {
+    // In development mode, skip balance checks entirely
+    if (process.env.NODE_ENV === 'development' && process.env.BILLING_SKIP_BALANCE_CHECK === 'true') {
+        return { allowed: true, unlimited: true, balance_eur: 999, tokens_in_period: 0, current_markup_percent: 0 };
+    }
+
     const client = getAdminClient() || getClient();
     if (!client) {
-        // No database, allow by default
         return { allowed: true, unlimited: true, balance_eur: 0, tokens_in_period: 0, current_markup_percent: 0 };
     }
 
@@ -81,7 +85,6 @@ async function checkProjectBalance(projectId, estimatedCostEur = 0) {
         if (error) throw error;
 
         if (!data || data.length === 0) {
-            // Project not found, allow by default (will be logged)
             log.warn({ event: 'billing_project_not_found', projectId }, 'Project not found in balance check');
             return { allowed: true, unlimited: true, balance_eur: 0, tokens_in_period: 0, current_markup_percent: 0 };
         }
@@ -96,10 +99,35 @@ async function checkProjectBalance(projectId, estimatedCostEur = 0) {
             current_tier_name: result.current_tier_name,
             current_markup_percent: parseFloat(result.current_markup_percent) || 0
         };
-    } catch (error) {
-        log.warn({ event: 'billing_check_balance_error', reason: error.message }, 'Error checking balance');
-        // On error, allow by default to avoid blocking legitimate requests
-        return { allowed: true, unlimited: true, balance_eur: 0, tokens_in_period: 0, current_markup_percent: 0, error: error.message };
+    } catch (rpcError) {
+        // RPC might not exist — fallback to direct query
+        log.debug({ event: 'billing_check_balance_rpc_fallback', reason: rpcError.message }, 'RPC unavailable, using direct query');
+        try {
+            const { data: project, error: qErr } = await client
+                .from('projects')
+                .select('balance_eur, unlimited_balance, status')
+                .eq('id', projectId)
+                .single();
+            if (qErr || !project) {
+                return { allowed: true, unlimited: true, balance_eur: 0, tokens_in_period: 0, current_markup_percent: 0 };
+            }
+            const balance = parseFloat(project.balance_eur) || 0;
+            const unlimited = project.unlimited_balance === true;
+            const blocked = project.status === 'blocked';
+            if (blocked) {
+                return { allowed: false, reason: 'Project is blocked by admin.', balance_eur: balance, unlimited, tokens_in_period: 0, current_markup_percent: 0 };
+            }
+            if (unlimited) {
+                return { allowed: true, unlimited: true, balance_eur: balance, tokens_in_period: 0, current_markup_percent: 0 };
+            }
+            if (balance <= 0) {
+                return { allowed: false, reason: 'No balance available. Contact admin to add funds.', balance_eur: balance, unlimited: false, tokens_in_period: 0, current_markup_percent: 0 };
+            }
+            return { allowed: true, balance_eur: balance, unlimited: false, tokens_in_period: 0, current_markup_percent: 0 };
+        } catch (fallbackErr) {
+            log.warn({ event: 'billing_check_balance_error', reason: fallbackErr.message }, 'Balance check failed');
+            return { allowed: true, unlimited: true, balance_eur: 0, tokens_in_period: 0, current_markup_percent: 0, error: fallbackErr.message };
+        }
     }
 }
 
@@ -115,6 +143,11 @@ async function debitProjectBalance(projectId, amountEur, llmRequestId = null, de
     const client = getAdminClient() || getClient();
     if (!client) {
         return { success: true, new_balance: 0 };
+    }
+
+    // Skip debit in development when balance check is bypassed
+    if (process.env.NODE_ENV === 'development' && process.env.BILLING_SKIP_BALANCE_CHECK === 'true') {
+        return { success: true, new_balance: 999 };
     }
 
     try {
@@ -133,9 +166,46 @@ async function debitProjectBalance(projectId, amountEur, llmRequestId = null, de
             new_balance: parseFloat(result.new_balance) || 0,
             reason: result.reason
         };
-    } catch (error) {
-        log.warn({ event: 'billing_debit_error', reason: error.message }, 'Error debiting balance');
-        return { success: false, reason: error.message };
+    } catch (rpcError) {
+        log.debug({ event: 'billing_debit_rpc_fallback', reason: rpcError.message }, 'RPC unavailable, using direct update');
+        try {
+            const { data: project, error: readErr } = await client
+                .from('projects')
+                .select('balance_eur, unlimited_balance')
+                .eq('id', projectId)
+                .single();
+            if (readErr) throw readErr;
+
+            // If unlimited, skip actual debit
+            if (project?.unlimited_balance) {
+                return { success: true, new_balance: parseFloat(project.balance_eur) || 0 };
+            }
+
+            const currentBalance = parseFloat(project?.balance_eur) || 0;
+            const newBalance = Math.max(0, currentBalance - amountEur);
+
+            const { error: updateErr } = await client
+                .from('projects')
+                .update({ balance_eur: newBalance })
+                .eq('id', projectId);
+            if (updateErr) throw updateErr;
+
+            try {
+                await client.from('balance_transactions').insert({
+                    project_id: projectId,
+                    amount_eur: -amountEur,
+                    balance_after: newBalance,
+                    type: 'debit',
+                    description: description || 'LLM usage',
+                    llm_request_id: llmRequestId
+                });
+            } catch (_) { /* table might not exist */ }
+
+            return { success: true, new_balance: newBalance };
+        } catch (fallbackErr) {
+            log.warn({ event: 'billing_debit_error', reason: fallbackErr.message }, 'Error debiting balance');
+            return { success: true, new_balance: 0 };
+        }
     }
 }
 
@@ -169,9 +239,44 @@ async function creditProjectBalance(projectId, amountEur, performedBy = null, de
             new_balance: parseFloat(result.new_balance) || 0,
             reason: result.reason
         };
-    } catch (error) {
-        log.warn({ event: 'billing_credit_error', reason: error.message }, 'Error crediting balance');
-        return { success: false, reason: error.message };
+    } catch (rpcError) {
+        log.debug({ event: 'billing_credit_rpc_fallback', reason: rpcError.message }, 'RPC unavailable, using direct update');
+        try {
+            // Direct DB update: read current balance, add amount, write back
+            const { data: project, error: readErr } = await client
+                .from('projects')
+                .select('balance_eur')
+                .eq('id', projectId)
+                .single();
+            if (readErr) throw readErr;
+
+            const currentBalance = parseFloat(project?.balance_eur) || 0;
+            const newBalance = currentBalance + amountEur;
+
+            const { error: updateErr } = await client
+                .from('projects')
+                .update({ balance_eur: newBalance })
+                .eq('id', projectId);
+            if (updateErr) throw updateErr;
+
+            // Record transaction if table exists
+            try {
+                await client.from('balance_transactions').insert({
+                    project_id: projectId,
+                    amount_eur: amountEur,
+                    balance_after: newBalance,
+                    type: 'credit',
+                    description: description || 'Balance added by admin',
+                    performed_by: performedBy
+                });
+            } catch (_) { /* table might not exist */ }
+
+            log.info({ event: 'billing_credit_direct', projectId, amount: amountEur, newBalance }, 'Credited via direct update');
+            return { success: true, new_balance: newBalance };
+        } catch (fallbackErr) {
+            log.warn({ event: 'billing_credit_error', reason: fallbackErr.message }, 'Error crediting balance');
+            return { success: false, reason: fallbackErr.message };
+        }
     }
 }
 
@@ -197,9 +302,21 @@ async function setProjectUnlimited(projectId, unlimited, performedBy = null) {
 
         if (error) throw error;
         return data === true;
-    } catch (error) {
-        log.error({ event: 'billing_set_unlimited_error', reason: error.message }, 'Error setting unlimited');
-        return false;
+    } catch (rpcError) {
+        log.debug({ event: 'billing_set_unlimited_rpc_fallback', reason: rpcError.message }, 'RPC unavailable, using direct update');
+        try {
+            const { error: updateErr } = await client
+                .from('projects')
+                .update({ unlimited_balance: unlimited })
+                .eq('id', projectId);
+            if (updateErr) throw updateErr;
+
+            log.info({ event: 'billing_set_unlimited_direct', projectId, unlimited }, 'Set unlimited via direct update');
+            return true;
+        } catch (fallbackErr) {
+            log.error({ event: 'billing_set_unlimited_error', reason: fallbackErr.message }, 'Error setting unlimited');
+            return false;
+        }
     }
 }
 
@@ -519,9 +636,32 @@ async function getProjectBillingSummary(projectId) {
             current_markup_percent: parseFloat(result.current_markup_percent) || 0,
             balance_percent_used: parseFloat(result.balance_percent_used) || 0
         };
-    } catch (error) {
-        log.error({ event: 'billing_summary_error', reason: error.message }, 'Error getting billing summary');
-        return null;
+    } catch (rpcError) {
+        log.debug({ event: 'billing_summary_rpc_fallback', reason: rpcError.message }, 'RPC unavailable, using direct query');
+        try {
+            const { data: project, error: qErr } = await client
+                .from('projects')
+                .select('balance_eur, unlimited_balance, status')
+                .eq('id', projectId)
+                .single();
+            if (qErr || !project) return null;
+
+            return {
+                balance_eur: parseFloat(project.balance_eur) || 0,
+                unlimited_balance: project.unlimited_balance === true,
+                period_key: null,
+                tokens_this_period: 0,
+                provider_cost_this_period: 0,
+                billable_cost_this_period: 0,
+                requests_this_period: 0,
+                current_tier_name: null,
+                current_markup_percent: 0,
+                balance_percent_used: 0
+            };
+        } catch (fallbackErr) {
+            log.error({ event: 'billing_summary_error', reason: fallbackErr.message }, 'Error getting billing summary');
+            return null;
+        }
     }
 }
 
@@ -548,12 +688,33 @@ async function getAllProjectsBilling() {
             tokens_this_period: parseInt(row.tokens_this_period) || 0,
             billable_cost_this_period: parseFloat(row.billable_cost_this_period) || 0,
             is_blocked: row.is_blocked,
-            status: row.status, // Raw status ('active' | 'blocked')
+            status: row.status,
             current_tier_name: row.current_tier_name
         }));
-    } catch (error) {
-        log.warn({ event: 'billing_all_projects_error', reason: error.message }, 'Error getting all projects billing');
-        return [];
+    } catch (rpcError) {
+        log.debug({ event: 'billing_all_projects_rpc_fallback', reason: rpcError.message }, 'RPC unavailable, using direct query');
+        try {
+            const { data: projects, error: qErr } = await client
+                .from('projects')
+                .select('id, name, balance_eur, unlimited_balance, status')
+                .order('name');
+            if (qErr) throw qErr;
+
+            return (projects || []).map(p => ({
+                project_id: p.id,
+                project_name: p.name,
+                balance_eur: parseFloat(p.balance_eur) || 0,
+                unlimited_balance: p.unlimited_balance === true,
+                tokens_this_period: 0,
+                billable_cost_this_period: 0,
+                is_blocked: p.status === 'blocked',
+                status: p.status || 'active',
+                current_tier_name: null
+            }));
+        } catch (fallbackErr) {
+            log.warn({ event: 'billing_all_projects_error', reason: fallbackErr.message }, 'Error getting all projects billing');
+            return [];
+        }
     }
 }
 

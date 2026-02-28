@@ -531,7 +531,7 @@ async function handleRag(ctx) {
         }));
         embeddings.model = model;
         embeddings.provider = embedProvider;
-        storage.saveEmbeddings(embeddings);
+        await storage.saveEmbeddings(embeddings);
 
         log.debug({ event: 'rag_embed_done', count: embeddings.filter(e => e.embedding).length }, 'Embeddings generated and saved');
         jsonResponse(res, {
@@ -558,7 +558,7 @@ async function handleRag(ctx) {
         }
 
         if (semantic) {
-            const embeddingsData = storage.loadEmbeddings();
+            const embeddingsData = await storage.loadEmbeddings();
             if (!embeddingsData || !embeddingsData.embeddings?.length) {
                 jsonResponse(res, {
                     error: 'No embeddings found. Run /api/knowledge/embed first.',

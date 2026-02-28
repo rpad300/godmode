@@ -469,9 +469,10 @@ async function handleKrispApi(ctx) {
         
         try {
             const body = await parseBody(req);
-            const { processTranscriptForGodmode } = require('../../krisp');
-            const result = await processTranscriptForGodmode(transcriptId, userResult.user.id, {
-                projectId: body.project_id
+            const { processTranscript } = require('../../krisp');
+            const result = await processTranscript(transcriptId, {
+                projectId: body.project_id,
+                sprint_id: body.sprint_id || null
             });
             
             if (result.success) {
@@ -810,6 +811,28 @@ async function handleKrispApi(ctx) {
 
     // ==================== Krisp OAuth / MCP Routes ====================
 
+    // GET /api/krisp/oauth/tools - List available MCP tools (debug/discovery)
+    if (pathname === '/api/krisp/oauth/tools' && req.method === 'GET') {
+        if (!supabase || !supabase.isConfigured()) {
+            jsonResponse(res, { error: 'Not configured' }, 503);
+            return true;
+        }
+        const token = supabase.auth.extractToken(req);
+        const userResult = await supabase.auth.getUser(token);
+        if (!userResult.success) {
+            jsonResponse(res, { error: 'Authentication required' }, 401);
+            return true;
+        }
+        try {
+            const mcpClient = require('../../integrations/krisp/mcpClient');
+            const tools = await mcpClient.listTools(userResult.user.id);
+            jsonResponse(res, { tools });
+        } catch (error) {
+            jsonResponse(res, { error: error.message }, 500);
+        }
+        return true;
+    }
+
     // GET /api/krisp/oauth/status - Check OAuth connection status
     if (pathname === '/api/krisp/oauth/status' && req.method === 'GET') {
         if (!supabase || !supabase.isConfigured()) {
@@ -1024,9 +1047,10 @@ async function handleKrispApi(ctx) {
                 return true;
             }
 
+            const opts = { ...(importOptions || {}), sprint_id: body.sprint_id || importOptions?.sprint_id || null };
             const meetingImport = require('../../integrations/krisp/meetingImport');
             const result = await meetingImport.importMeetingsBatch(
-                userResult.user.id, meetingIds, projectId, importOptions || {}
+                userResult.user.id, meetingIds, projectId, opts
             );
             jsonResponse(res, result);
         } catch (error) {

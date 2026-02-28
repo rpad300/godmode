@@ -102,11 +102,25 @@ async function handleBriefing(ctx) {
             return true;
         }
 
-        const [allQuestions, allRisks, allActions, currentProject] = await Promise.all([
+        const currentProject = await storage.getCurrentProject();
+        if (!currentProject?.id) {
+            jsonResponse(res, {
+                briefing: null,
+                analysis: null,
+                generated_at: new Date().toISOString(),
+                stats: { criticalQuestions: 0, highRisks: 0, overdueActions: 0, agingQuestions: 0 },
+                empty: true,
+                message: 'No active project. Create a project first.'
+            });
+            return true;
+        }
+
+        const [allQuestions, allRisks, allActions, allDecisions, allFacts] = await Promise.all([
             storage.getQuestions(),
             storage.getRisks(),
             storage.getActions(),
-            storage.getCurrentProject(),
+            storage.getDecisions(),
+            storage.getFacts(),
         ]);
 
         const criticalQuestions = allQuestions.filter(q => q.priority === 'critical' && q.status !== 'resolved');
@@ -134,8 +148,6 @@ async function handleBriefing(ctx) {
         if (userRolePrompt) {
             roleContext += `\nRole Context: ${userRolePrompt}`;
         }
-
-        const allFacts = await storage.getFacts();
         const recentFacts = (allFacts || []).slice(0, 5).map(f => f.content?.substring(0, 100)).join('; ');
         const openRisksList = allRisks.filter(r => r.status !== 'mitigated').slice(0, 3).map(r => r.content?.substring(0, 80)).join('; ');
         const pendingQuestionsList = allQuestions.filter(q => q.status !== 'resolved').slice(0, 3).map(q => q.content?.substring(0, 80)).join('; ');
@@ -184,6 +196,12 @@ async function handleBriefing(ctx) {
             }
         }
 
+        let docContext = '';
+        try {
+            const { DocumentContextBuilder } = require('../../docindex');
+            docContext = await DocumentContextBuilder.build(storage, { maxChars: 1500 });
+        } catch (_) {}
+
         const briefingPrompt = `/no_think
 TASK: Generate a comprehensive daily project briefing with analysis.
 OUTPUT: A structured briefing followed by a written executive summary.${roleContext}
@@ -191,8 +209,8 @@ OUTPUT: A structured briefing followed by a written executive summary.${roleCont
 PROJECT: ${currentProject?.name || 'GodMode'}
 
 QUANTITATIVE DATA:
-- Total Facts Captured: ${stats.facts || 0}
-- Decisions Made: ${stats.decisions || 0}
+- Total Facts Captured: ${allFacts?.length || 0}
+- Decisions Made: ${allDecisions?.length || 0}
 - Pending Questions: ${allQuestions.filter(q => q.status !== 'resolved').length}
 - Open Risks: ${allRisks.filter(r => r.status !== 'mitigated').length}
 - Pending Actions: ${allActions.filter(a => a.status !== 'completed').length}
@@ -206,6 +224,7 @@ ${recentFacts ? `Recent insights: ${recentFacts}` : 'No recent facts captured.'}
 ${openRisksList ? `Active risks: ${openRisksList}` : ''}
 ${pendingQuestionsList ? `Open questions: ${pendingQuestionsList}` : ''}
 ${taskCommentsLine ? `Recent task updates/comments: ${taskCommentsLine}` : ''}
+${docContext ? `\n${docContext}` : ''}
 
 RESPOND WITH THIS EXACT FORMAT:
 

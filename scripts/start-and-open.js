@@ -19,7 +19,8 @@
  *   - Opens an OS browser window
  *
  * Notes:
- *   - PORT defaults to 3005 if not set in the environment
+ *   - Loads .env from project root so PORT matches the server
+ *   - PORT defaults to 3005 if not set in .env or environment
  *   - The 3-second delay before opening the browser is a rough heuristic;
  *     if the server takes longer to bind, the browser may show an error page
  *   - The `open` package is imported dynamically because it is ESM-only
@@ -30,6 +31,7 @@
  */
 
 const { spawn } = require('child_process');
+const fs = require('fs');
 
 // Require Node 14+ (nullish coalescing ?? and optional chaining used in src/supabase)
 const major = parseInt(process.versions.node.split('.')[0], 10);
@@ -39,6 +41,18 @@ if (major < 14) {
     process.exit(1);
 }
 const path = require('path');
+
+// Load .env so PORT matches what the server will use
+const envPath = path.join(__dirname, '..', '.env');
+if (fs.existsSync(envPath)) {
+    const envContent = fs.readFileSync(envPath, 'utf-8');
+    for (const line of envContent.split('\n')) {
+        const match = line.trim().match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"?(.+?)"?\s*$/);
+        if (match && !process.env[match[1]]) {
+            process.env[match[1]] = match[2].replace(/^["']|["']$/g, '');
+        }
+    }
+}
 
 const PORT = process.env.PORT || 3005;
 const URL = `http://localhost:${PORT}`;

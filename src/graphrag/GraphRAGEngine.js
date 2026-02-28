@@ -81,7 +81,7 @@ class GraphRAGEngine {
         this.llmModel = options.llmModel || null;
 
         if (!this.llmProvider) {
-            log.warn({ event: 'graphrag_no_llm' }, 'No LLM provider specified - should be passed from admin config');
+            log.debug({ event: 'graphrag_no_llm' }, 'No LLM provider specified - will be resolved from admin config on demand');
         }
 
         // Configuration from app config
@@ -231,6 +231,7 @@ class GraphRAGEngine {
         if (this.graphProvider && typeof this.graphProvider.updateSyncStatus === 'function') {
             await this.graphProvider.updateSyncStatus({
                 sync_status: 'syncing',
+                is_connected: true,
                 last_connected_at: new Date().toISOString()
             });
         }
@@ -424,7 +425,8 @@ class GraphRAGEngine {
                 name: p.name,
                 role: p.role,
                 email: p.email,
-                avatar: p.avatar,
+                photo_url: p.photo_url || p.avatar_url || p.avatar,
+                avatar: p.photo_url || p.avatar_url || p.avatar,
                 source_label: p.label || 'Person',
                 ...p.metadata
             }), 'email');
@@ -437,9 +439,12 @@ class GraphRAGEngine {
                     email: c.email,
                     phone: c.phone,
                     company: c.company || c.organization,
+                    organization: c.organization || c.company,
                     role: c.role || c.job_title,
+                    department: c.department,
                     linked_person_id: c.linked_person_id,
-                    avatar: c.avatar_url || c.avatar,
+                    photo_url: c.photo_url || c.avatar_url || c.avatar,
+                    avatar: c.photo_url || c.avatar_url || c.avatar,
                     ...c.metadata
                 }), 'email');
             }
@@ -518,6 +523,19 @@ class GraphRAGEngine {
                 ...q.metadata
             }), 'content');
 
+            // 14. DocumentSections (from tree index)
+            if (data.documentSections && data.documentSections.length > 0) {
+                await syncNodes('DocumentSection', data.documentSections, s => ({
+                    id: s.id,
+                    title: s.title,
+                    summary: s.summary,
+                    charStart: s.charStart,
+                    charEnd: s.charEnd,
+                    documentId: s.documentId,
+                    depth: s.depth || 0
+                }));
+            }
+
 
             // ==================== PHASE 2: RELATIONSHIPS ====================
             const relationships = [];
@@ -538,8 +556,15 @@ class GraphRAGEngine {
                 linkToProject(data.userStories);
                 linkToProject(data.actions);
                 linkToProject(data.documents);
-                linkToProject(data.teams);
                 linkToProject(data.people);
+
+                // Teams get a visible PART_OF edge instead of hidden BELONGS_TO_PROJECT
+                if (data.teams) {
+                    for (const team of data.teams) {
+                        const rel = createRel(team.id, projectId, 'PART_OF');
+                        if (rel) relationships.push(rel);
+                    }
+                }
                 linkToProject(data.risks);
                 linkToProject(data.decisions);
                 linkToProject(data.facts);
@@ -552,6 +577,21 @@ class GraphRAGEngine {
                 if (data.project.company_id && data.project.company) {
                     const rel = createRel(data.project.id, data.project.company.id, 'BELONGS_TO_COMPANY');
                     if (rel) relationships.push(rel);
+                }
+
+                // Owner-specific relationships
+                if (data.people) {
+                    for (const person of data.people) {
+                        if (person.role === 'owner') {
+                            const ownsRel = createRel(person.id, projectId, 'OWNS');
+                            if (ownsRel) relationships.push(ownsRel);
+
+                            if (data.project.company) {
+                                const worksAtRel = createRel(person.id, data.project.company.id, 'WORKS_AT');
+                                if (worksAtRel) relationships.push(worksAtRel);
+                            }
+                        }
+                    }
                 }
             }
 
@@ -583,7 +623,7 @@ class GraphRAGEngine {
             if (data.documents) {
                 for (const doc of data.documents) {
                     if (doc.sprint_id) {
-                        const rel = createRel(doc.id, doc.sprint_id, 'PLANNED_IN');
+                        const rel = createRel(doc.id, doc.sprint_id, 'PART_OF_SPRINT');
                         if (rel) relationships.push(rel);
                     }
                     // uploaded_by_contact_id links to contacts; uploaded_by links to auth.users (skip)
@@ -622,9 +662,9 @@ class GraphRAGEngine {
             // Task relationships (action_items table uses snake_case)
             if (data.actions) {
                 for (const task of data.actions) {
-                    // PLANNED_IN (Task -> Sprint)
+                    // PART_OF_SPRINT (Task -> Sprint)
                     if (task.sprint_id) {
-                        const rel = createRel(task.id, task.sprint_id, 'PLANNED_IN');
+                        const rel = createRel(task.id, task.sprint_id, 'PART_OF_SPRINT');
                         if (rel) relationships.push(rel);
                     }
                     // IMPLEMENTS (Task -> UserStory)
@@ -705,6 +745,34 @@ class GraphRAGEngine {
             linkExtraction(data.risks);
             linkExtraction(data.questions);
 
+            // HAS_SECTION / CONTAINS (Document -> Section, Section -> Section)
+            if (data.documentSections && data.documentSections.length > 0) {
+                for (const section of data.documentSections) {
+                    if (section.parentSectionId) {
+                        const rel = createRel(section.parentSectionId, section.id, 'CONTAINS');
+                        if (rel) relationships.push(rel);
+                    } else if (section.documentId) {
+                        const rel = createRel(section.documentId, section.id, 'HAS_SECTION');
+                        if (rel) relationships.push(rel);
+                    }
+                }
+            }
+
+            // PART_OF_SPRINT (Fact/Decision/Risk/Question -> Sprint)
+            const linkSprint = (items) => {
+                if (!items) return;
+                for (const item of items) {
+                    if (item.sprint_id) {
+                        const rel = createRel(item.id, item.sprint_id, 'PART_OF_SPRINT');
+                        if (rel) relationships.push(rel);
+                    }
+                }
+            };
+            linkSprint(data.facts);
+            linkSprint(data.decisions);
+            linkSprint(data.risks);
+            linkSprint(data.questions);
+
             // MENTIONED_IN (Person -> Document) - if we have mentions data
             // (Skipping for now unless data provided)
 
@@ -763,7 +831,7 @@ class GraphRAGEngine {
                     }
                     // Email -> Sprint
                     if (email.sprint_id) {
-                        const rel = createRel(email.id, email.sprint_id, 'PLANNED_IN');
+                        const rel = createRel(email.id, email.sprint_id, 'PART_OF_SPRINT');
                         if (rel) relationships.push(rel);
                     }
                     // Email threading: REPLY_TO
@@ -988,6 +1056,7 @@ class GraphRAGEngine {
 
             const updateResult = await this.graphProvider.updateSyncStatus({
                 sync_status: 'idle',
+                is_connected: true,
                 node_count: stats.ok ? stats.nodeCount : results.nodes,
                 edge_count: stats.ok ? stats.edgeCount : results.edges,
                 last_synced_at: new Date().toISOString(),
@@ -1646,12 +1715,15 @@ class GraphRAGEngine {
 
             // Process results and deduplicate
             const seen = new Set();
+            const sprintNodeIds = [];
             for (const result of searchResults) {
                 if (!result) continue;
                 for (const node of result.nodes) {
                     const key = node.properties.name || node.properties.title || node.id;
                     if (seen.has(key)) continue;
                     seen.add(key);
+
+                    if (result.type === 'Sprint') sprintNodeIds.push(node.id);
 
                     // For cross-project results, include project info
                     const nodeData = {
@@ -1667,6 +1739,40 @@ class GraphRAGEngine {
                     }
 
                     results.push(nodeData);
+                }
+            }
+
+            // Traverse PART_OF_SPRINT edges from Sprint nodes to discover linked entities
+            if (sprintNodeIds.length > 0) {
+                const sprintTraversals = sprintNodeIds.slice(0, 5).map(sprintId =>
+                    this.graphProvider.traversePath(
+                        sprintId,
+                        ['PART_OF_SPRINT'],
+                        1
+                    ).then(pathResult => {
+                        if (!pathResult.ok || !pathResult.paths?.length) return [];
+                        return pathResult.paths.map(p => {
+                            const from = p.from?.properties || {};
+                            const fromType = p.from?.labels?.[0] || p.from?.type || 'Entity';
+                            const label = from.name || from.content || from.title || from.task || p.from?.id || '?';
+                            return {
+                                type: fromType.toLowerCase(),
+                                content: `[${fromType}] ${typeof label === 'string' ? label.slice(0, 200) : label}`,
+                                data: from,
+                                source: 'graph_sprint_traversal'
+                            };
+                        });
+                    }).catch(() => [])
+                );
+                const traversed = await Promise.all(sprintTraversals);
+                for (const batch of traversed) {
+                    for (const item of batch) {
+                        const itemKey = item.data?.id || item.content;
+                        if (!seen.has(itemKey)) {
+                            seen.add(itemKey);
+                            results.push(item);
+                        }
+                    }
                 }
             }
         }
@@ -1804,7 +1910,7 @@ class GraphRAGEngine {
         }
 
         // Check if storage supports Supabase vector search
-        const embeddingsData = this.storage.loadEmbeddings();
+        const embeddingsData = await this.storage.loadEmbeddings();
         const isSupabaseMode = embeddingsData?.isSupabaseMode === true;
 
         if (isSupabaseMode && this.storage.searchWithEmbedding) {
@@ -2293,7 +2399,7 @@ ${isPortuguese ? 'Responda de forma completa e estruturada:' : 'Answer completel
 
         // Save enriched embeddings
         if (embeddings.length > 0) {
-            const existingEmbeddings = this.storage.loadEmbeddings() || { embeddings: [] };
+            const existingEmbeddings = await this.storage.loadEmbeddings() || { embeddings: [] };
 
             // Merge with existing, preferring new enriched ones
             const merged = [...embeddings];
@@ -2304,7 +2410,7 @@ ${isPortuguese ? 'Responda de forma completa e estruturada:' : 'Answer completel
                 }
             }
 
-            this.storage.saveEmbeddings({
+            await this.storage.saveEmbeddings({
                 embeddings: merged,
                 model: this.embeddingModel,
                 generated_at: new Date().toISOString(),

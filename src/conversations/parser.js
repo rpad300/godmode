@@ -718,8 +718,8 @@ function parse(text, formatHint = 'auto') {
     const participants = [...new Set(result.messages.map(m => m.speaker))];
     const timestamps = result.messages.map(m => m.ts).filter(Boolean);
     const dateRange = timestamps.length > 0 ? {
-        start: timestamps.sort()[0],
-        end: timestamps.sort()[timestamps.length - 1]
+        first: timestamps.sort()[0],
+        last: timestamps.sort()[timestamps.length - 1]
     } : null;
 
     return {
@@ -752,7 +752,7 @@ function createConversation(parseResult, meta = {}) {
         channelName: meta.channelName || null,
         workspaceName: meta.workspaceName || null,
         participants: parseResult.stats.participants,
-        createdAt: parseResult.stats.dateRange?.start || now,
+        createdAt: parseResult.stats.dateRange?.first || now,
         importedAt: now,
         messageCount: parseResult.stats.messageCount,
         dateRange: parseResult.stats.dateRange,

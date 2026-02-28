@@ -37,6 +37,7 @@ import {
   FolderOpen, Plus, Edit2, ArrowLeft, Settings2, Users, ShieldCheck, SlidersHorizontal,
   AlertTriangle, Trash2, Check, User, X, Copy, Link2, Mail, Sparkles, CheckSquare, GripVertical,
   UserPlus, UsersRound, Loader2, Clock, Activity, Download, Upload, Star, Play, Key, TestTube,
+  Search, Building2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn, isValidAvatarUrl, getInitials, resolveAvatarUrl } from '@/lib/utils';
@@ -68,9 +69,12 @@ import {
   useProjectStats, useActivateProject, useSetDefaultProject,
   useExportProject, useImportProject,
   useProjectProviders, useSetProjectProviderKey, useDeleteProjectProviderKey, useValidateProjectProviderKey,
+  useContacts,
+  useDocuments, useSprints, useUpdateDocument,
+  type DocumentItem,
 } from '@/hooks/useGodMode';
 
-type ProjectTab = 'general' | 'members' | 'roles' | 'categories' | 'invites' | 'teams' | 'providers' | 'activity';
+type ProjectTab = 'general' | 'members' | 'roles' | 'categories' | 'invites' | 'teams' | 'providers' | 'documents' | 'activity';
 
 const projectTabs: { id: ProjectTab; label: string; icon: React.ElementType; count?: number }[] = [
   { id: 'general', label: 'General', icon: Settings2 },
@@ -80,6 +84,7 @@ const projectTabs: { id: ProjectTab; label: string; icon: React.ElementType; cou
   { id: 'roles', label: 'Roles', icon: ShieldCheck },
   { id: 'categories', label: 'Categories', icon: SlidersHorizontal },
   { id: 'providers', label: 'AI Providers', icon: Key },
+  { id: 'documents', label: 'Documents', icon: FolderOpen },
   { id: 'activity', label: 'Activity', icon: Activity },
 ];
 
@@ -95,11 +100,12 @@ const ProjectsPage = () => {
   const [importName, setImportName] = useState('');
 
   const selectedProject = projects.find(p => p.id === selectedProjectId) || null;
-  const [showNewForm, setShowNewForm] = useState(false);
+  const [showNewForm, setShowNewForm] = useState(projects.length === 0);
   const [formName, setFormName] = useState('');
   const [formDesc, setFormDesc] = useState('');
   const [companies, setCompanies] = useState<{ id: string; name: string }[]>([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>('');
+  const [newCompanyName, setNewCompanyName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
 
   const handleActivate = (projectId: string) => {
@@ -142,38 +148,60 @@ const ProjectsPage = () => {
     }
   };
 
-  useEffect(() => {
-    const fetchCompanies = async () => {
-      try {
-        const data = await apiClient.get<{ companies: { id: string; name: string }[] }>('/api/companies');
-        if (data.companies) {
-          setCompanies(data.companies);
-          if (data.companies.length > 0) setSelectedCompanyId(data.companies[0].id);
-        }
-      } catch (error) {
-        console.error('Failed to fetch companies:', error);
+  const fetchCompanies = async () => {
+    try {
+      const data = await apiClient.get<{ companies: { id: string; name: string }[] }>('/api/companies');
+      if (data.companies) {
+        setCompanies(data.companies);
+        if (data.companies.length > 0 && !selectedCompanyId) setSelectedCompanyId(data.companies[0].id);
+        else if (data.companies.length === 0) setSelectedCompanyId('__new__');
       }
-    };
-    fetchCompanies();
-  }, []);
+    } catch (error) {
+      console.error('Failed to fetch companies:', error);
+    }
+  };
+
+  useEffect(() => { fetchCompanies(); }, []);
+
+  useEffect(() => {
+    if (projects.length === 0) setShowNewForm(true);
+  }, [projects]);
 
   const handleCreateProject = async () => {
-    if (!formName.trim() || !selectedCompanyId) {
-      toast.error('Please enter a project name and select a company.');
+    if (!formName.trim()) {
+      toast.error('Please enter a project name.');
+      return;
+    }
+    const isNewCompany = selectedCompanyId === '__new__' || companies.length === 0;
+    if (isNewCompany && !newCompanyName.trim()) {
+      toast.error('Please enter a company name.');
+      return;
+    }
+    if (!isNewCompany && !selectedCompanyId) {
+      toast.error('Please select a company or create a new one.');
       return;
     }
 
     try {
       setIsCreating(true);
-      await apiClient.post('/api/projects', {
+      const payload: Record<string, string> = {
         name: formName,
         description: formDesc,
-        company_id: selectedCompanyId
-      });
+      };
+      if (!isNewCompany && selectedCompanyId) {
+        payload.company_id = selectedCompanyId;
+      } else {
+        payload.new_company_name = newCompanyName.trim();
+      }
+      await apiClient.post('/api/projects', payload);
 
+      setFormName('');
       setFormDesc('');
+      setNewCompanyName('');
+      setSelectedCompanyId('');
       setShowNewForm(false);
       refreshProjects();
+      fetchCompanies();
       toast.success('Project created successfully');
     } catch (error) {
       console.error('Failed to create project:', error);
@@ -257,12 +285,29 @@ const ProjectsPage = () => {
               </div>
               <div>
                 <label className={LABEL}>Company</label>
-                <select value={selectedCompanyId} onChange={(e) => setSelectedCompanyId(e.target.value)} className={INPUT}>
-                  <option value="" disabled>Select a company</option>
+                <select
+                  value={selectedCompanyId}
+                  onChange={(e) => {
+                    setSelectedCompanyId(e.target.value);
+                    if (e.target.value !== '__new__') setNewCompanyName('');
+                  }}
+                  className={INPUT}
+                >
+                  {companies.length > 0 && <option value="">Select a company...</option>}
                   {companies.map(c => (
                     <option key={c.id} value={c.id}>{c.name}</option>
                   ))}
+                  <option value="__new__">+ Create new company</option>
                 </select>
+                {(selectedCompanyId === '__new__' || companies.length === 0) && (
+                  <input
+                    value={newCompanyName}
+                    onChange={(e) => setNewCompanyName(e.target.value)}
+                    placeholder="New company name..."
+                    className={cn(INPUT, 'mt-2')}
+                    autoFocus
+                  />
+                )}
               </div>
               <div className="flex gap-2 justify-end pt-2">
                 <button onClick={() => setShowNewForm(false)} className={BTN_SECONDARY}>Cancel</button>
@@ -278,6 +323,13 @@ const ProjectsPage = () => {
 
       {/* Projects List */}
       <div className="space-y-3">
+        {projects.length === 0 && !showNewForm && (
+          <div className={cn(CARD, 'p-8 text-center')}>
+            <FolderOpen className="w-10 h-10 mx-auto text-[var(--gm-text-placeholder)] mb-3" />
+            <p className="text-sm text-[var(--gm-text-secondary)]">No projects yet</p>
+            <p className="text-xs text-[var(--gm-text-tertiary)] mt-1">Click "New Project" above to get started</p>
+          </div>
+        )}
         {projects.map((project, i) => {
           const isActive = currentProjectId === project.id;
           const isDefault = (project as Record<string, unknown>).is_default === true;
@@ -434,6 +486,7 @@ function ProjectDetail({ project, onBack, onUpdate }: { project: Project; onBack
         {activeTab === 'invites' && <InvitesTab projectId={project.id} />}
         {activeTab === 'teams' && <TeamsTab />}
         {activeTab === 'providers' && <ProvidersTab projectId={project.id} />}
+        {activeTab === 'documents' && <ProjectDocumentsTab />}
         {activeTab === 'activity' && <ActivityTab projectId={project.id} />}
       </div>
     </div>
@@ -2154,9 +2207,11 @@ function TeamsTab() {
   const [editingTeamId, setEditingTeamId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [addingMemberTeamId, setAddingMemberTeamId] = useState<string | null>(null);
-  const [newMemberContactId, setNewMemberContactId] = useState('');
+  const [memberSearch, setMemberSearch] = useState('');
 
   const { data, isLoading } = useTeams();
+  const contactsQuery = useContacts(memberSearch ? { search: memberSearch } : undefined);
+  const allContacts = (contactsQuery.data?.contacts ?? []) as Array<Record<string, any>>;
   const createMut = useCreateTeam();
   const deleteMut = useDeleteTeam();
   const updateMut = useUpdateTeam();
@@ -2164,6 +2219,12 @@ function TeamsTab() {
   const removeMemberMut = useRemoveTeamMember();
 
   const teams = data?.teams ?? [];
+
+  const getFilteredContacts = (teamId: string) => {
+    const team = teams.find(t => t.id === teamId);
+    const existingIds = new Set((team?.memberDetails ?? []).map(m => m.contactId));
+    return allContacts.filter(c => !existingIds.has(c.id as string));
+  };
 
   const handleCreate = async () => {
     if (!teamName.trim()) { toast.error('Team name is required'); return; }
@@ -2188,12 +2249,11 @@ function TeamsTab() {
     }
   };
 
-  const handleAddMember = async (teamId: string) => {
-    if (!newMemberContactId.trim()) { toast.error('Contact ID is required'); return; }
+  const handleAddMember = async (teamId: string, contactId: string) => {
     try {
-      await addMemberMut.mutateAsync({ teamId, contactId: newMemberContactId.trim() });
+      await addMemberMut.mutateAsync({ teamId, contactId });
       toast.success('Member added');
-      setNewMemberContactId('');
+      setMemberSearch('');
       setAddingMemberTeamId(null);
     } catch {
       toast.error('Failed to add member');
@@ -2303,25 +2363,78 @@ function TeamsTab() {
                 </div>
               </div>
 
-              {/* Add member input */}
+              {/* Add member - contact picker */}
               <AnimatePresence>
                 {addingMemberTeamId === team.id && (
                   <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
-                    <div className="flex items-center gap-2 mt-3 pt-3 border-t border-[var(--gm-border-primary)]">
-                      <Input
-                        value={newMemberContactId}
-                        onChange={e => setNewMemberContactId(e.target.value)}
-                        placeholder="Contact ID..."
-                        className="flex-1 h-8 text-sm"
-                        onKeyDown={e => e.key === 'Enter' && handleAddMember(team.id)}
-                      />
-                      <button onClick={() => handleAddMember(team.id)} disabled={addMemberMut.isPending || !newMemberContactId.trim()}
-                        className={BTN_PRIMARY}>
-                        {addMemberMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserPlus className="w-3.5 h-3.5" />} Add
-                      </button>
-                      <button onClick={() => setAddingMemberTeamId(null)} className="p-1.5 rounded-lg text-[var(--gm-text-tertiary)] hover:bg-[var(--gm-surface-hover)]">
-                        <X className="w-3.5 h-3.5" />
-                      </button>
+                    <div className="mt-3 pt-3 border-t border-[var(--gm-border-primary)] space-y-2">
+                      <div className="flex items-center gap-2">
+                        <div className="relative flex-1">
+                          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--gm-text-tertiary)]" />
+                          <Input
+                            value={memberSearch}
+                            onChange={e => setMemberSearch(e.target.value)}
+                            placeholder="Search contacts by name, role, or organization..."
+                            className="pl-8 h-8 text-sm"
+                            autoFocus
+                          />
+                        </div>
+                        <button onClick={() => { setAddingMemberTeamId(null); setMemberSearch(''); }}
+                          className="p-1.5 rounded-lg text-[var(--gm-text-tertiary)] hover:bg-[var(--gm-surface-hover)]">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      <div className="max-h-56 overflow-y-auto rounded-lg border border-[var(--gm-border-primary)] bg-[var(--gm-bg-tertiary)]">
+                        {contactsQuery.isLoading ? (
+                          <div className="flex items-center justify-center py-6">
+                            <Loader2 className="w-4 h-4 animate-spin text-[var(--gm-accent-primary)]" />
+                          </div>
+                        ) : getFilteredContacts(team.id).length === 0 ? (
+                          <div className="text-center py-6 text-xs text-[var(--gm-text-tertiary)]">
+                            {memberSearch ? 'No matching contacts found' : 'No contacts available'}
+                          </div>
+                        ) : (
+                          getFilteredContacts(team.id).map(contact => {
+                            const avatarUrl = resolveAvatarUrl(contact as any);
+                            const name = (contact.name as string) || 'Unknown';
+                            const role = (contact.role as string) || (contact.cargo as string) || '';
+                            const org = (contact.organization as string) || (contact.empresa as string) || '';
+                            return (
+                              <button
+                                key={contact.id}
+                                onClick={() => handleAddMember(team.id, contact.id as string)}
+                                disabled={addMemberMut.isPending}
+                                className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-[var(--gm-surface-hover)] transition-colors border-b border-[var(--gm-border-primary)] last:border-b-0 disabled:opacity-50"
+                              >
+                                {avatarUrl ? (
+                                  <img src={avatarUrl} alt={name} className="w-8 h-8 rounded-full object-cover shrink-0" />
+                                ) : (
+                                  <div className="w-8 h-8 rounded-full bg-[var(--gm-interactive-primary)]/20 flex items-center justify-center text-[10px] font-bold text-[var(--gm-accent-primary)] shrink-0">
+                                    {getInitials(name)}
+                                  </div>
+                                )}
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-medium text-[var(--gm-text-primary)] truncate">{name}</p>
+                                  <div className="flex items-center gap-2 text-[10px] text-[var(--gm-text-tertiary)]">
+                                    {role && <span className="truncate">{role}</span>}
+                                    {role && org && <span>·</span>}
+                                    {org && (
+                                      <span className="flex items-center gap-0.5 truncate">
+                                        <Building2 className="w-2.5 h-2.5" />{org}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                {contact.email && (
+                                  <span className="text-[10px] text-[var(--gm-text-tertiary)] truncate max-w-[140px] shrink-0">{contact.email as string}</span>
+                                )}
+                                <UserPlus className="w-3.5 h-3.5 text-[var(--gm-accent-primary)] shrink-0" />
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
                     </div>
                   </motion.div>
                 )}
@@ -2450,6 +2563,97 @@ function ProvidersTab({ projectId }: { projectId: string }) {
               )}
             </div>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ==================== DOCUMENTS TAB ====================
+
+function ProjectDocumentsTab() {
+  const [search, setSearch] = useState('');
+  const [sprintFilter, setSprintFilter] = useState('');
+  const docs = useDocuments({ limit: 100, search: search || undefined, sprint_id: sprintFilter || undefined });
+  const { data: sprintsData } = useSprints();
+  const updateDoc = useUpdateDocument();
+  const allSprints: any[] = (sprintsData as any)?.sprints ?? (Array.isArray(sprintsData) ? sprintsData : []);
+  const docList: DocumentItem[] = docs.data?.documents ?? [];
+
+  const CARD = 'rounded-xl border border-[var(--gm-border-primary)] bg-[var(--gm-surface-primary)] shadow-sm';
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1 max-w-xs">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--gm-text-tertiary)]" />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search documents..."
+            className="w-full pl-9 pr-3 py-1.5 bg-[var(--gm-surface-secondary)] border border-[var(--gm-border-primary)] rounded-lg text-xs text-[var(--gm-text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--gm-border-focus)]"
+          />
+        </div>
+        <select value={sprintFilter} onChange={e => setSprintFilter(e.target.value)}
+          className="bg-[var(--gm-surface-secondary)] border border-[var(--gm-border-primary)] rounded-lg px-3 py-1.5 text-xs text-[var(--gm-text-primary)]">
+          <option value="">All sprints</option>
+          <option value="_none">No sprint</option>
+          {allSprints.map((s: any) => (
+            <option key={s.id} value={s.id}>{s.name}{s.status === 'active' ? ' (active)' : ''}</option>
+          ))}
+        </select>
+        <span className="text-xs text-[var(--gm-text-tertiary)]">{docList.length} document(s)</span>
+      </div>
+
+      {docs.isLoading ? (
+        <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-[var(--gm-accent-primary)]" /></div>
+      ) : docList.length === 0 ? (
+        <div className={CARD + ' p-8 text-center'}>
+          <FolderOpen className="w-10 h-10 mx-auto mb-3 text-[var(--gm-text-tertiary)]" />
+          <p className="text-sm text-[var(--gm-text-tertiary)]">No documents found.</p>
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          {docList.map(doc => {
+            const d = doc as Record<string, unknown>;
+            const sprintId = d.sprint_id as string | undefined;
+            const sprint = sprintId ? allSprints.find((s: any) => s.id === sprintId) : null;
+            return (
+              <div key={doc.id} className={CARD + ' p-3 flex items-center gap-3'}>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-[var(--gm-text-primary)] truncate">{doc.original_filename || doc.filename}</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    {doc.type && <span className="text-[10px] text-[var(--gm-text-tertiary)] capitalize">{doc.type}</span>}
+                    {doc.created_at && <span className="text-[10px] text-[var(--gm-text-tertiary)]">{new Date(doc.created_at).toLocaleDateString()}</span>}
+                  </div>
+                </div>
+                {sprint && (
+                  <span className="inline-flex items-center text-[10px] px-2 py-0.5 rounded-full font-medium bg-purple-500/10 text-purple-400 border border-purple-500/20 whitespace-nowrap">
+                    {sprint.name}
+                  </span>
+                )}
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                  doc.status === 'processed' || doc.status === 'completed' ? 'bg-green-500/10 text-green-400' :
+                  doc.status === 'processing' ? 'bg-blue-500/10 text-blue-400' : 'bg-yellow-500/10 text-yellow-400'
+                }`}>{doc.status || '—'}</span>
+                <select
+                  value={sprintId || ''}
+                  onChange={e => {
+                    updateDoc.mutate(
+                      { id: doc.id, sprint_id: e.target.value || null },
+                      { onSuccess: () => toast.success('Sprint updated') },
+                    );
+                  }}
+                  className="bg-[var(--gm-bg-tertiary)] border border-[var(--gm-border-primary)] rounded px-2 py-1 text-[10px] text-[var(--gm-text-primary)] w-32"
+                >
+                  <option value="">No sprint</option>
+                  {allSprints.map((s: any) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

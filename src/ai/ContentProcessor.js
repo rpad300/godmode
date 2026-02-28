@@ -557,6 +557,13 @@ class AIContentProcessor {
         // Get context variables for v1.6 (entity resolution)
         this._contextVariables = await this.getContextVariables(conversation.projectId);
 
+        try {
+            const { DocumentContextBuilder } = require('../docindex');
+            if (this.storage) {
+                this._contextVariables.DOCUMENT_CONTEXT = await DocumentContextBuilder.build(this.storage, { maxChars: 1200 });
+            }
+        } catch (_) {}
+
         // Build conversation text for analysis
         const conversationText = messages.map(m => 
             `[${m.speaker || 'Unknown'}]: ${m.text}`
@@ -567,8 +574,9 @@ class AIContentProcessor {
         try {
             const routerResultConv = await llmRouter.routeAndExecute('processing', 'generateText', {
                 prompt,
-                temperature: 0.2,
-                maxTokens: 1500,
+                temperature: 0.15,
+                maxTokens: 8000,
+                jsonMode: true,
                 context: 'ai-conversation-extraction'
             }, this._resolvedConfig);
 
@@ -831,7 +839,8 @@ IMPORTANT:
                 ORG_INDEX: ctx.ORG_INDEX || '',
                 PROJECT_INDEX: ctx.PROJECT_INDEX || '',
                 USERNAME_MAP: ctx.USERNAME_MAP || '',
-                DOMAIN_MAP: ctx.DOMAIN_MAP || ''
+                DOMAIN_MAP: ctx.DOMAIN_MAP || '',
+                DOCUMENT_CONTEXT: ctx.DOCUMENT_CONTEXT || ''
             });
         }
 
@@ -850,9 +859,12 @@ Use this context to better understand who these people are, their roles, respons
 ${contactsContext}
 ` : ''}
 
+## LANGUAGE RULE
+Preserve the original language of the source content. Do NOT translate terms, names, or descriptions.
+
 CONVERSATION:
 """
-${conversationText.substring(0, 8000)}
+${conversationText.substring(0, 32000)}
 """
 
 Extract and respond in this EXACT JSON format:
@@ -1394,6 +1406,10 @@ EXTRACTION RULES:
             entities: [],
             relationships: [],
             actionItems: [],
+            facts: [],
+            decisions: [],
+            risks: [],
+            questions: [],
             sentiment: 'neutral',
             summary: '',
             cypherQueries: []

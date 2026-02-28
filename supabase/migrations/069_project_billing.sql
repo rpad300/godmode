@@ -256,8 +256,8 @@ CREATE TABLE IF NOT EXISTS balance_transactions (
     balance_before DECIMAL(12,4),
     balance_after DECIMAL(12,4),
     
-    -- Reference to LLM request (for debits)
-    llm_request_id UUID REFERENCES llm_cost_requests(id) ON DELETE SET NULL,
+    -- Reference to LLM queue request that triggered this debit
+    llm_request_id UUID REFERENCES llm_requests(id) ON DELETE SET NULL,
     
     -- Description
     description TEXT,

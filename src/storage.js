@@ -4725,7 +4725,12 @@ class Storage {
             storage: this,
             useOntology: options.useOntology !== false,
             multiGraphManager: multiGraphManager,
-            projectId: options.projectId || this.projectId
+            projectId: options.projectId || this.projectId,
+            llmProvider: options.llmProvider,
+            llmModel: options.llmModel,
+            llmConfig: options.llmConfig,
+            embeddingProvider: options.embeddingProvider,
+            embeddingModel: options.embeddingModel
         });
 
         // If using multi-graph, use the manager's sync method
@@ -4748,7 +4753,22 @@ class Storage {
             return await multiGraphManager.syncData(data, projectId);
         }
 
-        return await engine.syncToGraph();
+        const data = {
+            project: this.knowledge.project || null,
+            people: this.knowledge.people || [],
+            contacts: this.contacts?.items || [],
+            teams: this.contacts?.teams || [],
+            facts: this.knowledge.facts || [],
+            decisions: this.knowledge.decisions || [],
+            risks: this.knowledge.risks || [],
+            actions: this.knowledge.tasks || [],
+            questions: this.knowledge.questions || [],
+            documents: this.knowledge.documents || [],
+        };
+
+        return await engine.syncToGraph(data, {
+            generateEmbeddings: options.generateEmbeddings !== false
+        });
     }
 
     /**
@@ -4767,12 +4787,17 @@ class Storage {
      * Generate enriched embeddings using ontology
      * @returns {Promise<{ok: boolean, count: number, errors?: Array}>}
      */
-    async generateEnrichedEmbeddings() {
+    async generateEnrichedEmbeddings(options = {}) {
         const GraphRAGEngine = require('./graphrag/GraphRAGEngine');
         const engine = new GraphRAGEngine({
             graphProvider: this.graphProvider,
             storage: this,
-            useOntology: true
+            useOntology: true,
+            llmProvider: options.llmProvider,
+            llmModel: options.llmModel,
+            llmConfig: options.llmConfig,
+            embeddingProvider: options.embeddingProvider,
+            embeddingModel: options.embeddingModel
         });
 
         return await engine.generateEnrichedEmbeddings();

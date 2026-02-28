@@ -230,15 +230,14 @@ class DocumentSynthesizer {
      * Build holistic synthesis prompt
      */
     buildHolisticSynthesisPrompt(allContent, existingFacts, pendingQuestions) {
-        // Get project context if available
         const project = this.storage.getCurrentProject?.() || {};
+        const projectName = project.name || 'Untitled';
         const contextDescription = project.description
-            ? `PROJECT: ${project.name || 'Untitled'}\nDESCRIPTION: ${project.description}\nCONTEXT: This is a DATA MIGRATION / CRM TRANSFORMATION project.`
-            : `This appears to be project documentation (slides, process diagrams, architecture docs).`;
+            ? `PROJECT: ${projectName}\nDESCRIPTION: ${project.description}`
+            : `PROJECT: ${projectName}\nDESCRIPTION: General project documentation.`;
 
         return `/no_think
-You are a BUSINESS ANALYST building a PROJECT KNOWLEDGE BASE from document content.
-This is for a DATA MIGRATION / CRM TRANSFORMATION project.
+You are a knowledge-extraction analyst building a PROJECT KNOWLEDGE BASE from document content.
 
 ## PROJECT CONTEXT
 ${contextDescription}
@@ -250,6 +249,9 @@ Your goal: Extract STRUCTURED KNOWLEDGE that helps understand:
 - Who is responsible for what
 - What risks or blockers exist
 
+## LANGUAGE RULE
+Preserve the original language of the source content. Do NOT translate. If content is in Portuguese, extract in Portuguese. If mixed, keep each item in its original language.
+
 ## EXISTING KNOWLEDGE (avoid duplicates)
 ${existingFacts.length > 0 ? existingFacts.slice(0, 50).map(f => `- [${f.category || 'general'}] ${f.content}`).join('\n') : '(building from scratch)'}
 
@@ -260,7 +262,7 @@ ${pendingQuestions.length > 0 ? pendingQuestions.map(q => `- Q${q.id}: ${q.conte
 ${allContent}
 
 ## EXTRACTION RULES
-1. **PROCESSES**: Look for numbered steps, phases, workflows
+1. **PROCESSES**: Numbered steps, phases, workflows
 2. **ENTITIES**: Data objects, systems, applications mentioned
 3. **ARCHITECTURE**: Systems, integrations, data flows
 4. **PEOPLE/TEAMS**: Roles, responsibilities, team names
@@ -271,11 +273,11 @@ ${allContent}
 ## OUTPUT FORMAT (strict JSON)
 {
   "facts": [
-    {"content": "L3 Process 1.1: Convert CPQ opportunity to contract", "category": "process", "confidence": 0.95},
-    {"content": "ESA (Energy Service Agreement) links to Contract via ContractId field", "category": "technical", "confidence": 0.9}
+    {"content": "The billing module syncs with SAP every 15 minutes", "category": "technical", "confidence": 0.95},
+    {"content": "Phase 2 delivery deadline is March 2026", "category": "timeline", "confidence": 0.9}
   ],
   "people": [
-    {"name": "Paulo", "role": "Data Migration Lead", "organization": "CGI"}
+    {"name": "Ana Silva", "role": "Tech Lead", "organization": "Acme"}
   ],
   "resolved_questions": [
     {"question_id": 123, "answer": "The answer found in content"}
@@ -291,16 +293,12 @@ ${allContent}
   ]
 }
 
-## PEOPLE EXTRACTION RULES
-- Extract EVERY person mentioned by name
-- Include their role/title if mentioned
-- Include their organization if mentioned
-
 ## QUALITY RULES
+- Extract EVERY person mentioned by name with role/title and organization
 - Extract SPECIFIC information (names, numbers, dates)
-- Each fact should be ACTIONABLE
+- Each fact should be ACTIONABLE and self-contained
 - Include IDs, codes, field names when visible
-- Skip meta-commentary`;
+- Skip meta-commentary about the documents themselves`;
     }
 
     /**
@@ -358,6 +356,10 @@ ${allContent}
         const allQuestions = await Promise.resolve(this.storage.getQuestions());
         const pendingQuestions = (allQuestions || []).filter(q => q.status === 'pending' || !q.status);
 
+        // Load existing facts once before loop to avoid N fetches
+        let existingFacts = await Promise.resolve(this.storage.getFacts());
+        const existingFactSet = new Set((existingFacts || []).map(f => f.content?.toLowerCase().trim()));
+
         for (let batchNum = 0; batchNum < totalBatches; batchNum++) {
             try {
                 const startIdx = batchNum * BATCH_SIZE;
@@ -370,8 +372,6 @@ ${allContent}
 
                 log.debug({ event: 'synthesizer_batch_start', batchNum: batchNum + 1 }, 'Synthesis batch');
 
-                const existingFacts = await Promise.resolve(this.storage.getFacts());
-
                 const batchContent = batchFiles.map(f => {
                     const name = f.name.replace('.md', '');
                     const content = f.content.length > 15000 ? f.content.substring(0, 15000) + '\n...[truncated]' : f.content;
@@ -380,10 +380,11 @@ ${allContent}
 
                 const prompt = this.buildHolisticSynthesisPrompt(batchContent, existingFacts, pendingQuestions);
 
-                // Use Analyzer to call LLM
                 const result = await this.analyzer.llmGenerateText(reasoningModel, prompt, {
-                    temperature: 0.2,
-                    maxTokens: 8192
+                    temperature: 0.15,
+                    maxTokens: 8192,
+                    jsonMode: true,
+                    context: 'synthesis'
                 });
 
                 if (!result.success) {
@@ -393,7 +394,10 @@ ${allContent}
 
                 const synthesized = this.analyzer.parseAIResponse(result.response);
 
-                const existingFactSet = new Set(existingFacts.map(f => f.content?.toLowerCase().trim()));
+                if (synthesized.success === false || synthesized.error) {
+                    log.warn({ event: 'synthesizer_parse_failed', batchNum: batchNum + 1, error: synthesized.error }, 'Synthesis parse failed');
+                    continue;
+                }
                 const batchSourceFiles = batchFiles.map(f => f.name.replace('.md', '')).join(', ');
 
                 // Batch document ID logic
@@ -547,7 +551,7 @@ ${allContent}
     async generateMissingDocumentSummaries() {
         const stats = { generated: 0, skipped: 0, errors: 0 };
         try {
-            const allDocs = this.storage.getDocuments('processed') || [];
+            const allDocs = (await Promise.resolve(this.storage.getDocuments('processed'))) || [];
             const docsNeedingSummary = allDocs.filter(d => {
                 const hasAITitle = d.ai_title && d.ai_title !== d.filename && d.ai_title !== d.name;
                 const hasAISummary = d.ai_summary || (d.summary && d.summary.length > 50);

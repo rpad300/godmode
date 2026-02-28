@@ -356,12 +356,14 @@ class DocumentAnalyzer {
      * Generate text using configured LLM
      */
     async llmGenerateText(model, prompt, options = {}) {
-        const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
+        const callOpts = {
             prompt,
-            temperature: options.temperature || 0.7,
+            temperature: options.temperature ?? 0.15,
             maxTokens: options.maxTokens || 4096,
             context: options.context || 'document'
-        }, this.config);
+        };
+        if (options.jsonMode) callOpts.jsonMode = true;
+        const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', callOpts, this.config);
 
         await new Promise(resolve => setTimeout(resolve, 50));
 
@@ -378,12 +380,15 @@ class DocumentAnalyzer {
      * Generate vision output
      */
     async llmGenerateVision(model, prompt, images, options = {}) {
-        const routerResult = await llmRouter.routeAndExecute('processing', 'generateVision', {
+        const callOpts = {
             prompt,
             images,
-            temperature: options.temperature || 0.2,
+            temperature: options.temperature ?? 0.15,
             maxTokens: options.maxTokens || 2048,
-        }, this.config);
+            context: options.context || 'document-vision'
+        };
+        if (options.jsonMode) callOpts.jsonMode = true;
+        const routerResult = await llmRouter.routeAndExecute('processing', 'generateVision', callOpts, this.config);
 
         return {
             success: routerResult.success,
@@ -431,7 +436,7 @@ Respond ONLY in this JSON format:
             const result = await this.llmGenerateText(
                 null,
                 prompt,
-                { temperature: 0.3, maxTokens: 150, context: 'document' }
+                { temperature: 0.15, maxTokens: 150, jsonMode: true, context: 'document' }
             );
 
             if (result.success && result.response) {
@@ -512,6 +517,9 @@ IMPORTANT: Extract entities using the types above. Map relationships to the rela
             return `/no_think
 ${customPrompt}
 ${ontologyContext}
+## LANGUAGE RULE
+Preserve the original language of the source content. Do NOT translate.
+
 ## Document: ${filename}
 ## Content:
 ${content}
@@ -519,7 +527,9 @@ ${content}
 CRITICAL EXTRACTION RULES:
 1. Extract EVERY fact, decision, risk, and action item
 2. Do NOT summarize or combine items
-3. Return ONLY valid JSON: {entities: [], relationships: [], facts: [], decisions: [], questions: [], risks: [], action_items: [], people: [], summary: "", key_topics: [], extraction_coverage: {items_found: N, confidence: 0.0-1.0}}`;
+3. Include a "title" (max 60 chars) and "summary" (max 200 chars) in the output
+4. Include "relationships" between entities
+5. Return ONLY valid JSON: {title: "", summary: "", entities: [], relationships: [], facts: [], decisions: [], questions: [], risks: [], action_items: [], people: [], key_topics: [], extraction_coverage: {items_found: N, confidence: 0.0-1.0}}`;
         }
 
         // Default prompt logic
@@ -532,24 +542,43 @@ You are an expert information extraction assistant. Analyze this meeting transcr
 - Meeting: ${filename}
 ${roleContext}
 ${ontologyContext}
+## LANGUAGE RULE
+Preserve the original language of the source content. Do NOT translate terms, names, or descriptions. If the transcript is in Portuguese, extract in Portuguese. If mixed languages, keep each item in its source language.
+
 ## Transcript:
 ${content}
 
-## CRITICAL EXTRACTION MANDATE:
-Extract EVERY distinct piece of information: decisions, facts, risks, action items, questions, people.
+## EXTRACTION MANDATE
+Extract EVERY distinct piece of information: decisions, facts, risks, action items, questions, people, and relationships between them.
+
+## EXAMPLE (for reference only — adapt to the actual content):
+{
+    "title": "Sprint Planning - Auth Module",
+    "summary": "Team discussed authentication redesign, assigned JWT migration to Carlos with March deadline, flagged SSO risk",
+    "facts": [{"content": "Current auth uses session cookies with 30min expiry", "category": "technical", "confidence": 0.95}],
+    "decisions": [{"content": "Migrate from session cookies to JWT tokens", "owner": "Carlos Mendes", "date": "2026-02-20"}],
+    "questions": [{"content": "Will SSO providers support the new token format?", "context": "Raised during auth discussion", "priority": "high", "assigned_to": "Ana"}],
+    "risks": [{"content": "SSO migration may break existing integrations", "impact": "high", "likelihood": "medium", "mitigation": "Create compatibility layer"}],
+    "action_items": [{"task": "Implement JWT token generation", "owner": "Carlos Mendes", "deadline": "2026-03-15", "status": "pending"}],
+    "people": [{"name": "Carlos Mendes", "role": "Backend Developer", "organization": "Engineering"}],
+    "relationships": [{"from": "Carlos Mendes", "to": "JWT Migration", "type": "owns"}, {"from": "Auth Module", "to": "SSO Provider", "type": "depends_on"}],
+    "key_topics": ["authentication", "JWT", "SSO"],
+    "extraction_coverage": {"items_found": 7, "confidence": 0.92}
+}
 
 ## OUTPUT (JSON only):
 {
-    "facts": [{"content": "fact", "category": "category", "confidence": 0.9}],
+    "title": "short descriptive title (max 60 chars)",
+    "summary": "concise summary of main topics and outcomes (max 200 chars)",
+    "facts": [{"content": "fact", "category": "technical|business|process|timeline|general", "confidence": 0.0-1.0}],
     "decisions": [{"content": "decision", "owner": "who", "date": null}],
-    "questions": [{"content": "question", "context": "why needed", "priority": "high", "assigned_to": "person"}],
-    "risks": [{"content": "risk", "impact": "high", "likelihood": "medium", "mitigation": "strategy"}],
+    "questions": [{"content": "question", "context": "why needed", "priority": "high|medium|low", "assigned_to": "person"}],
+    "risks": [{"content": "risk", "impact": "high|medium|low", "likelihood": "high|medium|low", "mitigation": "strategy"}],
     "action_items": [{"task": "task", "owner": "person", "deadline": null, "status": "pending"}],
     "people": [{"name": "name", "role": "role", "organization": "org"}],
-    "relationships": [{"from": "person", "to": "person", "type": "reports_to"}],
-    "summary": "summary",
-    "key_topics": ["topic"],
-    "extraction_coverage": {"items_found": 0, "confidence": 0.95}
+    "relationships": [{"from": "entity_A", "to": "entity_B", "type": "relationship_type"}],
+    "key_topics": [],
+    "extraction_coverage": {"items_found": 0, "confidence": 0.0-1.0}
 }`;
         }
 
@@ -561,24 +590,43 @@ You are an expert information extraction assistant. Extract ALL structured infor
 - Document: ${filename}
 ${roleContext}
 ${ontologyContext}
+## LANGUAGE RULE
+Preserve the original language of the source content. Do NOT translate terms, names, or descriptions. If the document is in Portuguese, extract in Portuguese. If mixed languages, keep each item in its source language.
+
 ## Content:
 ${content}
 
-## CRITICAL EXTRACTION MANDATE:
-Extract EVERY distinct piece of information. Missing information is worse than duplicates.
+## EXTRACTION MANDATE
+Extract EVERY distinct piece of information. Missing information is worse than duplicates. Include relationships between entities.
+
+## EXAMPLE (for reference only — adapt to the actual content):
+{
+    "title": "Infrastructure Migration Plan",
+    "summary": "Details the 3-phase migration from on-prem to AWS, identifies 12 services, assigns team leads per phase",
+    "facts": [{"content": "Database cluster runs PostgreSQL 14.2 with 3 replicas", "category": "technical", "confidence": 0.95}, {"content": "Phase 1 budget approved at €450K", "category": "business", "confidence": 0.9}],
+    "decisions": [{"content": "Use AWS Aurora instead of self-managed PostgreSQL", "owner": "CTO", "date": "2026-01-15"}],
+    "questions": [{"content": "What is the rollback procedure if Aurora performance degrades?", "context": "Not addressed in the migration plan", "priority": "high", "assigned_to": "DevOps Lead"}],
+    "risks": [{"content": "Data loss during live migration window", "impact": "high", "likelihood": "low", "mitigation": "Blue-green deployment with CDC replication"}],
+    "action_items": [{"task": "Set up Aurora test cluster in staging", "owner": "DevOps Team", "deadline": "2026-03-01", "status": "pending"}],
+    "people": [{"name": "Maria Santos", "role": "DevOps Lead", "organization": "Infrastructure"}],
+    "relationships": [{"from": "Aurora Cluster", "to": "PostgreSQL", "type": "replaces"}, {"from": "Maria Santos", "to": "Phase 1", "type": "leads"}],
+    "key_topics": ["migration", "AWS", "Aurora", "PostgreSQL"],
+    "extraction_coverage": {"items_found": 8, "confidence": 0.93}
+}
 
 ## OUTPUT (JSON only):
 {
-    "facts": [{"content": "fact", "category": "category", "confidence": 0.9}],
-    "decisions": [],
-    "questions": [{"content": "question", "context": "context", "priority": "high", "assigned_to": "person"}],
-    "risks": [{"content": "risk", "impact": "high", "likelihood": "medium", "mitigation": "strategy"}],
+    "title": "short descriptive title (max 60 chars)",
+    "summary": "concise summary of main topics and outcomes (max 200 chars)",
+    "facts": [{"content": "fact", "category": "technical|business|process|timeline|general", "confidence": 0.0-1.0}],
+    "decisions": [{"content": "decision", "owner": "who", "date": null}],
+    "questions": [{"content": "question", "context": "context", "priority": "high|medium|low", "assigned_to": "person"}],
+    "risks": [{"content": "risk", "impact": "high|medium|low", "likelihood": "high|medium|low", "mitigation": "strategy"}],
     "action_items": [{"task": "task", "owner": "person", "deadline": null, "status": "pending"}],
     "people": [{"name": "name", "role": "role", "organization": "org"}],
-    "relationships": [{"from": "A", "to": "B", "type": "works_with"}],
-    "summary": "summary",
+    "relationships": [{"from": "entity_A", "to": "entity_B", "type": "relationship_type"}],
     "key_topics": [],
-    "extraction_coverage": {"items_found": 0, "confidence": 0.95}
+    "extraction_coverage": {"items_found": 0, "confidence": 0.0-1.0}
 }`;
     }
 
@@ -614,18 +662,28 @@ Extract EVERY distinct piece of information. Missing information is worse than d
 
         return `${thinkPrefix}Analyze this slide/image in detail: ${filename}
 ${roleContext}
+
+## LANGUAGE RULE
+Preserve the original language of all visible text. Do NOT translate.
+
 YOUR TASK: Create a detailed knowledge base entry from this image. Extract EVERY piece of data.
 
-OUTPUT FORMAT (JSON only):
+## EXAMPLE:
+{"title": "Q3 Revenue Dashboard", "summary": "Shows revenue breakdown by region with YoY growth rates", "facts": [{"content": "EMEA revenue: €2.3M (+12% YoY)", "category": "business", "confidence": 0.95}], "people": [{"name": "CFO Team", "role": "Finance", "organization": ""}], "key_topics": ["revenue", "growth"]}
+
+## OUTPUT FORMAT (JSON only):
 {
-    "facts": [{"content": "data item", "category": "technical|business", "confidence": 0.9}],
-    "decisions": [],
-    "risks": [],
-    "questions": [],
-    "people": [],
-    "summary": "detailed description",
+    "title": "short descriptive title (max 60 chars)",
+    "summary": "detailed description (max 200 chars)",
+    "facts": [{"content": "data item", "category": "technical|business|process", "confidence": 0.0-1.0}],
+    "decisions": [{"content": "decision", "owner": "person", "date": null}],
+    "risks": [{"content": "risk", "impact": "high|medium|low", "likelihood": "high|medium|low", "mitigation": null}],
+    "questions": [{"content": "open question", "context": "why it matters", "priority": "high|medium|low"}],
+    "action_items": [{"task": "task", "owner": "person", "deadline": null, "status": "pending"}],
+    "people": [{"name": "name", "role": "role", "organization": "org"}],
+    "relationships": [{"from": "entity_A", "to": "entity_B", "type": "relationship_type"}],
     "key_topics": [],
-    "extraction_coverage": {"items_found": 0, "confidence": 0.9}
+    "extraction_coverage": {"items_found": 0, "confidence": 0.0-1.0}
 }`;
     }
 
@@ -638,16 +696,21 @@ OUTPUT FORMAT (JSON only):
 
         return `${thinkPrefix}Extract ALL data from this slide: ${filename}
 
+## LANGUAGE RULE
+Preserve the original language. Do NOT translate visible text.
+
 CRITICAL: Extract EVERY item visible. One fact per data item.
 
 JSON format:
 {
+  "title": "short title (max 60 chars)",
+  "summary": "brief description",
   "facts": [{"content": "[Category] - [Item Name]: [Value]", "category": "data", "confidence": 0.9}],
   "decisions": [],
   "risks": [],
   "questions": [],
   "people": [],
-  "summary": "summary",
+  "relationships": [],
   "key_topics": [],
   "extraction_coverage": {"items_found": 0, "confidence": 0.9}
 }
@@ -657,21 +720,22 @@ Output ONLY valid JSON:`;
 
     buildVisionProsePrompt(filename) {
         return `/no_think
-TASK: OCR the slide image. Extract ALL visible text exactly as shown.
+TASK: OCR the slide image. Extract ALL visible text exactly as shown in the original language.
 FILE: ${filename}
-STRICT RULES: Output ONLY the text you see. No explanations.
+STRICT RULES: Output ONLY the text you see. No explanations. Preserve original language.
 BEGIN OCR OUTPUT:`;
     }
 
     buildProseToFactsPrompt(proseDescription, filename) {
         return `/no_think
 Convert this slide description into structured facts. Extract EVERY piece of information.
+Preserve the original language of the content. Do NOT translate.
 SOURCE: ${filename}
 """
 ${proseDescription}
 """
 Output ONLY valid JSON:
-{"facts":[{"content":"Label: specific content","category":"general","confidence":0.9}],"decisions":[],"risks":[],"questions":[],"people":[],"summary":"brief"}`;
+{"title":"short title","summary":"brief summary","facts":[{"content":"Label: specific content","category":"general","confidence":0.9}],"decisions":[],"risks":[],"questions":[],"people":[],"relationships":[],"key_topics":[]}`;
     }
 
     /**
@@ -689,48 +753,64 @@ Output ONLY valid JSON:
             const decisions = storage.knowledge?.decisions?.slice(-20) || [];
             if (facts.length === 0 && decisions.length === 0) return 0;
 
-            let infoContext = 'RECENT INFORMATION:\n\n';
+            let infoContext = '';
             for (const fact of facts.slice(-30)) infoContext += `- [FACT] ${fact.content}\n`;
             for (const dec of decisions) infoContext += `- [DECISION] ${typeof dec === 'string' ? dec : dec.content}\n`;
 
-            for (const question of pendingQuestions.slice(0, 10)) {
-                const prompt = `Analyze if the question is answered:
-QUESTION: "${question.content}"
-${question.context ? `CONTEXT: ${question.context}` : ''}
+            // Batch all questions into a single LLM call
+            const questionsToCheck = pendingQuestions.slice(0, 15);
+            const questionsBlock = questionsToCheck.map((q, i) =>
+                `Q${i + 1} (id=${q.id}): "${q.content}"${q.context ? ` [Context: ${q.context}]` : ''}`
+            ).join('\n');
+
+            const prompt = `/no_think
+Analyze which of these pending questions can be answered from the available information.
+
+## QUESTIONS
+${questionsBlock}
+
+## AVAILABLE INFORMATION
 ${infoContext}
-Respond:
-ANSWERED: yes|no
-ANSWER: <answer>
-SOURCE: <source>
-CONFIDENCE: <high|medium|low>`;
 
-                try {
-                    const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
-                        prompt,
-                        maxTokens: 500,
-                        temperature: 0.2
-                    }, config || this.config);
+For each question that CAN be answered with HIGH confidence, include it in the output.
+Only include questions where the answer is clearly supported by the available information.
 
-                    if (!routerResult.success) continue;
+## OUTPUT (JSON only)
+{
+  "resolved": [
+    {"id": "question_id", "answer": "the answer", "confidence": "high"}
+  ]
+}
 
-                    const response = routerResult.result?.text || '';
-                    const answeredMatch = response.match(/ANSWERED:\s*(yes|no)/i);
-                    const answerMatch = response.match(/ANSWER:\s*(.+?)(?=SOURCE:|CONFIDENCE:|$)/is);
-                    const confidenceMatch = response.match(/CONFIDENCE:\s*(high|medium|low)/i);
+If no questions can be answered, return: {"resolved": []}`;
 
-                    if (answeredMatch && answeredMatch[1].toLowerCase() === 'yes' && answerMatch) {
-                        const answer = answerMatch[1].trim();
-                        const confidence = confidenceMatch ? confidenceMatch[1].toLowerCase() : 'medium';
+            try {
+                const routerResult = await llmRouter.routeAndExecute('processing', 'generateText', {
+                    prompt,
+                    maxTokens: 1500,
+                    temperature: 0.1,
+                    jsonMode: true
+                }, config || this.config);
 
-                        if (confidence === 'high' && answer.length > 10) {
-                            await storage.resolveQuestion(question.id, answer, 'auto-detected');
+                if (routerResult.success && routerResult.result?.text) {
+                    const parsed = this.parseAIResponse(routerResult.result.text);
+                    const resolvedList = parsed?.resolved || [];
+
+                    for (const item of resolvedList) {
+                        if (!item.id || !item.answer || item.answer.length < 10) continue;
+                        if (item.confidence && item.confidence !== 'high') continue;
+
+                        const qId = String(item.id);
+                        const matchingQ = questionsToCheck.find(q => String(q.id) === qId);
+                        if (matchingQ) {
+                            await storage.resolveQuestion(matchingQ.id, item.answer, 'auto-detected');
                             resolved++;
-                            log.debug({ event: 'analyzer_question_answered', questionId: question.id }, 'AI: Auto-answered question');
+                            log.debug({ event: 'analyzer_question_answered', questionId: matchingQ.id }, 'AI: Auto-answered question');
                         }
                     }
-                } catch (e) {
-                    log.warn({ event: 'analyzer_question_check_error', reason: e.message }, 'Error checking question');
                 }
+            } catch (e) {
+                log.warn({ event: 'analyzer_question_check_error', reason: e.message }, 'Error batch-checking questions');
             }
         } catch (error) {
             log.warn({ event: 'analyzer_resolve_error', reason: error.message }, 'Error resolving questions');

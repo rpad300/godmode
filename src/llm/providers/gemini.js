@@ -139,7 +139,7 @@ class GeminiProvider extends BaseLLMProvider {
     }
 
     async generateText(options) {
-        const { model, prompt, system, temperature = 0.7, maxTokens = 4096 } = options;
+        const { model, prompt, system, temperature = 0.7, maxTokens = 4096, jsonMode = false } = options;
 
         if (!this.apiKey) {
             return { success: false, error: 'API key not configured' };
@@ -168,12 +168,18 @@ class GeminiProvider extends BaseLLMProvider {
                 parts: [{ text: prompt }]
             });
 
+            const generationConfig = {
+                temperature,
+                maxOutputTokens: maxTokens
+            };
+
+            if (jsonMode) {
+                generationConfig.response_mime_type = 'application/json';
+            }
+
             const body = {
                 contents,
-                generationConfig: {
-                    temperature,
-                    maxOutputTokens: maxTokens
-                }
+                generationConfig
             };
 
             const modelPath = model.startsWith('models/') ? model : `models/${model}`;

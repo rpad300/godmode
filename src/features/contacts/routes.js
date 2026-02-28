@@ -250,87 +250,107 @@ async function handleContacts(ctx) {
     if (contactPutMatch && req.method === 'PUT') {
         const contactId = contactPutMatch[1];
         const body = await parseBody(req);
-        const projectId = body?.project_id || body?.projectId || req.headers['x-project-id'];
-        if (projectId && storage._supabase) storage._supabase.setProject(projectId);
 
         try {
-            // Get current contact to check team changes
             const currentContact = storage.getContactById(contactId);
             const oldTeamId = currentContact?.teamId;
             const newTeamId = body.teamId;
 
-            const success = await storage.updateContact(contactId, body);
-            if (!success) {
-                jsonResponse(res, { ok: false, error: 'Contact not found' }, 404);
+            // Build update payload with only allowed fields
+            const updateData = {};
+            const ALLOWED_FIELDS = [
+                'name', 'email', 'phone', 'organization', 'role', 'department',
+                'aliases', 'tags', 'notes', 'is_favorite', 'is_archived',
+                'timezone', 'linkedin', 'location', 'photo_url', 'avatar_url',
+                'role_context', 'metadata', 'display_name'
+            ];
+            for (const field of ALLOWED_FIELDS) {
+                if (body[field] !== undefined) updateData[field] = body[field];
+            }
+            // Handle camelCase variants
+            if (body.photoUrl !== undefined) updateData.photo_url = body.photoUrl;
+            if (body.avatarUrl !== undefined) updateData.avatar_url = body.avatarUrl;
+            if (body.roleContext !== undefined) updateData.role_context = body.roleContext;
+
+            if (Object.keys(updateData).length === 0) {
+                jsonResponse(res, { ok: false, error: 'No valid fields to update' }, 400);
                 return true;
+            }
+
+            updateData.updated_at = new Date().toISOString();
+
+            // Use admin client to bypass RLS
+            let updatedContact = null;
+            const adminClient = supabase && supabase.isConfigured() ? supabase.getAdminClient() : null;
+            if (adminClient) {
+                const { data, error } = await adminClient
+                    .from('contacts')
+                    .update(updateData)
+                    .eq('id', contactId)
+                    .select()
+                    .single();
+
+                if (error) {
+                    log.warn({ event: 'contact_update_db_error', contactId, err: error.message }, 'DB update failed');
+                    jsonResponse(res, { ok: false, error: error.message }, 500);
+                    return true;
+                }
+                if (!data) {
+                    jsonResponse(res, { ok: false, error: 'Contact not found' }, 404);
+                    return true;
+                }
+                updatedContact = data;
+                log.info({ event: 'contact_updated', contactId, fields: Object.keys(updateData) }, 'Contact updated via admin client');
+            } else {
+                // Fallback to storage (anon client)
+                const success = await storage.updateContact(contactId, updateData);
+                if (!success) {
+                    jsonResponse(res, { ok: false, error: 'Contact not found' }, 404);
+                    return true;
+                }
+            }
+
+            // Update local cache
+            const cacheIdx = (storage._cache?.contacts || []).findIndex(c => c.id === contactId);
+            if (cacheIdx !== -1) {
+                storage._cache.contacts[cacheIdx] = { ...storage._cache.contacts[cacheIdx], ...updateData };
             }
 
             // Handle team membership changes
             if (oldTeamId !== newTeamId) {
-                // Remove from old team
                 if (oldTeamId) {
-                    try {
-                        await storage.removeTeamMember(oldTeamId, contactId);
-                    } catch (e) {
-                        log.debug({ event: 'contacts_team_remove_failed', reason: e.message }, 'Could not remove from old team');
-                    }
+                    try { await storage.removeTeamMember(oldTeamId, contactId); } catch (_) {}
                 }
-                // Add to new team
                 if (newTeamId) {
-                    try {
-                        await storage.addTeamMember(newTeamId, contactId);
-                    } catch (e) {
-                        log.debug({ event: 'contacts_team_add_failed', reason: e.message }, 'Could not add to new team');
-                    }
+                    try { await storage.addTeamMember(newTeamId, contactId); } catch (_) {}
                 }
             }
-            // Sync with graph
+
+            // Sync with graph (best-effort)
             let graphSynced = false;
             try {
                 const graphProvider = storage.getGraphProvider();
                 if (graphProvider && graphProvider.connected) {
-                    await graphProvider.query(
-                        `MERGE (c:Contact {id: $id})
-                         SET c.name = $name, c.email = $email, c.role = $role,
-                             c.organization = $organization, c.timezone = $timezone,
-                             c.entity_type = 'Contact', c.updated_at = datetime()`,
-                        {
-                            id: contactId,
-                            name: body.name || currentContact?.name,
-                            email: body.email || null,
-                            role: body.role || null,
-                            organization: body.organization || null,
-                            timezone: body.timezone || null
-                        }
-                    );
-
-                    // Update team relationship
-                    if (newTeamId) {
-                        await graphProvider.query(
-                            `MATCH (c:Contact {id: $contactId})
-                             OPTIONAL MATCH (c)-[r:MEMBER_OF]->(:Team)
-                             DELETE r
-                             WITH c
-                             MATCH (t:Team {id: $teamId})
-                             MERGE (c)-[:MEMBER_OF]->(t)`,
-                            { contactId, teamId: newTeamId }
-                        );
-                    } else if (oldTeamId) {
-                        // Remove team relationship
-                        await graphProvider.query(
-                            `MATCH (c:Contact {id: $contactId})-[r:MEMBER_OF]->(:Team)
-                             DELETE r`,
-                            { contactId }
-                        );
+                    const gName = body.name || currentContact?.name;
+                    if (graphProvider.createNode) {
+                        await graphProvider.createNode(contactId, 'Contact', {
+                            name: gName,
+                            email: body.email || currentContact?.email || null,
+                            role: body.role || currentContact?.role || null,
+                            organization: body.organization || currentContact?.organization || null,
+                            timezone: body.timezone || currentContact?.timezone || null,
+                            entity_type: 'Contact'
+                        });
                     }
                     graphSynced = true;
                 }
             } catch (syncErr) {
-                log.warn({ event: 'contacts_graph_sync_warning', reason: syncErr.message }, 'Graph sync warning');
+                log.debug({ event: 'contacts_graph_sync_skip', reason: syncErr.message }, 'Graph sync skip');
             }
 
-            jsonResponse(res, { ok: true, message: 'Contact updated', graphSynced });
+            jsonResponse(res, { ok: true, message: 'Contact updated', contact: updatedContact, graphSynced });
         } catch (error) {
+            log.error({ event: 'contact_update_error', contactId, err: error.message }, 'Contact update error');
             jsonResponse(res, { ok: false, error: error.message }, 500);
         }
         return true;

@@ -30,13 +30,13 @@ export function useGraphNodes(labels?: string[]) {
     const { currentProjectId } = useProject();
 
     return useQuery<GraphNode[]>({
-        queryKey: ['graph', 'nodes', currentProjectId, labels], // Include labels in key
+        queryKey: ['graph', 'nodes', currentProjectId],
         queryFn: async () => {
             if (!currentProjectId) return [];
-            return await graphApi.getNodes(currentProjectId, labels);
+            return await graphApi.getNodes(currentProjectId);
         },
         enabled: !!currentProjectId,
-        staleTime: 5 * 60 * 1000, // 5 minutes
-        placeholderData: keepPreviousData, // Keep old data while fetching new filter set
+        staleTime: 5 * 60 * 1000,
+        placeholderData: keepPreviousData,
     });
 }

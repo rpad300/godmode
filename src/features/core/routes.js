@@ -320,6 +320,12 @@ ${userRolePrompt ? `- Consider the user's specific responsibilities: ${userRoleP
             }
         }
 
+        try {
+            const { DocumentContextBuilder } = require('../../docindex');
+            const docCtx = await DocumentContextBuilder.build(storage, { maxChars: 2000 });
+            if (docCtx) context += '\n' + docCtx + '\n';
+        } catch (_) {}
+
         context += `Based on this knowledge base, please answer the following question. If you cannot find relevant information, say so.\n\nQuestion: ${question}`;
 
         const totalKnowledgeItems = (knowledge.facts?.length || 0) +

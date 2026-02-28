@@ -674,7 +674,7 @@ class SupabaseGraphProvider extends GraphProvider {
                     node_count: stats.ok ? stats.nodeCount : 0,
                     edge_count: stats.ok ? stats.edgeCount : 0,
                     sync_status: statusObj.pending_count > 0 ? 'syncing' : (statusObj.health_status === 'unhealthy' ? 'failed' : 'idle'),
-                    last_synced_at: statusObj.updated_at || new Date().toISOString(),
+                    last_synced_at: statusObj.last_synced_at || statusObj.updated_at || null,
                     health_status: statusObj.health_status || 'unknown'
                 }
             };
@@ -698,7 +698,12 @@ class SupabaseGraphProvider extends GraphProvider {
             // Map allowed fields
             if (status.last_connected_at) payload.last_connected_at = status.last_connected_at;
             if (status.last_error !== undefined) payload.last_error = status.last_error;
+            if (status.error !== undefined) payload.last_error = status.error;
             if (status.health_status) payload.health_status = status.health_status;
+            if (status.is_connected !== undefined) payload.is_connected = status.is_connected;
+            if (status.node_count !== undefined) payload.node_count = status.node_count;
+            if (status.edge_count !== undefined) payload.edge_count = status.edge_count;
+            if (status.last_synced_at) payload.last_synced_at = status.last_synced_at;
 
             const { data, error } = await this.supabase
                 .from('graph_sync_status')

@@ -32,7 +32,7 @@ import {
   User, Lock, Monitor, Link2, Mail, AtSign, Type, AlignLeft, Image,
   Globe, Languages, Key, AlertTriangle, Trash2, LogOut, Mic,
   Check, Loader2, ChevronRight, Building2, Briefcase, Sparkles, Info,
-  Clock,
+  Clock, X,
   ExternalLink, CheckCircle2, XCircle, Download, Calendar,
   ChevronDown, ChevronUp, FileText, ListChecks, Lightbulb, Headphones
 } from 'lucide-react';
@@ -53,6 +53,7 @@ import {
   type KrispMeeting,
   type KrispImportOptions,
   useProjects,
+  useSprints,
 } from '@/hooks/useGodMode';
 
 // ── Style tokens (aligned with AdminPage) ────────────────────────────────────
@@ -570,7 +571,7 @@ function IntegrationsSection() {
   const [showMeetings, setShowMeetings] = useState(false);
   const [selectedMeetings, setSelectedMeetings] = useState<Set<string>>(new Set());
   const [expandedMeeting, setExpandedMeeting] = useState<string | null>(null);
-  const [importProjectId, setImportProjectId] = useState<string>('');
+  const [importTargets, setImportTargets] = useState<{ projectId: string; sprintId: string }[]>([]);
   const [importOpts, setImportOpts] = useState<KrispImportOptions>({
     transcript: true, keyPoints: true, actionItems: true, outline: true, audio: true,
   });
@@ -585,6 +586,8 @@ function IntegrationsSection() {
   const authorizeMut = useKrispOAuthAuthorize();
   const disconnectMut = useKrispOAuthDisconnect();
   const importMut = useKrispOAuthImportMeetings();
+  const { data: sprintsData } = useSprints();
+  const allSprints: any[] = (sprintsData as any)?.sprints ?? (Array.isArray(sprintsData) ? sprintsData : []);
   const { data: meetingsData, isLoading: meetingsLoading } = useKrispOAuthMeetings({
     limit: 50,
     after: dateAfter || undefined,
@@ -636,27 +639,47 @@ function IntegrationsSection() {
     setImportOpts(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
+  const addImportTarget = (projectId: string) => {
+    if (!projectId || importTargets.some(t => t.projectId === projectId)) return;
+    setImportTargets(prev => [...prev, { projectId, sprintId: '' }]);
+  };
+
+  const removeImportTarget = (projectId: string) => {
+    setImportTargets(prev => prev.filter(t => t.projectId !== projectId));
+  };
+
+  const setTargetSprint = (projectId: string, sprintId: string) => {
+    setImportTargets(prev => prev.map(t => t.projectId === projectId ? { ...t, sprintId } : t));
+  };
+
   const handleImport = async () => {
     if (selectedMeetings.size === 0) return toast.error('Select at least one meeting');
-    if (!importProjectId) return toast.error('Select a target project');
+    if (importTargets.length === 0) return toast.error('Add at least one target project');
     if (!importOpts.transcript && !importOpts.keyPoints && !importOpts.actionItems && !importOpts.outline) {
       return toast.error('Select at least one content type to import');
     }
-    const target = allProjects.find((p: any) => p.id === importProjectId);
-    try {
-      const result = await importMut.mutateAsync({
-        meetingIds: Array.from(selectedMeetings),
-        projectId: importProjectId,
-        importOptions: importOpts,
-      });
-      if (result.succeeded > 0) {
-        toast.success(`Imported ${result.succeeded} meeting(s) to ${target?.name || 'project'}`);
-        setSelectedMeetings(new Set());
+    let totalSucceeded = 0;
+    let totalFailed = 0;
+    for (const target of importTargets) {
+      try {
+        const result = await importMut.mutateAsync({
+          meetingIds: Array.from(selectedMeetings),
+          projectId: target.projectId,
+          importOptions: { ...importOpts, sprint_id: target.sprintId || null },
+        });
+        totalSucceeded += result.succeeded;
+        totalFailed += result.failed;
+      } catch {
+        totalFailed += selectedMeetings.size;
       }
-      if (result.failed > 0) toast.error(`${result.failed} meeting(s) failed to import`);
-    } catch {
-      toast.error('Import failed');
     }
+    if (totalSucceeded > 0) {
+      const names = importTargets.map(t => allProjects.find((p: any) => p.id === t.projectId)?.name).filter(Boolean).join(', ');
+      toast.success(`Imported ${totalSucceeded} file(s) to ${names}`);
+      setSelectedMeetings(new Set());
+      setImportTargets([]);
+    }
+    if (totalFailed > 0) toast.error(`${totalFailed} import(s) failed`);
   };
 
   const connected = oauthStatus?.connected === true;
@@ -735,21 +758,48 @@ function IntegrationsSection() {
 
                 {selectedMeetings.size > 0 && (
                   <div className="px-4 py-3 bg-[var(--gm-accent-primary)]/5 border-b border-[var(--gm-border-primary)] space-y-2.5">
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-xs text-[var(--gm-text-primary)] font-medium whitespace-nowrap">
-                        {selectedMeetings.size} selected &rarr;
+                        {selectedMeetings.size} selected &rarr; Import to:
                       </span>
-                      <select value={importProjectId} onChange={e => setImportProjectId(e.target.value)} className={cn(INPUT, 'flex-1')}>
-                        <option value="">Select target project...</option>
-                        {allProjects.map((p: any) => (
+                    </div>
+
+                    {importTargets.map(t => {
+                      const proj = allProjects.find((p: any) => p.id === t.projectId);
+                      const sprints = allSprints.filter((s: any) => s.project_id === t.projectId && s.status !== 'completed');
+                      return (
+                        <div key={t.projectId} className="flex items-center gap-2">
+                          <span className="text-xs font-medium text-[var(--gm-text-primary)] bg-[var(--gm-bg-tertiary)] px-2 py-1 rounded-md border border-[var(--gm-border-primary)] truncate max-w-[180px]">
+                            {proj?.name || t.projectId}
+                          </span>
+                          <select value={t.sprintId} onChange={e => setTargetSprint(t.projectId, e.target.value)} className={cn(INPUT, 'w-44')}>
+                            <option value="">No sprint</option>
+                            {sprints.map((s: any) => (
+                              <option key={s.id} value={s.id}>{s.name}</option>
+                            ))}
+                          </select>
+                          <button onClick={() => removeImportTarget(t.projectId)}
+                            className="p-1 text-[var(--gm-text-tertiary)] hover:text-red-400 transition-colors" title="Remove">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })}
+
+                    <div className="flex items-center gap-2">
+                      <select value="" onChange={e => { addImportTarget(e.target.value); e.target.value = ''; }}
+                        className={cn(INPUT, 'flex-1')}>
+                        <option value="">+ Add project...</option>
+                        {allProjects.filter((p: any) => !importTargets.some(t => t.projectId === p.id)).map((p: any) => (
                           <option key={p.id} value={p.id}>{p.name}</option>
                         ))}
                       </select>
-                      <button onClick={handleImport} disabled={importMut.isPending || !importProjectId} className={BTN_PRIMARY}>
+                      <button onClick={handleImport} disabled={importMut.isPending || importTargets.length === 0} className={BTN_PRIMARY}>
                         {importMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
-                        Import
+                        Import{importTargets.length > 1 ? ` to ${importTargets.length} projects` : ''}
                       </button>
                     </div>
+
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="text-[10px] text-[var(--gm-text-tertiary)] mr-1">Include:</span>
                       {optionItems.map(({ key, icon: Icon, label }) => (
@@ -780,8 +830,8 @@ function IntegrationsSection() {
                     {meetings.map((m: KrispMeeting) => {
                       const isSelected = selectedMeetings.has(m.meeting_id);
                       const isExpanded = expandedMeeting === m.meeting_id;
-                      const importedToTarget = importProjectId
-                        ? m.importedTo.some(p => p.projectId === importProjectId)
+                      const importedToTarget = importTargets.length > 0
+                        ? importTargets.every(t => m.importedTo.some(p => p.projectId === t.projectId))
                         : false;
 
                       return (
@@ -816,7 +866,7 @@ function IntegrationsSection() {
                               )}
                               {m.importedTo.length > 0 && !importedToTarget && (
                                 <span className="text-[10px] border border-[var(--gm-border-primary)] px-1.5 py-0 rounded text-[var(--gm-text-tertiary)]">
-                                  In {m.importedTo.map(p => p.projectName).join(', ')}
+                                  In {m.importedTo.map(p => p.sprintName ? `${p.projectName} → ${p.sprintName}` : p.projectName).join(', ')}
                                 </span>
                               )}
                               <button onClick={() => setExpandedMeeting(isExpanded ? null : m.meeting_id)}

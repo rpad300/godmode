@@ -66,6 +66,7 @@ async function runRiskSuggest(config, options = {}) {
     const impact = options.impact || 'medium';
     const likelihood = options.likelihood || options.probability || 'medium';
     const contacts = Array.isArray(options.contacts) ? options.contacts : [];
+    const docContext = options.docContext || '';
 
     if (!content) {
         return { error: 'Content is required' };
@@ -79,7 +80,8 @@ async function runRiskSuggest(config, options = {}) {
             CONTENT: content,
             IMPACT: impact,
             LIKELIHOOD: likelihood,
-            CONTACTS_LIST: contactsListStr
+            CONTACTS_LIST: contactsListStr,
+            DOCUMENT_CONTEXT: docContext
         })
         : `You are a risk-management assistant. Given this risk, suggest who should own it FROM THE PROJECT CONTACTS BELOW ONLY (use exact name as listed), and one mitigation.
 
@@ -88,7 +90,7 @@ ${contactsListStr || '(No contacts – suggest 1 role title only)'}
 
 RISK: ${content}
 Impact: ${impact}, Likelihood: ${likelihood}
-
+${docContext ? '\n' + docContext : ''}
 Respond with JSON: {"suggested_owners": [{"name": "<exact name from list>", "reason": "...", "score": 0-100}, ...], "suggested_mitigation": "..."}
 If no contacts listed, return one generic role in suggested_owners. suggested_owners: 3-5 items.`;
 

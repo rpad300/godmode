@@ -324,6 +324,35 @@ select:focus {
   box-shadow: 0 0 0 2px hsl(var(--ring) / 0.2);
 }
 
+/* Ensure all Radix/shadcn portal-based dropdowns have opaque backgrounds */
+[data-radix-popper-content-wrapper] {
+  z-index: 100 !important;
+}
+
+[data-radix-select-content],
+[data-radix-dropdown-menu-content],
+[data-radix-popover-content],
+[data-radix-context-menu-content],
+[data-radix-menubar-content],
+[role="listbox"] {
+  background-color: hsl(var(--popover)) !important;
+  color: hsl(var(--popover-foreground)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5) !important;
+}
+
+.dark [data-radix-select-content],
+.dark [data-radix-dropdown-menu-content],
+.dark [data-radix-popover-content],
+.dark [data-radix-context-menu-content],
+.dark [data-radix-menubar-content],
+.dark [role="listbox"] {
+  background-color: hsl(222.2 84% 4.9%) !important;
+  color: hsl(210 40% 98%) !important;
+  border-color: hsl(217.2 32.6% 17.5%) !important;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7) !important;
+}
+
 ::selection {
   background: var(--gm-interactive-primary);
   color: var(--gm-text-on-brand);
